@@ -1,0 +1,501 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="ITFCOMMON.FileSourceControl">
+<Super>%Studio.SourceControl.Base</Super>
+<TimeCreated>63225,32539.629901</TimeCreated>
+
+<Property name="SvnUserName">
+<Description>
+The username of this source control user.</Description>
+<Type>%String</Type>
+</Property>
+
+<Method name="GetStatus">
+<FormalSpec><![CDATA[InternalName:%String,&IsInSourceControl:%Boolean,&Editable:%Boolean,&IsCheckedOut:%Boolean,&UserCheckedOut:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	set tSc = $$$OK
+	Set Editable=1,IsCheckedOut=1,UserCheckedOut=""
+	Set filename=..ExternalName(InternalName)
+	Write !, "Get status for: " _ filename
+    Set IsInSourceControl = ((filename'="") && (##class(%File).Exists(filename)))
+    If 'IsInSourceControl 
+        {
+	      Set Editable=1 
+        	 Quit $$$OK
+       }
+ 
+      If $data(^ItfSourceCtrl(2,InternalName))
+      {
+	     Set IsCheckedOut=1
+         Set UserCheckedOut= $GET(^ItfSourceCtrl(2,InternalName))
+      }
+
+      If IsCheckedOut,UserCheckedOut=..SvnUserName Set Editable=1
+      
+      set tSc = ..OnBeforeLoad(InternalName)
+	  Write !, "GetStatus() IsInSourceControl: " _ IsInSourceControl
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnBeforeLoad">
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Write !, "Start OnBeforeLoad"
+	Set ..SvnUserName = "lpjnaras"
+	Set sc= $$$OK
+	
+	Set ^ItfSourceCtrl(2,InternalName)=..SvnUserName
+	
+ Set filename=..ExternalName(InternalName)
+ If filename="" Quit $$$OK
+ 
+ #; If no file then skip the import
+ If '##class(%File).Exists(filename) {
+     Write !,"File ",filename," not found, skipping import"
+     Quit $$$OK
+ }
+
+ #; If the timestamp on the file is the same as the last time
+ #; it was imported, then do nothing
+ If ##class(%File).GetFileDateModified(filename)=
+                   $get(^ItfSourceCtrl(0,InternalName)) {
+	 Write !, "Timestamp on the file is the same as the last time"
+     Quit $$$OK
+ }
+
+ #; Call the function to do the load
+ Set sc=$system.OBJ.Load(filename,"-l-d")
+ If $$$ISOK(sc) {
+     Write !,"Imported '",InternalName,"' from file '",filename,"'"
+     Set ^ItfSourceCtrl(0,InternalName)=##class(%File).GetFileDateModified(filename)
+     Set ^ItfSourceCtrl(1,InternalName)=##class(%RoutineMgr).TS(InternalName)
+ } Else {
+     Do $SYSTEM.Status.DecomposeStatus(sc,.errors,"d")
+ }
+  
+ Write !, "Done OnBeforeLoad"
+ Quit sc
+]]></Implementation>
+</Method>
+
+<Method name="OnAfterSave">
+<FormalSpec>InternalName:%String,Object:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Write !, "Start OnAfterSave"
+	
+	Set filename=..ExternalName(InternalName)
+	#; File not mapped so nothing to do
+	If filename="" Quit $$$OK
+	Set name=$Piece(InternalName,".",1,$Length(InternalName,".")-1)
+	#; CSP files are already files so not additional work needed
+	If name["/" Quit $$$OK
+	Set ext=$ZConvert($Piece(InternalName,".",$Length(InternalName,".")),"U")
+	#; Do not export the default projects
+	If ext="PRJ",$zconvert($extract(name,1,$length("default_")),"l")="default_" Quit $$$OK
+	#; By convention items starting with Z,z,%z,%Z are not exported
+	If ext'="PRJ",$extract($translate(name,"Z%","z"))'="z",'##class(%File).Exists(filename) Write !,"File ",filename," not found, skipping export" Quit $$$OK
+	#; If time already matches nothing to do
+	If ##class(%RoutineMgr).TS(InternalName)=$get(^ItfSourceCtrl(0,"ItemTimeStamp",InternalName)) Quit $$$OK
+
+	Do ##class(%File).CreateDirectoryChain(##class(%File).GetDirectory(filename))
+	Set sc=$$Export^%occXMLExport(filename,"-d /diffexport",InternalName)
+	If $$$ISOK(sc) {
+		Write !,"Exported '",InternalName,"' to file '",filename,"'"
+		Set ^ItfSourceCtrl(0,"FileTimeStamp",InternalName)=$zu(140,2,filename,1)
+		Set ^ItfSourceCtrl(0,"ItemTimeStamp",InternalName)=##class(%RoutineMgr).TS(InternalName)
+	} Else {
+		Do DecomposeStatus^%apiOBJ(sc,,"d")
+		Quit sc
+	}
+	
+	Write !, "Done OnAfterSave"
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnAfterCompile">
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set sc=$$$OK
+	Write !, "Start After Compile"
+	If $zconvert($piece(InternalName,".",$length(InternalName,".")),"l")="cls" {
+		Set sc=..OnAfterSave(InternalName)
+		If $$$ISERR(sc) Quit sc
+	}
+	Set other=$get(^ItfSourceCtrl(0,"ExtraItems",InternalName))
+	For i=1:1:$length(other,",") {
+		Set item=$piece(other,",",i)
+		If item'="" Set sc=..OnAfterSave(item) If $$$ISERR(sc) Quit
+	}
+	Write !, "Done After Compile"
+	Quit sc
+]]></Implementation>
+</Method>
+
+<Method name="CheckIn">
+<FormalSpec>InternalName:%String,Description:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ #; See if we have it checked out
+ Set ..SvnUserName = "lpjnaras"
+ 
+ Write !, "CheckIn: " _ ..SvnUserName _ " : Get " _ $GET(^ItfSourceCtrl(2,InternalName))
+ If '$data(^ItfSourceCtrl(2,InternalName)) {
+   Quit $$$ERROR($$$GeneralError,"You cannot check in an item you have not checked out")
+ }
+ If $GET(^ItfSourceCtrl(2,InternalName)) '= ..SvnUserName {
+	 Write !, ^ItfSourceCtrl(2,InternalName) ,  "=" _ ..SvnUserName 
+   Quit $$$ERROR($$$GeneralError,"User '"_ $GET(^ItfSourceCtrl(2,InternalName)) _"'has this item checked out")
+ }
+ set comment = ""
+ Do ..ReadCommentFile(.comment)
+ if (comment = "")
+ {
+	 Quit $$$ERROR($$$GeneralError,"You cannot check in without comment. Create C:\EnsembleSC\svnComment.txt")
+ }
+ #; Write out the latest version
+ Set sc=..OnAfterSave(InternalName)
+ If $$$ISERR(sc) Quit sc
+ Set file=..ExternalName(InternalName)
+ if ( ##class(%File).Exists(file) )
+ {
+	Set stat = ..CommitToSvn(file, comment,  ..SvnUserName)
+	      
+	if stat = 0
+	{
+         #; Remove the global to show that we have checked it in
+         Kill ^ItfSourceCtrl(2,InternalName)
+	}
+ }
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CheckOut">
+<FormalSpec>InternalName:%String,Description:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+	set tStatus = $$$OK
+	Set ..SvnUserName = "lpjnaras"
+	
+	Set file=..ExternalName(InternalName)
+    If file="" Quit $$$OK
+	write !, "CheckOut file: " _ file
+	
+	write !, "CheckOut: " _ file
+	 
+	Set cmd= "svn --username " _ ..SvnUserName _ " export  " _ file 
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Svn export " _ cmd _ " : " _ status
+	If ##class(%File).Exists(file)
+	{
+		 Quit $$$ERROR($$$GeneralError, "Failure: '"_InternalName_"' not checkedout, file: " _ file)
+	}
+	#; make sure we have latest version
+    Set sc=..OnBeforeLoad(InternalName)
+    If $$$ISERR(sc) Quit sc
+
+    //...
+    Quit sc
+]]></Implementation>
+</Method>
+
+<Method name="UndoCheckout">
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+	set tStatus = $$$OK
+	Write !, "Undo checkout"
+	set username = "lpjnaras"
+	Set file=..ExternalName(InternalName)
+    If file="" Quit $$$OK
+	write !, "CheckOut file: " _ file
+
+	write !, "CheckOut: " _ file
+	 
+	If ##class(%File).Exists(file)
+	{
+	  Write !, "Deleted file"
+	  Do ##class(%File).Delete(file)
+	}			
+	Set cmd= "svn --username " _ username _ " update  " _ file 
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Get file from Svn update " _ cmd _ " : " _ status
+	  if status = 0
+	  {
+         #; Call the function to do the load
+         Set sc=$system.OBJ.Load(file,"-l-d")
+         If $$$ISOK(sc) {
+	          Write !,"Imported using Load command: '",InternalName,"' from file '",file,"'"
+	          Set ^ItfSourceCtrl(0,InternalName)=##class(%File).GetFileDateModified(file)
+              Set ^ItfSourceCtrl(1,InternalName)=##class(%RoutineMgr).TS(InternalName)
+         } 
+         Else {
+              Do $SYSTEM.Status.DecomposeStatus(sc,.errors,"d")
+         }
+	  }
+	  QUIT $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="IsInSourceControl">
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+
+
+   Write !, "IsInSourceControl"
+   Set IsInSourceControl = 0
+   Do ..GetStatus(InternalName,.IsInSourceControl)
+   Write !, "IsInSourceControl: " _ IsInSourceControl
+   Quit IsInSourceControl
+]]></Implementation>
+</Method>
+
+<Method name="AddToSourceControl">
+<Description>
+Called to add this item to source control</Description>
+<FormalSpec>InternalName:%String,Description:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	write !, "Add to File Src Ctrl: " _ InternalName 
+	
+	Set file=..ExternalName(InternalName)
+	Set namespace=$zu(5),timeout=2
+	Set ..SvnUserName = "lpjnaras"
+	
+	write !, "By " _ ..SvnUserName  ,!, " file: " _ file _ " in Name space: " _ namespace
+	
+	Set sc = $System.OBJ.Export(InternalName, file)
+	
+	write !, " Add to SourceControl: " _ file _ " export: " _ sc
+	
+	SET status = ..AddToSvn(file)
+	
+
+	if status = 0 
+	{
+		write !, "File is in SourceControl"
+		Set IsInSourceControl=1
+	}
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CommitToSvn">
+<Description>
+Subversion methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fName:%String,comment:%String="Test comment",usrNm:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	set stat = $$$ERROR(9100, "Could not add")
+	
+	SET fileParts = $Length(fName, "/")
+	Write !, fileParts
+	FOR ind=1:1:fileParts
+	{
+		set dirName = $PIECE(fName, "/", ind)
+		if (ind = 1)
+		{
+			set fullPath = dirName
+		}
+		else
+		{
+		    set fullPath = fullPath _ "\" _ dirName
+		}
+		Set cmd = "svn cleanup " _ fullPath  ; a non-recursive commit (-N)
+		Set stat = $ZF(-1, cmd)
+		Set cmd = "svn --username " _usrNm _ " commit -N -m """ _ comment _ """ " _ fullPath  ; a non-recursive commit (-N)
+		Set stat = $ZF(-1, cmd)
+		Write !, cmd _ " - SVN STAT: " _ stat		
+	}
+	
+	Quit stat
+]]></Implementation>
+</Method>
+
+<Method name="AddToSvn">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$ERROR(9100, "Could not add")
+	SET fullPath = ""
+	SET fileParts = $Length(fName, "/")
+	// Write !, fileParts
+	FOR ind=1:1:fileParts
+	{
+		set dirName = $PIECE(fName, "/", ind)
+		if (ind = 1)
+		{
+			set fullPath = dirName
+		}
+		else
+		{
+		set fullPath = fullPath _ "\" _ dirName
+		}
+		Set cmd = "svn info " _ fullPath
+		Set stat = $ZF(-1, cmd)
+		Write !, cmd _ " - SVN STAT: " _ stat
+		If stat '= 0 	{
+			Set cmd = "svn add " _ fullPath
+		    Set stat = $ZF(-1, cmd)
+		    Write !, cmd _ " - SVN STAT: " _ stat
+		}
+		
+	}
+	
+	Quit stat
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// SUPPORTING Methods
+
+]]></Content>
+</UDLText>
+
+<Method name="ExternalName">
+<CodeMode>expression</CodeMode>
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[..ExtName(InternalName)
+]]></Implementation>
+</Method>
+
+<Method name="ExtName">
+<Description>
+Return filename of this item</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Set name=..Name(InternalName)
+	Quit $select(name="":"",1:^ItfSourceCtrl_$translate(name,"\","/"))
+]]></Implementation>
+</Method>
+
+<Method name="Name">
+<Description>
+Return the name of this item without the prefix to be added by ExtName</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Write !, "Mapping Name"
+	If $data(^ItfSourceCtrl)'=11 
+	{
+		Set src = ..setSources()
+		Write !,"^ItfSourceCtrl is not setup so hooks will not work"
+		Set src = $data(^ItfSourceCtrl) 
+		Write !, "Sources set: " _ src
+	}	
+	If $data(^ItfSourceCtrl)'=11 Write !,"^ItfSourceCtrl is not setup so hooks will not work" Quit ""
+		
+	// For an abstract document, use the GetOther() method to try to determine its "real" class
+	If ##class(%RoutineMgr).UserType(InternalName,.docclass,.doctype) {
+		// Check for a real abstract document subclass (or GetOther() may not work)
+		If $classmethod(docclass,"%IsA","%Studio.AbstractDocument") {
+			// Grab the actual name
+			Set actualName = $classmethod(docclass,"GetOther",InternalName)
+			// The actualName is only valid if we get a single .cls as a result
+			If actualName'[",",$ZCVT($P(actualName,".",$L(actualName,".")),"U")="CLS" {
+				// We use what GetOther() gives us, thus Demo.Loan.FindRateProcess.bpl becomes Demo.Loan.FindRateProcess.cls
+				Set InternalName = actualName
+			}
+		}
+	}	
+	
+	If $$CheckProtect^%qccServer(InternalName) Quit ""
+	Set nam=$p(InternalName,".",1,$l(InternalName,".")-1),ext=$p(InternalName,".",$l(InternalName,".")),ext=$zcvt(ext,"u")
+	If nam="" Quit ""
+	If ext="PRJ",nam["Default_" Quit ""
+	If ext="CLS",$$$defClassKeyGet(nam,$$$cCLASSgeneratedby)'="" Quit ""
+	Set default=0
+	Set p=$order(^ItfSourceCtrl(ext,nam)) For  s p=$order(^ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^ItfSourceCtrl(ext,p),found) Quit
+	If $data(found)=0,$data(^ItfSourceCtrl(ext,"*"),found) Set default=1
+	If $data(found)=0 Quit ""
+	If InternalName["/" {
+		Set InternalName=$extract(InternalName,$length(p)+1,*)
+		Quit $translate(found_$translate(InternalName,"%","_"),"\","/")
+	}
+	If ext="CLS"||(ext="PRJ")||(##class(%RoutineMgr).UserType(InternalName)) Quit $translate(found_$translate(nam,".%","/")_".xml","\","/")
+	Quit $translate($g(found)_$tr(nam,"%"_$s(default:".",1:""),"_/")_".xml","\","/")
+]]></Implementation>
+</Method>
+
+<Method name="setSources">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	kill ^ItfSourceCtrl
+	set ^ItfSourceCtrl="C:\EnsembleSC\"
+	set ^ItfSourceCtrl("CLS","*")="cls\"
+	set sc=$$$OK
+	/****
+	&sql(declare SU1 cursor for
+		select ID into :class 
+		from %Dictionary.ClassDefinition where NOT (ID %STARTSWITH '%'))
+	&sql(open SU1)
+	for {
+		&sql(fetch SU1)
+		quit:SQLCODE
+		set sc= Name(class_".CLS")
+		Write !, class
+		quit:'sc
+	}
+	****/
+	quit sc
+	///	Set ^ItfSourceCtrl(0,"FileTimeStamp",routine_"."_type)=##class(%File).GetFileDateModified(filename,1)
+	///	Set ^ItfSourceCtrl(0,"ItemTimeStamp",routine_"."_type)=##class(%RoutineMgr).TS(routine_"."_type)
+	///	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ReadCommentFile">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>CommentStr:%String</FormalSpec>
+<Implementation><![CDATA[
+	set CommentStr = ""
+	Set InFile="C:\EnsembleSC\svnComment.txt"
+	Close InFile
+	Open InFile:"R":1
+	If '$Test Write !,InFile," cannot be opened." Quit 0
+	
+	do ##class(%SYSTEM.Process).SetZEOF(1)
+    
+	Use InFile ;sets InFile as the current device
+    
+    Do
+    {
+	    Read InRecord ;read record from file
+	    SET CommentStr = CommentStr _ ";" _ InRecord
+    } While $ZEOF '= -1
+    
+	       
+    Close InFile
+    
+    Quit 0
+]]></Implementation>
+</Method>
+</Class>
+</Export>
