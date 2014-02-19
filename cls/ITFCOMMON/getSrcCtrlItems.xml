@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="ITFCOMMON.getSrcCtrlItems">
+<IncludeCode>itfSrcCtrl</IncludeCode>
+<Super>%Persistent</Super>
+<TimeCreated>63231,36909.169727</TimeCreated>
+
+<Method name="CheckinFile">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String,comment:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set usrNm = "lpjnaras"
+	set svnOper = 0
+	
+	if ( (fileNm = "") || (comment = "") )
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	if ( ' ##class(%File).Exists(fileNm) )
+    {
+	    Set svnOper = 1 ; Don't do svn add
+    }  
+    // Get latest from Ensemble DB 
+	&sql(SELECT  InternalName INTO :InternalName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
+	IF SQLCODE = 0 
+    { 
+	       Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",InternalName)
+    }
+    if ( (svnOper) && (##class(%File).Exists(fileNm)) )
+    {
+	   Set cmd = "svn --username " _usrNm _ " add -N " _ fileNm  ; a non-recursive commit (-N)
+	   
+	   Set stat = $ZF(-1, cmd)
+	   if stat '= 0
+	   {
+	      set svnOper = 1
+	      Quit $$$ERROR(5880, "SVN add error")
+	   }
+    }
+    else
+    {
+	    set svnOper = 1
+    }
+	if ((svnOper) && (##class(%File).Exists(fileNm)) )
+    {
+	    Set cmd = "svn --username " _usrNm _ " commit -N -m """ _ comment _ """ " _ fileNm  ; a non-recursive commit (-N)
+	    
+		Set stat = $ZF(-1, cmd)
+		if stat '= 0
+		{
+		  Quit $$$ERROR(5880, "SVN commit error")
+		}
+		 Do ..AddToSourceControl(InternalName)
+    }
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetItems">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set origNS = $NAMESPACE
+ 	set $NAMESPACE=^|"ITFCOMMON"|curNS 
+ 	
+	Do ..CheckSvnSetup()
+  Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
+   "Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base")
+   set acProd = ##class(Ens.Director).GetActiveProductionName()
+	       Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: " _ $NAMESPACE _ " " _ acProd) 
+	        if (acProd '= "")
+	        {
+	            Set rset = ##class(%ResultSet).%New()
+    			Set rset.ClassName = "%Dictionary.ClassDefinitionQuery" 
+     			Set rset.QueryName = "ClassIndex" 
+     			Do rset.Execute()
+     			
+     
+     			While (rset.Next(.sc)) // next row of result set
+     			{
+        			If ($SYSTEM.Status.IsOK(sc)) // check for errors
+        			{
+	        			set clNm =  rset.Data("ClassName")
+          				set findInd = $FIND(clNm, acProd)
+            			set findInd2 = $FIND(clNm, $NAMESPACE)
+            			 if ( ((findInd > 0) || (findInd2 > 0)) && ($LF(SrcCtrlList, rset.Data("Super")) ) )
+           				 {
+	             			// Do ##class(ITFCOMMON.Utility).WriteToFile( "  -- " _ clNm , ", TimeChanged: ", rset.Data("TimeChanged"), ", Super    :", rset.Data("Super"))
+	             			 Do ..AddToSourceControl(clNm _ ".CLS")
+           				 }
+        			}
+     			}
+	        }
+	        set $NAMESPACE = origNS
+	        Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CheckSvnSetup">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+	
+	 // check for the parent directory
+	 IF ' ##class(%File).DirectoryExists($$$SVNBASEDIR)
+	 {
+	    Do ##class(%File).CreateDirectory($$$SVNBASEDIR)
+	 }
+	 // Checkout complete tree
+	 IF ' ##class(%File).DirectoryExists($$$SVNTRUNK)
+	 {
+	   Set status = $ZF(-1, $$$SVNCHECKOUT)
+	 }
+	 Quit
+]]></Implementation>
+</Method>
+
+<Method name="GetSvnTime">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set fileStamp = ""
+	
+	if (##class(%File).Exists(fileNm) )
+	{
+		set fTime = ##class(%File).GetFileDateModified(fileNm)
+		set fileStamp = $ZDATETIME(fTime, 3, 1)
+		
+		// Get SVN output to a TEMP file
+		set TempFile =  fileNm _ "tempFileSvn"
+		set cmd = $$$SVNINFO _ fileNm _ " > " _ TempFile
+		Set status = $ZF(-1, cmd)
+		
+		if (##class(%File).Exists(TempFile) )
+		{
+         Set fileObj=##class(%Library.File).%New(TempFile)
+         Do fileObj.Open("RS") ; Read mode and as stream
+         While 'fileObj.AtEnd 
+         {
+	        set reLn = fileObj.ReadLine(,.sc,.eol)
+	        set dtTmInd = $F(reLn, $$$SVNCHECKINTIME)
+	        
+	        if dtTmInd > 0
+	        {
+		        // find last time and strip spaces, Get date and time 
+		        set tmPart = $ZSTRIP($Extract(reLn, dtTmInd, $Length(reLn)),"<>W")
+	            set fileStamp = $Piece(tmPart, " ", 1) _ " " _ $Piece(tmPart, " ", 2)
+	        }
+         }
+         Do fileObj.Close()
+         Do ##class(%Library.File).Delete(TempFile)
+       }
+        
+	}
+	Quit fileStamp
+]]></Implementation>
+</Method>
+
+<Method name="AddToSourceControl">
+<Description>
+Called to add this item to source control</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	set initCom=""
+	set dbFile = ""
+	Set file=..ExternalName(InternalName)
+	set intTime= ##class(%RoutineMgr).TS(InternalName)
+	
+	set fileStamp = ..GetSvnTime(file)
+	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ file)
+	
+	if ( file '= "" )
+	{
+		&sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
+		if SQLCODE '= 0 {
+	       &sql(INSERT INTO ITFCOMMON.SrcCtrlInfo SET InternalName = :InternalName ,FileName=:file,ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp)
+           IF SQLCODE '= 0 {
+               WRITE !,"Insert failed " _ file _ " CODE: " _ SQLCODE _ " IntNm: " _ InternalName _ " intTime " _ intTime _ " :fileStamp" _ fileStamp
+           }
+        }
+        else
+        {
+	        Write !, "file exists: " _ dbFile
+	        &sql(UPDATE ITFCOMMON.SrcCtrlInfo SET ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp WHERE FileName=:file )
+            WRITE !,"Update " _ file _ " CODE: " _ SQLCODE 
+        }
+	}
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// SUPPORTING Methods
+
+]]></Content>
+</UDLText>
+
+<Method name="ExternalName">
+<ClassMethod>1</ClassMethod>
+<CodeMode>expression</CodeMode>
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[..ExtName(InternalName)
+]]></Implementation>
+</Method>
+
+<Method name="ExtName">
+<Description>
+Return filename of this item</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Set name=..Name(InternalName)
+	Quit $select(name="":"",1:^|"ITFCOMMON"|ItfSourceCtrl_$translate(name,"\","/"))
+]]></Implementation>
+</Method>
+
+<Method name="Name">
+<Description>
+Return the name of this item without the prefix to be added by ExtName</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	// Write !, "Mapping Name"
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
+	{
+		Set src = ..setSources()
+		// Write !,"^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work"
+		Set src = $data(^|"ITFCOMMON"|ItfSourceCtrl) 
+		Write !, "Sources set: " _ src
+	}	
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 Write !,"^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work" Quit ""
+		
+	// For an abstract document, use the GetOther() method to try to determine its "real" class
+	If ##class(%RoutineMgr).UserType(InternalName,.docclass,.doctype) {
+		// Check for a real abstract document subclass (or GetOther() may not work)
+		If $classmethod(docclass,"%IsA","%Studio.AbstractDocument") {
+			// Grab the actual name
+			Set actualName = $classmethod(docclass,"GetOther",InternalName)
+			// The actualName is only valid if we get a single .cls as a result
+			If actualName'[",",$ZCVT($P(actualName,".",$L(actualName,".")),"U")="CLS" {
+				// We use what GetOther() gives us, thus Demo.Loan.FindRateProcess.bpl becomes Demo.Loan.FindRateProcess.cls
+				Set InternalName = actualName
+			}
+		}
+	}	
+	
+	If $$CheckProtect^%qccServer(InternalName) Quit ""
+	Set nam=$p(InternalName,".",1,$l(InternalName,".")-1),ext=$p(InternalName,".",$l(InternalName,".")),ext=$zcvt(ext,"u")
+	If nam="" Quit ""
+	If ext="PRJ",nam["Default_" Quit ""
+	If ext="CLS",$$$defClassKeyGet(nam,$$$cCLASSgeneratedby)'="" Quit ""
+	Set default=0
+	Set p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,nam)) For  s p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),found) Quit
+	If $data(found)=0,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,"*"),found) Set default=1
+	If $data(found)=0 Quit ""
+	If InternalName["/" {
+		Set InternalName=$extract(InternalName,$length(p)+1,*)
+		Quit $translate(found_$translate(InternalName,"%","_"),"\","/")
+	}
+	If ext="CLS"||(ext="PRJ")||(##class(%RoutineMgr).UserType(InternalName)) Quit $translate(found_$translate(nam,".%","/")_".xml","\","/")
+	Quit $translate($g(found)_$tr(nam,"%"_$s(default:".",1:""),"_/")_".xml","\","/")
+]]></Implementation>
+</Method>
+
+<Method name="setSources">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	kill ^|"ITFCOMMON"|ItfSourceCtrl
+	set ^|"ITFCOMMON"|ItfSourceCtrl=$$$SVNTRUNK
+	set ^|"ITFCOMMON"|ItfSourceCtrl("CLS","*")="cls\"
+	set ^|"ITFCOMMON"|ItfSourceCtrl("BPL","*")="bpl\"
+	set sc=$$$OK
+
+	quit sc
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^ITFCOMMON.getSrcCtrlItemsD</DataLocation>
+<DefaultData>getSrcCtrlItemsDefaultData</DefaultData>
+<IdLocation>^ITFCOMMON.getSrcCtrlItemsD</IdLocation>
+<IndexLocation>^ITFCOMMON.getSrcCtrlItemsI</IndexLocation>
+<StreamLocation>^ITFCOMMON.getSrcCtrlItemsS</StreamLocation>
+<ExtentSize>100000</ExtentSize>
+<Data name="getSrcCtrlItemsDefaultData">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
