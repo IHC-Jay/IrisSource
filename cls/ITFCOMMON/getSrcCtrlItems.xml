@@ -7,7 +7,7 @@
 
 <Method name="CheckinFile">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>fileNm:%String,comment:%String</FormalSpec>
+<FormalSpec>fileNm:%String,comment:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	Set usrNm = "lpjnaras"
@@ -29,7 +29,7 @@
     }
     if ( (svnOper) && (##class(%File).Exists(fileNm)) )
     {
-	   Set cmd = "svn --username " _usrNm _ " add -N " _ fileNm  ; a non-recursive commit (-N)
+	   Set cmd = "svn --username " _usrNm _ " -- password " _ passwd _ " add -N " _ fileNm  ; a non-recursive commit (-N)
 	   
 	   Set stat = $ZF(-1, cmd)
 	   if stat '= 0
@@ -44,7 +44,7 @@
     }
 	if ((svnOper) && (##class(%File).Exists(fileNm)) )
     {
-	    Set cmd = "svn --username " _usrNm _ " commit -N -m """ _ comment _ """ " _ fileNm  ; a non-recursive commit (-N)
+	    Set cmd = "svn --username " _usrNm _ " -- password " _ passwd _ "  commit -N -m """ _ comment _ """ " _ fileNm  ; a non-recursive commit (-N)
 	    
 		Set stat = $ZF(-1, cmd)
 		if stat '= 0
@@ -59,10 +59,10 @@
 
 <Method name="CheckinFiles">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>Selectedfiles:%String,comment:%String</FormalSpec>
+<FormalSpec>Selectedfiles:%String,comment:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	Set usrNm = "lpjnaras"
+	Set usrNm = $username
 	set files = ""
 	set SelectedIntfiles = ""
 	
@@ -73,7 +73,7 @@
 	For I=1:1:$L(Selectedfiles,",")
 	{
 		Set fileNm = $P(Selectedfiles,",",I)
-		set svnAdd = 0
+		
 		if ( fileNm '= "")
 		{
 		   SET files = files _ " " _ fileNm 
@@ -82,47 +82,42 @@
 	    {
 		    continue
 	    }
-	    if (' ##class(%File).Exists(fileNm)) 
-        {
-	        set svnAdd = 1
-        }	
-          
+	    Do ..AddDirectoriesToSvn(fileNm, passwd)
+	    
         // Get latest from Ensemble DB 
+        
 	    &sql(SELECT  InternalName INTO :InternalName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
+	   
 	    IF SQLCODE = 0 
         { 
 	        Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",InternalName)
-	        set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
-        }
-	    if (svnAdd = 1)
-        { 
-	        Set cmd = "svn --username " _usrNm _ " add -N " _ fileNm  ; a non-recursive commit (-N)
-	   
-	        Set stat = $ZF(-1, cmd)
-	        if stat '= 0
+	        if $$$ISOK(sc)
 	        {
-	          
-	           Quit $$$ERROR(5880, "SVN add error")
+	          set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
+         	  // Do ##class(ITFCOMMON.Utility).WriteToFile($NAMESPACE _ " " _ fileNm _" -d /diffexport " _InternalName)
+	          Do ..AddToSvn(fileNm, 0, passwd)	
 	        }
         }
 	}
-   
+    
 	if (files '= "" )
     {
-	    Set cmd = "svn --username " _usrNm _ " commit -N -m """ _ comment _ """ " _ files  ; a non-recursive commit (-N)
+	    
+	    Set cmd = "svn --username " _ usrNm _ " --password " _ passwd  _ " commit -N -m """ _ comment _ """ " _ files  ; a non-recursive commit (-N)
 	    
 		Set stat = $ZF(-1, cmd)
 		if stat '= 0
 		{
+			// Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ cmd)
 		  Quit $$$ERROR(5880, "SVN commit error")
 		}
 		
     }
     For I=1:1:$L(SelectedIntfiles,",")
 	{
-		Set fileNm = $P(String,",",I)
-		set svnAdd = 0
-		if ( fileNm '= "")
+		Set InternalName = $P(SelectedIntfiles,",",I)
+		
+		if ( InternalName '= "")
 		{
           Do ..AddToSourceControl(InternalName)
 		}
@@ -131,59 +126,227 @@
 ]]></Implementation>
 </Method>
 
-<Method name="GetItems">
+<Method name="AddDirectoriesToSvn">
 <ClassMethod>1</ClassMethod>
+<FormalSpec>fName:%String,passwd:%String</FormalSpec>
+<Implementation><![CDATA[
+	Set usrNm = $username
+	set stat = $$$ERROR(9100, "Could not add")
+	SET fullPath =  $$$SVNBASEDIR 
+	set svnPath=$REPLACE(fName, fullPath _ "/", "")
+	
+	SET fileParts = $Length(svnPath, "/")
+	
+	FOR ind=1:1:fileParts - 1
+	{
+		set dirName = $PIECE(svnPath, "/", ind)
+		set fullPath = fullPath _ "/" _ dirName
+		if ( ' ##class(%Library.File).Exists(fullPath))
+		{
+			Do ##class(%File).CreateDirectory(fullPath)
+		}
+		Do ..AddToSvn(fullPath, 1, passwd)
+	}
+]]></Implementation>
+</Method>
+
+<Method name="AddToSvn">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fullPath:%String,commit:%Boolean,passwd:%String</FormalSpec>
+<Implementation><![CDATA[
+	Set usrNm = $username
+	Set cmd = "svn --username " _ usrNm _ " --password " _ passwd _ " info " _ fullPath
+	Set stat = $ZF(-1, cmd)
+	// Do ##class(ITFCOMMON.Utility).WriteToFile( cmd )
+	If stat '= 0 	
+	{
+		Do ##class(ITFCOMMON.Utility).WriteToFile( cmd )
+		Set cmd = "svn --username " _ usrNm _ " --password " _ passwd _ " add -N " _ fullPath  ; a non-recursive commit (-N)   
+		Set stat = $ZF(-1, cmd)
+		if (commit)
+		{		
+		  Set cmd = "svn --username " _ usrNm _ " --password " _ passwd _ " commit -m ""testing"" -N " _ fullPath  ; a non-recursive commit 
+		  Set stat = $ZF(-1, cmd)
+		}
+	}
+	Quit stat
+]]></Implementation>
+</Method>
+
+<Method name="Checkout">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Selectedfiles:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	 	
-	Do ..CheckSvnSetup()
-  Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
-   "Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base")
-   set acProd = ##class(Ens.Director).GetActiveProductionName()
-	       Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: " _ $NAMESPACE _ " " _ acProd) 
-	        if (acProd '= "")
-	        {
-	            Set rset = ##class(%ResultSet).%New()
-    			Set rset.ClassName = "%Dictionary.ClassDefinitionQuery" 
-     			Set rset.QueryName = "ClassIndex" 
-     			Do rset.Execute()
+   
+	set tStatus = $$$ERROR(100, "Error in checkout")
+	
+	set username = $username
+	
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		if ( fileNm '= "")
+		{	 
+			If ##class(%File).Exists(fileNm)
+			{
+	  			Do ##class(%File).Delete(fileNm)
+			}			
+			Set cmd= "svn --username " _ username _ " --password " _ passwd _ " update  " _ fileNm 
+	
+			Set status = $ZF(-1, cmd)
+	
+	  		if status = 0
+	  		{
+         		#; Call the function to do the load
+         		Set tStatus=$system.OBJ.Load(fileNm,"-l-d")        
+	  		}
+		}
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GetSvnInformation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Selectedfiles:%String,passwd:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+	set fileInfo = ""
+	
+	set username = $username
+	
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		if ( fileNm '= "")
+		{	 
+			set tempFile = 	fileNm _ "Temp" 		
+			Set cmd= "svn --username " _ username _ " --password " _ passwd _ " info  " _ fileNm _ " >> " _ tempFile
+	
+			Set status = $ZF(-1, cmd)
+	
+	        Set cmd= "svn --username " _ username _ " --password " _ passwd _ " log  " _ fileNm _ " >> " _ fileNm _ tempFile 
+	
+			Set status = $ZF(-1, cmd)
+	  		if status '= 0
+	  		{
+         		#; Call the function to do the load
+         		Set tStatus=..GetFileContent(tempFile) 
+         		Set fileInfo = fileInfo _ tStatus       
+	  		}
+	  		else
+	  		{
+		  		SET fileInfo = "svn command failed"
+	  		}
+		}
+	}
+	Quit fileInfo
+]]></Implementation>
+</Method>
+
+<Method name="GetFileContent">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>TempFile:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set fileInfo = ""
+	Set fileObj=##class(%Library.File).%New(TempFile)
+         Do fileObj.Open("RS") ; Read mode and as stream
+         While 'fileObj.AtEnd 
+         {
+	        set fileInfo = fileInfo _ fileObj.ReadLine(1000, .sc, .stat) _ "<BR>"
+	       
+	       
+         }
+         Do fileObj.Close()
+         Do ##class(%Library.File).Delete(TempFile)
+         Quit fileInfo
+]]></Implementation>
+</Method>
+
+<Method name="GetItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	Do ..CheckSvnSetup(passwd)
+  	Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
+   		"Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base")
+   	set acProd = ##class(Ens.Director).GetActiveProductionName()
+   	if (acProd = "")
+   	{
+	  	Set acProd = $NAMESPACE
+   	}
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: "_ " " _ acProd) 
+	        
+
+    Set rset = ##class(%ResultSet).%New("%Dictionary.ClassDefinition:Summary")
+ 
+    Do rset.Execute()
      			
      
-     			While (rset.Next(.sc)) // next row of result set
-     			{
-        			If ($SYSTEM.Status.IsOK(sc)) // check for errors
-        			{
-	        			set clNm =  rset.Data("ClassName")
-          				set findInd = $FIND(clNm, acProd)
-            			set findInd2 = $FIND(clNm, $NAMESPACE)
-            			 if ( ((findInd > 0) || (findInd2 > 0)) && ($LF(SrcCtrlList, rset.Data("Super")) ) )
-           				 {
-	             			// Do ##class(ITFCOMMON.Utility).WriteToFile( "  -- " _ clNm , ", TimeChanged: ", rset.Data("TimeChanged"), ", Super    :", rset.Data("Super"))
-	             			 Do ..AddToSourceControl(clNm _ ".CLS")
-           				 }
-        			}
-     			}
-	        }
+    While (rset.Next(.sc)) // next row of result set
+    {
+    	If ($SYSTEM.Status.IsOK(sc)) // check for errors
+    	{
+	    	set clNm =  rset.Data("Name")
+          	set findInd = $FIND(clNm, acProd)
+            set findInd2 = $FIND(clNm, $NAMESPACE)
+           
+            if ( ((findInd > 0) || (findInd2 > 0)) && ($LF(SrcCtrlList, rset.Data("Super")) ) )
+           	{
+	             // Do ##class(ITFCOMMON.Utility).WriteToFile(clNm)	
+	             Do ..AddToSourceControl(clNm _ ".CLS")
+           	}
+        }
+   	}
+	        
 	       
-	        Quit $$$OK
+	Quit $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="CheckSvnSetup">
 <ClassMethod>1</ClassMethod>
+<FormalSpec>passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	
+	 //  Do ##class(ITFCOMMON.Utility).WriteToFile("CheckSvnSetup" _ $$$SVNBASEDIR)
 	 // check for the parent directory
-	 IF ' ##class(%File).DirectoryExists($$$SVNBASEDIR)
+	 SET usrBaseDir = $$$USRBASEDIR _ $username
+	 IF ' ##class(%File).DirectoryExists(usrBaseDir)
 	 {
-	    Do ##class(%File).CreateDirectory($$$SVNBASEDIR)
-	 }
-	 // Checkout complete tree
-	 IF ' ##class(%File).DirectoryExists($$$SVNTRUNK)
+		 Quit $$$ERROR(100, "User Home directory does not exists")
+     }
+     
+     SET svnBaseDir = usrBaseDir _ $$$SVNBASEDIR
+      
+	 IF ' ##class(%File).DirectoryExists(svnBaseDir)
+     {
+         Do ##class(%File).CreateDirectory(svnBaseDir)
+	  }
+
+     // Checkout complete tree
+     SET svntrunk = svnBaseDir _ $$$SVNTRUNK
+     // Do ##class(ITFCOMMON.Utility).WriteToFile(svntrunk)
+     IF ' ##class(%File).DirectoryExists(svntrunk)
 	 {
-	   Set status = $ZF(-1, $$$SVNCHECKOUT)
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ $username _ " --password " _ passwd _ " " _ $$$SVNURL _ " " _ svnBaseDir 
+	   Set status = $ZF(-1, svnCmd)
+	   // Do ##class(ITFCOMMON.Utility).WriteToFile(svnCmd _ " " _ status)
 	 }
-	 Quit
+     Quit $$$OK
 ]]></Implementation>
 </Method>
 
@@ -243,7 +406,7 @@ Called to add this item to source control</Description>
 	set intTime= ##class(%RoutineMgr).TS(InternalName)
 	
 	set fileStamp = ..GetSvnTime(file)
-	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ file)
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ file)
 	
 	if ( file '= "" )
 	{
@@ -351,8 +514,8 @@ Return the name of this item without the prefix to be added by ExtName</Descript
 <Implementation><![CDATA[
 	kill ^|"ITFCOMMON"|ItfSourceCtrl
 	set ^|"ITFCOMMON"|ItfSourceCtrl=$$$SVNTRUNK
-	set ^|"ITFCOMMON"|ItfSourceCtrl("CLS","*")="cls\"
-	set ^|"ITFCOMMON"|ItfSourceCtrl("BPL","*")="bpl\"
+	set ^|"ITFCOMMON"|ItfSourceCtrl("CLS","*")="cls/"
+	set ^|"ITFCOMMON"|ItfSourceCtrl("BPL","*")="bpl/"
 	set sc=$$$OK
 
 	quit sc
