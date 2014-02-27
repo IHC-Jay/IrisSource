@@ -42,7 +42,7 @@
 	        if $$$ISOK(sc)
 	        {
 	          set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
-         	  Do ##class(ITFCOMMON.Utility).WriteToFile($NAMESPACE _ " " _ fileNm _" -d /diffexport " _InternalName)
+         	  Do ##class(ITFCOMMON.Utility).WriteToFile("CheckinFiles: " _ $NAMESPACE _ " " _ fileNm _" -d /diffexport " _InternalName)
 	          Do ..AddToSvn(fileNm, 0, passwd)	
 	        }
         }
@@ -52,11 +52,13 @@
     {
 	    
 	    Set cmd = "svn --username " _ usrNm _ " --password " _ passwd  _ " commit -N -m """ _ comment _ """ " _ files  ; a non-recursive commit (-N)
+	    Set stat = $ZF(-1, cmd)
 	    
-		Set stat = $ZF(-1, cmd)
+        Do ##class(ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit " _ stat)
+		
 		if stat '= 0
 		{
-		  Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ cmd)
+		  Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ files)
 		  Quit $$$ERROR(5880, "SVN commit error")
 		}
 		
@@ -106,10 +108,10 @@
 	Set usrNm = $username
 	Set cmd = "svn --username " _ usrNm _ " --password " _ passwd _ " info " _ fullPath
 	Set stat = $ZF(-1, cmd)
-	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSvn: svn info:" _ stat)
+	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSvn: " _ fullPath _ " svn info:" _ stat)
 	If stat '= 0 	
 	{
-		Do ##class(ITFCOMMON.Utility).WriteToFile( cmd )
+		Do ##class(ITFCOMMON.Utility).WriteToFile( "svn info returned no information" )
 		Set cmd = "svn --username " _ usrNm _ " --password " _ passwd _ " add -N " _ fullPath  ; a non-recursive commit (-N)   
 		Set stat = $ZF(-1, cmd)
 		Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSvn: svn add:" _ stat)
@@ -146,18 +148,35 @@
 			{
 	  			Do ##class(%File).Delete(fileNm)
 			}			
-			Set cmd= "svn --username " _ $username _ " --password " _ passwd _ " update  " _ fileNm 
+			Set cmd= $$$SVNUPDATE _ " --depth=immediates --username " _ $username _ " --password " _ passwd _ " " _  fileNm 
 	
 			Set status = $ZF(-1, cmd)
-	        Do ##class(ITFCOMMON.Utility).WriteToFile("checkout: " _ fileNm _ ": " _ status)
-	  		if status = 0
-	  		{
-         		#; Call the function to do the load
-         		Set tStatus=$system.OBJ.Load(fileNm,"-l-d") 
-         		Do ##class(ITFCOMMON.Utility).WriteToFile("OBJ.Load: " _ fileNm _ ": " _ status)       
-	  		}
+			If ##class(%File).Exists(fileNm)
+			{
+	           Do ##class(ITFCOMMON.Utility).WriteToFile("File Exists, checkout: " _ fileNm _ ": " _ status)
+	  		  
+         	   #; Call the function to do the load
+         	   Set tStatus=$system.OBJ.Load(fileNm,"-l-d")
+         	   if $$$ISOK(tStatus)
+         	   { 
+         		 Do ##class(ITFCOMMON.Utility).WriteToFile("OBJ.Loaded: " _ fileNm _ ": " _ status)
+         		 set tStatus = $$$OK       
+	  		   }
+	  		   else
+	  		   {
+		  		   Set cmd= "cp " _ fileNm _ " /home/lpjnaras"
+		  		   Set status = $ZF(-1, cmd)
+		  		   Do ##class(ITFCOMMON.Utility).WriteToFile(cmd _ " " _ status)
+	  		   }
+			}
+			else
+			{
+				Do ##class(ITFCOMMON.Utility).WriteToFile("svn update failed: " _ cmd)
+				Quit $$$ERROR(6484, "Error in checked from subversion")
+			}
 		}
 	}
+	
 	Quit tStatus
 ]]></Implementation>
 </Method>
@@ -417,6 +436,44 @@ Called to add this item to source control</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="UpdateInternalTimeForFiles">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+	&sql(Declare C2 Cursor for
+		Select InternalName 
+		Into :iName
+		From ITFCOMMON.SrcCtrlInfo)
+	set arrInd = 1	
+	Set SQLCODE=0  
+	&sql(OPEN C2) 
+	WHILE(SQLCODE = 0)
+	{
+		 &sql(FETCH C2)  
+	     Do ##class(ITFCOMMON.Utility).WriteToFile( "UpdateInternalTimeForFiles name:" _ iName)
+	     Quit:SQLCODE 
+	     Set namesArr(arrInd) = iName
+	     set arrInd = arrInd + 1
+	}
+	 &sql(CLOSE C2)
+	 Set S1="" 
+	 Do {
+     Set S1=$O(namesArr(S1)) Q:S1="" ;get the next S1 subscript
+         Do ##class(ITFCOMMON.Utility).WriteToFile("Name array: ", namesArr(S1))
+         Do ..UpdateInternalTime(namesArr(S1))
+	 } While S1'=""
+]]></Implementation>
+</Method>
+
+<Method name="UpdateInternalTime">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>iName:%String</FormalSpec>
+<Implementation><![CDATA[
+    set intTime= ##class(%RoutineMgr).TS(iName)
+	&sql(UPDATE ITFCOMMON.SrcCtrlInfo SET ClassModifiedTime=:intTime WHERE InternalName=:iName )
+	Do ##class(ITFCOMMON.Utility).WriteToFile("UpdateInternalTime: " _ iName _ " " _ intTime)
+]]></Implementation>
+</Method>
+
 <UDLText name="T">
 <Content><![CDATA[
 // SUPPORTING Methods
@@ -455,7 +512,7 @@ Return the name of this item without the prefix to be added by ExtName</Descript
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	// Write !, "Mapping Name"
-	Do ##class(ITFCOMMON.Utility).WriteToFile("Name: " _ InternalName)
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("Name: " _ InternalName)
 	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
 	{
 		Set src = ..setSources()
@@ -491,7 +548,7 @@ Return the name of this item without the prefix to be added by ExtName</Descript
 	Set p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,nam)) For  s p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),found) Quit
 	If $data(found)=0,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,"*"),found) Set default=1
 	If $data(found)=0 Quit ""
-	Do ##class(ITFCOMMON.Utility).WriteToFile("found: " _ found)
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("found: " _ found)
 	If InternalName["/" {
 		Set InternalName=$extract(InternalName,$length(p)+1,*)
 		Set extNm = $translate(found_$translate(InternalName,"%","_"),"\","/")
