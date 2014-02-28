@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="DemoJayHL7.SrcCtrl">
+<Super>%Studio.SourceControl.Base</Super>
+<TimeCreated>63126,60829.408823</TimeCreated>
+
+<XData name="Menu">
+<Data><![CDATA[
+<MenuBase>
+<Menu Name="%SourceMenu" Type="0">
+<MenuItem Name="%CheckOut"/>
+<MenuItem Name="%UndoCheckout"/>
+<MenuItem Name="%CheckIn" Save="100"/>
+<MenuItem Name="%GetLatest"/>
+<MenuItem Name="%AddToSourceControl" Save="100"/>
+</Menu>
+<Menu Name="%SourceContext" Type="1">
+<MenuItem Name="%CheckOut"/>
+<MenuItem Name="%UndoCheckout"/>
+<MenuItem Name="%CheckIn" Save="100"/>
+<MenuItem Name="%GetLatest"/>
+<MenuItem Name="%AddToSourceControl" Save="100"/>
+</Menu>
+
+
+</MenuBase>
+]]></Data>
+</XData>
+
+<Method name="UserAction">
+<Description>
+Class DemoJayHL7.SrcCtrl Extends Ens.Util.SourceControl</Description>
+<FormalSpec><![CDATA[Type:%Integer,Name:%String,InternalName:%String,SelectedText:%String,&Action:%String,&Target:%String,&Msg:%String,&Reload:%Boolean]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	write !, "UserAction: " _ Type _ " " _ Name 
+	
+	#; Note if you implement this method yourself you can remove all the code below, this is just included
+	#; for backward compatibility with previous versions of the source control hooks.
+	#; Get deprecated Flags parameter
+	Set flags=..%GetParameter("Flags")
+	Set Action=0,Target="",Msg="",Reload=0
+	If Type=0 {
+		Set menu=$piece(Name,",")
+		If menu'="%SourceMenu",menu'="%SourceContext" Quit $$$OK
+		Set name=$piece(Name,",",2)
+		Set action=$case(name,"%CheckIn":-1,"%CheckOut":0,"%AddToSourceControl":1,"%GetLatest":3,"%UndoCheckout":10,:-2)
+		If action=-2 Quit $$$OK
+	} ElseIf Type=1 {
+		Set action=Name
+	}
+	#; Do not need source control when deleting an item that is not in source control
+	If action=2,'..IsInSourceControl(InternalName) Quit $$$OK
+	#; Default to displaying dialog if no Flags parameter defined as this is what previous source control did
+	If action<3 {
+		If flags="" {
+			Set Action=1
+		} Else {
+			Set Action=+$extract(flags,action+2)
+		}
+	}
+	write !, "UserAction: new act: " _ Action _ ", " _ Type _ ", " _Name  _ ", " _ InternalName
+	#; If we do not want the dialog then just call the method here
+	If Action=0 {
+		Quit ..AfterUserAction(Type,Name,InternalName,1,,.Reload)
+	} Else {
+		If action>-2,action<3 {
+			Set Target=$$$FormatMessage(,"%Studio",$case(action,-1:"CheckInDialog",0:"CheckOutDialog",1:"AddDialog",2:"RemoveDialog"),,InternalName)
+		} Else {
+			Quit $$$ERROR($$$StudioSourceActionInvalid,Name,InternalName)
+		}
+	}
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AfterUserAction">
+<FormalSpec><![CDATA[Type:%Integer,Name:%String,InternalName:%String,Answer:%Integer,Msg:%String="",&Reload:%Boolean]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Write !, "AfterUserAction"
+	Set Reload=0
+	#; Note if you implement this method yourself you can remove all the code below, this is just included
+	#; for backward compatibility with previous versions of the source control hooks.
+	If Type=0 {
+		Set menu=$piece(Name,",")
+		If menu'="%SourceMenu",menu'="%SourceContext" Quit $$$OK
+		Set name=$piece(Name,",",2)
+		Set action=$case(name,"%CheckIn":-1,"%CheckOut":0,"%AddToSourceControl":1,"%GetLatest":3,"%UndoCheckout":10,:-2)
+		If action=-2 Quit $$$ERROR($$$StudioSourceActionInvalid,Name,InternalName)
+	} ElseIf Type=1 {
+		Set action=Name
+	}
+	write !, "AfterUserAction In action logic: " _ Answer _ " " _ action
+	If Answer'=1 Quit $$$OK
+	If action=-1 Quit ..CheckIn(InternalName,Msg)
+	If action=0 Quit ..CheckOut(InternalName,Msg)
+	If action=1 Quit ..AddToSourceControl(InternalName,Msg)
+	If action=2 Quit ..RemoveFromSourceControl(InternalName,Msg)
+	If action=3 Quit ..GetLatest(InternalName)
+	If action=10 Set Reload=1 Quit ..UndoCheckout(InternalName)
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnMenuItem">
+<FormalSpec><![CDATA[MenuName:%String,InternalName:%String,SelectedText:%String,&Enabled:%Boolean,&DisplayName:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set menu=$piece(MenuName,","),name=$piece(MenuName,",",2)
+	If menu'="%SourceMenu",menu'="%SourceContext" Quit $$$OK
+	If InternalName="" Quit $$$OK
+	Set sc=..GetStatus(InternalName,.isinsourcecontrol,.editable,.ischeckedout)
+	Set isinsourcecontrol=+$get(isinsourcecontrol),editable=+$get(editable),ischeckedout=+$get(ischeckedout)
+	write !, "In OnMenuItem: " _ sc _ " " _ name
+	If $$$ISERR(sc) Quit sc
+	If name="%CheckOut" {
+		If ischeckedout||('isinsourcecontrol) Set Enabled=0
+	} ElseIf name="%CheckIn" {
+		If 'isinsourcecontrol||('ischeckedout) Set Enabled=0
+	} ElseIf name="%UndoCheckout" {
+		If 'isinsourcecontrol||('ischeckedout) Set Enabled=0
+	} ElseIf name="%GetLatest" {
+		If ischeckedout||('isinsourcecontrol) Set Enabled=0
+	} ElseIf name="%AddToSourceControl" {
+		If isinsourcecontrol||(InternalName="") Set Enabled=0
+	}
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CheckIn">
+<Description>
+Check this routine/class/csp file into source control.</Description>
+<FormalSpec>InternalName:%String,Description:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set file=..ExternalName(InternalName)
+	Set namespace=$zu(5),timeout=2
+	 
+	write !, "In Check in - added by " _ $username _ " file: " _ file _ " in Name space: " _ namespace
+	
+	/// If '##class(%File).Exists(file) Write:display !,"File ",file," not found, skipping import" Quit $$$OK
+	
+		
+	Set sc=$$Export^%occXMLExport(file,"-d /diffexport",InternalName)
+	
+	write !, " SourceControl: " _ file _ " export: " _ sc
+	Set cmd= "cp " _ $system.Process.CallingDatabase() _ file _ " ~" _ $username _ "/svnExport"
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Unix cp: " _ cmd _ ":stat: " _ status
+	
+	/// Set cmd= "svn --username " _ $username _ " --password aal5esh9 add  ~" _ $username _"/svnExport/" _ file
+	
+	/// Set status = $ZF(-1, cmd)
+	
+	/// write !, "Unix add: " _ cmd _ " : " _ status
+	
+	Set cmd= "svn --username " _ $username _ " --password aal5esh9 ci  ~" _ $username _"/svnExport/" _ file _ " -m testing"
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Unix svn ci " _ cmd _ " : " _ status
+	
+	If status = 0
+	{
+			Set cmd= "rm " _ $system.Process.CallingDatabase() _ file
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Unix rm: " _ cmd _ ":stat: " _ status
+
+	}
+	
+	Set IsCheckedOut=0
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CheckOut">
+<FormalSpec>IntName:%String,Description:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    write !, "CheckOut: " _ IntName
+	set tStatus = $$$OK
+	
+	/* Testing comment */
+	Set file=..ExternalName(IntName)
+    If file="" Quit $$$OK
+	write !, "CheckOut file: " _ file
+	
+		If '##class(%File).Exists(file)
+		{
+				
+	Set cmd= "svn --username " _ $username _ " --password aal5esh9 export  ~" _ $username _"/svnExport/" _ file 
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Unix svn export " _ cmd _ " : " _ status
+	if status = 0
+	{
+				Set cmd= "cp ~" _ $username _"/svnExport/" _ file _  $system.Process.CallingDatabase()
+	Set status = $ZF(-1, cmd)
+	
+	write !, "CheckOut Unix cp: " _ status
+	
+		}
+		}
+			try
+	{
+ Set sc=$$Import^%occSAX(file,"fv-d-l")
+	If $$$ISOK(sc) {
+		
+		Set IsCheckedOut=1
+		Set UserCheckedOut="lpjnaras"
+	}
+		} catch excp {
+		write !, "Error in CheckOut " _ excp.Name _ " " _ excp.AsSystemError() _ " " _ file
+		Set tStatus = ex.AsStatus()
+
+	}
+        
+
+	Write !,"CheckOut: Imported '",IntName,"' from file: " _ file
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="AddToSourceControl">
+<Description>
+Called to add this item to source control</Description>
+<FormalSpec>InternalName:%String,Description:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	write !, "Add to Src Ctrl: " _ InternalName 
+	Set file=..ExternalName(InternalName)
+	Set namespace=$zu(5),timeout=2
+	 
+	write !, "By " _ $username _ " file: " _ file _ " in Name space: " _ namespace
+	
+	/// If '##class(%File).Exists(file) Write:display !,"File ",file," not found, skipping import" Quit $$$OK
+	
+	Set sc=$$Export^%occXMLExport(file,"-d /diffexport",InternalName)
+	
+	write !, " Add to SourceControl: " _ file _ " export: " _ sc
+	Set cmd= "cp " _ $system.Process.CallingDatabase() _ file _ " ~" _ $username _ "/svnExport"
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "Unix cp: " _ cmd _ ":stat: " _ status
+	
+	Set cmd= "svn --username " _ $username _ " --password aal5esh9 add  ~" _ $username _"/svnExport/" _ file
+	
+	Set status = $ZF(-1, cmd)
+	
+	write !, "SVN add: " _ cmd _ " : " _ status
+
+	if status = 0 
+	{
+		Set IsInSourceControl=1
+	}
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ExternalName">
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Write !, "ExternalName: " _ InternalName
+	Set name=..Name(InternalName)
+	// Quit $select(name="":"",1:^Sources_$translate(name,"\","/"))
+	Write !, "in ExternalName: " , InternalName , " new name: ", name
+	if name = ""
+	{
+		Quit InternalName
+	}
+	else
+	{
+		Quit name
+	}
+]]></Implementation>
+</Method>
+
+<Method name="Name">
+<Description>
+Return the name of this item without the prefix to be added by ExtName</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	If $data(^Sources)'=11 
+	{
+		Set src = ..setSources()
+		Write !,"^Sources is not setup so hooks will not work"
+		Set src = $data(^Sources) 
+		Write !, "Sources set: " _ src
+	}		
+	// For an abstract document, use the GetOther() method to try to determine its "real" class
+	If ##class(%RoutineMgr).UserType(InternalName,.docclass,.doctype) {
+		// Check for a real abstract document subclass (or GetOther() may not work)
+		If $classmethod(docclass,"%IsA","%Studio.AbstractDocument") {
+			// Grab the actual name
+			Set actualName = $classmethod(docclass,"GetOther",InternalName)
+			// The actualName is only valid if we get a single .cls as a result
+			If actualName'[",",$ZCVT($P(actualName,".",$L(actualName,".")),"U")="CLS" {
+				// We use what GetOther() gives us, thus Demo.Loan.FindRateProcess.bpl becomes Demo.Loan.FindRateProcess.cls
+				Set InternalName = actualName
+			}
+		}
+	}	
+	Write !, "in Name:" , InternalName
+	If $$CheckProtect^%qccServer(InternalName) Quit ""
+	Set nam=$p(InternalName,".",1,$l(InternalName,".")-1),ext=$p(InternalName,".",$l(InternalName,".")),ext=$zcvt(ext,"u")
+	If nam="" Quit ""
+	If ext="PRJ",nam["Default_" Quit ""
+	If ext="CLS",$$$defClassKeyGet(nam,$$$cCLASSgeneratedby)'="" Quit ""
+	Set default=0
+	Set p=$order(^Sources(ext,nam)) 
+	For  s p=$order(^Sources(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^Sources(ext,p),found) Quit
+	If $data(found)=0,$data(^Sources(ext,"*"),found) Set default=1
+	If $data(found)=0 Quit ""
+	If InternalName["/" {
+		Set InternalName=$extract(InternalName,$length(p)+1,*)
+		Set newName = $translate(found_$translate(InternalName,"%","_"),"\","/")
+		Write !, InternalName , " new name: ", newName
+	    Quit newName
+	}
+	If ext="CLS"||(ext="PRJ")||(##class(%RoutineMgr).UserType(InternalName)) 
+	{
+	   Set newName = $translate(found_$translate(nam,".%","/")_".xml","\","/")
+	   Write !, InternalName , " new name: ", newName
+	   Quit newName
+	}
+	Set newName = $translate($g(found)_$tr(nam,"%"_$s(default:".",1:""),"_/")_".xml","\","/")
+	Write !, InternalName , " new name: ", newName
+	Quit newName
+]]></Implementation>
+</Method>
+
+<Method name="setSources">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	kill ^Sources
+	set ^Sources="C:/source/"
+	set ^Sources("CLS","*")="cls/"
+	set sc=$$$OK
+	
+	&sql(declare SU1 cursor for
+		select ID into :class 
+		from %Dictionary.ClassDefinition where NOT (ID %STARTSWITH '%'))
+	&sql(open SU1)
+	for {
+		&sql(fetch SU1)
+		quit:SQLCODE
+		set sc= Name(class_".CLS")
+		Write !, class
+		quit:'sc
+	}
+	
+	quit sc
+	///	Set ^Sources(0,"FileTimeStamp",routine_"."_type)=##class(%File).GetFileDateModified(filename,1)
+	///	Set ^Sources(0,"ItemTimeStamp",routine_"."_type)=##class(%RoutineMgr).TS(routine_"."_type)
+	///	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="RemoveFromSourceControl">
+<FormalSpec>InternalName:%String,Description:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetLatest">
+<Description>
+Called to delete this item from source control
+Get the latest version of this file from source control.</Description>
+<FormalSpec>InternalName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	write !, "Get Latest " _ $username _ " file: " _ InternalName 
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetStatus">
+<Description>
+Return information about this entity.</Description>
+<FormalSpec><![CDATA[InternalName:%String,&IsInSourceControl:%Boolean,&Editable:%Boolean,&IsCheckedOut:%Boolean,&UserCheckedOut:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set Editable=1,IsCheckedOut=0,UserCheckedOut="",IsInSourceControl=0
+	try
+	{
+		Set fileName = "/home/" _ $username _ "/svnExport/" _ InternalName
+	
+	Write !, "GetStatus: " _ fileName
+	
+	Set fStat = ##class(%File).Exists(fileName)
+	
+	if fStat = 1
+	{
+		Set IsInSourceControl=1
+	}
+	Set coFileName = $system.Process.CallingDatabase() _ InternalName
+	
+	Set coStat = ##class(%File).Exists(coFileName)
+	if coStat  = 1
+	{
+		Set IsCheckedOut=1
+		Set UserCheckedOut= $username
+	} 
+	} catch {
+		write !, "Error in GetStatus"
+	}
+	Write !, fileName _ " : " _ fStat _ ", co File: " _ coFileName _ ": " _ coStat
+	
+	write !, "IsInSourceControl: " _ IsInSourceControl
+	write !, "IsCheckedOut: " _ IsCheckedOut
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
