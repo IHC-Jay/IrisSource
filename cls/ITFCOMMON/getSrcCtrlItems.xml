@@ -243,6 +243,55 @@
 ]]></Implementation>
 </Method>
 
+<Method name="GetFilesInSvn">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>passwd:%String</FormalSpec>
+<ReturnType>%Library.ListOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	set fullPath = $$$USRBASEDIR _ $username _ $$$SVNBASEDIR  _ $$$SVNTRUNK _ "cls/" _ $NAMESPACE
+	set tempFile = $$$USRBASEDIR _ $username _ "/tempSvnList"
+ 	Set cmd = $$$SVNLIST _ " --username " _ $username _ " --password " _ passwd _ " " _ fullPath _ " > " _ tempFile
+	Set stat = $ZF(-1, cmd)
+	Do ##class(ITFCOMMON.Utility).WriteToFile( $$$SVNLIST _ ": " _ stat)
+   
+    Set filesList= ##class(%Library.ListOfDataTypes).%New()
+
+     If ##class(%File).Exists(tempFile)
+     {
+
+		Set file=##class(%File).%New(tempFile)
+		// Write !, "File size:" _ file.Size
+		Do file.Open("RS")
+	
+    	While 'file.AtEnd 
+    	{ 
+     		set ln = file.ReadLine(,.sc,.eol) 
+     		If $$$ISERR(sc) 
+     		{ 
+     			Do ##class(ITFCOMMON.Utility).WriteToFile( "ERROR reading file")
+     			 Quit 
+     			} 
+     		elseIf eol 
+     		{ 
+     			Do ##class(ITFCOMMON.Utility).WriteToFile("EOF " _ eol)
+     		} 
+     		else
+     		{
+	    		Do ##class(ITFCOMMON.Utility).WriteToFile("File name: " _ ln)
+	    		if ( $LENGTH(ln) > 1)
+	    		{
+		    		DO filesList.Insert( fullPath _ "/" _ ln)
+	    		}
+     		}
+    	}
+    	// Do file.close()
+    	// Do file.Delete()
+     }
+  Do ##class(ITFCOMMON.Utility).WriteToFile("Number files in SVN list: " _ filesList.Count())
+  Quit filesList
+]]></Implementation>
+</Method>
+
 <Method name="GetFileContent">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>TempFile:%String</FormalSpec>
@@ -268,6 +317,7 @@
 <FormalSpec>passwd:%String</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
+	#dim fileList as %Library.ListOfDataTypes
 	 // Types of classes we need
 	Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
    		"Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base",
@@ -281,6 +331,8 @@
 	set itNum = 0
 	try
 	{
+		set fileList = ..GetFilesInSvn(passwd) 
+		Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems " _ fileList.Count())
 	  kill ^|"ITFCOMMON"|ItfSourceCtrl
 	  Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems " _ $NAMESPACE _ " " _ $username)
 	  IF $$$ISERR( ..CheckSvnSetup(passwd))
@@ -319,11 +371,22 @@
 		              Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: AddToSourceControl returned error")
 	                return 0
 	              }
+	              
+	              Set svnFile = ..ExternalName(clNm _ ".CLS")
+	               Do ##class(ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
+	               set findInd = fileList.Find(svnFile)
+	              if ( findInd )
+  
+                  {
+	                   Do ##class(ITFCOMMON.Utility).WriteToFile( "Found in SVN List: " _ svnFile)
+	                   Do fileList.RemoveAt(findInd)    
+                  }
 	              set itNum = itNum + 1
            	 }
         }
    	 }
-    }        
+    }
+    Do ..AddSvnFilesToSourceControl(fileList)        
 	Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: "_ itNum _ ", last item: " _ clNm)  
 	} catch err
 	{
@@ -417,6 +480,35 @@
 	}
 	Do ##class(ITFCOMMON.Utility).WriteToFile("GetSvnTime: " _ fileNm _ " " _ fileStamp)
 	Quit fileStamp
+]]></Implementation>
+</Method>
+
+<Method name="AddSvnFilesToSourceControl">
+<Description>
+Called to add files in SVN to source control Database</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileList:%Library.ListOfDataTypes</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Do ##class(ITFCOMMON.Utility).WriteToFile("Add SVN files: " _ fileList.Count())
+	set key = fileList.Next("")
+	  while(key >= 1)
+	  {
+		set file = fileList.GetAt(key)
+		  
+	    set fileStamp = ..GetSvnTime(file)
+        &sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
+		if SQLCODE '= 0 {
+	       &sql(INSERT INTO ITFCOMMON.SrcCtrlInfo SET FileModifiedTime=:fileStamp ,FileName=:file)
+        }
+         else
+        {
+	       
+	        &sql(UPDATE ITFCOMMON.SrcCtrlInfo SET FileModifiedTime=:fileStamp WHERE FileName=:file )
+        }
+        set key = fileList.Next(key)
+	  }
+	  Quit $$$OK
 ]]></Implementation>
 </Method>
 
