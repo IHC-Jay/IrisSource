@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="SrcCtrlUtil" type="MAC" languagemode="0"><![CDATA[
+   #Include Ensemble
+#Include CustomErrors
+#include itfSrcCtrl
+ // set ^|"ITFCOMMON"|ItfSourceCtrl("INC","*")="inc/"
+ // set ^|"ITFCOMMON"|ItfSourceCtrl("MAC","*")="mac/"
+  SET $NAMESPACE="ITFCOMMON"
+  
+  //  set filesList = $$getSrcList()
+  //  Write !, "Count: " _ filesList.Count()
+  // quit $$$ERROR($$$ITFCOMMONFailMsgError, ,"ITF - Skip Msg ")
+  // DO $system.OBJ.DisplayError()
+
+  /*
+  set ext="CLS"
+  set nam="ITFCOMMON.getSrcCtrlItems"
+ 	Set p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,nam)) For  s p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),found) Quit
+	If $data(found)=0,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,"*"),found) Set default=1
+	write "found: " _ found
+  set extNm = $translate(found_$translate(nam,".%","/")_".xml","\","/")
+  write !, extNm
+  write !, "trans: " _ ^|"ITFCOMMON"|ItfSourceCtrl _ $username _ "/" _ $translate(extNm,"\","/")
+  set fn = $select(extNm="":"",1:^|"ITFCOMMON"|ItfSourceCtrl_$translate(extNm,"\","/"))
+   write !, fn
+   */
+  // Do getItems(filesList)
+  // Write !, "Count: " _ filesList.Count()
+ //  Do deleteItems()  
+   Do getClasses() 
+ //  do $system.OBJ.DisplayError(status)
+   
+getSrcList()
+   {
+	   SET usrBaseDir = $$$USRBASEDIR _ $username
+	   SET svnBaseDir = usrBaseDir _ $$$SVNBASEDIR
+	   SET fullPath = svnBaseDir _ $$$SVNTRUNK _ "cls/" _ $NAMESPACE
+	   set passwd = "aal5esh9"
+	   write !, fullPath
+	   set file = usrBaseDir _ "/tempSvnList"
+ 	Set cmd = $$$SVNLIST _ " --username " _ $username _ " --password " _ passwd _ " " _ fullPath _ " > " _ file
+	Set stat = $ZF(-1, cmd)
+    write !, cmd _ " : " _ stat
+    
+    Set filesList= ##class(%Library.ListOfDataTypes).%New()
+
+	Set file=##class(%File).%New(file)
+	Write !, "File size:" _ file.Size
+	Do file.Open("RS")
+	
+    While 'file.AtEnd 
+    { 
+     set ln = file.ReadLine(,.sc,.eol) 
+     If $$$ISERR(sc) 
+     { Write !, "ERROR" Quit } 
+     elseIf eol 
+     { Write !, "EOF " _ eol} 
+     else
+     {
+	    write !, "Line: " _ ln
+	    if ( $LENGTH(ln) > 1)
+	    {
+		    DO filesList.Insert( fullPath _ "/" _ ln)
+	    }
+     }
+    }
+
+    
+    /*
+
+    Set EOF=0 Do {
+	     Use InFile
+	     Read InRecord
+	     If $ZEOF=-1 Set EOF=1 Quit
+	    // Use 0 Write !,InRecord
+	     DO filesList.Insert( fullPath _ "/" _ InRecord)
+	     SET count=count+1
+
+    }While EOF=0
+    
+     
+  */
+  Quit filesList
+   }
+
+getItems(filesList) [xName, xTime, iName, fTime, xCmt, SQLCODE]
+{
+	&sql(Declare C2 Cursor for
+		Select FileName, InternalName, ClassModifiedTime, FileModifiedTime, Comment 
+		Into :xName, :iName, :xTime,  :fTime, :xCmt
+		From ITFCOMMON.SrcCtrlInfo)
+		
+	Set SQLCODE=0  &sql(OPEN C2) 
+	WHILE(SQLCODE = 0)
+	{
+		 &sql(FETCH C2)  
+	     // Write !, "SQL code:" , SQLCODE
+	     Quit:SQLCODE 
+	      
+	     
+ 
+   set found = filesList.Find(xName)
+   if (found)
+   {
+	     write !, found _ " Name: " _ xName _ " " _ iName _ ", Time: " _ xTime _  " " _ fTime _ ", comment: " _ xCmt
+	     do filesList.RemoveAt(found)    
+   }
+   else
+   {
+	   write !, "Not in SVN: " _ xName
+   }
+	   
+	}
+	 &sql(CLOSE C2)
+	  set key = filesList.Next("")
+	  while(key >= 1)
+	  {
+		  write !, "In svn:" _ filesList.GetAt(key)
+		  set key = filesList.Next(key)
+	  }
+}
+
+deleteItems() [SQLCODE]
+ {
+  Set Empty = ""
+  &sql(DELETE FROM ITFCOMMON.SrcCtrlInfo)
+     //  WHERE FileName IS NULL)
+    IF SQLCODE=0 {
+    WRITE !,"Delete succeeded"
+    WRITE !,"Row count=",%ROWCOUNT
+    WRITE !,"Row ID=",%ROWID }
+    ELSE {
+    WRITE !,"Delete failed, SQLCODE=",SQLCODE }
+ }
+ 
+getClasses() [SQLCODE]
+{
+	// Types of classes we need
+	Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
+   		"Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base",
+   		"%ZEN.application", "%ZEN.Component.page")
+   		
+   	// Ignore classes that start with Intersystem class name	
+   	Set classesList=$LB("CSPX", "Ens", "EnsLib", "EnsPortal", "HS")
+   		
+	set acProd = ##class(Ens.Director).GetActiveProductionName()
+   	if (acProd = "")
+   	{
+	  	Set acProd = $NAMESPACE
+   	}
+   		 
+	 // Set result = ##class(%ResultSet).%New("%Dictionary.ClassDefinition:Summary")
+	 Set result = ##class(%ResultSet).%New("%Library.Routine:RoutineList")
+  Do result.Execute()
+  set cnt = 1
+  While (result.Next()) {
+	  set clNm =  result.Data("Name")
+	  // Write !, clNm, " IsMethod " 
+   
+	 
+	  
+          	set findInd = $FIND(clNm, "Src")
+           
+          // 
+           set clType = $PIECE(result.Data("Name"), ".", 1)
+               
+           if (' $LF(classesList, clType))       
+           {
+	         // Write !, clNm
+	         Set routine = ##class(%Routine).%New(result.Data("Name"))
+	         if ((' routine.Generated) && ($E(clNm,1,3) '= "Ens") )
+	         {
+		         Write !, "+++" _ result.Data("Name") _ " / " _ result.Data("Size") _ " / " _ result.Data("Lang")
+		         Write !, "Extname: " _  $$ExtName(clNm)
+	         }
+           }
+         /*
+            if ((result.Data("System") = 0 ) && (( $Extract(result.Data("Name"), 1,1) '= "%") ) )
+            {
+                set clType = $PIECE(result.Data("Name"), ".", 1)
+                set clSuperType = $PIECE(result.Data("Super"), ".", 1)
+                if ( (' $LF(classesList, clType)) && ( ($LF(SrcCtrlList, result.Data("Super")) ) 
+                || ( $FIND(result.Data("Super"), clSuperType) >= 1 ) )  )
+                {
+	                 Write !, cnt, " !! " , result.Data("Name") , ": ", result.Data("Super") _ "::" _ clSuperType
+                    set cnt = cnt + 1
+                  //  Write !, ##class(%RoutineMgr).TS(clNm _ ".CLS")
+	
+                }
+            
+            }
+         	*/ 
+}
+
+ }
+ 
+ 
+CheckinFile(fileNm , comment, passwd ) 
+{
+	Set usrNm = $username
+	set svnOper = 0
+	
+	if ( (fileNm = "") || (comment = "") )
+	{
+		Quit $$$ERROR(6484, "FileName is empty")
+	}
+	if ( ' ##class(%File).Exists(fileNm) )
+    {
+	    Set svnOper = 1 ; Don't do svn add
+    }  
+    // Get latest from Ensemble DB 
+	&sql(SELECT  InternalName INTO :InternalName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
+	IF SQLCODE = 0 
+    { 
+	       Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",InternalName)
+    }
+    if ( (svnOper) && (##class(%File).Exists(fileNm)) )
+    {
+	   Set cmd = "svn --username " _usrNm _ " -- password " _ passwd _ " add -N " _ fileNm  ; a non-recursive commit (-N)
+	   
+	   Set stat = $ZF(-1, cmd)
+	   if stat '= 0
+	   {
+	      set svnOper = 1
+	      Quit $$$ERROR(5880, "SVN add error")
+	   }
+    }
+    else
+    {
+	    set svnOper = 1
+    }
+	if ((svnOper) && (##class(%File).Exists(fileNm)) )
+    {
+	    Set cmd = "svn --username " _usrNm _ " -- password " _ passwd _ "  commit -N -m """ _ comment _ """ " _ fileNm  ; a non-recursive commit (-N)
+	    
+		Set stat = $ZF(-1, cmd)
+		if stat '= 0
+		{
+		  Quit $$$ERROR(5880, "SVN commit error: " _ cmd)
+		}
+		 Do ..AddToSourceControl(InternalName)
+    }
+ Quit $$$OK
+}
+
+/// Return the name of this item without the prefix to be added by ExtName
+ExtName(InternalName) 
+{
+	// Write !, "Mapping Name: " _ InternalName 
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("Name: " _ InternalName)
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
+	{
+		Set src = ..setSources()
+		// Write !,"^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work"
+		Set src = $data(^|"ITFCOMMON"|ItfSourceCtrl) 
+		Do ##class(ITFCOMMON.Utility).WriteToFile( "Sources set: " _ src)
+	}	
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
+	{
+		Do ##class(ITFCOMMON.Utility).WriteToFile("^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work" )
+		Quit ""
+	}
+	// For an abstract document, use the GetOther() method to try to determine its "real" class
+	If ##class(%RoutineMgr).UserType(InternalName,.docclass,.doctype) {
+		// Check for a real abstract document subclass (or GetOther() may not work)
+		If $classmethod(docclass,"%IsA","%Studio.AbstractDocument") {
+			// Grab the actual name
+			Set actualName = $classmethod(docclass,"GetOther",InternalName)
+			// The actualName is only valid if we get a single .cls as a result
+			If actualName'[",",$ZCVT($P(actualName,".",$L(actualName,".")),"U")="CLS" {
+				// We use what GetOther() gives us, thus Demo.Loan.FindRateProcess.bpl becomes Demo.Loan.FindRateProcess.cls
+				Set InternalName = actualName
+			}
+		}
+	}	
+	
+	If $$CheckProtect^%qccServer(InternalName) Quit ""
+	Set nam=$p(InternalName,".",1,$l(InternalName,".")-1),ext=$p(InternalName,".",$l(InternalName,".")),ext=$zcvt(ext,"u")
+	If nam="" Quit ""
+	If ext="PRJ",nam["Default_" Quit ""
+	If ext="CLS",$$$defClassKeyGet(nam,$$$cCLASSgeneratedby)'="" Quit ""
+	Set default=0
+	Set p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,nam)) For  s p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),found) Quit
+	If $data(found)=0,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,"*"),found) Set default=1
+	If $data(found)=0 Quit ""
+	// Do ##class(ITFCOMMON.Utility).WriteToFile("found: " _ found)
+	If InternalName["/" {
+		Set InternalName=$extract(InternalName,$length(p)+1,*)
+		Set extNm = $translate(found_$translate(InternalName,"%","_"),"\","/")
+		Quit extNm
+	}
+	If ext="CLS"||(ext="PRJ")||(##class(%RoutineMgr).UserType(InternalName))
+	{ 
+	   set extNm = $translate(found_$translate(nam,".%","/")_".xml","\","/")
+	   Quit extNm
+	}
+	set extNm = $translate($g(found)_$tr(nam,"%"_$s(default:".",1:""),"_/")_".xml","\","/")
+	Quit extNm
+}
+
+
+
+]]></Routine>
+</Export>
