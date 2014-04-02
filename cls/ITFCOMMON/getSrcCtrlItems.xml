@@ -243,6 +243,62 @@
 ]]></Implementation>
 </Method>
 
+<Method name="GetDiff">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Selectedfiles:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+	set fileInfo = ""
+	
+	Do ##class(ITFCOMMON.Utility).WriteToFile("GetDiff: " _ Selectedfiles _ " " _ $username)
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		set tempFile = 	fileNm _ "Temp"
+		set diffFile = 	fileNm _ "Diff"
+		if (##class(%File).Exists(tempFile) )
+	  	{
+			Do ##class(%Library.File).Delete(tempFile)
+	  	}
+	  	if (##class(%File).Exists(diffFile) )
+	  	{
+			Do ##class(%Library.File).Delete(diffFile)
+	  	}
+     if ( (fileNm '= "") && (##class(%File).Exists(fileNm) ) )
+     {
+     
+    
+	 &sql(SELECT  InternalName INTO :InternalName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
+	 Do ##class(ITFCOMMON.Utility).WriteToFile(fileNm _ " = " _ SQLCODE)
+	 IF SQLCODE = 0 
+     { 
+	       Set sc=$$Export^%occXMLExport(tempFile,"-d /diffexport",InternalName)
+     }
+     if (  ##class(%File).Exists(tempFile)) 
+     {
+	    Do ##class(ITFCOMMON.Utility).WriteToFile( "file exists: " _ tempFile)
+	    set cmd = "diff -w -B --suppress-common-lines " _ tempFile _ " " _ fileNm _ " > " _ diffFile
+	    Set stat = $ZF(-1, cmd)
+	    Do ##class(ITFCOMMON.Utility).WriteToFile(diffFile)
+	    Set fileInfo = ..GetFileContent(diffFile) 
+	    if (fileInfo = "")
+	    {
+		     set fileInfo = "Files are identical"
+	    }
+	    Do ##class(%Library.File).Delete(tempFile)
+	    Do ##class(%Library.File).Delete(diffFile)
+     }
+	}
+	}
+	Quit fileInfo
+]]></Implementation>
+</Method>
+
 <Method name="GetFilesInSvn">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>passwd:%String</FormalSpec>
@@ -361,9 +417,13 @@
           	 if ((rset.Data("System") = 0 ) && ( $Extract(clNm, 1,1) '= "%"))
              {
                 set clType = $PIECE(clNm, ".", 1)
+                set clSuperType = $PIECE(rset.Data("Super"), ".", 1)
+                 
                 // Not Inter systems class and is one of the classes defined above
-                if ( (' $LF(classesList, clType)) && ($LF(SrcCtrlList, rset.Data("Super")) ) )
+                if ( (' $LF(classesList, clType)) && ( ($LF(SrcCtrlList, rset.Data("Super")) ) 
+                || ( $FIND(rset.Data("Super"), clSuperType) >= 1 ) )  )
                 {
+               
 	             Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: " _ clNm _ " " _ rset.Data("Super"))
 	              set stat =  ..AddToSourceControl(clNm _ ".CLS")	
 	              if ( stat '= $$$OK)
@@ -555,20 +615,21 @@ Called to add this item to source control</Description>
 <FormalSpec>InternalName:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	
+	 set stat = $$$OK
 	set initCom=""
 	set dbFile = ""
 	Set file=..ExternalName(InternalName)
 	
 	set intTime= ##class(%RoutineMgr).TS(InternalName)
-	set stat = $$$ERROR(100, "Can't add file to SourceControl")
+	
 	
 	set fileStamp = ..GetSvnTime(file)
-	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ $username _ " " _ file)
+	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ InternalName _ " " _ $username _ " " _ file)
 	
 	if ( file '= "" )
 	{
         Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/Update ITFCOMMON.SrcCtrlInfo: " _ file )
+        set stat = $$$ERROR(100, "Can't add file to SourceControl")
 
 		&sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
 		if SQLCODE '= 0 {
