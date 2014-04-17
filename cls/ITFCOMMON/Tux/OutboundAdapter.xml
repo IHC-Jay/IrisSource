@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="ITFCOMMON.Tux.OutboundAdapter">
+<Super>Ens.OutboundAdapter</Super>
+<TimeCreated>63294,32310.96235</TimeCreated>
+
+<Parameter name="SETTINGS">
+<Default>JavaGateWayHost:Connection,JavaGateWayPort:Connection,ApplicationHost:Connection,ServiceName:Connection,JMSJarPath:Connection,ResponseTimeout:Connection</Default>
+</Parameter>
+
+<Property name="JavaGateWayPort">
+<Type>%Integer</Type>
+<InitialExpression>55555</InitialExpression>
+</Property>
+
+<Property name="JavaGateWayHost">
+<Type>%String</Type>
+<InitialExpression>"localhost"</InitialExpression>
+</Property>
+
+<Property name="ApplicationHost">
+<Type>%String</Type>
+<InitialExpression>"//tltst01:41210"</InitialExpression>
+</Property>
+
+<Property name="ServiceName">
+<Type>%String</Type>
+<InitialExpression>"MAIN_ENC"</InitialExpression>
+</Property>
+
+<Property name="JMSJarPath">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Property name="ResponseTimeout">
+<Description>
+Number of seconds to wait for a response to begin arriving back from the remote system after sending a request. Setting the timeout to -1 means wait forever.</Description>
+<Type>%Numeric</Type>
+<InitialExpression>30</InitialExpression>
+<Parameter name="MINVAL" value="-1"/>
+</Property>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$LOGINFO("ITFCOMMON.Tux.OutboundAdapter OnInit")
+	Quit ##super()
+]]></Implementation>
+</Method>
+
+<Method name="HL7Message">
+<Description>
+Accepts HL7 Messages and forwards them to a remote IP address, reading a response HL7 Message object returned from the remote IP address if the GetReply setting property is enabled.</Description>
+<FormalSpec>pMsgOut:EnsLib.HL7.Message,*pMsgIn:EnsLib.HL7.Message</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC = $$$OK
+	 $$$LOGINFO("ITFCOMMON.Tux.OutboundAdapter HL7Message to " _ ..ServiceName)
+	 $$$LOGINFO("Data: " _ pMsgOut.RawContent)
+	 #dim jmsgateway As EnsLib.JavaGateway.JavaGateway
+	 set jmsgateway = ""
+	 try {
+		Set jmsgateway=##class(EnsLib.JavaGateway.JavaGateway).%New()
+		Set classPath=##class(%ListOfDataTypes).%New()
+		$$$LOGINFO("To connect")
+	
+		Do classPath.Insert(..JMSJarPath)
+		$$$LOGINFO("JMS Call Path added: " _ ..JMSJarPath)
+		Set tStat=jmsgateway.%Connect(..JavaGateWayHost,..JavaGateWayPort,$NAMESPACE,5,classPath) 
+		If 'tStat 
+		{
+			set tStat = $$$ISERR(status)
+			set exp = ##class(%Exception.General).%New()
+			set exp.Code = status.Name
+			set exp.Data = status.Data
+			set exp.Name = "Java Gateway connection error"
+			Throw exp  
+		}
+		$$$LOGINFO("Connected to Java Gateway: " _ ..JavaGateWayHost)
+		set tuxServ = ##class(IHC.ITF.HL7RecordToTuxService).%New(jmsgateway, ..ApplicationHost, ..ServiceName)
+		$$$LOGINFO("Connected to IHC.ITF.SendHl7RecordToTuxService: " _ tuxServ)
+		set retStr = tuxServ.SendHl7MsgToService(pMsgOut.RawContent)
+		$$$LOGINFO("Ack from Service: " _ retStr)
+		Set pMsgIn = ##class(EnsLib.HL7.Message).ImportFromString(retStr)
+				
+		Do jmsgateway.%Disconnect()
+		
+	 } catch err
+     {
+	     if $GET(%objlasterror) '= ""
+	    {
+	        set errMsg =  $System.Status.GetErrorText(%objlasterror)
+	    }
+	    else
+	    {
+		    set errMsg = "No obj"
+	    }
+	    $$$LOGALERT("Exception: Name: " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " / Details: " _ errMsg)
+	    Set tSC=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+	    if (jmsgateway '= "")
+	    {
+		  	    Do jmsgateway.%Disconnect()
+	    }
+     }
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="Disconnect">
+<Implementation><![CDATA[	$$$LOGINFO("ITFCOMMON.Tux.OutboundAdapter Disconnect")
+]]></Implementation>
+</Method>
+</Class>
+</Export>
