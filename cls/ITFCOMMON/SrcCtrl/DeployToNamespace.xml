@@ -1,0 +1,548 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="ITFCOMMON.SrcCtrl.DeployToNamespace">
+<IncludeCode>itfSrcCtrl</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>63323,41225.425551</TimeCreated>
+
+<Property name="DeployDirectory">
+<Type>%String</Type>
+<InitialExpression>"/home/lpjnaras/itfSvnFiles/ITF_EnsembleReleasePkgs/trunk/"</InitialExpression>
+</Property>
+
+<Property name="DeployLogDirectory">
+<Type>%String</Type>
+<InitialExpression>"/DEVSANDBOX/deploy/logs/"</InitialExpression>
+</Property>
+
+<UDLText name="T">
+<Content><![CDATA[
+// "/DEVSANDBOX/deploy/" ];
+
+]]></Content>
+</UDLText>
+
+<Method name="DeployFiles">
+<FormalSpec>compNm:%String,fileType:%String,nmSp:%String,passwd:%String,rev:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#dim tSC As %Status = $$$OK
+ 
+ 
+ set cfgFileType = "CONFIG" 
+ set clsFileType = "CLS"
+
+ Set tProductionClassIncluded = 0
+ set $NAMESPACE = nmSp
+ Write !, "NAMESPACE: " _ $NAMESPACE 
+ set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+ 
+ if tProductionName = ""
+ {
+  Write !, "Could not get active production in " _ $NAMESPACE
+  Quit $$$ERROR($$$GeneralError, "Could not get active production in " _ $NAMESPACE)
+ }
+ write !, "Active PROD: " _ tProductionName
+ 
+
+ if ((fileType = "*") || (fileType = cfgFileType))
+ {
+	Set fileName = ..DeployDirectory_"Deployment_" _ cfgFileType _ "_" _compNm_".xml"
+ 
+ 	set tSC = ..CheckoutFile(fileName, passwd, rev )
+ 
+ 	if $$$ISERR(tSC)
+ 	{
+	 	Quit tSC
+ 	}
+	set tSC = ..DeployComponent(compNm, fileName, rev, nmSp, tProductionName, passwd, env)
+	if $$$ISERR(tSC)
+	{
+		Quit tSC
+	}
+ }
+ if ((fileType = "*") || (fileType = clsFileType))
+ {
+	Set fileName = ..DeployDirectory_"Deployment_" _ clsFileType _ "_" _compNm_".xml"
+ 
+ 	set tSC = ..CheckoutFile(fileName, passwd, rev )
+ 
+ 	if $$$ISERR(tSC)
+ 	{
+	 	Quit tSC
+ 	}
+	set tSC = ..DeployClassFiles(compNm, fileName, rev, nmSp, tProductionName, passwd, env)
+ }
+ Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="DeployComponent">
+<FormalSpec>compNm:%String,fileName:%String,rev:%String,nmSp:%String,tProductionName:%String,passwd:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#dim tSC As %Status = $$$OK
+ if (compNm '[ "||") 
+ {
+  set ItemByConfigName = tProductionName_"||"_compNm
+ }
+ else
+ {
+	 set ItemByConfigName = compNm
+ }
+	
+ Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(ItemByConfigName)
+ If $IsObject(tItem)
+ {
+		Quit $$$ERROR($$$GeneralError, tItem _ " already exists")
+ }
+	
+ set parseFl = ##class(ITFCOMMON.parseXmlFile).%New()
+ set tSC = parseFl.ParseFile(fileName, compNm)
+ 
+ 
+
+ if ( ($$$ISOK(tSC)) && (parseFl.IsItfExportFile()) && (parseFl.IsConfigFile()) )
+  {
+	 if (parseFl.itemsInfo.GetAt(1).itemName = compNm)
+	 {
+ 		set tSC = ..Deploy(compNm, fileName, "Config", tProductionName)
+ 		if $$$ISOK(tSC)
+ 		{
+	 		// Update Database
+	 		set tSC = ..updateComponentImpl(compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
+	 		return tSC
+ 		}
+	 }
+	 else
+	 {
+		 Write !, "File does not have config for " _ compNm
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for " _ compNm)
+	 }
+  }
+  else
+  {
+	 Write !, "Parsing the file failed " _ tSC
+  	 Quit tSC
+  }
+  return tSC
+]]></Implementation>
+</Method>
+
+<Method name="DeployClassFiles">
+<FormalSpec>compNm:%String,fileName:%String,rev:%String,nmSp:%String,tProductionName:%String,passwd:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#dim tSC As %Status = $$$OK
+ set parseFl = ##class(ITFCOMMON.parseXmlFile).%New()
+ set tSC = parseFl.ParseFile(fileName, compNm)
+ 
+ if ( ($$$ISOK(tSC)) && (parseFl.IsItfExportFile()) )
+  {
+	  
+	 if (parseFl.itemsInfo.Count() < 2)
+	 {
+		  Write !, "File does not have config for any class in file" _ compNm
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for any class in file " _ compNm)
+	 }
+	 
+	 if (parseFl.itemsInfo.GetAt(1).itemName = compNm)
+	 {
+ 		set tSC = ..Deploy(compNm, fileName, "Class", tProductionName)
+ 		if $$$ISOK(tSC)
+ 		{
+	 		// Update Database
+	 		set tSC = ..updateComponentImpl(compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
+	 		
+	 		// Update Database for each class
+	 		FOR ind=2:1:parseFl.itemsInfo.Count()
+	 		{
+	 		  set tSC = ..updateClassItem(parseFl.itemsInfo.GetAt(ind).itemName, compNm, fileName, 
+	 		   parseFl.itemsInfo.GetAt(ind).versionNum, parseFl.itemsInfo.GetAt(ind).itemInfo, env)
+	 		   if $$$ISERR(tSC)
+	 		   {
+		 		   Return tSC
+	 		   }
+	 		}
+ 		}
+	 }
+	 else
+	 {
+		 Write !, "File does not have config for " _ compNm
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for " _ compNm)
+	 }
+  }
+  else
+  {
+	 Write !, "Parsing the file failed "
+  	 Quit $$$ERROR($$$GeneralError, "Parsing the file failed ")
+  }
+  Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="Deploy">
+<FormalSpec>compNm:%String,DeploymentFile:%String,type:%String,tProductionName:%String</FormalSpec>
+<Implementation><![CDATA[
+	set CreateRollback = 1
+	set tTime = $Replace($ZDATETIME($H, 3), " ", "_")
+	SET RollbackFilename = ..DeployLogDirectory_"Deployment_" _ compNm _ "_" _ type _ "_ROLLBACK_"_tTime
+	Do ##class(%File).Delete(RollbackFilename)
+	
+	SET WhereToLog = "L"
+	SET LogFile =  ..DeployLogDirectory_"Deployment_" _ compNm _ "_" _ type _ "_LOG_"_tTime
+	Do ##class(%File).Delete(LogFile)
+		
+ 	Set tSC = ##class(Ens.Deployment.Deploy).DeployCode(DeploymentFile,tProductionName,CreateRollback,RollbackFilename,WhereToLog,LogFile)
+ 	Write !, "Deploy status: " _ $case(tSC, 1:" OK",:"Error") 
+ 	Write !, "For details, view " _ LogFile, !
+ 	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="updateComponentImpl">
+<FormalSpec>componentNm:%String,DeploymentFile:%String,fileVersion:%String,fileInfo:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ NEW $NAMESPACE
+ set $NAMESPACE = "ITFCOMMON"
+ Write !, $NAMESPACE, DeploymentFile, " : " _ fileVersion, " : " _fileInfo
+   &sql(Select ID INTO :compId  from ITFCOMMON_SrcCtrl.Component where ComponentName = :componentNm)
+   IF (SQLCODE = 0) {
+      &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
+      IF (SQLCODE = 0) {
+	      set dt = $ZDATETIME($ZTIMESTAMP,3, 1)
+   
+         &sql(INSERT INTO ITFCOMMON_SrcCtrl.ComponentImpl
+	        (ComponentName, Environment, ImplFile, ImplFileVersion, ImplFileInformation, ImplementionDate )
+	         values (:compId, :envId, :DeploymentFile, :fileVersion, :fileInfo, :dt ) )
+ 	 	 if SQLCODE = 0
+ 	 	 {
+	 	 	 return $$$OK
+ 	 	 }
+ 	 	 else
+ 	 	 {
+	 	 	 return $$$ERROR($$$GeneralError, "Insert to ComponentImpl failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+ 	 	 }
+      }
+      else
+ 	 	 {
+	 	 	 return $$$ERROR($$$GeneralError, "Select from Environment failed " _ env _ ", " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+ 	 	 }
+   }
+   else
+   {
+ 	 return $$$ERROR($$$GeneralError, "Select from Component failed " _ componentNm _ ", " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+   }
+]]></Implementation>
+</Method>
+
+<Method name="updateClassItem">
+<FormalSpec>clNm:%String,componentNm:%String,DeploymentFile:%String,fileVersion:%String,fileInfo:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	NEW $NAMESPACE
+	set $NAMESPACE = "ITFCOMMON"
+	 &sql(Select ID INTO :compId  from ITFCOMMON_SrcCtrl.Component where ComponentName = :componentNm)
+   IF (SQLCODE = 0) {
+      &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
+      IF (SQLCODE = 0) {
+	       set dt = $ZDATETIME($ZTIMESTAMP,3, 1)
+	       Write !, clNm _ ": " _ compId_ ": " _envId_ ": " _DeploymentFile_ ": " _fileVersion_ ": " _fileInfo
+    		&sql(INSERT INTO ITFCOMMON_SrcCtrl.ClassItem 
+ 			 (ClassName, ComponentName, Environment, ClassExportFile, ClassExportFileVersion, ClassExportFileInformation, ImportDate
+  			   )
+ 	         values (:clNm, :compId, :envId, :DeploymentFile, :fileVersion, :fileInfo, :dt ) )
+ 	 	 if SQLCODE = 0
+ 	 	 {
+	 	 	 return $$$OK
+ 	 	 }
+ 	 	 else
+ 	 	 {
+	 	 	 return $$$ERROR($$$GeneralError, "Insert to ComponentImpl failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+ 	 	 }
+      }
+      else
+ 	 	 {
+	 	 	 return $$$ERROR($$$GeneralError, "Select from Environment failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+ 	 	 }
+   }
+   else
+   {
+ 	 return $$$ERROR($$$GeneralError, "Select from Component failed " _ componentNm _ " " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
+   }
+]]></Implementation>
+</Method>
+
+<Method name="VerifyClassFiles">
+<FormalSpec>tItemName:%String,nmSp:%String,passwd:%String,env:%String,rev:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#dim tSC As %Status = $$$OK
+ NEW $NAMESPACE
+ set $NAMESPACE = nmSp
+ Write !, "NAMESPACE: " _ $NAMESPACE 
+ set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+ 
+ if tProductionName = ""
+ {
+  Write !, "Could not get active production in " _ $NAMESPACE
+  Quit $$$ERROR($$$GeneralError, "Active production not found")
+ }
+ write !, "Active PROD: " _ tProductionName
+ 
+ if env = ""
+ {
+	  Write !, "Specify the environment"
+  	  Quit $$$ERROR($$$GeneralError, "The environment is required to pull the file information from the Database")
+ }
+ Do ##class(ITFCOMMON.ItfSrcCtrlUtil).CheckSvnSetup(passwd)
+ Set tExportClsFilename = ..DeployDirectory_"Deployment_CLS_"_tItemName_".xml"
+ set tSC = ..CheckoutFile(tExportClsFilename, passwd, rev )
+ set tSC = ..CheckClassFiles(tItemName, tExportClsFilename, nmSp, passwd, env ) 
+ 	
+ Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CheckClassFiles">
+<Description>
+Check all classes found in export file</Description>
+<FormalSpec>tItemName:%String,tExportClsFilename:%String,nmSp:%String,passwd:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #dim tSC As %Status
+  #dim clsList As  %ListOfDataTypes
+  set tSC = $$$OK
+  
+  set clsList = ##class(%ListOfDataTypes).%New()
+  Do clsList.Insert(tItemName)
+  set tSC = ..GetClassesForComponent(tItemName, clsList)
+  if $$$ISERR(tSC)
+  {
+	  Quit tSC
+  }
+ set parseFl = ##class(ITFCOMMON.parseXmlFile).%New()
+ set tSC = parseFl.ParseFile(tExportClsFilename, tItemName)
+ 
+ if ( ($$$ISOK(tSC)) && (parseFl.IsItfExportFile()) )
+  {
+	  
+	 if (parseFl.itemsInfo.Count() < 2)
+	 {
+		  Write !, "File does not have config for any class in file" _ compNm
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for any class in file " _ compNm)
+	 }
+	 if (parseFl.itemsInfo.Count() '= clsList.Count())
+	 {
+		 set tSC =  $$$ERROR($$$GeneralError, "Number of classes in DB and classfile do not match")
+		 Quit
+	 }
+	 if (parseFl.itemsInfo.GetAt(1).itemName = tItemName)
+	 {
+ 		
+	 	FOR ind=2:1:parseFl.itemsInfo.Count()
+	 	{
+		 	set clsNm = parseFl.itemsInfo.GetAt(ind).itemName
+		 	if clsList.Find($ZCVT(clsNm, "U"))
+		 	{
+	   			set tSC = ..CompareClassInternalWithSrcCtrl(clsNm,nmSp,
+	   	 				passwd, env, parseFl.itemsInfo.GetAt(ind).versionNum)
+	 			if $$$ISERR(tSC)
+	 			{
+		 			Quit
+	 			}
+		 	}
+		 	else
+		 	{
+			 	set tSC =  $$$ERROR($$$GeneralError, "Could not find class name being deployed " _ clsNm)
+			 	Quit
+		 	}
+	 	}
+	 }
+	 else
+	 {
+		 Write !, "File does not have config for " _ tItemName
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for " _ tItemName)
+	 }
+  }
+  Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="GetClassesForComponent">
+<FormalSpec>compNm:%String,clsList:%ListOfDataTypes</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 set tSC = $$$OK
+  NEW $NAMESPACE
+  set $NAMESPACE = "ITFCOMMON"
+  
+	&sql(Select ID INTO :compId from ITFCOMMON_SrcCtrl.Component  where ComponentName = :compNm)
+    IF (SQLCODE '= 0) {
+	      set tSC = $$$ERROR($$$GeneralError, "Could not get Component Id for " _ compNm)
+	      Quit tSC
+    }
+    Write !, compNm _ ": " _ compId
+	&sql(Declare C1 Cursor for  select  distinct(classname) into :clsNm
+	from ITFCOMMON_SrcCtrl.ClassItem  
+	where componentName = :compId)
+
+  Set SQLCODE=0  
+  &sql(OPEN C1) 
+  For { 
+	    &sql(FETCH C1)  
+	    
+	    QUIT:SQLCODE=100  
+
+	    Do clsList.Insert(clsNm)
+  }
+  Write !, "Number of items in list: " _ clsList.Count()
+  &sql(CLOSE C1)
+  Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CompareClassInternalWithSrcCtrl">
+<Description>
+For a given class, check out the class file with version number found in the database
+Compare the content of the internal code with checked out file</Description>
+<FormalSpec>clsName:%String,nmSp:%String,passwd:%String,env:%String,revNum:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set tSC = $$$OK
+  NEW $NAMESPACE
+  set $NAMESPACE = "ITFCOMMON"
+   &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
+      IF (SQLCODE '= 0) {
+	      set tSC = $$$ERROR($$$GeneralError, "Could not get Env Id for " _ env)
+		  Quit 
+      }
+      
+  &sql(Declare C2 Cursor for  select  ClassName, ClassExportFile, ClassExportFileVersion
+      INTO  :clsNm, :clsfile, :version
+      from  ITFCOMMON_SrcCtrl.ClassItem 
+      where  ClassName =  :clsName 
+      and Environment = :envId and ClassExportFileVersion = :revNum)
+  Set SQLCODE=0  
+  &sql(OPEN C2) 
+  For { 
+	    &sql(FETCH C2)  
+	     
+	    if (SQLCODE '= 0)
+	    {
+	       Quit
+	    }
+	    Write !, clsNm _ ", " _ clsfile _ ", " _ version
+	    set extNm = ##class(ITFCOMMON.ItfSrcCtrlUtil).ExternalName(clsNm)
+	    Write !, extNm
+	    	
+		set cmd = "svn update  -N --no-auth-cache --non-interactive --revision " _ version _ " --username " _ $username _ " --password " _ passwd _ " " _extNm
+		Set stat = $ZF(-1, cmd)
+		Write !, "cmd: " _cmd _ ": " _ stat
+		if (stat = 0)
+		{
+		     // Export internal code
+		     set tempFile = ##class(%Library.File).TempFilename()
+		     if $F(clsNm, "CLS") >  $L(clsNm)
+			 {
+				set item = clsNm
+	 		 }
+	 		 else
+	 		 {
+				set item = clsNm _ "." _ "CLS"
+	 		 }
+			 Do ..exportFile(tempFile, item, nmSp)
+			 if (  ##class(%File).Exists(tempFile))
+			 {
+			     	set tempFile2 = ##class(%Library.File).TempFilename()
+			     	set cmd = "diff -w -B --suppress-common-lines " _ extNm _ " " _ tempFile _ " > " _ tempFile2
+			   		Set stat = $ZF(-1, cmd)
+			      	Write !, cmd _ " Stat: " _ stat
+			   	    if (##class(%File).Exists(tempFile2))
+			   	    {
+				   	    if ##class(%File).GetFileSize(tempFile2) > 0
+			   			{
+				   			set tSC = $$$ERROR($$$GeneralError, "Src Control File is not current for " _ item)
+				   			Quit
+			   			}
+         				Do ##class(%Library.File).Delete(tempFile2)
+         				Do ##class(%Library.File).Delete(tempFile)
+			   	    }
+			   	    else
+			   	    {
+				   	    set tSC = $$$ERROR($$$GeneralError, "diff failed for " _ item)
+				   	    Quit 
+			   	    }
+			 }
+			 else
+			 {
+			     	set tSC = $$$ERROR($$$GeneralError, " Export failed: " _ item )
+			     	Quit
+			 }
+		}
+		else
+		{
+		   set tSC = $$$ERROR($$$GeneralError, "Unable to run svn update command for: " _ extNm)
+		   Quit
+		}
+	}
+	 	
+	if $$$ISOK(tSC)
+	{
+		Write !, " SVN file content matches internal code " _ clsName
+	}
+	&sql(CLOSE C2)
+ 
+ 
+  QUIT tSC
+]]></Implementation>
+</Method>
+
+<Method name="CheckoutFile">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String,passwd:%String,rev</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	if (rev '= "")
+	{
+		Do ##class(%File).Delete(fileNm)
+		Set cmd= $$$SVNUPDATE _ " --revision " _ rev
+		Set cmd= cmd _ " --username " _ $username _ " --password " _ passwd _ " " _  fileNm 
+	
+		Set status = $ZF(-1, cmd)
+		if (status '= 0)
+		{
+			set tSC = $$$ERROR($$$GeneralError, $$$SVNUPDATE _ " --revision " _ rev _ " failed")
+		}
+		if ##class(%File).Exists(fileNm)
+		{
+			Write !, "Checked out " _ fileNm _ ", version: " _ rev
+		}
+		else {
+  			Write !, "Could not find file " _ fileNm
+  			set tSC = $$$ERROR($$$GeneralError, "Could not find file " _ fileNm)
+ 		}
+	}
+	else
+	{		
+		  set tSC = $$$ERROR($$$GeneralError, "Checkout: Revision number is required") 
+	}
+	
+ 	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="exportFile">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tempFile:%String,item:%String,nmSp:%String</FormalSpec>
+<Implementation><![CDATA[
+	Do ##class(%Library.File).Delete(tempFile)
+	NEW $NAMESPACE
+	set $NAMESPACE = nmSp
+	Set sc=$$Export^%occXMLExport(tempFile, "-d /diffexport",item)
+]]></Implementation>
+</Method>
+</Class>
+</Export>
