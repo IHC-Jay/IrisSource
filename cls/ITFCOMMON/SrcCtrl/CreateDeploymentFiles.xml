@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="ITFCOMMON.SrcCtrl.CreateDeploymentFiles">
-<IncludeCode>itfSrcCtrl</IncludeCode>
+<IncludeCode>itfSrcCtrl,EnsErrors</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>63321,55218.797124</TimeCreated>
 
@@ -44,26 +44,32 @@
 </Property>
 
 <Method name="CreateDeploymentFiles">
-<FormalSpec>tItemName:%String,nmSp:%String,passwd:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
+<FormalSpec>tItemName:%String,nmSp:%String,userNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status = $$$OK
  NEW $NAMESPACE
- set $NAMESPACE = nmSp
- Write !, "NAMESPACE: " _ $NAMESPACE 
+ try {
+ 	set $NAMESPACE = nmSp
+ } catch err
+ {
+	 return "Invalid namespace: " _ nmSp _ err.Name _ " " _ err.Code
+	 
+ }
+ Do ##class(ITFCOMMON.Utility).WriteToFile( "NAMESPACE: " _ $NAMESPACE) 
  set tProductionName = ##class(Ens.Director).GetActiveProductionName()
  
  if tProductionName = ""
  {
-  Write !, "Could not get active production in " _ $NAMESPACE
-  Quit $$$ERROR($$$GeneralError, "Active production not found")
+  Do ##class(ITFCOMMON.Utility).WriteToFile( "Could not get active production in " _ $NAMESPACE)
+  return "Active production not found in " _ $NAMESPACE
  }
- write !, "Active PROD: " _ tProductionName
+ Do ##class(ITFCOMMON.Utility).WriteToFile( "Active PROD: " _ tProductionName)
  
  
  set env = "Dev"
  
- Do ##class(ITFCOMMON.ItfSrcCtrlUtil).CheckSvnSetup(passwd)
+ Do ##class(ITFCOMMON.ItfSrcCtrlUtil).DoSvnSetup(userNm, passwd)
  
  Set tExportFilename = ..DeployDirectory_"Deployment_CONFIG_" _tItemName_".xml"
   
@@ -72,37 +78,46 @@
  set tSC = ..CreateConfigFile(tItemName, tExportFilename, tProductionName)
  if $$$ISERR(tSC)
  {
-	 Write !, "Config file create failed"
-	 Quit tSC
+	 Set comment =  ##class(ITFCOMMON.Utility).getErrorMsg(tSC, "Config file create failed. ")
+	 return comment
  }
- 
- Set tExportClsFilename = ..DeployDirectory_"Deployment_CLS_"_tItemName_".xml"
- set tSC = ..CreateClassFile(tItemName,  tExportClsFilename, nmSp, tProductionName, passwd) 
+ else
+ {
+ 	Set tExportClsFilename = ..DeployDirectory_"Deployment_CLS_"_tItemName_".xml"
+ 	set tSC = ..CreateClassFile(tItemName,  tExportClsFilename, nmSp, tProductionName, userNm, passwd) 
+ }
  if $$$ISERR(tSC)
  {
-	 Write !, "Class file was not created"
+	 Do ##class(ITFCOMMON.Utility).WriteToFile( "Class file was not created")
 	 if tSC [ "No Classes to expo"
 	 {
 		 set tExportClsFilename = ""
 	 }
 	 else
 	 {
-	 	Quit tSC
+		Set comment = ##class(ITFCOMMON.Utility).getErrorMsg(tSC, "Class file create failed")
+	 	return comment
 	 }
  }
  Do ..tComments.Rewind()
  set len = 32656
  #dim sc as %Status
  set comment = ..tComments.Read(.len, .sc)
+ set commitComment = ""
  if $$$ISOK(sc)
  {
- 	set tSC = ..CheckinFiles(tExportFilename _ " " _ tExportClsFilename, passwd, comment)
+ 	set tSC = ..CheckinFiles(tExportFilename _ " " _ tExportClsFilename, userNm, passwd, comment, .commitComment)
  }
  else
  {
-	Write !, "Error in reading comments" 
+	Do ##class(ITFCOMMON.Utility).WriteToFile( "Error in reading comments" )
  }
- Quit tSC
+ if $$$ISERR(tSC)
+ {
+	 Set comment =  ##class(ITFCOMMON.Utility).getErrorMsg(tSC, "Could not create files")
+ }
+  	
+ return commitComment _ comment
 ]]></Implementation>
 </Method>
 
@@ -129,41 +144,41 @@
 	Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(tItemName)
 	If ' $IsObject(tItem)
 	{
-		Quit $$$ERROR($$$GeneralError, "Can't open object: " _tItemName )
+		Quit $$$ERROR($$$EnsErrGeneral, "Can't open object: " _tItemName )
 	}
 	
-	Write !, tItemName _" is valid in " _ tProductionName
+	Do ##class(ITFCOMMON.Utility).WriteToFile( tItemName _" is valid in " _ tProductionName)
 	Set tSC=##class(%Studio.Project).Delete(..tProjectName) 
 	Set tSC = ##class(Ens.Deployment.Utils).CreatePTDFromItem(.tItem,.tPTDName)	
 	If tPTDName '= "" 
 	{
 		     //Create Deployment file with PTDs	
-		     // write !, 	tPTDName      	
+		     // Do ##class(ITFCOMMON.Utility).WriteToFile( 	tPTDName  )    	
 		   Set tContentsList(tPTDName_".PTD")=""
 		   
 		   Set tSC =##class(Ens.Deployment.Utils).CreateExportPackageFromProjectList(..tProjectName,.tContentsList,tExportFilename,tProductionName,..tComments,..tProductionClassIncluded)
 		   if $$$ISERR(tSC)
 		   {
-			   Write !, "Failed to Export: " _ tSC
-			   SET tSC =  $$$ERROR($$$GeneralError, "Failed to create ExportPackage file")
+			   Do ##class(ITFCOMMON.Utility).WriteToFile( "Failed to Export: " _ tSC)
+			   SET tSC =  $$$ERROR($$$EnsErrGeneral, "Failed to create ExportPackage file")
 		   }
 		   else
 		   {
-		   		Write !, "Created export file: " _ tExportFilename
+		   		Do ##class(ITFCOMMON.Utility).WriteToFile( "Created export file: " _ tExportFilename)
 		   }
 		   Do ##class(Ens.Util.ProjectTextDocument).Delete(tPTDName_".PTD")
       
 	}
 	else
 	{
-		SET tSC =  $$$ERROR($$$GeneralError, "Failed to create PTDFromItem")
+		SET tSC =  $$$ERROR($$$EnsErrGeneral, "Failed to create PTDFromItem")
 	}
 	Quit tSC
 ]]></Implementation>
 </Method>
 
 <Method name="CreateClassFile">
-<FormalSpec>tItemName:%String,tExportClsFilename:%String,nmSp:%String,tProductionName:%String,passwd:%String</FormalSpec>
+<FormalSpec>tItemName:%String,tExportClsFilename:%String,nmSp:%String,tProductionName:%String,userNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
  
@@ -174,21 +189,21 @@
  Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(tItemName)
  If ' $IsObject(tItem)
  {
-	Quit $$$ERROR($$$GeneralError, "Can't open object: " _tItemName )
+	Quit $$$ERROR($$$EnsErrGeneral, "Can't open object: " _tItemName )
  }
 	
  // Open production and get items for the component
  Set tProduction = ##class(Ens.Config.Production).%OpenId(tProductionName,,.tSC)
  Set tSC=tProduction.getProjectArrayFromConfigItem(tItem,.tProjectArray) 
-   // Write !, "getProjectArrayFromConfigItem: " _ tSC
+   // Do ##class(ITFCOMMON.Utility).WriteToFile( "getProjectArrayFromConfigItem: " _ tSC)
  Quit:$$$ISERR(tSC) tSC
 		    
  Set tSC=tProduction.expandProjectArray(.tProjectArray)  Quit:$$$ISERR(tSC) tSC
- // Write !, "expandProjectArray " _ tSC
+ // Do ##class(ITFCOMMON.Utility).WriteToFile( "expandProjectArray " _ tSC)
  Quit:$$$ISERR(tSC) tSC
 	
  set tSC = tProduction.createStudioProjectFromArray(.tProject,.tProjectArray, ..tProjectName, "DESC")
-  // Write !, "createStudioProjectFromArray " _ tSC
+  // Do ##class(ITFCOMMON.Utility).WriteToFile( "createStudioProjectFromArray " _ tSC)
  set num =1
  Set k=""  
  For 
@@ -201,7 +216,7 @@
 		{
 		
 			 
-		Write !, num _". " _ tItemName _ " = " _  tItem.Type
+		Do ##class(ITFCOMMON.Utility).WriteToFile( num _". " _ tItemName _ " = " _  tItem.Type)
 		     	
 		// Does the Name end with type
 		if $F(tItemName, tItem.Type) >  $L(tItemName)
@@ -216,7 +231,7 @@
 	 	if item [ "CLS"
 	 	{
 	 		
-	 			set tSC = ..CheckItemWithSrcCtrl(item, passwd)
+	 			set tSC = ..CheckItemWithSrcCtrl(item,  userNm, passwd)
 
 	 			if $$$ISERR(tSC)
 	 			{
@@ -242,7 +257,7 @@
        	Set tSC =##class(Ens.Deployment.Utils).CreateExportPackageFromProjectList(..tProjectName,.tFullList,tExportClsFilename,tProductionName,..tComments,..tProductionClassIncluded)
        	if $$$ISERR(tSC)
    		{
-	   		Write !, "Failed to Export: " _ tSC
+	   		Do ##class(ITFCOMMON.Utility).WriteToFile( "Failed to Export: " _ tSC)
 	   		QUIT tSC
    		}
   		
@@ -250,17 +265,17 @@
 	}
 	else
 	{
-		set tSC = $$$ERROR($$$GeneralError, "No Classes to export")
+		set tSC = $$$ERROR($$$EnsErrGeneral, "No Classes to export")
 		Quit tSC
 	}
 	
 	if ##class(%File).Exists(tExportClsFilename)
 	{
-		Write !, "Created Class file: " _ tExportClsFilename
+		Do ##class(ITFCOMMON.Utility).WriteToFile( "Created Class file: " _ tExportClsFilename)
 	}
 	else
 	{
-		Write !, "CLASS file NOT EXPORTED"
+		Do ##class(ITFCOMMON.Utility).WriteToFile( "CLASS file NOT EXPORTED")
 	}
 	
 	
@@ -272,7 +287,7 @@
 <Description>
 Check internal and src control time
 Get information of the last checkin</Description>
-<FormalSpec>itemNm:%String,passwd:%String</FormalSpec>
+<FormalSpec>itemNm:%String,userNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	#dim tSC As %Status
@@ -290,21 +305,21 @@ Get information of the last checkin</Description>
 			   set fileModTm = ##class(%File).GetFileDateModified(extNm)
 			   set fileStamp = $ZDATETIME(fileModTm, 3, 1)
 		
-			   Write !, itemNm _ ": " _ intTime _ ", file: " _ extNm _ " " _ fileStamp
+			   Do ##class(ITFCOMMON.Utility).WriteToFile( itemNm _ ": " _ intTime _ ", file: " _ extNm _ " " _ fileStamp)
 			   if intTime > fileStamp
 			   {
-				   	write !, " !!! Internal time is later than Checkin time"
-				   	set tSC = $$$ERROR($$$GeneralError, "Internal time is later than Checkin time : " _ itemNm)
+				   	Do ##class(ITFCOMMON.Utility).WriteToFile( " !!! Internal time is later than Checkin time")
+				   	set tSC = $$$ERROR($$$EnsErrGeneral, "Internal time is later than Checkin time : " _ itemNm)
 			   }
 			   else
 			   {
-			   	set tSC = ..getCommentForFile(itemNm, extNm, passwd)
+			   	set tSC = ..getCommentForFile(itemNm, extNm, userNm, passwd)
 			   } 		
 		  }
 		  else
 		  {
-		   		Write !, " !!! File not in source control: " _ extNm
-		   		set tSC = $$$ERROR($$$GeneralError, "File not in source control: " _ extNm)
+		   		Do ##class(ITFCOMMON.Utility).WriteToFile( " !!! File not in source control: " _ extNm)
+		   		set tSC = $$$ERROR($$$EnsErrGeneral, "File not in source control: " _ extNm)
 		  }
 	}
 	Quit tSC
@@ -312,46 +327,34 @@ Get information of the last checkin</Description>
 </Method>
 
 <Method name="getCommentForFile">
-<FormalSpec>itemNm:%String,extNm:%String,passwd:%String</FormalSpec>
+<FormalSpec>itemNm:%String,extNm:%String,userNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set tSC = $$$OK
 	set tempFile = ##class(%Library.File).TempFilename()
-	set cmd = " svn --username " _ $username _ " --password " _ passwd _ " --no-auth-cache --non-interactive info " _extNm _ " > " _ tempFile 
+	set cmd = " svn --username " _ userNm _ " --password " _ passwd _ " --no-auth-cache --non-interactive info " _extNm _ " > " _ tempFile 
 	Set stat = $ZF(-1, cmd)
-	Write !, "cmd: " _ stat
+	Do ##class(ITFCOMMON.Utility).WriteToFile( "cmd: " _ stat)
 	if (stat = 0)
 	{
-			     	// Get last checkin information
-			   		Do ..tComments.WriteLine("ItemName: " _ itemNm)
-			   		Set fileObj=##class(%Library.File).%New(tempFile)
-			   		set fileOpen = fileObj.Open("RS") ; Read mode and as stream
-			     		
-         			While 'fileObj.AtEnd 
-         			{
-	        			set line = fileObj.ReadLine(,.sc,.eol)
-	        			if line [ "Last"
-	        			{
-	        		  		Do ..tComments.WriteLine(line)
-	        			}
-         			}
-
-         			Do fileObj.Close()
-         			Do ##class(%Library.File).Delete(tempFile)
+		Do ..tComments.WriteLine("ItemName: "_ itemNm)
+		Do ##class(ITFCOMMON.Utility).findStringInFile(tempFile, "Last", ..tComments )
+		Do ##class(%Library.File).Delete(tempFile)
 	}
 	else
 	{
-	   set tSC = $$$ERROR($$$GeneralError, "Unable to run svn info command for: " _ extNm)
+	   set tSC = $$$ERROR($$$EnsErrGeneral, "Unable to run svn info command for: " _ extNm)
 	}
 	Return tSC
 ]]></Implementation>
 </Method>
 
 <Method name="CheckinFiles">
-<FormalSpec>files:%String,passwd:%String,comment:%String</FormalSpec>
+<FormalSpec>files:%String,userNm:%String,passwd:%String,comment:%String,*commitComment:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	Set tSC = $$$OK
+	Do ##class(ITFCOMMON.Utility).WriteToFile( "Checkin: " _ files _ " as " _ userNm _ "/" _ passwd _ " " _ comment)
 	For I=1:1:$L(files," ")
 	{
 		 set fullPath = $ZSTRIP($P(files," ",I),"<>W")
@@ -359,7 +362,7 @@ Get information of the last checkin</Description>
 		 {
 			 continue
 		 }
-		Set cmd = $$$SVNINFO _ " --username " _ $username _ " --password " _ passwd _ " " _ fullPath
+		Set cmd = $$$SVNINFO _ " --username " _ userNm _ " --password " _ passwd _ " " _ fullPath
 		Set stat = $ZF(-1, cmd)
 		Do ##class(ITFCOMMON.Utility).WriteToFile(fullPath _ " svn info:" _ stat)
 		
@@ -367,26 +370,37 @@ Get information of the last checkin</Description>
 		{
 			// files not in svn, add the file
 			Do ##class(ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _" returned no information" )
-			Set cmd = $$$SVNADD _ " --username " _ $username _ " --password " _ passwd _ " " _  fullPath  
+			Set cmd = $$$SVNADD _ " --username " _ userNm _ " --password " _ passwd _ " " _  fullPath  
 			Set stat = $ZF(-1, cmd)
 			Do ##class(ITFCOMMON.Utility).WriteToFile("svn add:" _ stat)
 			If stat '= 0
 			{
-				Set tSC = $$$ERROR($$$GeneralError, "SVN add error for " _ fullPath)
+				Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN add error for " _ fullPath)
 				Return tSC
 			}
 		}
 	}
-	
-	Set cmd = "svn commit --no-auth-cache --non-interactive --username " _ $userName _ " --password " _ passwd  _ " -m """ _ comment _ """ " _ files  
+	set tempFile = ##class(%Library.File).TempFilename()
+	Set cmd = $$$SVNCOMMIT _ " --no-auth-cache --non-interactive --username " _ userNm _ " --password " _ passwd  _ " -m """ _ comment _ """ " _ files _ " > " _ tempFile
 	Set stat = $ZF(-1, cmd)
 	    
-    Do ##class(ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit " _ stat)
+    Do ##class(ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit " _ stat _ " file: " _ tempFile)
 		
 	if stat '= 0
 	{
-		  Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ cmd)
-		  Set tSC = $$$ERROR($$$GeneralError, "SVN commit error")
+		  Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ $$$SVNCOMMIT _ " " _ files)
+		  Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN commit error")
+	}
+	else
+	{
+		set tComment = ##class(%Stream.TmpCharacter).%New()
+		Do ##class(ITFCOMMON.Utility).findStringInFile(tempFile, "Committed", tComment)
+		// Do ##class(%Library.File).Delete(tempFile)
+		Do tComment.Rewind()
+    	set len = 32656
+    	#dim sc as %Status
+    	set commitComment = tComment.Read(.len, .sc)
+    	Do ##class(ITFCOMMON.Utility).WriteToFile("SVN commit: " _ commitComment)
 	}
 	return tSC
 ]]></Implementation>
