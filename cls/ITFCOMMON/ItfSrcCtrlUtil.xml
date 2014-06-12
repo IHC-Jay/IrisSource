@@ -7,7 +7,7 @@
 
 <Method name="CheckinFiles">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>Selectedfiles:%String,comment:%String,passwd:%String</FormalSpec>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,comment:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	Set usrNm = $username
@@ -36,8 +36,11 @@
         
 	    set InternalName = ..GetInternalName(fileNm)
 	    IF InternalName '= "" 
-        { 
+        {
+	        Set origNmSp =  $NAMESPACE
+	        Set $NAMESPACE = nmSp
 	        Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",InternalName)
+	        Set $NAMESPACE = origNmSp
 	        if ( ($$$ISOK(sc)) &&  (##class(%Library.File).Exists(fileNm)) )
 	        {
 	          set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
@@ -87,11 +90,12 @@
 <Implementation><![CDATA[
  NEW $NAMESPACE
  SET $NAMESPACE = "ITFCOMMON"
+ &sql(SELECT  InternalName INTO :intName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
+ Do ##class(ITFCOMMON.Utility).WriteToFile("GetInternalName, SQLCODE: " _ SQLCODE _ ", Name: " _ fileNm _ " : " _ intName)
 
- &sql(SELECT  InternalName INTO :InternalName FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:fileNm)
  IF SQLCODE = 0 
  { 
-	   return InternalName
+	   return intName
  }
  else
  {
@@ -152,7 +156,7 @@
 
 <Method name="Checkout">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>Selectedfiles:%String,passwd:%String,rev:%String</FormalSpec>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,passwd:%String,rev:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
    
@@ -189,7 +193,10 @@
 	           Do ##class(ITFCOMMON.Utility).WriteToFile("File Exists, checkout: " _ fileNm _ ": " _ status)
 	  		  
          	   #; Call the function to do the load
+         	   Set origNmSp =  $NAMESPACE
+	           Set $NAMESPACE = nmSp
          	   Set tStatus=$system.OBJ.Load(fileNm,"-l-d")
+         	   Set $NAMESPACE = origNmSp
          	   if $$$ISOK(tStatus)
          	   { 
          		 Do ##class(ITFCOMMON.Utility).WriteToFile("OBJ.Loaded: " _ fileNm _ ": " _ status)
@@ -263,7 +270,7 @@
 
 <Method name="GetDiff">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>Selectedfiles:%String</FormalSpec>
+<FormalSpec>nmSp:%String,Selectedfiles:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
    
@@ -294,7 +301,10 @@
 	 Do ##class(ITFCOMMON.Utility).WriteToFile(fileNm _ " = " _ "Int name: " _ InternalName)
 	 IF InternalName '= "" 
      { 
+     		Set origNmSp =  $NAMESPACE
+	        Set $NAMESPACE = nmSp
 	       Set sc=$$Export^%occXMLExport(tempFile,"-d /diffexport",InternalName)
+	       Set $NAMESPACE = origNmSp
      }
      if (  ##class(%File).Exists(tempFile)) 
      {
@@ -353,6 +363,8 @@
 <FormalSpec>passwd:%String</FormalSpec>
 <ReturnType>%Library.ListOfDataTypes</ReturnType>
 <Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
 	set fullPath = $$$USRBASEDIR _ $username _ $$$SVNBASEDIR  _ $$$SVNSRCTRUNK _ "cls/" _ $NAMESPACE
 	set tempFile = $$$USRBASEDIR _ $username _ "/tempSvnList"
 	set incPath = $$$USRBASEDIR _ $username _ $$$SVNBASEDIR  _ $$$SVNSRCTRUNK _ "inc" 
@@ -450,7 +462,7 @@
 
 <Method name="GetItems">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>passwd:%String</FormalSpec>
+<FormalSpec>nmSp:%String,passwd:%String</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
 	#dim fileList as %Library.ListOfDataTypes
@@ -479,6 +491,8 @@
 		  set tExp.Data = "Check: " _ $$$USRBASEDIR _ $username
 		  Throw tExp
 	  }
+	  NEW $NAMESPACE
+      SET $NAMESPACE = nmSp
 	  set prodNm = ##class(Ens.Director).GetActiveProductionName()
 	  If prodNm = ""
  		{
@@ -551,7 +565,7 @@
 	set prodNm = ##class(Ens.Director).GetActiveProductionName()
 	 // Do ##class(ITFCOMMON.Utility).WriteToFile(prodNm)
 	  Set tProduction = ##class(Ens.Config.Production).%OpenId(prodNm,,.tSC)
-	  Do ##class(ITFCOMMON.Utility).WriteToFile("Get items from " _ prodNm)
+	  Do ##class(ITFCOMMON.Utility).WriteToFile("GetItemsFromProduction from " _ prodNm)
 	  For i=1:1:tProduction.Items.Count() {
 	   Set compItem = tProduction.Items.GetAt(i)
 	   Set tItemName=compItem.Name, tBusinessType=compItem.BusinessType()
@@ -702,6 +716,8 @@
 <FormalSpec>passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
 	set tSC = ..DoSvnSetup($username, passwd)
 	Quit tSC
 ]]></Implementation>
@@ -826,8 +842,6 @@
 </Method>
 
 <Method name="AddSvnFilesToSourceControl">
-<Description>
-Called to add files in SVN to source control Database</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>fileList:%Library.ListOfDataTypes</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -840,11 +854,12 @@ Called to add files in SVN to source control Database</Description>
 		  
 	    set fileStamp = ..GetSvnTime(file)
 	    try {
+		     set nmSp = $NAMESPACE
 		     NEW $NAMESPACE
  			 SET $NAMESPACE = "ITFCOMMON"
         	 &sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
 			if SQLCODE '= 0 {
-	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo SET FileModifiedTime=:fileStamp ,FileName=:file)
+	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (FileName, Namespace, FileModifiedTime) VALUES (:file, :nmSp, :fileStamp))
         	}
          	else
         	{	       
@@ -862,36 +877,33 @@ Called to add files in SVN to source control Database</Description>
 </Method>
 
 <Method name="AddToSourceControl">
-<Description>
-Called to add this item to source control</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>InternalName:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	 set stat = $$$OK
+	set stat = $$$OK
 	set initCom=""
 	set dbFile = ""
-	 try {
-	Set file=..ExternalName(InternalName)
+	try {
+		Set file=..ExternalName(InternalName)
 	
-	set intTime= ##class(%RoutineMgr).TS(InternalName)
+		set intTime= ##class(%RoutineMgr).TS(InternalName)
 	
+		if ( file '= "" )
+		{
+			set fileStamp = ..GetSvnTime(file)
+	    	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ InternalName _ " " _ $username _ " " _ file)
 	
-	set fileStamp = ..GetSvnTime(file)
-	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ InternalName _ " " _ $username _ " " _ file)
-	
-	if ( file '= "" )
-	{
-        Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/Update ITFCOMMON.SrcCtrlInfo: " _ file )
-        set stat = $$$ERROR(100, "Can't add file to SourceControl")
-        
-       
+        	Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/Update ITFCOMMON.SrcCtrlInfo: " _ file )
+        	set stat = $$$ERROR(100, "Can't add file to SourceControl")
+        	set nmSp = $NAMESPACE
+
 	        NEW $NAMESPACE
   			SET $NAMESPACE = "ITFCOMMON"
 
 			&sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
 			if SQLCODE '= 0 {
-	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo SET InternalName = :InternalName ,FileName=:file,ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp)
+	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (InternalName, FileName, Namespace, ClassModifiedTime, FileModifiedTime)values (:InternalName, :file, :nmSp, :intTime, :fileStamp))
         	}
         	else
         	{
@@ -899,7 +911,7 @@ Called to add this item to source control</Description>
 	        	&sql(UPDATE ITFCOMMON.SrcCtrlInfo SET ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp WHERE FileName=:file )
         	}
         	IF SQLCODE '= 0 {
-              Do ##class(ITFCOMMON.Utility).WriteToFile("Insert ITFCOMMON.SrcCtrlInfo failed " _ file _ " CODE: " _ SQLCODE _ " IntNm: " _ InternalName _ " intTime " _ intTime _ " :fileStamp" _ fileStamp)
+              Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/update ITFCOMMON.SrcCtrlInfo failed " _ file _ " CODE: " _ SQLCODE _ " IntNm: " _ InternalName _ " intTime " _ intTime _ " :fileStamp" _ fileStamp)
         	}
         	else
         	{
@@ -920,10 +932,14 @@ Called to add this item to source control</Description>
 
 <Method name="UpdateInternalTimeForFiles">
 <ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String</FormalSpec>
 <Implementation><![CDATA[
+	
+	try {
+		
 	NEW $NAMESPACE
   	SET $NAMESPACE = "ITFCOMMON"
-  	
+  	// Get all file names
 	&sql(Declare C2 Cursor for
 		Select InternalName 
 		Into :iName
@@ -940,23 +956,32 @@ Called to add this item to source control</Description>
 	     set arrInd = arrInd + 1
 	}
 	 &sql(CLOSE C2)
+	} catch err
+	{
+	}
+	 // Update time for all files in namesArr array
+	
 	 Set S1="" 
 	 Do {
          Set S1=$Order(namesArr(S1)) Quit:S1="" ;get the next S1 subscript
-         Do ..UpdateInternalTime(namesArr(S1))
+         Do ..UpdateInternalTime(nmSp, namesArr(S1))
 	 } While S1'=""
 ]]></Implementation>
 </Method>
 
 <Method name="UpdateInternalTime">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>iName:%String</FormalSpec>
+<FormalSpec>nmSp:%String,iName:%String</FormalSpec>
 <Implementation><![CDATA[
 	NEW $NAMESPACE
+	set $NAMESPACE = nmSp
+	set intTime= ##class(%RoutineMgr).TS(iName)
+	
   	SET $NAMESPACE = "ITFCOMMON"
-    set intTime= ##class(%RoutineMgr).TS(iName)
+    
+   	Do ##class(ITFCOMMON.Utility).WriteToFile($NAMESPACE _ " UpdateInternalTime: " _ iName _ " " _ intTime )
+
 	&sql(UPDATE ITFCOMMON.SrcCtrlInfo SET ClassModifiedTime=:intTime WHERE InternalName=:iName )
-	Do ##class(ITFCOMMON.Utility).WriteToFile("UpdateInternalTime: " _ iName _ " " _ intTime)
 ]]></Implementation>
 </Method>
 
