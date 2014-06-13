@@ -363,8 +363,7 @@
 <FormalSpec>passwd:%String</FormalSpec>
 <ReturnType>%Library.ListOfDataTypes</ReturnType>
 <Implementation><![CDATA[
-	NEW $NAMESPACE
-    SET $NAMESPACE = "ITFCOMMON"
+	
 	set fullPath = $$$USRBASEDIR _ $username _ $$$SVNBASEDIR  _ $$$SVNSRCTRUNK _ "cls/" _ $NAMESPACE
 	set tempFile = $$$USRBASEDIR _ $username _ "/tempSvnList"
 	set incPath = $$$USRBASEDIR _ $username _ $$$SVNBASEDIR  _ $$$SVNSRCTRUNK _ "inc" 
@@ -496,11 +495,11 @@
 	  set prodNm = ##class(Ens.Director).GetActiveProductionName()
 	  If prodNm = ""
  		{
-	 		Do ..GetItemsFromDictionary(passwd, fileList)
+	 		set itNum = ..GetItemsFromDictionary(passwd, fileList)
  		}
  		else 
  		{
-	 		Do ..GetItemsFromProduction(passwd, fileList)
+	 		set itNum = ..GetItemsFromProduction(passwd, fileList)
 	 
  		}	
     
@@ -562,10 +561,11 @@
 <FormalSpec>passwd:%String,fileList:%Library.ListOfDataTypes</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
+	set itNum = 0
 	set prodNm = ##class(Ens.Director).GetActiveProductionName()
 	 // Do ##class(ITFCOMMON.Utility).WriteToFile(prodNm)
 	  Set tProduction = ##class(Ens.Config.Production).%OpenId(prodNm,,.tSC)
-	  Do ##class(ITFCOMMON.Utility).WriteToFile("GetItemsFromProduction from " _ prodNm)
+	  Do ##class(ITFCOMMON.Utility).WriteToFile("GetItemsFromProduction from " _ prodNm _ " # items: " _ tProduction.Items.Count())
 	  For i=1:1:tProduction.Items.Count() {
 	   Set compItem = tProduction.Items.GetAt(i)
 	   Set tItemName=compItem.Name, tBusinessType=compItem.BusinessType()
@@ -576,8 +576,8 @@
 	   Set configItem = ##class(Ens.Config.Production).OpenItemByConfigName(tItemName)
 	   If ' $IsObject(configItem)
  		{
-	 		Do ##class(ITFCOMMON.Utility).WriteToFile("Not a object")
-			Quit
+	 		Do ##class(ITFCOMMON.Utility).WriteToFile("Not a object: " _ tItemName)
+			Continue
  		}
  		// Open production and get items for the component
  		set tProjectArray = ""
@@ -598,7 +598,7 @@
  		}
 	  
  		Set k="" 
- 		// Do ##class(ITFCOMMON.Utility).WriteToFile("#: " _ tProject.Items.Count())
+ 		Do ##class(ITFCOMMON.Utility).WriteToFile(i _ " of " _ tProduction.Items.Count() _ ", project items in " _ tItemName _ " : " _ tProject.Items.Count())
  		For 
   		{ 
 	   		#dim tItem As %Studio.ProjectItem 
@@ -627,9 +627,9 @@
 		              Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: AddToSourceControl returned error")
 	                return 0
 	              }
-	              
+	              set itNum = itNum + 1
 	              Set svnFile = ..ExternalName(item)
-	               Do ##class(ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
+	               Do ##class(ITFCOMMON.Utility).WriteToFile(itNum _ " added: " _ svnFile)
 	               set findInd = fileList.Find(svnFile)
 	              if ( findInd )
   
@@ -641,6 +641,7 @@
            	 }
         }
    	 }
+   	 return itNum
 ]]></Implementation>
 </Method>
 
@@ -651,7 +652,7 @@
 <Implementation><![CDATA[
 	
 	#dim tStat as %Status
-	
+	set itNum = 0
 	 // Types of classes we need
 	Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
    		"Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base",
@@ -692,7 +693,7 @@
 		              Do ##class(ITFCOMMON.Utility).WriteToFile("GetItems: AddToSourceControl returned error")
 	                return 0
 	              }
-	              
+	              set itNum = itNum  + 1
 	              Set svnFile = ..ExternalName(clNm _ ".CLS")
 	               Do ##class(ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
 	               set findInd = fileList.Find(svnFile)
@@ -708,6 +709,7 @@
    	 }
     	}
     }
+    return itNum
 ]]></Implementation>
 </Method>
 
@@ -834,9 +836,9 @@
 	}
 	else
 	{
-		Do ##class(ITFCOMMON.Utility).WriteToFile("File not found: " _ fileNm)
+		Do ##class(ITFCOMMON.Utility).WriteToFile("File not in SVN: " _ fileNm)
 	}
-	Do ##class(ITFCOMMON.Utility).WriteToFile("GetSvnTime: " _ fileNm _ " " _ fileStamp)
+	
 	Quit fileStamp
 ]]></Implementation>
 </Method>
@@ -855,11 +857,12 @@
 	    set fileStamp = ..GetSvnTime(file)
 	    try {
 		     set nmSp = $NAMESPACE
+		     set usrNm = $userName
 		     NEW $NAMESPACE
  			 SET $NAMESPACE = "ITFCOMMON"
         	 &sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
 			if SQLCODE '= 0 {
-	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (FileName, Namespace, FileModifiedTime) VALUES (:file, :nmSp, :fileStamp))
+	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (FileName, Namespace, Username, FileModifiedTime) VALUES (:file, :nmSp, :usrNm, :fileStamp))
         	}
          	else
         	{	       
@@ -892,7 +895,7 @@
 		if ( file '= "" )
 		{
 			set fileStamp = ..GetSvnTime(file)
-	    	Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ InternalName _ " " _ $username _ " " _ file)
+	    	// Do ##class(ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ InternalName _ " " _ $username _ " " _ file)
 	
         	Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/Update ITFCOMMON.SrcCtrlInfo: " _ file )
         	set stat = $$$ERROR(100, "Can't add file to SourceControl")
@@ -900,22 +903,23 @@
 
 	        NEW $NAMESPACE
   			SET $NAMESPACE = "ITFCOMMON"
+  			set usrNm = $userName
 
 			&sql(SELECT  FileName INTO :dbFile FROM ITFCOMMON.SrcCtrlInfo WHERE FileName=:file)
 			if SQLCODE '= 0 {
-	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (InternalName, FileName, Namespace, ClassModifiedTime, FileModifiedTime)values (:InternalName, :file, :nmSp, :intTime, :fileStamp))
+	       		&sql(INSERT INTO ITFCOMMON.SrcCtrlInfo (InternalName, FileName, Namespace, Username, ClassModifiedTime, FileModifiedTime)values (:InternalName, :file, :nmSp, :usrNm, :intTime, :fileStamp))
         	}
         	else
         	{
 	        	// Write !, "file exists: " _ dbFile
-	        	&sql(UPDATE ITFCOMMON.SrcCtrlInfo SET ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp WHERE FileName=:file )
+	        	&sql(UPDATE ITFCOMMON.SrcCtrlInfo SET InternalName = :InternalName, ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp WHERE FileName=:file )
         	}
         	IF SQLCODE '= 0 {
               Do ##class(ITFCOMMON.Utility).WriteToFile("Insert/update ITFCOMMON.SrcCtrlInfo failed " _ file _ " CODE: " _ SQLCODE _ " IntNm: " _ InternalName _ " intTime " _ intTime _ " :fileStamp" _ fileStamp)
         	}
         	else
         	{
-	        	Do ##class(ITFCOMMON.Utility).WriteToFile("Updated ClassModifiedTime= " _ intTime _ ", FileModifiedTime= " _ fileStamp)
+	           // Do ##class(ITFCOMMON.Utility).WriteToFile("Updated ClassModifiedTime= " _ intTime _ ", FileModifiedTime= " _ fileStamp)
 	           set stat = $$$OK
         	}
         
@@ -943,7 +947,7 @@
 	&sql(Declare C2 Cursor for
 		Select InternalName 
 		Into :iName
-		From ITFCOMMON.SrcCtrlInfo)
+		From ITFCOMMON.SrcCtrlInfo where Namespace = :nmSp)
 	set arrInd = 1	
 	Set SQLCODE=0  
 	&sql(OPEN C2) 
