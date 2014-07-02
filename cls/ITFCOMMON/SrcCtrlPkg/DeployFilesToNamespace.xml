@@ -15,23 +15,17 @@
 <InitialExpression>"/DEVSANDBOX/deploy/logs/"</InitialExpression>
 </Property>
 
-<UDLText name="T">
-<Content><![CDATA[
-// "/DEVSANDBOX/deploy/" ];
-
-]]></Content>
-</UDLText>
-
 <Method name="DeployFiles">
 <FormalSpec>compNm:%String,fileType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status = $$$OK
  Set comment = ""
+  Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFiles, deploy " _compNm _ " type: " _  fileType)
+
  set ..DeployDirectory = $$$USRRELEASEBASEDIR _ usrNm _ $$$SVNSRCTRUNK
  set ..DeployLogDirectory = $$$USRRELEASEBASEDIR _  usrNm _ $$$LOGDIR
  
- Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFiles, deploy " _compNm _ " type: " _  fileType)
  set cfgFileType = "CONFIG" 
  set clsFileType = "CLS"
 
@@ -146,8 +140,7 @@
  		if $$$ISOK(tSC)
  		{
 	 		// Update Database
-	 		set tSC = ..updateComponentImpl(compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
-	 		return tSC
+	 		set tSC = ..updateImpl(usrNm, passwd, compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
  		}
 	 }
 	 else
@@ -162,6 +155,61 @@
   	 Quit tSC
   }
   return tSC
+]]></Implementation>
+</Method>
+
+<Method name="updateImpl">
+<FormalSpec>usrNm:%String,passwd:%String,compNm:%String,fileName:%String,rev:%String,fileInfo:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	try {
+		 	 
+		 	NEW $NAMESPACE
+     		set $NAMESPACE = "ITFCOMMON"
+	 		set depCl = ##class(SrcCtrlDeploymentInfoWebService.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+	 		set depCl.Username = usrNm
+		 	set depCl.Password = passwd
+	 		set tSC = depCl.UpdateComponentImpl(compNm, fileName, rev, fileInfo, env)
+	 		return tSC
+	} catch err
+	{
+		 		If $ZERROR["<ZSOAP>" {
+                	Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  %objlasterror)
+                	Set tSC=$$$ERROR($$$GeneralError, "Error in updating Component in DB")
+		 		} Else {
+            		Set tSC=$$$ERROR($$$CacheError,$ZERROR)
+		 		}
+	}
+	return tSC
+]]></Implementation>
+</Method>
+
+<Method name="updateClass">
+<FormalSpec>usrNm:%String,passwd:%String,clNm:%String,componentNm:%String,DeploymentFile:%String,fileVersion:%String,fileInfo:%String,env:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	try {
+		 	 
+		 	NEW $NAMESPACE
+     		set $NAMESPACE = "ITFCOMMON"
+	 		set depCl = ##class(SrcCtrlDeploymentInfoWebService.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+	 		set depCl.Username = usrNm
+		 	set depCl.Password = passwd
+	 		set tSC = depCl.UpdateClassItem(clNm , componentNm , DeploymentFile, fileVersion, fileInfo, env)
+
+	 		return tSC
+	} catch err
+	{
+		 		If $ZERROR["<ZSOAP>" {
+                	Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  %objlasterror)
+                	Set tSC=$$$ERROR($$$GeneralError, "Error in updating class in DB")
+		 		} Else {
+            		Set tSC=$$$ERROR($$$CacheError,$ZERROR)
+		 		}
+	}
+	return tSC
 ]]></Implementation>
 </Method>
 
@@ -188,17 +236,27 @@
  		if $$$ISOK(tSC)
  		{
 	 		// Update Database
-	 		set tSC = ..updateComponentImpl(compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
-	 		
+	 		try {
+		
+	 		 set tSC = ..updateImpl(usrNm, passwd, compNm, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env)
 	 		// Update Database for each class
 	 		FOR ind=2:1:parseFl.itemsInfo.Count()
 	 		{
-	 		  set tSC = ..updateClassItem(parseFl.itemsInfo.GetAt(ind).itemName, compNm, fileName, 
+		 	   set tSC = ..updateClass(usrNm, passwd, parseFl.itemsInfo.GetAt(ind).itemName, compNm, fileName, 
 	 		   parseFl.itemsInfo.GetAt(ind).versionNum, parseFl.itemsInfo.GetAt(ind).itemInfo, env)
 	 		   if $$$ISERR(tSC)
 	 		   {
 		 		   Return tSC
 	 		   }
+	 		}
+	 		} catch err
+	 		{
+		 		If $ZERROR["<ZSOAP>" {
+                	Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  %objlasterror)
+                	Set tSC=$$$ERROR($$$GeneralError, "Error in updating ClassItem")
+		 		} Else {
+            		Set tSC=$$$ERROR($$$CacheError,$ZERROR)
+		 		}
 	 		}
  		}
 	 }
@@ -233,80 +291,6 @@
  	Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Deploy status: " _ $case(tSC, 1:" OK",:"Error") )
  	Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "For details, view " _ LogFile)
  	Quit tSC
-]]></Implementation>
-</Method>
-
-<Method name="updateComponentImpl">
-<FormalSpec>componentNm:%String,DeploymentFile:%String,fileVersion:%String,fileInfo:%String,env:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
- NEW $NAMESPACE
- set $NAMESPACE = "ITFCOMMON"
- // Do ##class(ITFCOMMON.Utility).WriteToFile(DeploymentFile _ " : " _ fileVersion _ " : " _fileInfo)
-   &sql(Select ID INTO :compId  from ITFCOMMON_SrcCtrl.Component where ComponentName = :componentNm)
-   IF (SQLCODE = 0) {
-      &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
-      IF (SQLCODE = 0) {
-	      set dt = $ZDATETIME($ZTIMESTAMP,3, 1)
-   
-         &sql(INSERT INTO ITFCOMMON_SrcCtrl.ComponentImpl
-	        (ComponentName, Environment, ImplFile, ImplFileVersion, ImplFileInformation, ImplementionDate )
-	         values (:compId, :envId, :DeploymentFile, :fileVersion, :fileInfo, :dt ) )
- 	 	 if SQLCODE = 0
- 	 	 {
-	 	 	 return $$$OK
- 	 	 }
- 	 	 else
- 	 	 {
-	 	 	 return $$$ERROR($$$GeneralError, "Insert to ComponentImpl failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
- 	 	 }
-      }
-      else
- 	 	 {
-	 	 	 return $$$ERROR($$$GeneralError, "Select from Environment failed " _ env _ ", " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
- 	 	 }
-   }
-   else
-   {
- 	 return $$$ERROR($$$GeneralError, "Select from Component failed " _ componentNm _ ", " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
-   }
-]]></Implementation>
-</Method>
-
-<Method name="updateClassItem">
-<FormalSpec>clNm:%String,componentNm:%String,DeploymentFile:%String,fileVersion:%String,fileInfo:%String,env:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	NEW $NAMESPACE
-	set $NAMESPACE = "ITFCOMMON"
-	 &sql(Select ID INTO :compId  from ITFCOMMON_SrcCtrl.Component where ComponentName = :componentNm)
-   IF (SQLCODE = 0) {
-      &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
-      IF (SQLCODE = 0) {
-	       set dt = $ZDATETIME($ZTIMESTAMP,3, 1)
-	       // Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   clNm _ ": " _ compId_ ": " _envId_ ": " _DeploymentFile_ ": " _fileVersion_ ": " _fileInfo)
-    		&sql(INSERT INTO ITFCOMMON_SrcCtrl.ClassItem 
- 			 (ClassName, ComponentName, Environment, ClassExportFile, ClassExportFileVersion, ClassExportFileInformation, ImportDate
-  			   )
- 	         values (:clNm, :compId, :envId, :DeploymentFile, :fileVersion, :fileInfo, :dt ) )
- 	 	 if SQLCODE = 0
- 	 	 {
-	 	 	 return $$$OK
- 	 	 }
- 	 	 else
- 	 	 {
-	 	 	 return $$$ERROR($$$GeneralError, "Insert to ComponentImpl failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
- 	 	 }
-      }
-      else
- 	 	 {
-	 	 	 return $$$ERROR($$$GeneralError, "Select from Environment failed " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
- 	 	 }
-   }
-   else
-   {
- 	 return $$$ERROR($$$GeneralError, "Select from Component failed " _ componentNm _ " " _ $SYSTEM.SQL.SQLCODE(SQLCODE))
-   }
 ]]></Implementation>
 </Method>
 
@@ -353,13 +337,12 @@ Check all classes found in export file</Description>
   #dim clsList As  %ListOfDataTypes
   set tSC = $$$OK
   
-  set clsList = ##class(%ListOfDataTypes).%New()
+  set depCl = ##class(SrcCtrlDeploymentInfoWebService.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+  set depCl.Username = usrNm
+  set depCl.Password = passwd
+  set clsList = depCl.GetClassesForComponent(tItemName)
   Do clsList.Insert(tItemName)
-  set tSC = ..GetClassesForComponent(tItemName, clsList)
-  if $$$ISERR(tSC)
-  {
-	  Quit tSC
-  }
+  
  set parseFl = ##class(ITFCOMMON.parseXmlFile).%New()
  set tSC = parseFl.ParseFile(tExportClsFilename, tItemName)
  
@@ -408,39 +391,6 @@ Check all classes found in export file</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="GetClassesForComponent">
-<FormalSpec>compNm:%String,clsList:%ListOfDataTypes</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	 set tSC = $$$OK
-  NEW $NAMESPACE
-  set $NAMESPACE = "ITFCOMMON"
-  
-	&sql(Select ID INTO :compId from ITFCOMMON_SrcCtrl.Component  where ComponentName = :compNm)
-    IF (SQLCODE '= 0) {
-	      set tSC = $$$ERROR($$$GeneralError, "Could not get Component Id for " _ compNm)
-	      Quit tSC
-    }
-    Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   compNm _ ": " _ compId)
-	&sql(Declare C1 Cursor for  select  distinct(classname) into :clsNm
-	from ITFCOMMON_SrcCtrl.ClassItem  
-	where componentName = :compId)
-
-  Set SQLCODE=0  
-  &sql(OPEN C1) 
-  For { 
-	    &sql(FETCH C1)  
-	    
-	    QUIT:SQLCODE=100  
-
-	    Do clsList.Insert(clsNm)
-  }
-  Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Number of items in list: " _ clsList.Count())
-  &sql(CLOSE C1)
-  Quit tSC
-]]></Implementation>
-</Method>
-
 <Method name="CompareClassInternalWithSrcCtrl">
 <Description>
 For a given class, check out the class file with version number found in the database
@@ -451,35 +401,25 @@ Compare the content of the internal code with checked out file</Description>
   set tSC = $$$OK
   NEW $NAMESPACE
   set $NAMESPACE = "ITFCOMMON"
-   &sql(Select ID INTO :envId from ITFCOMMON_SrcCtrl.Environment where Name = :env)
-      IF (SQLCODE '= 0) {
-	      set tSC = $$$ERROR($$$GeneralError, "Could not get Env Id for " _ env)
-		  Quit 
-      }
-      
-  &sql(Declare C2 Cursor for  select  ClassName, ClassExportFile, ClassExportFileVersion
-      INTO  :clsNm, :clsfile, :version
-      from  ITFCOMMON_SrcCtrl.ClassItem 
-      where  ClassName =  :clsName 
-      and Environment = :envId and ClassExportFileVersion = :revNum)
-  Set SQLCODE=0  
-  &sql(OPEN C2) 
-  For { 
-	    &sql(FETCH C2)  
-	     
-	    if (SQLCODE '= 0)
-	    {
-	       Quit
-	    }
-	    Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   clsNm _ ", " _ clsfile _ ", " _ version)
-	    set extNm = ##class(ITFCOMMON.SrcCtrlPkg.ItfSrcCtrlUtil).ExternalName(clsNm)
-	    Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   extNm)
+  set depCl = ##class(SrcCtrlDeploymentInfoWebService.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+  set depCl.Username = usrNm
+  set depCl.Password = passwd
+  set clsList = depCl.GetClassInformation(clsName, env, revNum)
+  for ind=1:1:clsList.Count()
+  {
+	  set retVal = clsList.GetAt(ind)
+	  set clsNm = $Piece(retVal, ",", 1)
+	  set clsfile = $Piece(retVal, ",", 2) 
+	  set version = $Piece(retVal, ",", 3) 
+	  Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   clsNm _ ", " _ clsfile _ ", " _ version)
+	  set extNm = ##class(ITFCOMMON.SrcCtrlPkg.ItfSrcCtrlUtil).ExternalName(clsNm)
+	  Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   extNm)
 	    	
-		set cmd = "svn update  -N --no-auth-cache --non-interactive --revision " _ version _ " --username " _ usrNm _ " --password " _ passwd _ " " _extNm
-		Set stat = $ZF(-1, cmd)
-		Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "cmd: " _cmd _ ": " _ stat)
-		if (stat = 0)
-		{
+	  set cmd = "svn update  -N --no-auth-cache --non-interactive --revision " _ version _ " --username " _ usrNm _ " --password " _ passwd _ " " _extNm
+	  set stat = $ZF(-1, cmd)
+	  Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "cmd: " _cmd _ ": " _ stat)
+	  if (stat = 0)
+	  {
 		     // Export internal code
 		     set tempFile = ##class(%Library.File).TempFilename()
 		     if $F(clsNm, "CLS") >  $L(clsNm)
@@ -524,14 +464,13 @@ Compare the content of the internal code with checked out file</Description>
 		   set tSC = $$$ERROR($$$GeneralError, "Unable to run svn update command for: " _ extNm)
 		   Quit
 		}
-	}
+    }
 	 	
 	if $$$ISOK(tSC)
 	{
 		Do ##class(ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   " SVN file content matches internal code " _ clsName)
 	}
-	&sql(CLOSE C2)
- 
+	
  
   QUIT tSC
 ]]></Implementation>
