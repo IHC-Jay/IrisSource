@@ -11,7 +11,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4200' width='2015' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4800' width='2015' >
 <context>
 <property name='numericFacilityID' type='%String' instantiate='0' >
 <parameters>
@@ -45,10 +45,25 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='outboundOperation' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='obrIndex' type='%Integer' initialexpression='1' instantiate='0' >
+</property>
+<property name='hddNcidReq' type='ITFCOMMON.HDD.NcidLookupRequest' instantiate='0' >
+</property>
+<property name='hddResp' type='ITFCOMMON.HDD.LookupResponse' instantiate='0' >
+</property>
+<property name='hddRepReq' type='ITFCOMMON.HDD.RepLookupRequest' instantiate='0' >
+</property>
+<property name='hddRepResp' type='ITFCOMMON.HDD.LookupResponse' instantiate='0' >
+</property>
 </context>
-<sequence xend='200' yend='3950' >
+<sequence xend='200' yend='4550' >
 <trace value='"In SunquestBbOrdToSafeTraceBbBpl"' xpos='200' ypos='250' />
-<scope xpos='200' ypos='350' xend='200' yend='3850' >
+<scope xpos='200' ypos='350' xend='200' yend='4450' >
 <assign name="2.3:ORM_O01" property="request.DocType" value="&quot;2.3:ORM_O01&quot;" action="set" xpos='200' ypos='450' />
 <assign name="context.numericFacilityID" property="context.numericFacilityID" value="request.{MSH:SendingFacility.namespaceID}" action="set" xpos='200' ypos='550' />
 <assign name="context.orderCode" property="context.orderCode" value="request.{ORCgrp(1).OBRuniongrp.OBRunion.OBR:UniversalServiceIdentifier.identifier}" action="set" xpos='200' ypos='650' />
@@ -112,7 +127,7 @@ BPL Definition</Description>
  $$$TRACE("SafeTraceBbServer Lookup stat: " _ retStat _ ", mapped val: " _ retVal )
   } catch err
   {
-   set context.facilityID = "Unknown"
+   set context.serverID = "Unknown"
   }]]]]><![CDATA[>
 </code>
 <if name='serverID = "Unknown"' condition='context.serverID = "Unknown"' xpos='740' ypos='2500' xend='740' yend='2850' >
@@ -125,11 +140,74 @@ BPL Definition</Description>
 </if>
 </false>
 </if>
-<if name='Do not skip' condition='context.skipRec = 0' xpos='200' ypos='3150' xend='200' yend='3600' >
+<if name='Do not skip' condition='context.skipRec = 0' xpos='200' ypos='3150' xend='200' yend='4200' >
 <true>
-<trace name='call DTL' value='"Call DTL"' xpos='335' ypos='3300' />
-<transform name='call DTL' class='LAB.LAB.SunquestBbOrdToSafeTraceBbDtl' source='request' target='response' xpos='335' ypos='3400' />
-<call name='send to file' target='Out-SafeTrace-OrdersBb-Hl7file' async='1' xpos='335' ypos='3500' >
+<code name='create HDD structure' xpos='335' ypos='3300' >
+<![CDATA[ $$$TRACE("Do NCID lookup") 
+ set DOMAINUSER = "1000000000" 
+ set CONTEXTINTERFACE = "50035"
+ set drNum = request.GetValueAt("ORCgrp(1).ORC:OrderingProvider(1).IDnumberST")
+  set context.hddNcidReq  = ##class(ITFCOMMON.HDD.Utility).CreateHddNcidReqObject()
+ Do ##class(ITFCOMMON.HDD.Utility).AddRepToNcidObject(context.hddNcidReq , drNum,  DOMAINUSER, CONTEXTINTERFACE,  "ORC_OrderingProvider")
+ $$$TRACE("Created HDD Req for OrderingProvider: " _ drNum)
+
+ ]]]]><![CDATA[>
+</code>
+<call name='Call HDD NCID Operation' target='HddWebServiceOperation' async='0' xpos='335' ypos='3400' >
+<request type='ITFCOMMON.HDD.NcidLookupRequest' >
+<assign property="callrequest" value="context.hddNcidReq" action="set" />
+</request>
+<response type='ITFCOMMON.HDD.LookupResponse' >
+<assign property="context.hddResp" value="callresponse" action="set" />
+</response>
+</call>
+<code name='print NCID return values' xpos='335' ypos='3500' >
+<![CDATA[  $$$TRACE("Hdd return count: " _ context.hddResp.listOfHDDobj.Count())
+  set hddObj = ##class(ITFCOMMON.HDD.Utility).GetHddObject(context.hddResp, "ORC_OrderingProvider")
+  if (hddObj '= "")
+  {
+     $$$TRACE("NCID: " _ hddObj.NCID)
+  }
+  else
+  {
+     $$$TRACE("Cound not get hddobject for ORC_OrderingProvider")
+  }
+]]]]><![CDATA[>
+</code>
+<code name='create HDD structure' xpos='335' ypos='3600' >
+<![CDATA[ $$$TRACE("Do Rep lookup") 
+ set CONTEXTCURRENTNAME = "187"
+  set context.hddRepReq  = ##class(ITFCOMMON.HDD.Utility).CreateHddRepReqObject()
+  set drNcid = "10110116" // context.hddResp.listOfHDDobj.GetAt(listInd).NCID
+  Do ##class(ITFCOMMON.HDD.Utility).AddNcidToRepObject(context.hddRepReq , drNcid,  CONTEXTCURRENTNAME, "ORC_OrderingProvider")
+  $$$TRACE("Created HDD Req for OrderingProvider NCID: " _ drNcid _ ", context: " _ CONTEXTCURRENTNAME)
+
+ ]]]]><![CDATA[>
+</code>
+<call name='get HDD rep for NCID' target='HddWebServiceOperation' async='0' xpos='335' ypos='3700' >
+<request type='ITFCOMMON.HDD.RepLookupRequest' >
+<assign property="callrequest" value="context.hddRepReq" action="set" />
+</request>
+<response type='ITFCOMMON.HDD.LookupResponse' >
+<assign property="context.hddRepResp" value="callresponse" action="set" />
+</response>
+</call>
+<code name='print Rep return values' xpos='335' ypos='3800' >
+<![CDATA[  $$$TRACE("Hdd return count: " _ context.hddRepResp.listOfHDDobj.Count())
+  set hddObj = ##class(ITFCOMMON.HDD.Utility).GetHddObject(context.hddRepResp, "ORC_OrderingProvider")
+  if (hddObj '= "")
+  {
+     $$$TRACE("NCID: " _ hddObj.Rep)
+  }
+  else
+  {
+     $$$TRACE("Cound not get hddobject for ORC_OrderingProvider")
+  }
+]]]]><![CDATA[>
+</code>
+<transform name='call DTL' class='LAB.LAB.SunquestBbOrdToSafeTraceBbDtl' source='request' target='response' xpos='335' ypos='3900' />
+<assign name="set outbound operation name" property="context.outboundOperation" value="&quot;Out-SafeTrace-OrdersBb-Hl7file-&quot; _ context.serverID" action="set" xpos='335' ypos='4000' />
+<call name='send to file' target='@context.outboundOperation' async='1' xpos='335' ypos='4100' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -140,7 +218,13 @@ BPL Definition</Description>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3700' xend='200' yend='250' />
+<catchall xpos='200' ypos='4300' xend='200' yend='350' >
+<code name='process error' xpos='200' ypos='250' >
+<![CDATA[  
+   Set status =  ##class(ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+  ]]]]><![CDATA[>
+</code>
+</catchall>
 </faulthandlers>
 </scope>
 </sequence>
