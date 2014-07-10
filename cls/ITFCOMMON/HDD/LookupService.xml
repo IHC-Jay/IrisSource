@@ -4,19 +4,20 @@
 <Super>Ens.BusinessOperation</Super>
 <TimeCreated>63293,30041.447077</TimeCreated>
 
-<Method name="getNcidsForRepresentation">
-<FormalSpec>pRequest:ITFCOMMON.HDD.LookupRequest,*pResponse:ITFCOMMON.HDD.LookupResponse</FormalSpec>
+<Method name="GetNcidsForRepresentation">
+<FormalSpec>pRequest:ITFCOMMON.HDD.NcidLookupRequest,*pResponse:ITFCOMMON.HDD.LookupResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
 <Implementation><![CDATA[
-	#dim reqObj As ITFCOMMON.HDD.LookupRequest
-	$$$LOGINFO("In getNcidsForRepresentation " _ pRequest.listOfHDDobj.Count())
-	$$$LOGINFO("Retry: " _ ..ReplyCodeActions _ ": " _ ..RetryInterval)
-	set listInd = pRequest.listOfHDDobj.Next("")
+	#dim reqObj As ITFCOMMON.HDD.Object
+	$$$LOGINFO("GetNcidsForRepresentation " _ pRequest.listOfHddNcidObj.Count())
+	
+	set listInd = pRequest.listOfHddNcidObj.Next("")
 	set list = ##class(%ListOfObjects).%New()
-	set ncid = ""
+	
 	while ( listInd '= "")
 	{
-		set reqObj = pRequest.listOfHDDobj.GetAt(listInd)
+		set ncid = ""
+		set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
 	  Do ..GetHddNcidForRep(reqObj.Rep, reqObj.Domain, reqObj.Context, .ncid)
 	 
 	  set hddObj = ##class(ITFCOMMON.HDD.Object).%New()
@@ -25,24 +26,16 @@
 	  set hddObj.Context = reqObj.Context
 	  set hddObj.Domain = reqObj.Domain
 	  set hddObj.Rep = reqObj.Rep
+	  set hddObj.Index = reqObj.Index
 	  
 	  Do list.Insert(hddObj)
-	  set listInd = pRequest.listOfHDDobj.Next(listInd)
+	  set listInd = pRequest.listOfHddNcidObj.Next(listInd)
 	}
 	set pResponse = ##class(ITFCOMMON.HDD.LookupResponse).%New()
 	set pResponse.listOfHDDobj = list
 	
 		
-	$$$LOGINFO("Return Count: " _ pResponse.listOfHDDobj.Count() _ " " _ pResponse.listOfHDDobj.GetNext("").Comment)
-	Quit $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="Send">
-<FormalSpec>pRequest:EnsLib.HL7.Message,pResponse:Ens.Response</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	$$$LOGINFO("In Send")
+	$$$LOGINFO("Return Count: " _ pResponse.listOfHDDobj.Count() _ ", NCID: " _ pResponse.listOfHDDobj.GetNext("").NCID)
 	Quit $$$OK
 ]]></Implementation>
 </Method>
@@ -111,14 +104,92 @@
 ]]></Implementation>
 </Method>
 
+<Method name="GetRepresentationForNcids">
+<FormalSpec>pRequest:ITFCOMMON.HDD.RepLookupRequest,*pResponse:ITFCOMMON.HDD.LookupResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As ITFCOMMON.HDD.Object
+	$$$LOGINFO("GetRepresentationForNcids " _ pRequest.listOfHddRepObj.Count())
+	
+	set listInd = pRequest.listOfHddRepObj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	set ncid = ""
+	while ( listInd '= "")
+	{
+		set rep = ""
+	  	set reqObj = pRequest.listOfHddRepObj.GetAt(listInd)
+	  	Do ..GetHddRepForNcid(reqObj.NCID, reqObj.Context, .rep)
+	 
+	  set hddObj = ##class(ITFCOMMON.HDD.Object).%New()
+	  set hddObj.Comment = "Test Comment"
+	  set hddObj.NCID = reqObj.NCID
+	  set hddObj.Context = reqObj.Context
+	  set hddObj.Domain = ""
+	  set hddObj.Rep = rep
+	  set hddObj.Index = reqObj.Index
+	  
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHddRepObj.Next(listInd)
+	}
+	set pResponse = ##class(ITFCOMMON.HDD.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+	
+		
+	$$$LOGINFO("Return Count: " _ pResponse.listOfHDDobj.Count() _ ", rep: " _ pResponse.listOfHDDobj.GetNext("").Rep)
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetHddRepForNcid">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[ncid:%String,context:%String,&rep:%String]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  NEW $NAMESPACE
+  SET $NAMESPACE = "ITFCOMMON"
+  try 
+  {
+ 	Set rep = ""
+	set servicePort = ##class(HddCommonService.HddCommonServicePort).%New()
+  
+		  Set ced = servicePort.getPreferredSurfaceForm(ncid, context, "tst")
+		  if $GET(ced)
+		  {
+		   	$$$LOGINFO("Pref Name in context for: " _ ncid _ " in context " _ context _ " = " _ ced.text)
+		  	Set rep = ced.text
+		  	Quit
+		  }
+		  else
+		  {
+			  Set rep = "ERROR" 
+		  }
+        
+	}  
+    CATCH exceptionvar
+    {
+     Set rep = "ERROR"  
+	  If $ZERROR["<ZSOAP>" {
+	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+	     Set repNcid = errTxt
+         $$$LOGERROR("Exception in GetHddRepForNcid " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$LOGERROR($ZERROR)
+	  }
+	  else
+	  {
+		  throw exceptionvar
+	  }
+    }
+]]></Implementation>
+</Method>
+
 <XData name="MessageMap">
 <Data><![CDATA[
 <MapItems>
-<MapItem MessageType="ITFCOMMON.HDD.LookupRequest">
-		<Method>getNcidsForRepresentation</Method>
+<MapItem MessageType="ITFCOMMON.HDD.NcidLookupRequest">
+		<Method>GetNcidsForRepresentation</Method>
 	</MapItem>
-	<MapItem MessageType="EnsLib.HL7.Message"> 
-		<Method>Send</Method>
+	<MapItem MessageType="ITFCOMMON.HDD.RepLookupRequest"> 
+		<Method>GetRepresentationForNcids</Method>
 	</MapItem>
 	</MapItems>
 ]]></Data>
