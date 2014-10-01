@@ -1,0 +1,1416 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.SrcCtrlPkg.ItfSrcCtrlUtil">
+<IncludeCode>itfSrcCtrl,EnsErrors</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>63460,52170.929641</TimeCreated>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Get latest file from Ensemble database, checkin to repository and update the ITFCOMMON database
+
+]]></Content>
+</UDLText>
+
+<Method name="CheckinFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,comment:%String,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	// Set usrNm = $username
+	set files = ""
+	set SelectedIntfiles = ""
+	
+	if ( (Selectedfiles = "") || (comment = "") )
+	{
+		Quit $$$ERROR($$$EnsErrGeneral, "FileNames and comment are empty")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		
+		if ( fileNm '= "")
+		{
+		   SET files = files _ " " _ fileNm 
+	    }
+	    else
+	    {
+		    continue
+	    }
+	    Do ..AddDirectoriesToSvn(fileNm, usrNm, passwd)
+	    
+        // Get latest from Ensemble DB 
+        
+	    set InternalName = ..GetInternalName(fileNm)
+	    IF InternalName '= "" 
+        {
+	        set sc = $$$OK
+	        Set origNmSp =  $NAMESPACE
+	        Set $NAMESPACE = nmSp
+	        if ($F(InternalName, ".LOOKUP") > 0)
+	        {
+		        // Table name is between Namespace and LOOKUP
+		        set tbNm = $E(InternalName, $F(InternalName,"."), *)
+		        set tbNm = $E(tbNm, 1, ($F(tbNm,".") - 2))
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Export lookup table: " _ tbNm _ " to " _ fileNm)
+		        set sc = ##class(Ens.Util.LookupTable).%Export(fileNm, tbNm)
+	        }
+	        elseif ($F(InternalName, ".SYSDEF") > 0)
+	        {
+		        set prodNm = ##class(Ens.Director).GetActiveProductionName()
+    			set sc = ##class(Ens.Config.DefaultSettings).%Export(fileNm, prodNm)
+    			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Export System defaults " _ prodNm _ " to " _ fileNm _ ", stat: " _ sc)
+	        }
+	        else {
+	        	Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",InternalName)
+	        }
+	        Set $NAMESPACE = origNmSp
+	        if ( ($$$ISOK(sc)) &&  (##class(%Library.File).Exists(fileNm)) )
+	        {
+	          set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
+         	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: " _ $NAMESPACE _ " " _ fileNm _" -d /diffexport " _InternalName)
+	          Do ..AddToSvn(fileNm, 0, usrNm, passwd)	
+	        }
+	        else
+	        {
+		          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: file does not exits: " _ fileNm _" -d /diffexport " _InternalName)
+	        
+	        }
+        }
+	}
+    
+	if (files '= "" )
+    {
+	    
+	    Set cmd = $$$SVNCOMMIT _ " --username " _ usrNm _ " --password " _ passwd  _ " -m """ _ comment _ """ " _ files  ; a non-recursive commit (-N)
+	    Set stat = $ZF(-1, cmd)
+	    
+        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit " _ files _ ", stat: " _ stat)
+		
+		if stat '= 0
+		{
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ files)
+		  Quit $$$ERROR($$$EnsErrGeneral, "SVN commit error")
+		}
+		
+    }
+    For I=1:1:$L(SelectedIntfiles,",")
+	{
+		Set InternalName = $P(SelectedIntfiles,",",I)
+		
+		if ( InternalName '= "")
+		{
+          Do ..AddToSourceControl(InternalName, usrNm)
+		}
+	}
+     Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetInternalName">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+ NEW $NAMESPACE
+ SET $NAMESPACE = "ITFCOMMON"
+ &sql(SELECT  InternalName INTO :intName FROM SrcCtrlTbl WHERE FileName=:fileNm)
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetInternalName, SQLCODE: " _ SQLCODE _ ", Name: " _ fileNm _ " : " _ intName)
+
+ IF SQLCODE = 0 
+ { 
+	   return intName
+ }
+ else
+ {
+        return ""
+ }
+]]></Implementation>
+</Method>
+
+<Method name="AddDirectoriesToSvn">
+<Description>
+If needed, create and add all directories from root to SVN</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fName:%String,usrNm:%String,passwd:%String</FormalSpec>
+<Implementation><![CDATA[
+	// Set usrNm = $username
+	set stat = $$$ERROR(9100, "Could not add")
+	SET fullPath = $$$USRBASEDIR _ usrNm _ $$$SVNSRCTRUNK
+	set svnPath=$REPLACE(fName, fullPath, "")
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddDirectoriesToSvn " _ fullPath _ " = " _svnPath) 
+	SET fileParts = $Length(svnPath, "/")
+	// Check if directories from SVN BASE exists or not
+	FOR ind=1:1:fileParts - 1
+	{
+		set dirName = $PIECE(svnPath, "/", ind)
+		set fullPath = fullPath _ "/" _ dirName
+		if ( ' ##class(%Library.File).Exists(fullPath))
+		{
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddDirectoriesToSvn, create directory: " _fullPath)
+			Do ##class(%File).CreateDirectory(fullPath)
+		}
+		Do ..AddToSvn(fullPath, 1, usrNm, passwd)
+	}
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// If svn info does not return any information, add new file to repository by svn add command
+
+]]></Content>
+</UDLText>
+
+<Method name="AddToSvn">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fullPath:%String,commit:%Boolean,usrNm:%String,passwd:%String</FormalSpec>
+<Implementation><![CDATA[
+	set stat = 0
+	Set cmd = $$$SVNINFO _ " --username " _ usrNm _ " --password " _ passwd _ " " _ fullPath
+	Set stat = $ZF(-1, cmd)
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: " _ fullPath _ " svn info:" _ stat)
+	If stat '= 0 	
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _" returned no information, add to SVN" )
+		Set cmd = $$$SVNADD _ " --username " _ usrNm _ " --password " _ passwd _ " " _  fullPath  ; a non-recursive commit (-N)   
+		Set stat = $ZF(-1, cmd)
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn add:" _ stat)
+	}
+	if ((stat = 0) && (commit = 1))
+	{		
+		  Set cmd = $$$SVNCOMMIT _ " --username " _ usrNm _ " --password " _ passwd _ " -m ""Initialization""  " _ fullPath  ; a non-recursive commit 
+		  Set stat = $ZF(-1, cmd)
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn commit:" _ stat)	
+	}
+	Quit stat
+]]></Implementation>
+</Method>
+
+<Method name="Checkout">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+	set tStatus = $$$ERROR(100, "Error in checkout")
+	
+	
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		if ( fileNm '= "")
+		{	 
+			If ##class(%File).Exists(fileNm)
+			{
+	  			Do ##class(%File).Delete(fileNm)
+	  			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Delete old version of file: " _ fileNm)
+			}	
+			if (rev '= "")
+			{
+				Set cmd= $$$SVNUPDATE _ " --revision " _ rev
+			}
+			else
+			{		
+			  Set cmd= $$$SVNUPDATE 
+			}
+			Set cmd= cmd _ " --username " _ usrNm _ " --password " _ passwd _ " " _  fileNm 
+	
+			Set status = $ZF(-1, cmd)
+			If ##class(%File).Exists(fileNm)
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("File Exists, checkout: " _ fileNm _ ": " _ status)
+				set InternalName = ..GetInternalName(fileNm)
+				Set origNmSp =  $NAMESPACE
+	           	Set $NAMESPACE = nmSp
+				if ($F(InternalName, ".LOOKUP") > 0)
+	        	{
+		        	set tStatus = ##class(Ens.Util.LookupTable).%Import(fileNm)
+		        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Import " _ fileNm _ ", stat: " _ tStatus)
+	        	}
+	        	 elseif ($F(InternalName, ".SYSDEF") > 0)
+	        	{
+		        	set pc = 0
+    				set sc = ##class(Ens.Config.DefaultSettings).%Import(fileNm, .pc)
+    				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Import System defaults stat: " _ sc _ ", # " _ pc)
+	        	}
+	        	else
+	        	{	  		  
+         	   		#; Call the function to do the load        	   		
+         	   		Set tStatus=$system.OBJ.Load(fileNm,"-l-d")
+	        	}
+	        	Set $NAMESPACE = origNmSp
+         	   if $$$ISOK(tStatus)
+         	   { 
+         		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("File Loaded: " _ fileNm _ ": " _ status)
+         		 set tStatus = $$$OK       
+	  		   }
+	  		   else
+	  		   {
+		  		   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("File loaded failed: " _ filename)
+	  		   }
+	        	
+			}
+			else
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNUPDATE _ " failed: " _ fileNm)
+				set tStatus = $$$ERROR(100, "Error in checked from subversion")
+			}
+		}
+	}
+	
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GetSvnInformation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Selectedfiles:%String,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+	set fileInfo = ""
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetSvnInformation " _ $NAMESPACE _ " " _ usrNm)
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		set tempFile = 	fileNm _ "Temp"
+		if (##class(%File).Exists(tempFile) )
+	  	{
+			Do ##class(%Library.File).Delete(tempFile)
+	  	}
+		if ( (fileNm '= "") && (##class(%File).Exists(fileNm) ) )
+		{	 
+			 		
+		
+	         Set cmd= $$$SVNINFO _ fileNm _ " >> " _ tempFile
+	
+			 Set status = $ZF(-1, cmd)
+	
+	         Set cmd=  $$$SVNLOG _" --username " _ usrNm _ " --password " _ passwd _ " " _ fileNm _ " >> " _ tempFile 
+	
+			 Set status = $ZF(-1, cmd)
+	  		
+	  		if (##class(%File).Exists(tempFile) )
+	  		{
+         		#; Call the function to do the load
+         		Set tStatus=..GetFileContent(tempFile) 
+         		Set fileInfo = fileInfo _ tStatus       
+	  		}
+	  		else
+	  		{
+		  		SET fileInfo = "svn command failed: " _ cmd
+	  		}
+		}
+	}
+	Quit fileInfo
+]]></Implementation>
+</Method>
+
+<Method name="GetDiff">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,Selectedfiles:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+	set fileInfo = ""
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetDiff: " _ Selectedfiles)
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		set tempFile = 	fileNm _ "Temp"
+		set diffFile = 	fileNm _ "Diff"
+		if (##class(%File).Exists(tempFile) )
+	  	{
+			Do ##class(%Library.File).Delete(tempFile)
+	  	}
+	  	if (##class(%File).Exists(diffFile) )
+	  	{
+			Do ##class(%Library.File).Delete(diffFile)
+	  	}
+     if ( (fileNm '= "") && (##class(%File).Exists(fileNm) ) )
+     {
+     
+     set InternalName = ..GetInternalName(fileNm)
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fileNm _ " = " _ "Int name: " _ InternalName)
+	 IF InternalName '= "" 
+     { 
+     		Set origNmSp =  $NAMESPACE
+	        Set $NAMESPACE = nmSp
+	       Set sc=$$Export^%occXMLExport(tempFile,"-d /diffexport",InternalName)
+	       Set $NAMESPACE = origNmSp
+     }
+     if (  ##class(%File).Exists(tempFile)) 
+     {
+	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "file exists: " _ tempFile)
+	    set cmd = "diff -w -B --suppress-common-lines " _ tempFile _ " " _ fileNm _ " > " _ diffFile
+	    Set stat = $ZF(-1, cmd)
+	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(diffFile)
+	    Set diffStr = ..GetFileContent(diffFile) 
+	    if (diffStr = "")
+	    {
+		     set fileInfo = fileInfo  _ "<BR>" _ fileNm _": Files are identical"
+	    }
+	    else
+	    {
+		    set fileInfo = fileInfo  _ "<BR>" _ fileNm _ "<BR>" _ diffStr
+	    }
+	    Do ##class(%Library.File).Delete(tempFile)
+	    Do ##class(%Library.File).Delete(diffFile)
+     }
+	}
+	}
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Diff: " _ fileInfo)
+	Quit fileInfo
+]]></Implementation>
+</Method>
+
+<Method name="DownloadFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Selectedfiles:%String,usrNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+	set outputStr = "Downloaded files: "
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("DisplayFiles: " _ Selectedfiles _ " " _ usrNm)
+	if (Selectedfiles = "")
+	{
+		Quit $$$ERROR(6484, "FileName")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set fileNm = $P(Selectedfiles,",",I)
+		
+     if ( fileNm = "") 
+     {
+	     continue
+     }
+     if ( ##class(%File).Exists(fileNm) ) 
+     {
+	    set newFileNm = $$$USRBASEDIR _ usrNm _ "/" _ ##class(%File).GetFilename(fileNm)
+        if ( ##class(%File).CopyFile(fileNm, newFileNm, 1) = 0)
+        {
+	        set outputStr = "Could not create file: " _ newFileNm
+	        Quit
+        }
+        else
+        {
+	        set outputStr = outputStr  _ newFileNm _ "; "
+        }
+     }
+     else
+     {
+	     set outputStr = outputStr  _ "; Could not find file: " _ fileNm
+	     Quit
+     }
+	}
+	
+	Quit outputStr
+]]></Implementation>
+</Method>
+
+<Method name="GetFilesInSvn">
+<Description>
+Get files that are checked-in to SVN</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String,nmSp:%String</FormalSpec>
+<ReturnType>%Library.ListOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	
+	set fullPath = $$$USRBASEDIR _ usrNm _  $$$SVNSRCTRUNK _ "cls/" _ nmSp
+	set tempFile = $$$USRBASEDIR _ usrNm _ "/tempSvnList"
+	set incPath = $$$USRBASEDIR _ usrNm _  $$$SVNSRCTRUNK _ "inc" 
+	
+	Set cmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ fullPath 
+    Set stat = $ZF(-1, cmd)
+
+    Set cmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ incPath
+    Set stat = $ZF(-1, cmd)
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetFilesInSvn: " _ $$$SVNUPDATEALL _ " for " _ fullPath _" AND " _ incPath)
+ 	Set cmd = $$$SVNLIST _ " --username " _ usrNm _ " --password " _ passwd _ " " _ fullPath _ " > " _ tempFile
+	Set stat = $ZF(-1, cmd)
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNLIST _ ": " _ stat)
+   
+    Set filesList= ##class(%Library.ListOfDataTypes).%New()
+
+     If ##class(%File).Exists(tempFile)
+     {
+
+		 Do ..AddFilesToList(tempFile, fullPath, filesList)
+     }
+     
+     Set cmd = $$$SVNLIST _ " --username " _ usrNm _ " --password " _ passwd _ " " _ incPath _ " > " _ tempFile
+	Set stat = $ZF(-1, cmd)
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNLIST _ ": " _ stat)
+   
+     If ##class(%File).Exists(tempFile)
+     {
+
+		 Do ..AddFilesToList(tempFile, incPath, filesList)
+     }
+     
+  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Number files in SVN list: " _ filesList.Count())
+  Quit filesList
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Read file with svn information and add to FileList
+
+]]></Content>
+</UDLText>
+
+<Method name="AddFilesToList">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tempFile:%String,fullPath:%String,filesList:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	Set file=##class(%File).%New(tempFile)
+		// Write !, "File size:" _ file.Size
+		Do file.Open("RS")
+	
+    	While 'file.AtEnd 
+    	{ 
+     		set ln = file.ReadLine(,.sc,.eol) 
+     		If $$$ISERR(sc) 
+     		{ 
+     			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "ERROR reading file")
+     			 Quit 
+     			} 
+     		elseIf eol 
+     		{ 
+     			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("EOF " _ eol)
+     		} 
+     		else
+     		{
+	    		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("File name: " _ ln)
+	    		if ( $LENGTH(ln) > 1)
+	    		{
+		    		set fileNm =  fullPath _ "/" _ ln
+		    		if ( ##class(%File).DirectoryExists(fileNm) = 0)
+		    		{
+		    			DO filesList.Insert(fileNm)
+		    		}
+	    		}
+     		}
+    	}
+    	Do ##class(%File).Delete(tempFile)
+]]></Implementation>
+</Method>
+
+<Method name="GetFileContent">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>TempFile:%String,delete:%Boolean=1</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set fileInfo = ""
+	Set fileObj=##class(%Library.File).%New(TempFile)
+         set fileOpen = fileObj.Open("RS") ; Read mode and as stream
+         Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("OPEN: " _ fileOpen)
+         While 'fileObj.AtEnd 
+         {
+	         set readStr = fileObj.ReadLine(1000, .sc, .stat)
+	         if ($L(readStr) > 0)
+	         {
+	        	set fileInfo = fileInfo _ readStr _ "<BR>"
+	         }	       
+         }
+         Do fileObj.Close()
+         if (delete)
+         {
+           Do ##class(%Library.File).Delete(TempFile)
+         }
+         Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("file len: " _ $LENGTH(fileInfo))
+         Quit fileInfo
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Main method to get items from Ensemble and Source control
+
+]]></Content>
+</UDLText>
+
+<Method name="GetItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	#dim fileList as %Library.ListOfDataTypes
+	#dim tStat as %Status
+
+	set fileList = ##class(%Library.ListOfDataTypes).%New()
+	
+
+	set itNum = 0
+	try
+	{
+	  set tStat = ..CheckSvnSetup(usrNm, passwd)
+	  set fileList = ..GetFilesInSvn(usrNm, passwd, nmSp) 
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems " _ fileList.Count())
+  
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems " _ $NAMESPACE _ " " _ usrNm)
+	  
+	  IF $$$ISERR( tStat )
+	  {
+		  set tExp = ##class(%Exception.General).%New()
+		  set tExp.Name = "Setup error: " _ tStat.Data
+		  set tExp.Code=999
+		  set tExp.Location = "CheckSvnSetup"
+		  set tExp.Data = "Check: " _ $$$USRBASEDIR _ usrNm
+		  Throw tExp
+	  }
+	  try
+	  {
+	 	 NEW $NAMESPACE
+      	 SET $NAMESPACE = nmSp
+	  } catch err
+	  {
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Not able change to " _ nmSp _ ". Error: " _ err.Name _ " " _ err.Location)
+		throw err
+	  }
+	  set prodNm = ##class(Ens.Director).GetActiveProductionName()
+	  If prodNm = ""
+ 	  {
+	 		set itNum = ..GetItemsFromDictionary(usrNm, passwd, fileList)
+ 	  }
+ 	  else 
+ 	  {
+	 		set itNum = ..GetItemsFromProduction(usrNm, passwd, fileList)
+ 	  }	
+      
+      set itNum = itNum + ..GetIncAndRoutines(usrNm, fileList)
+      
+      set itNum = itNum + ..GetLookupFiles(usrNm, fileList)
+      Do ..GetSystemDefaults(usrNm)
+    
+      Do ..AddSvnFilesToSourceControl(fileList, nmSp, usrNm)        
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems: "_ itNum)  
+	} catch err
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("EXCEPTION in GetItems: " _ err.Name _ " " _ err.Location)
+		throw err
+	}    
+	Quit itNum
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// For all namespaces with active Production Configuration 
+
+]]></Content>
+</UDLText>
+
+<Method name="GetItemsFromProduction">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String,fileList:%Library.ListOfDataTypes</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	set itNum = 0
+	set prodNm = ##class(Ens.Director).GetActiveProductionName()
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(" GetItemsFromProduction from " _ prodNm)
+	  Set tProduction = ##class(Ens.Config.Production).%OpenId(prodNm,,.tSC)
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItemsFromProduction from " _ prodNm _ " # items: " _ tProduction.Items.Count())
+	  For i=1:1:tProduction.Items.Count() {
+	   Set compItem = tProduction.Items.GetAt(i)
+	   Set tItemName=compItem.Name, tBusinessType=compItem.BusinessType()
+	   Set tProduction = compItem.Production
+	   Set:(tItemName '[ "||") tItemName = prodNm_"||"_tItemName
+	   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("OpenItemByConfigName: " _ tItemName) 
+	    try
+	    {
+	  	 	Set configItem = ##class(Ens.Config.Production).OpenItemByConfigName(tItemName)
+	    
+	   		If ' $IsObject(configItem)
+ 			{
+	 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Not a object: " _ tItemName)
+				Continue
+ 			}
+ 			// Open production and get items for the component
+ 			set tProjectArray = ""
+ 			kill tProjectArray
+ 			Set tSC=tProduction.getProjectArrayFromConfigItem(configItem,.tProjectArray) 
+ 		} catch err
+	    {
+		    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Not a object: " _ tItemName)
+			Continue
+	    }
+  		if $$$ISERR(tSC)
+  		{
+	  	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("getProjectArrayFromConfigItem " _ tSC)	
+	  	 QUIT
+  		}
+  		Set tSC=tProduction.expandProjectArray(.tProjectArray)  Quit:$$$ISERR(tSC)
+  		#dim tProject as %Studio.Project
+ 		set tSC = tProduction.createStudioProjectFromArray(.tProject,.tProjectArray, "TEST", "DESC")
+ 		if $$$ISERR(tSC)
+ 		{
+	 		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createStudioProjectFromArray " _ tSC)	
+	  	 QUIT
+ 		}
+	  
+ 		Set k="" 
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(i _ " of " _ tProduction.Items.Count() _ ", project items in " _ tItemName _ " : " _ tProject.Items.Count())
+ 		For 
+  		{ 
+	   		#dim tItem As %Studio.ProjectItem 
+			Set tItem=tProject.Items.GetNext(.k)  Quit:""=k||'$IsObject(tItem)
+			Set tItemName=tItem.Name
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("ProjectItem: " _ tItemName)
+		     	
+			if ('(tItemName [ "ITFCOMMON"))
+			{
+					 		     	
+			// Does the Name end with type
+			if $F(tItemName, tItem.Type) >  $L(tItemName)
+			{
+				set item = tItemName
+	 		}
+	 		else
+	 		{
+				set item = tItemName _ "." _ tItem.Type
+	 		}
+    
+               
+	              // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems: " _ item)
+	              set stat =  ..AddToSourceControl(item, usrNm)	
+	              if ( stat '= $$$OK)
+	              {
+		              Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems: AddToSourceControl returned error")
+	                return 0
+	              }
+	              set itNum = itNum + 1
+	              Set svnFile = ..ExternalName(item, usrNm)
+	               Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(itNum _ " added: " _ svnFile)
+	               set findInd = fileList.Find(svnFile)
+	              if ( findInd )
+  
+                  {
+	                   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Found in SVN List: " _ svnFile)
+	                   Do fileList.RemoveAt(findInd)    
+                  }
+	             
+           	 }
+        }
+   	 }
+   	 return itNum
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Namespaces without Production Configuration (like ITFCOMMON)
+
+]]></Content>
+</UDLText>
+
+<Method name="GetItemsFromDictionary">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String,fileList:%Library.ListOfDataTypes</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	
+	#dim tStat as %Status
+	set itNum = 0
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItemsFromDictionary")
+	            
+	 // Types of classes we need
+	Set SrcCtrlList=$LB("Ens.BusinessProcessBPL", "Ens.Rule.Definition", "Ens.DataTransformDTL", 
+   		"Ens.Rule.FunctionSet", "%Persistent", "%Studio.SourceControl.Base",
+   		"%ZEN.application", "%ZEN.Component.page")
+   		
+   	// Ignore classes that start with Intersystem class name	
+    Set classesList=$LB("CSPX", "Ens", "EnsLib", "EnsPortal", "HS")
+	        
+    Set rset = ##class(%ResultSet).%New("%Dictionary.ClassDefinition:Summary")
+ 
+     Do rset.Execute()
+     			
+     
+     While (rset.Next(.sc)) // next row of result set
+     {
+    	If ($SYSTEM.Status.IsOK(sc)) // check for errors
+    	{
+	    	 set clNm =  rset.Data("Name")
+	    	//  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(clNm)
+	    	 // Not a system class and does not start with %
+	    	 if ( (clNm [ $NAMESPACE) ||(clNm [ "SrcCtrlPkg"))
+	                {
+		                Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CONTAINS " _clNm _ " " _ $NAMESPACE)
+          	 if ((rset.Data("System") = 0 ) && ( $Extract(clNm, 1,1) '= "%"))
+             {
+                set clType = $PIECE(clNm, ".", 1)
+                set clSuperType = $PIECE(rset.Data("Super"), ".", 1)
+                 
+                // Not Inter systems class and is one of the classes defined above
+                if ( (' $LF(classesList, clType)) && ( ($LF(SrcCtrlList, rset.Data("Super")) ) 
+                || ( $FIND(rset.Data("Super"), clSuperType) >= 1 ) )  )
+                {
+               
+	             Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems: " _ clNm _ " " _ rset.Data("Super"))
+	              set stat =  ..AddToSourceControl(clNm _ ".CLS", usrNm)	
+	              if ( stat '= $$$OK)
+	              {
+		              Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItems: AddToSourceControl returned error")
+	                return 0
+	              }
+	              set itNum = itNum  + 1
+	              Set svnFile = ..ExternalName(clNm _ ".CLS", usrNm)
+	               Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
+	               set findInd = fileList.Find(svnFile)
+	              if ( findInd )
+  
+                  {
+	                   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Found in SVN List: " _ svnFile)
+	                   Do fileList.RemoveAt(findInd)    
+                  }
+	             
+           	 }
+        }
+   	 }
+    	}
+    }
+    return itNum
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Get Include and Routine files
+
+]]></Content>
+</UDLText>
+
+<Method name="GetIncAndRoutines">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,fileList:%Library.ListOfDataTypes</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	#dim tStat as %Status
+	set itNum = 0
+	
+	// Ignore classes that start with Intersystem class name	
+    Set classesList=$LB("CSPX", "Ens", "EnsLib", "EnsPortal", "HS")
+    
+	// MAC and INC files
+    Set result = ##class(%ResultSet).%New("%Library.Routine:RoutineList")
+    Do result.Execute()
+ 
+	
+	While (result.Next()) {
+	     set clNm =  result.Data("Name")
+	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("%Library.Routine:RoutineList " _clNm _ " " _ $NAMESPACE)
+    
+	     if ( (clNm [ $NAMESPACE) || ($ZCVT(clNm, "U") [ ".INC") || ($ZCVT(clNm, "U") [".MAC"))
+	     {
+		    
+	       set clType = $PIECE(result.Data("Name"), ".", 1)
+               
+           if (' $LF(classesList, clType))       
+           {
+	         
+	         Set routine = ##class(%Routine).%New(clNm)
+	         if ((' routine.Generated) && ($E(clNm,1,3) '= "Ens") )
+	         {
+    
+	             Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetIncAndRoutines: " _ clNm )
+	              set stat =  ..AddToSourceControl(clNm, usrNm)	
+	              if ( stat '= $$$OK)
+	              {
+		              Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetIncAndRoutines: AddToSourceControl returned error")
+	                return 0
+	              }
+	              
+	              Set svnFile = ..ExternalName(clNm, usrNm)
+	               Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
+	               set findInd = fileList.Find(svnFile)
+	              if ( findInd )
+  
+                  {
+	                   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Found in SVN List: " _ svnFile)
+	                   Do fileList.RemoveAt(findInd)    
+                  }
+	              set itNum = itNum + 1
+	         }
+           }
+	   }
+    }
+    return itNum
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Get Lookup files
+
+]]></Content>
+</UDLText>
+
+<Method name="GetLookupFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,fileList:%Library.ListOfDataTypes</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	#dim tStat as %Status
+	set itNum = 0
+	
+	
+    &sql(Declare Cl Cursor for SELECT DISTINCT TableName into tb FROM Ens_Util.LookupTable)
+    Set SQLCODE=0  
+	&sql(OPEN Cl) 
+
+	WHILE(SQLCODE = 0)
+	{
+		 &sql(FETCH Cl)  
+	     Quit:SQLCODE 
+	     set intNm =  $NAMESPACE _ "." _ tb _ ".LOOKUP"
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetLookupFiles: " _ intNm )
+	     set stat =  ..AddToSourceControl(intNm, usrNm, 0)	
+	     if ( stat '= $$$OK)
+	     {
+		      Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetLookupFiles: returned error")
+	          return 0
+	     }
+	              
+	     Set svnFile = ..ExternalName(intNm, usrNm)
+	     if (svnFile '= "")
+	     {
+	     	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnFile _ " " _ fileList.Count())
+	     	set findInd = fileList.Find(svnFile)
+	     	if ( findInd )
+         	{
+	         Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Found in SVN List: " _ svnFile)
+	         Do fileList.RemoveAt(findInd)    
+         	}
+	     }
+	     set itNum = itNum + 1     
+ 	}
+	&sql(CLOSE Cl)
+    
+    return itNum
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Get System Default file
+
+]]></Content>
+</UDLText>
+
+<Method name="GetSystemDefaults">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String</FormalSpec>
+<Implementation><![CDATA[
+	#dim tStat as %Status
+	
+ 	&sql(select count(*) into :num  FROM Ens_Config.DefaultSettings )
+ 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("# of SystemDefaults in " _ $NAMESPACE _ ": " _ num)
+	if (num > 0)
+	{
+    	set instance =  $E($SYSTEM, $F( $SYSTEM, ":"), *)
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetSystemDefaults: " _ $NAMESPACE _ ", " _instance)
+ 
+ 
+		set intNm =  $NAMESPACE _ "." _ instance _ ".SYSDEF"
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetSystemDefaults: " _ intNm )
+		set stat =  ..AddToSourceControl(intNm, usrNm, 0)	
+		if ( stat '= $$$OK)
+		{
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetSystemDefaults: returned error")
+		}
+	}
+]]></Implementation>
+</Method>
+
+<Method name="CheckSvnSetup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
+	set tSC = ..DoSvnSetup(usrNm, passwd)
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Create required directories, update svn tree
+
+]]></Content>
+</UDLText>
+
+<Method name="DoSvnSetup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 // Source code files
+	 set svnBaseDir = $$$USRBASEDIR _ usrNm
+ 	 set tSC = ..createSvnDirectories(svnBaseDir)
+     // Checkout complete source tree
+     SET svnSrcTrunk = svnBaseDir _ $$$SVNSRCTRUNK
+     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnSrcTrunk)
+     IF ' ##class(%File).DirectoryExists(svnSrcTrunk)
+	 {
+	   Do ##class(%File).CreateDirectory(svnSrcTrunk)
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
+	   Set status = $ZF(-1, svnCmd)
+	   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " " _ status)
+	 }
+	 set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
+	  
+	 Set status = $ZF(-1, svnCmd)
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnSrcTrunk _ ", stat: " _ status)
+	 
+	 // Release files
+	 set svnBaseDir = $$$USRRELEASEBASEDIR  _ usrNm
+	 set tSC = ..createSvnDirectories(svnBaseDir)
+	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK
+	 IF ' ##class(%File).DirectoryExists(svnRelTrunk)
+	 {
+	   Do ##class(%File).CreateDirectory(svnRelTrunk)
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk 
+	   Set status = $ZF(-1, svnCmd)
+	   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk _ " " _ status)
+	 }
+	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ svnRelTrunk 
+	  Set status = $ZF(-1, svnCmd)
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnRelTrunk _ ", stat: " _ status)
+	 
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckSvnSetup: OK ")
+     Quit $$$OK
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Create base directories
+
+]]></Content>
+</UDLText>
+
+<Method name="createSvnDirectories">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrBaseDir:%String</FormalSpec>
+<Implementation><![CDATA[
+	 // check for the parent directory
+	
+	 
+	 IF ' ##class(%File).DirectoryExists(usrBaseDir)
+	 {
+		 if $$$ISERR( ##class(%File).CreateDirectory(usrBaseDir))
+		    Quit $$$ERROR(100, "User Home directory could not be created")
+     }
+     ELSE {
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ " User Home directory exists")
+     }
+     
+     SET svnBaseDir = usrBaseDir _ $$$SVNSRCTRUNK
+     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ svnBaseDir) 
+	 IF ' ##class(%File).DirectoryExists(svnBaseDir)
+     {
+         Do ##class(%File).CreateDirectory(svnBaseDir)
+         
+	 }
+	 ELSE {
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ svnBaseDir _ " User Home directory exists")
+     }
+     
+     IF ' ##class(%File).DirectoryExists(svnBaseDir)
+     {
+	     Quit $$$ERROR(100, "User SVN directory could not be created: " _ svnBaseDir)
+     }
+     Quit $$$OK
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Return svn last changed time (from svn info) of a file
+
+]]></Content>
+</UDLText>
+
+<Method name="GetSvnTime">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set fileStamp = ""
+	
+	if (##class(%File).Exists(fileNm) )
+	{
+		set fTime = ##class(%File).GetFileDateModified(fileNm)
+		set fileStamp = $ZDATETIME(fTime, 3, 1)
+		
+		// Get SVN output to a TEMP file
+		set TempFile =  fileNm _ "tempFileSvn"
+		set cmd = $$$SVNINFO _ fileNm _ " > " _ TempFile
+		Set status = $ZF(-1, cmd)
+		
+		if (##class(%File).Exists(TempFile) )
+		{
+         Set fileObj=##class(%Library.File).%New(TempFile)
+         Do fileObj.Open("RS") ; Read mode and as stream
+         While 'fileObj.AtEnd 
+         {
+	        set reLn = fileObj.ReadLine(,.sc,.eol)
+	        set dtTmInd = $F(reLn, $$$SVNCHECKINTIME)
+	        // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKINTIME _ ": " _ dtTmInd)
+	        if dtTmInd > 0
+	        {
+		        // find last time and strip spaces, Get date and time 
+		        set tmPart = $ZSTRIP($Extract(reLn, dtTmInd, $Length(reLn)),"<>W")
+	            set fileStamp = $Piece(tmPart, " ", 1) _ " " _ $Piece(tmPart, " ", 2)
+	            Quit
+	        }
+         }
+         Do fileObj.Close()
+         Do ##class(%Library.File).Delete(TempFile)
+       }
+       else
+       {
+	       Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNINFO _ ", stat: " _ status)
+       }
+        
+	}
+	else
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("File not in SVN: " _ fileNm)
+	}
+	
+	Quit fileStamp
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// read the file names from the SVN file list and add them to  SrcCtrlTbl 
+
+]]></Content>
+</UDLText>
+
+<Method name="AddSvnFilesToSourceControl">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileList:%Library.ListOfDataTypes,nmSp:%String,usrNm:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	NEW $NAMESPACE
+ 	SET $NAMESPACE = "ITFCOMMON"
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "AddSvnFilesToSourceControl: NM:" _ nmSp _ ": Add SVN files: " _ fileList.Count())
+	set key = fileList.Next("")
+	  while(key >= 1)
+	  {
+		set file = fileList.GetAt(key)
+		  
+	    set fileStamp = ..GetSvnTime(file)
+	    try {
+		  
+		     // set usrNm = $userName
+		   
+        	 &sql(SELECT  FileName INTO :dbFile FROM SrcCtrlTbl WHERE FileName=:file)
+			if SQLCODE '= 0 {
+	       		&sql(INSERT INTO SrcCtrlTbl (FileName, Namespace, Username, FileModifiedTime) VALUES (:file, :nmSp, :usrNm, :fileStamp))
+        	}
+         	else
+        	{	       
+	        	&sql(UPDATE SrcCtrlTbl SET FileModifiedTime=:fileStamp WHERE FileName=:file )
+        	}
+        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddSvnFilesToSourceControl: update FileModifiedTime for " _ file _ " SQLCODE - " _ SQLCODE)
+	    	} catch err
+	    	{
+		    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddSvnFilesToSourceControl: " _ err.Data)
+	    	}
+        set key = fileList.Next(key)
+	  }
+	  Quit $$$OK
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Update SrcCtrlTbl table with information about the file
+
+]]></Content>
+</UDLText>
+
+<Method name="AddToSourceControl">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String,usrNm:%String,getIntTime:%Integer=1</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$OK
+	set initCom=""
+	set dbFile = ""
+	try {
+		if (getIntTime = 1)
+		{
+			set intTime= ##class(%RoutineMgr).TS(InternalName)
+		}
+		else
+		{
+			set intTime=""
+		}
+		Set file=..ExternalName(InternalName, usrNm)
+	
+		if ( file '= "" )
+		{
+			set fileStamp = ..GetSvnTime(file)
+	    	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSourceControl: " _ $NAMESPACE _ " " _ InternalName _ " " _ file)
+	
+        	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Insert/Update SrcCtrlTbl: " _ file )
+        	set stat = $$$ERROR(100, "Can't add file to SourceControl")
+        	set nmSp = $NAMESPACE
+
+	        NEW $NAMESPACE
+  			SET $NAMESPACE = "ITFCOMMON"
+  			// set usrNm = $userName
+
+			&sql(SELECT  FileName INTO :dbFile FROM SrcCtrlTbl WHERE FileName=:file)
+			if SQLCODE '= 0 {
+	       		&sql(INSERT INTO SrcCtrlTbl (InternalName, FileName, Namespace, Username, ClassModifiedTime, FileModifiedTime)values (:InternalName, :file, :nmSp, :usrNm, :intTime, :fileStamp))
+        	}
+        	else
+        	{
+	        	// Write !, "file exists: " _ dbFile
+	        	&sql(UPDATE SrcCtrlTbl SET InternalName = :InternalName, ClassModifiedTime=:intTime,FileModifiedTime=:fileStamp WHERE FileName=:file )
+        	}
+        	IF SQLCODE '= 0 {
+              Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Insert/update SrcCtrlTbl failed " _ file _ " CODE: " _ SQLCODE _ " IntNm: " _ InternalName _ " intTime " _ intTime _ " :fileStamp" _ fileStamp)
+        	}
+        	else
+        	{
+	           Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Updated ClassModifiedTime= " _ intTime _ ", FileModifiedTime= " _ fileStamp)
+	           set stat = $$$OK
+        	}
+
+	  }
+	 } catch err {
+	        set stat = $$$ERROR($$$EnsErrGeneral, err.Data)
+        }
+	
+	Quit stat
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Update time for all files in a namespace
+
+]]></Content>
+</UDLText>
+
+<Method name="UpdateInternalTimeForFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String</FormalSpec>
+<Implementation><![CDATA[
+	
+	try {
+		
+	NEW $NAMESPACE
+  	SET $NAMESPACE = "ITFCOMMON"
+  	// Get all file names
+	&sql(Declare C2 Cursor for
+		Select InternalName 
+		Into :iName
+		From SrcCtrlTbl where Namespace = :nmSp)
+	set arrInd = 1	
+	Set SQLCODE=0  
+	&sql(OPEN C2) 
+	WHILE(SQLCODE = 0)
+	{
+		 &sql(FETCH C2)  
+	     Quit:SQLCODE 
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "UpdateInternalTimeForFiles name:" _ iName)
+	     Set namesArr(arrInd) = iName
+	     set arrInd = arrInd + 1
+	}
+	 &sql(CLOSE C2)
+	} catch err
+	{
+	}
+	 // Update time for all files in namesArr array
+	
+	 Set S1="" 
+	 Do {
+         Set S1=$Order(namesArr(S1)) Quit:S1="" ;get the next S1 subscript
+         Do ..UpdateInternalTime(nmSp, namesArr(S1))
+	 } While S1'=""
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Update internale time for a file
+
+]]></Content>
+</UDLText>
+
+<Method name="UpdateInternalTime">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,iName:%String</FormalSpec>
+<Implementation><![CDATA[
+	NEW $NAMESPACE
+	set $NAMESPACE = nmSp
+	set intTime= ##class(%RoutineMgr).TS(iName)
+	
+  	SET $NAMESPACE = "ITFCOMMON"
+    
+   	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($NAMESPACE _ " UpdateInternalTime: " _ iName _ " " _ intTime )
+
+	&sql(UPDATE SrcCtrlTbl SET ClassModifiedTime=:intTime WHERE InternalName=:iName )
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// SUPPORTING Methods
+
+]]></Content>
+</UDLText>
+
+<Method name="ExternalName">
+<ClassMethod>1</ClassMethod>
+<CodeMode>expression</CodeMode>
+<FormalSpec>InternalName:%String,usrNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[..ExtName(InternalName, usrNm)
+]]></Implementation>
+</Method>
+
+<Method name="ExtName">
+<Description>
+Return filename of this item</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String,usrNm:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	Set name=..Name(InternalName)
+	
+	Quit $select(name="":"",1:^|"ITFCOMMON"|ItfSourceCtrl _ usrNm _ $$$SVNSRCTRUNK _ $translate(name,"\","/"))
+]]></Implementation>
+</Method>
+
+<Method name="Name">
+<Description>
+Return the name of this item without the prefix to be added by ExtName</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>InternalName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	// Write !, "Mapping Name"
+	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Name: " _ InternalName)
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
+	{
+		Set src = ..setSources()
+		// Write !,"^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work"
+		Set src = $data(^|"ITFCOMMON"|ItfSourceCtrl) 
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Sources set: " _ src)
+	}	
+	If $data(^|"ITFCOMMON"|ItfSourceCtrl)'=11 
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("^|""ITFCOMMON""|ItfSourceCtrl is not setup so hooks will not work" )
+		Quit ""
+	}
+	// For an abstract document, use the GetOther() method to try to determine its "real" class
+	If ##class(%RoutineMgr).UserType(InternalName,.docclass,.doctype) {
+		// Check for a real abstract document subclass (or GetOther() may not work)
+		If $classmethod(docclass,"%IsA","%Studio.AbstractDocument") {
+			// Grab the actual name
+			Set actualName = $classmethod(docclass,"GetOther",InternalName)
+			// The actualName is only valid if we get a single .cls as a result
+			If actualName'[",",$ZCVT($P(actualName,".",$L(actualName,".")),"U")="CLS" {
+				// We use what GetOther() gives us, thus Demo.Loan.FindRateProcess.bpl becomes Demo.Loan.FindRateProcess.cls
+				Set InternalName = actualName
+			}
+		}
+	}	
+	// Write !, "InternalName: " _ InternalName
+	If $$CheckProtect^%qccServer(InternalName) Quit ""
+	Set nam=$p(InternalName,".",1,$l(InternalName,".")-1),ext=$p(InternalName,".",$l(InternalName,".")),ext=$zcvt(ext,"u")
+	If nam="" Quit ""
+	If ext="PRJ",nam["Default_" Quit ""
+	If ext="CLS",$$$defClassKeyGet(nam,$$$cCLASSgeneratedby)'="" Quit ""
+	Set default=0
+	// Write !, "ext: " _ ext _ " / " _ nam
+	Set p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,nam)) For  s p=$order(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),-1) Quit:p=""  If $extract(nam,1,$length(p))=p,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,p),found) Quit
+	If $data(found)=0,$data(^|"ITFCOMMON"|ItfSourceCtrl(ext,"*"),found) Set default=1
+	If $data(found)=0 Quit ""
+	// Write !, "found: " _ found
+	If InternalName["/" {
+		Set InternalName=$extract(InternalName,$length(p)+1,*)
+		Set extNm = $translate(found_$translate(InternalName,"%","_"),"\","/")
+		Quit extNm
+	}
+	If ext="CLS"||(ext="PRJ")||(##class(%RoutineMgr).UserType(InternalName))
+	{ 
+	   set extNm = $translate(found_$translate(nam,".%","/")_".xml","\","/")
+	   Quit extNm
+	}
+	set extNm = $translate($g(found)_$tr(nam,"%"_$s(default:".",1:""),"_/")_".xml","\","/")
+	// Write !, "extNm: " _ extNm
+	Quit extNm
+]]></Implementation>
+</Method>
+
+<Method name="setSources">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("setSources")
+	kill ^|"ITFCOMMON"|ItfSourceCtrl
+	set ^|"ITFCOMMON"|ItfSourceCtrl=$$$USRBASEDIR
+	set ^|"ITFCOMMON"|ItfSourceCtrl("CLS","*")="cls/"
+	set ^|"ITFCOMMON"|ItfSourceCtrl("BPL","*")="bpl/"
+	set ^|"ITFCOMMON"|ItfSourceCtrl("INC","*")="inc/"
+    set ^|"ITFCOMMON"|ItfSourceCtrl("MAC","*")="mac/"
+    set ^|"ITFCOMMON"|ItfSourceCtrl("HL7","*")="hl7/"
+    set ^|"ITFCOMMON"|ItfSourceCtrl("LOOKUP","*")="lookupTables/"
+    set ^|"ITFCOMMON"|ItfSourceCtrl("SYSDEF","*")="systemDefaults/"
+	set sc=$$$OK
+
+	quit sc
+]]></Implementation>
+</Method>
+
+<Method name="HTMLEncode">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>inStr</FormalSpec>
+<Implementation><![CDATA[
+  
+  set i = 1
+  set newStr = ""
+  while (i <= $L(inStr)) {
+    set iC = $E(inStr, i, i)
+      set newStr = newStr _ $SELECT(iC="<":"&lt;", iC=">":"&gt;", iC="&":"&amp;", iC="'":"&#039;", iC="#":"&#035;", 1:iC)
+      set i = i + 1
+   }
+   return newStr
+]]></Implementation>
+</Method>
+</Class>
+</Export>
