@@ -76,6 +76,13 @@ This Style block contains page-specific CSS style definitions.</Description>
      font-size: 1em;
      font-family: arial;
 }
+.modalGroup{
+     background: #C5D6D6;
+     border: solid 1px #C5D6D6;
+     color: #000000;
+     font-size: 1em;
+     font-family: arial;
+}
 .datacombo
 {
 	 border:none
@@ -132,7 +139,8 @@ This XML block defines the contents of this pane.</Description>
   			onchange="zenPage.repopulateTable();"/>
   	
   			<spacer width="20"/>
-  			<button caption="More Information" onclick="zenPage.displayImplInfo();" />
+  			<button caption="Clear" onclick="zenPage.clearFilter();" />
+  			
    </hgroup>
   			</fieldSet>
   <spacer height="20"/>
@@ -153,9 +161,8 @@ This XML block defines the contents of this pane.</Description>
     showZebra="true" 
     useSnapshot="true"
     OnCreateResultSet="CreateRS"
-    valueColumn="ComponentName"
-    showRowSelector ="false"
-    multiSelect="true" >
+      valueColumn="ComponentName"
+    ondblclick="zenPage.displayImplInfo();">
    
   
    </tablePane>
@@ -195,22 +202,36 @@ This XML block defines the contents of this pane.</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="clearFilter">
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+	 zenPage.getComponentById('comp').setProperty('selectedIndex', 0);
+	 zenPage.getComponentById('nmsp').setProperty('selectedIndex', 0);
+	 zenPage.getComponentById('env').setProperty('selectedIndex', 0);
+	 zenPage.repopulateTable();
+]]></Implementation>
+</Method>
+
 <Method name="displayImplInfo">
 <Language>javascript</Language>
 <ClientMethod>1</ClientMethod>
 <Implementation><![CDATA[
 	  var table = zenPage.getComponentById('deployments');
+      var info = zenPage.GetImplInformation(table.getProperty('value'));
+   
       var group = this.createComponent('modalGroup'); 
-      group.setProperty('height', 100);
       zenPage.addChild(group);
-
-      var lbl = this.createComponent('label'); 
+      
+      var lbl = this.createComponent('label');
       group.addChild(lbl); 
       
-      var info = zenPage.GetImplInformation(table.selectedRows )
+      
+      lbl.setValue(info);
+
       
       lbl.setProperty('value',info);
-      
+           
       var sp1 = this.createComponent('spacer'); 
       sp1.setProperty('height', 10);
       group.addChild(sp1);
@@ -219,13 +240,20 @@ This XML block defines the contents of this pane.</Description>
       group.addChild(hg); 
       hg.setProperty('cellAlign', 'center')
       
-     
-      var btn2 = this.createComponent('button'); 
+      
+      
+       var sp = this.createComponent('spacer'); 
+      hg.addChild(sp); 
+      sp.setProperty('width', 50);
+      
+       var btn2 = this.createComponent('button'); 
       hg.addChild(btn2); 
       btn2.setProperty('caption','OK'); 
       btn2.setProperty('onclick','zenPage.btnOk();'); 
-           
-      group.show('Checkout', 'dynamic');
+      
+      zenPage.refreshContents(true); 
+
+      group.show('Information', 'dynamic', "msgBox", 10, 10, 500, 400);
 ]]></Implementation>
 </Method>
 
@@ -266,10 +294,10 @@ This XML block defines the contents of this pane.</Description>
   set env = $get(%session.Data("Environment"))
   
   set sql=""
- if (qt = "C")
+ if (qt = "C") // CLASS
  {
 	 set sql= "select  c.ComponentName, ci.ClassName, ci.ClassExportFileVersion, i.ImplFileVersion as DeployVersion, i.ImplementionDate, "
-	 _ " n.NameSpace, e.Environment, i.ImplFileInformation "
+	 _ " n.NameSpace, e.Environment, i.ImplFileInformation, ci.UserName "
 
  _ " from IHC_ITF_SrcCtrlPkg.Component c,  IHC_ITF_SrcCtrlPkg.Namespaces n, "
  _ " IHC_ITF_SrcCtrlPkg.ComponentImpl i, IHC_ITF_SrcCtrlPkg.Environment e,"
@@ -277,11 +305,11 @@ This XML block defines the contents of this pane.</Description>
  _ " where c.NameSpace = n.ID and c.ID = i.ComponentName and i.Environment = e.ID "
  _ " and i.ImplFile = ci.ClassExportFile and ci.importDate = i.ImplementionDate "
  }
- else
+ else // Implementation
  {
  set sql="select c.ComponentName, e.Environment, n.NameSpace, i.ImplFileVersion, i.ImplementionDate,"
  _ "  $EXTRACT(i.ImplFile, $FIND( i.ImplFile, 'trunk/'), 250) As DeployFileName , "
-   _ "  i.ImplFileInformation"
+   _ "  i.ImplFileInformation, UserName"
   _ " from IHC_ITF_SrcCtrlPkg.Component c,  IHC_ITF_SrcCtrlPkg.Namespaces n, "
   _ " IHC_ITF_SrcCtrlPkg.ComponentImpl i, IHC_ITF_SrcCtrlPkg.Environment e " 
   _ " where c.NameSpace = n.ID and c.ID = i.ComponentName and i.Environment = e.ID"
@@ -308,37 +336,95 @@ This XML block defines the contents of this pane.</Description>
 </Method>
 
 <Method name="GetImplInformation">
-<FormalSpec>Selectedfiles:%String</FormalSpec>
+<FormalSpec>compNm:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
+	set lstEnv = "" 
+	  		 	set lstNmsp = ""
+	  		 	set lstVer = ""
+	  		 	set lstDt = ""
+	  		 	
+	set retStr = ""
 	
-	set retStr = "Info: "
-	For I=1:1:$L(Selectedfiles,",")
-	{
-		Set compNm = $P(Selectedfiles,",",I)
-		 
-		if ( compNm '= "")
+		set implNum = 1
+		set clsNum = 1
+		
+	if ( compNm '= "")
 		{
-			
-	 		&sql(select c.ComponentName, e.Environment, n.NameSpace, i.ImplFileVersion, i.ImplementionDate,
-    			 i.ImplFile, i.ImplFileInformation
-    			 INTO :cNm, :env, :nmsp, :implFlVer, :implDt, :implFl, :implFlInfo
-  				 from IHC_ITF_SrcCtrlPkg.Component c,  IHC_ITF_SrcCtrlPkg.Namespaces n,
+			set retStr = retStr _  "<B>" _ compNm _ "</B><BR>"
+	 		&sql(Declare Cl Cursor for select c.ComponentName, e.Environment, n.NameSpace, i.ImplFileVersion, i.ImplementionDate,
+    			 ci.ClassExportFile, ci.ClassExportFileInformation, ci.ClassExportFileVersion, ci.ClassName, i.UserName
+    			 INTO :cNm, :env, :nmsp, :implFlVer, :implDt, :clExpFl, :clsFlInfo, :clsVer, :clsNm, :usrNm
+  				 from IHC_ITF_SrcCtrlPkg.Component c,  IHC_ITF_SrcCtrlPkg.ClassItem ci, IHC_ITF_SrcCtrlPkg.Namespaces n,
   				 IHC_ITF_SrcCtrlPkg.ComponentImpl i, IHC_ITF_SrcCtrlPkg.Environment e  
  				  where c.NameSpace = n.ID and c.ID = i.ComponentName and i.Environment = e.ID
- 				 AND c.ComponentName = :compNm)
-  
- 			 IF SQLCODE = 0 
- 			{ 
-	  		 	set retStr = retStr _", "_ env _", "_nmsp _", "_implFlVer _", "_implDt _", "_implFl _", "_implFlInfo
-	 		}
-	 		else
-	 		{
-		 		set retStr = retStr _ compNm _ ": " _ SQLCODE
-	 		}
-		}
-  }
+				 and i.ImplFile = ci.ClassExportFile and ci.importDate = i.ImplementionDate 
+				 AND c.ComponentName = :compNm ORDER BY i.ImplementionDate desc)
+   			Set SQLCODE=0  
+			&sql(OPEN Cl) 
+
+			WHILE(SQLCODE = 0)
+			{
+				 &sql(FETCH Cl)  
+	  			 Quit:SQLCODE 
+ 			 	 IF SQLCODE = 0 
+ 				 { 
+ 					if ( (lstEnv '= env) || (lstNmsp '= nmsp) || (lstVer '= implFlVer) ||( lstDt '= implDt))
+ 					{
+						set clsNum = 1
+	  		 			set retStr = retStr _ "<p style=""font-size: 1em""> <BR>Deployment #" _ implNum _ ". Environment: " _ env _", Namespace: "_nmsp _", Deployment version # "_implFlVer _"<BR> Implemention Date: "_implDt _ " by "_usrNm _ "<BR><BR>"
+	 					set implNum = implNum + 1
+
+ 					}
+ 					else
+ 					{
+	 					set clsNum = clsNum + 1
+ 					}
+ 				
+	  		 		set retStr = retStr _  "<I> <p style=""font-size: smaller"">Class # " _ clsNum _ ". " _ "  Name: "_clsNm _ "<BR>  File: "
+	  		 		_clExpFl _ "<BR>  Class Information: "_clsFlInfo_"<BR>  SubVersion # "_clsVer  _ "</I><BR><BR>"
+	  		 		set lstEnv = env 
+	  		 		set lstNmsp = nmsp
+	  		 		set lstVer = implFlVer
+	  		 		set lstDt = implDt
+	 			}
+	 			else
+	 			{
+		 			set retStr = retStr _ compNm _ ": " _ SQLCODE
+	 			}
+			}
+			&sql(CLOSE Cl)
+			if (retStr '= "")
+			{
+				 &sql(Declare C2 Cursor for select c.ComponentName, e.Environment, n.NameSpace, 
+				 i.ImplFileVersion, i.ImplementionDate,
+				 $EXTRACT(i.ImplFile, $FIND( i.ImplFile, 'trunk/'), 250) As DeployFileName , 
+    			i.ImplFileInformation, i.UserName
+    			 INTO :cNm, :env, :nmsp, :implFlVer, :implDt, :deployFl, implFlInfo, :usrNm
+  				
+ 				 from IHC_ITF_SrcCtrlPkg.Component c,  IHC_ITF_SrcCtrlPkg.Namespaces n,
+   				IHC_ITF_SrcCtrlPkg.ComponentImpl i, IHC_ITF_SrcCtrlPkg.Environment e 
+   				where c.NameSpace = n.ID and c.ID = i.ComponentName and i.Environment = e.ID
+   				AND c.ComponentName = :compNm ORDER BY i.ImplementionDate desc)
+   				Set SQLCODE=0  
+				&sql(OPEN C2) 
+
+				WHILE(SQLCODE = 0)
+				{
+				 &sql(FETCH C2)  
+	  			 Quit:SQLCODE 
+ 			 	 IF SQLCODE = 0 
+ 				 { 
+ 				 		set retStr = retStr _ "<p style=""font-size: 1em""> <BR>Deployment #" _ implNum _ ". Environment: " _ env _", Namespace: "_nmsp _", Deployment file: " _ deployFl _ ", version # "_implFlVer _"<BR> Implemention Date: "_implDt _ " by "_usrNm _ "<BR>" _ implFlInfo _ "<BR><BR>"
+ 				 }
+   
+ 				}
+ 				&sql(CLOSE C2)
+			}
+  		}
+  		 
+	
   return retStr
 ]]></Implementation>
 </Method>
