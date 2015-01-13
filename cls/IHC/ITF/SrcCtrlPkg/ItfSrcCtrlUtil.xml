@@ -569,19 +569,31 @@ Get files that are checked-in to SVN</Description>
 	set itNum = 0
 	try
 	{
-		if ( 1 = 0)
+		set dtTm = ..GetLastLoadTime(usrNm, nmSp)
+		if ( dtTm '= "")
 		{
-	  set tStat = ..CheckSvnSetup(usrNm, passwd)
-	 	  
-	  IF $$$ISERR( tStat )
-	  {
-		  set tExp = ##class(%Exception.General).%New()
-		  set tExp.Name = "Setup error: " _ tStat.Data
-		  set tExp.Code=999
-		  set tExp.Location = "CheckSvnSetup"
-		  set tExp.Data = "Check: " _ $$$USRBASEDIR _ usrNm
-		  Throw tExp
-	  }
+	 		set dt = $PIECE($ZDATETIMEh(dtTm, 3, 1), ",", 1)
+			set tm = $PIECE($ZDATETIMEh(dtTm, 3, 1), ",", 2)
+	
+			set dtN = $PIECE($NOW(), ",", 1)
+			set tmN = $PIECE($NOW(), ",", 2)
+		}
+	
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("UpdateItemsInfoToSrcCtrlTbl: GetLastLoadTime " _ usrNm _ ", " _ dtTm)
+		if ( dtTm = "" || (dt '= dtN )|| ((tmN - tm) > 3600))
+		{
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("UpdateItemsInfoToSrcCtrlTbl: CheckSvnSetup- ") 
+	  		set tStat = ..CheckSvnSetup(usrNm, passwd)
+			 	  
+	  		IF $$$ISERR( tStat )
+	  		{
+		  	set tExp = ##class(%Exception.General).%New()
+		  	set tExp.Name = "Setup error: " _ tStat.Data
+		  	set tExp.Code=999
+		  	set tExp.Location = "CheckSvnSetup"
+		  	set tExp.Data = "Check: " _ $$$USRBASEDIR _ usrNm
+		  	Throw tExp
+	  		}
 		}
 	  try
 	  {
@@ -605,7 +617,7 @@ Get files that are checked-in to SVN</Description>
  	  }
  	  else 
  	  {
-	 		set itNum = ..GetItemsFromProduction(usrNm, passwd, fileList)
+	 		// set itNum = ..GetItemsFromProduction(usrNm, passwd, fileList)
 	 		set itNum = ..GetItemsFromDictionary(usrNm, passwd, fileList, "IHC.ITF.Transform.Util")
  	  }	
       
@@ -621,7 +633,7 @@ Get files that are checked-in to SVN</Description>
 	{
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("EXCEPTION in GetItems: " _ err.Name _ " " _ err.Location)
 		throw err
-	}    
+	}
 	Quit itNum
 ]]></Implementation>
 </Method>
@@ -746,22 +758,16 @@ Get files that are checked-in to SVN</Description>
 	set itNum = 0
 	
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItemsFromDictionary")
-	            
-		        
-    Set rset = ##class(%ResultSet).%New("%Dictionary.ClassDefinition:Summary")
- 
-     Do rset.Execute()
-     			
+
+     	
+     set stat = ##class(%SYSTEM.OBJ).GetPackageList(.lst, srcStr)		
      
-     While (rset.Next(.sc)) // next row of result set
-     {
-    	If ($SYSTEM.Status.IsOK(sc)) // check for errors
-    	{
-	    	 set clNm =  rset.Data("Name")
-	    	//  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(clNm)
-	    	
-	    	 if ( $FIND(clNm, srcStr) = ($LENGTH(srcStr) + 1))
-	         {
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItemsFromDictionary: GetPackageList - " _ stat)
+
+   set clNm = ""
+   FOR  {
+     SET itm=$ORDER(lst(clNm)) 
+     QUIT:clNm=""
 		             
 	             Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetItemsFromDictionary: " _ clNm _ " " _ rset.Data("Super"))
 	              set stat =  ..AddToSourceControl(clNm _ ".CLS", usrNm)	
@@ -782,8 +788,8 @@ Get files that are checked-in to SVN</Description>
                   }
 	                   
    	 		}
-    	}
-    }
+    	
+    
     return itNum
 ]]></Implementation>
 </Method>
@@ -917,11 +923,14 @@ Get files that are checked-in to SVN</Description>
 <FormalSpec>usrNm:%String,nmSp:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
 	set dt = $ZDATETIME($HOROLOG,3, 1)
-	&sql(INSERT INTO UserLastLoadTime values (:usrNm, :nmSp, :dt))
+	&sql(INSERT INTO IHC_ITF_SrcCtrlPkg.UserLastLoadTime(UserName, NameSpace, LogonDtTm) values (:usrNm, :nmSp, :dt))
 	if SQLCODE '= 0 {
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Could not update UserLastLogon: " _ SQLCODE)
 	}
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Insert UserLastLogon: " _ SQLCODE)
 	return $$$OK
 ]]></Implementation>
 </Method>
@@ -931,8 +940,10 @@ Get files that are checked-in to SVN</Description>
 <FormalSpec>usrNm:%String,nmSp:%String</FormalSpec>
 <ReturnType>%TimeStamp</ReturnType>
 <Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
 	set dtTm = ""
-	&sql(select LogonDtTm into :dtTm FROM UserLastLoadTime where User = :usrNm and NameSpace = :nmSp)
+	&sql(select MAX(LogonDtTm) into :dtTm FROM IHC_ITF_SrcCtrlPkg.UserLastLoadTime where UserName = :usrNm and NameSpace = :nmSp)
 	if SQLCODE '= 0 {
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Could not get last update info from UserLastLoadTime " _ SQLCODE)
 	}
@@ -989,7 +1000,7 @@ Get files that are checked-in to SVN</Description>
 <FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	 // Source code files
+	 	
 	 set svnBaseDir = $$$USRBASEDIR _ usrNm
  	 set tSC = ..createSvnDirectories(svnBaseDir)
  	 if $$$ISERR(tSC)
