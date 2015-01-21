@@ -13,7 +13,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2400' width='2000' >
 <context>
 <property name='passedFilter' type='%Boolean' initialexpression='0' instantiate='0' >
 </property>
@@ -23,14 +23,14 @@ BPL Definition</Description>
 </property>
 <property name='hl7' type='EnsLib.HL7.Message' instantiate='0' >
 </property>
-<property name='FACILITYLOOKUPTABLENAME' type='%String' initialexpression='"FACILITYFilterPowerPathToNovo"' instantiate='0' >
+<property name='FaclityLookupTableName' type='%String' initialexpression='"IHC.ITF.Process.Bpl.PowerPathReultsHl7ToNovo.Lookup.FacilityFilter"' instantiate='0' >
 <parameters>
-<parameter name='MAXLEN'  value='50' />
+<parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
-<property name='ROOMLOOKUPTABLENAME' type='%String' initialexpression='"ROOMFilterPowerPathToNovo"' instantiate='0' >
+<property name='RoomTableLookupName' type='%String' initialexpression='"IHC.ITF.Process.Bpl.PowerPathReultsHl7ToNovo.Lookup.RoomLocationFilter"' instantiate='0' >
 <parameters>
-<parameter name='MAXLEN'  value='50' />
+<parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
 <property name='cApplyRoomFacilityFilter' type='%String' initialexpression='0' instantiate='0' >
@@ -43,108 +43,137 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
+<property name='targetConfigNames' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
+<property name='validationSettingValue' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='msgType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
 </context>
-<sequence xend='200' yend='1650' >
-<scope xpos='200' ypos='250' xend='200' yend='1550' >
-<assign name="setConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='350' />
-<code name='setFilterFlag' xpos='200' ypos='450' >
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
+<trace name='InSideBP' value='"Inside "_process.%ConfigName' xpos='200' ypos='350' />
+<assign name="SetConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
+<code name='RetrieveCustomConfigSettings' xpos='200' ypos='550' >
 <![CDATA[ set context.cApplyRoomFacilityFilter=0
-	$$$TRACE("Checking Custom setting for Filtering ..")
-	#dim configValue=""
-	set configValue=##class(Ens.Director).GetItemSettingValue(context.configName,"Host","ItfCustomProperty1",.pstatus)
-	$$$TRACE("Value of ItfCustomProperty1 ="_configValue)
-	if (configValue="TRUE"){
-		$$$TRACE("ItfCustomProperty1 "_configValue)
-		set context.cApplyRoomFacilityFilter=1
-	}  
+ set context.targetConfigNames=""
+ set context.validationSettingValue=""
+ 
+ $$$TRACE("Checking Custom setting for Filtering ..")
+ set configValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"UseFacilityAndRoomLookUp",.configValue)
+ $$$TRACE("Value of UseFacilityAndRoomLookUp="_configValue)
+ if ($$$ISOK(pstatus))
+ {
+    $$$TRACE("UseFacilityAndRoomLookUp "_configValue) 
+    set context.cApplyRoomFacilityFilter=configValue
+ } 
+ 
+ $$$TRACE("Getting Target Config Names ..")
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ($$$ISOK(pstatus) && (configValue'=""))
+ {
+ 	$$$TRACE("TargetConfigNames: " _ configValue)
+ 	set context.targetConfigNames=configValue
+  }
+ else
+ {
+    Set status = $$$ERROR("Initialization error, No target found")
+ }
+ 
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  }
   ]]]]><![CDATA[>
 </code>
-<trace name='InsideBP' value='"Inside PowerPath-Results-Hl7_Novo-App0"' xpos='200' ypos='550' />
 <code name='Validate Message' xpos='200' ypos='650' >
 <annotation><![CDATA[Call the filter logic passing the request.]]]]><![CDATA[></annotation>
-<![CDATA[ 
- #dim validMessage AS %Boolean=1
- #dim wRoom,wFacility,wOBR15Field1,wOBR15Field2
- #dim wOBR26Field1,wOBR26Field2 As %String=""
- #dim validRoom,validFacility
- #dim exception As %Exception.SystemException
- set context.errorStatus=$$$OK
- $$$TRACE("Inside isValidMessage "_context.configName_" "_request.%ClassName(1)) 
- do {
-	try {
-		if (request.%ClassName(1)'["EnsLib.HL7.Message"){
-		s validMessage=0
-		set context.errorStatus=$$$ERROR(5001,"Invalid class Name")
-		quit
-		}
-		$$$TRACE("Message Doctype / Category  "_request.DocType_"/"_request.DocTypeCategory)
-		//Check if it is Valid message
-		if ((request.DocType'["ORU_R01")){
-			s validMessage=0
-			set context.errorStatus=$$$ERROR(5001,"Invalid Message Type")
-			quit
-		}
+<![CDATA[ $$$TRACE("Validate Message") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, $SYSTEM.Status.GetOneErrorText(tStatus)) }
+ else { $$$TRACE("Passed Validation Check" _ context.validationSettingValue) }
 
-		// If excute filter is set on then only process the Message  having ROOM and bed set in the look up tables
-		If (context.cApplyRoomFacilityFilter){
-			$$$TRACE("Check Filter Facility/Room ") 
-			//Get Facility 
-			set wFacility=request.GetValueAt("MSH:6.1")
-			// Get Room
-			set wRoom=request.GetValueAt("PIDgrpgrp(1).PIDgrp.PV1grp.PV1:AssignedPatientLocation.PointofCare")
-			//
-			$$$TRACE("Check Filter Facility/Room "_wFacility_"/"_wRoom) 
-			set context.errorStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.ROOMLOOKUPTABLENAME, wRoom, .validRoom )
-			$$$TRACE("Lookup Result for ROOM  "_context.ROOMLOOKUPTABLENAME_" "_context.errorStatus_" "_validRoom) 
-			if (('context.errorStatus)||('validRoom)) {
-				s validMessage=0
-				quit
-			}
-			set context.errorStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FACILITYLOOKUPTABLENAME, wFacility, .validFacility )
-			$$$TRACE("Lookup Result for ROOM  "_context.FACILITYLOOKUPTABLENAME_" "_context.errorStatus_" "_validFacility) 
-			if (('context.errorStatus)||('validFacility)) {
-				s validMessage=0
-				quit
-			}
-		}
-
-	}
-	catch(exception){s context.errorStatus=exception.AsStatus() 
-	set validMessage=0}
-	}while (0)	]]]]><![CDATA[>
+	]]]]><![CDATA[>
 </code>
-<if name='ValidMessage' condition='(validMessage=1)' xpos='200' ypos='750' xend='200' yend='1300' >
+<assign name="RetrieveMessageType" property="context.msgType" value="request.GetValueAt(&quot;MSH:9.1&quot;)" action="set" xpos='200' ypos='750' />
+<if name='IsORU' condition='(context.msgType="ORU")' xpos='200' ypos='850' xend='200' yend='1200' >
 <annotation><![CDATA[IF the Message passed all the filtering criteria]]]]><![CDATA[></annotation>
 <true>
-<transform name='DTL-TransformPowerpathToNovo' class='IHC.ITF.Transform.Dtl.PowerPathReultsHl7ToNovo' source='request' target='context.hl7' xpos='470' ypos='900' />
-<code name='ResetErrorCode' xpos='470' ypos='1000' >
-<annotation><![CDATA[Reset The Error Code]]]]><![CDATA[></annotation>
-<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)]]]]><![CDATA[>
+<code name='CHECKFILTERS' xpos='200' ypos='1000' >
+<![CDATA[ 
+ $$$TRACE("Iniside Filter Logic")
+ // If excute filter is set on then only process the Message  having ROOM and bed set in the look up tables
+ do {
+   //Try {
+  	if (context.cApplyRoomFacilityFilter){
+        	$$$TRACE("Check Filter Facility/Room ") 
+     		//Get Facility 
+     		set wFacility=request.GetValueAt("MSH:6.1")
+     		// Get Room
+    		set wRoom=request.GetValueAt("PIDgrpgrp(1).PIDgrp.PV1grp.PV1:AssignedPatientLocation.PointofCare")
+    		// $$$TRACE("Check Filter Facility/Room "_wFacility_"/"_wRoom) 
+
+               set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.RoomTableLookupName, wRoom, .validRoom )
+    	       $$$TRACE("Lookup Result for ROOM  "_context.RoomTableLookupName_" "_tStatus_" "_validRoom) 
+              if (('tStatus)||(validRoom'="1")) {
+                    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "PV1:3.1 not present in lookup table "_context.RoomTableLookupName)
+	       }
+	      
+	       set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FaclityLookupTableName, wFacility, .validFacility )
+	       $$$TRACE("Lookup Result for ROOM  "_context.FaclityLookupTableName_" "_context.errorStatus_" "_validFacility) 
+	       if (('tStatus)||(validFacility'="1")) {
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "MSH:6 not present in lookup table "_context.FaclityLookupTableName)
+	       }
+         }
+    // }
+     //catch e {throw e }
+  }while (0)]]]]><![CDATA[>
 </code>
-<call name='SendHL7ToNovo_0' target='Out-Novo-Results-Hl7tcp-0' async='1' xpos='470' ypos='1100' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.hl7" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-<call name='SendHL7ToNovo_1' target='Out-Novo-Results-Hl7tcp-1' async='1' xpos='470' ypos='1200' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.hl7" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
 </true>
 <false>
-<trace name='SkipMessage' value='"Message did not pass filter logic"' xpos='200' ypos='900' />
-<code name='Ignore Message' xpos='200' ypos='1000' >
-<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record. "_$SYSTEM.Status.GetOneErrorText(context.errorStatus))
-  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName)
-]]]]><![CDATA[>
+<trace name='SkipMessage' value='"Message Not ORU"' xpos='470' ypos='1000' />
+<code name='Check MAX Error' xpos='470' ypos='1100' >
+<![CDATA[  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "MSH:9.1 Not ORU")]]]]><![CDATA[>
 </code>
 </false>
 </if>
+<transform name='DTL-TransformPowerpathToNovo' class='IHC.ITF.Transform.Dtl.PowerPathReultsHl7ToNovo' source='request' target='context.hl7' xpos='200' ypos='1300' />
+<code name='ResetErrorCode' xpos='200' ypos='1400' >
+<annotation><![CDATA[Reset The Error Code]]]]><![CDATA[></annotation>
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)]]]]><![CDATA[>
+</code>
+<code name='GetTargetConfigList' xpos='200' ypos='1500' >
+<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())
+]]]]><![CDATA[>
+</code>
+<foreach name='LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1600' xend='200' yend='350' >
+<call name='Call Target' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.hl7" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='1400' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code xpos='200' ypos='250' >
 <annotation><![CDATA[CatchUnhandledException]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("In catchall")
@@ -160,8 +189,28 @@ BPL Definition</Description>
 ]]></Data>
 </XData>
 
+<Property name="UseFacilityAndRoomLookUp">
+<Description>
+UseFacilityAndRoomLookUp: When this true the Facility and Room of incoming transacition is validated against
+the respective lookup tables.This set as false by Default.Make sure the Look up tables are setup correctly
+if this setting is changed as true</Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>UseFacilityAndRoomLookUp:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
+<DefaultData>PowerPathReultsHl7ToNovoDefaultData</DefaultData>
+<Data name="PowerPathReultsHl7ToNovoDefaultData">
+<Subscript>"PowerPathReultsHl7ToNovo"</Subscript>
+<Value name="1">
+<Value>UseFacilityAndRoomLookUp</Value>
+</Value>
+</Data>
 </Storage>
 </Class>
 </Export>
