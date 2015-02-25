@@ -25,7 +25,6 @@
 <ReturnType>%Library.Status</ReturnType>
 <Implementation><![CDATA[
 	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Object
-	$$$LOGINFO("GetNcidsForRepresentation " _ pRequest.listOfHddNcidObj.Count())
 	
 	set listInd = pRequest.listOfHddNcidObj.Next("")
 	set list = ##class(%ListOfObjects).%New()
@@ -49,12 +48,7 @@
 	}
 	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.LookupResponse).%New()
 	set pResponse.listOfHDDobj = list
-	
-	
-	/*If (pResponse.listOfHDDobj.Count()>0)
-	{	
-		$$$LOGINFO("Return Count: " _ pResponse.listOfHDDobj.Count() _ ", NCID: " _ pResponse.listOfHDDobj.GetNext("").NCID)
-	}*/
+		
 	Quit $$$OK
 ]]></Implementation>
 </Method>
@@ -67,32 +61,34 @@
   try 
   {
 	set repNcid = ""
+	set repNcid = ..GetHddNcidForRepFromHddNcidCache(rep,domain,context)
+    if ( repNcid '= "")
+    {
+	    return
+    }
 	set servicePort = ##class(HddCommonService.HddCommonServicePort).%New()
   
     set servicePort.Location = ..Location
-	
-	$$$LOGINFO("GetHddNcidForRep: Rep: " _ rep _ ", Dom: " _ domain _ ", Cnxt: " _ context)
+	 
     
  	Set list = servicePort.getNcidsForRepresentation(rep, domain, context, ..dbEnv) 
- 	set prntStr =  "Call returned " _ list.Count()
- 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(prntStr)
+ 
  	if (list.Count() < 1)
  	{
-	 	   $$$LOGERROR("HDD service: Rep: " _ rep _ ": " _ prntStr)
+	 	   $$$LOGERROR("HDD service: Rep: " _ rep _ ": " _ rep)
 	 	   Set repNcid = "Unknown"
  	}
  	else
  	{
  	  For cnt=1:1:list.Count() 
  	  {
-		  $$$LOGINFO("NCID for : " _ rep _ " = " _ list.GetAt(cnt))
 		  
 		  Set ced = servicePort.getPreferredSurfaceForm(list.GetAt(cnt), context, ..dbEnv)
 		  if $GET(ced)
 		  {
 		  	$$$LOGINFO("Pref Name in " _ context _ " context for: " _list.GetAt(cnt) _ " = " _ ced.text)
 		  	Set repNcid = list.GetAt(cnt)
-		  	
+		  	Do ..InsertValuesToHddNcidCache(repNcid, domain, context, rep)
 		  	Quit
 		  }
 		 
@@ -127,7 +123,6 @@
 <ReturnType>%Library.Status</ReturnType>
 <Implementation><![CDATA[
 	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Object
-	$$$LOGINFO("GetRepresentationForNcids " _ pRequest.listOfHddRepObj.Count())
 	
 	set listInd = pRequest.listOfHddRepObj.Next("")
 	set list = ##class(%ListOfObjects).%New()
@@ -137,7 +132,7 @@
 		set rep = ""
 	  	set reqObj = pRequest.listOfHddRepObj.GetAt(listInd)
 	  	Do ..GetHddRepForNcid(reqObj.NCID, reqObj.Context, .rep)
-	 
+	  	
 	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Object).%New()
 	  set hddObj.Comment = "Test Comment"
 	  set hddObj.NCID = reqObj.NCID
@@ -152,8 +147,6 @@
 	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.LookupResponse).%New()
 	set pResponse.listOfHDDobj = list
 	
-		
-	$$$LOGINFO("Return Count: " _ pResponse.listOfHDDobj.Count() _ ", rep: " _ pResponse.listOfHDDobj.GetNext("").Rep)
 	Quit $$$OK
 ]]></Implementation>
 </Method>
@@ -167,6 +160,11 @@
   try 
   {
  	Set rep = ""
+ 	set rep = ..GetHddRepForNcidFromHddRepCache(ncid, context)
+	if (rep '= "")
+	{
+	  	return
+	}
 	set servicePort = ##class(HddCommonService.HddCommonServicePort).%New()
   	set servicePort.Location = ..Location
 		  Set ced = servicePort.getPreferredSurfaceForm(ncid, context, ..dbEnv)
@@ -174,6 +172,7 @@
 		  {
 		   	$$$LOGINFO("Pref Name in context for: " _ ncid _ " in context " _ context _ " = " _ ced.text)
 		  	Set rep = ced.text
+		  	Do ..InsertValuesToHddRepCache(ncid, context, rep)
 		  	Quit
 		  }
 		  else
@@ -196,6 +195,38 @@
 		  throw exceptionvar
 	  }
     }
+]]></Implementation>
+</Method>
+
+<Method name="GetHddNcidForRepFromHddNcidCache">
+<FormalSpec>rep:%String,dom:%String,cnxt:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set ncidStr = "" 
+	&sql(select Ncid into :ncidStr from IHC_ITF_ITFCOMMON_DataStructure.HddNcidCache where Representation = :rep and HddDomain = :dom and HddContext = :cnxt)
+	return ncidStr
+]]></Implementation>
+</Method>
+
+<Method name="InsertValuesToHddNcidCache">
+<FormalSpec>ncid:%String,dom:%String,cnxt:%String,rep:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddNcidCache(Ncid, HddDomain, HddContext, Representation) values(:ncid, :dom, :cnxt, :rep))
+]]></Implementation>
+</Method>
+
+<Method name="GetHddRepForNcidFromHddRepCache">
+<FormalSpec>ncid:%String,cnxt:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set repStr = "" 
+	&sql(select Representation into :repStr from IHC_ITF_ITFCOMMON_DataStructure.HddRepCache where Ncid = :ncid and HddContext = :cnxt)
+	return repStr
+]]></Implementation>
+</Method>
+
+<Method name="InsertValuesToHddRepCache">
+<FormalSpec>ncid:%String,cnxt:%String,rep:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddRepCache(Ncid, HddContext, Representation) values(:ncid, :cnxt, :rep))
 ]]></Implementation>
 </Method>
 
