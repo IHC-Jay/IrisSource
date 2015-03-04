@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.DrFirstHttpXml">
+<Super>EnsLib.HTTP.GenericOperation</Super>
+<TimeCreated>63459,50388.534767</TimeCreated>
+
+<Method name="ProcessMergeRequest">
+<Description>
+This Method processes Merge Request to be sent to DRFirst</Description>
+<FormalSpec>pRequest:IHC.ITF.Request.DrFirst.Merge.RCExtRequest,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    #dim stream
+    #dim tSC As %Status=$$$OK
+    try{
+	    $$$TRACE("Inside the ProcessMergeRequest")
+		set stream=..CreateXmlStreamFromObject(pRequest)
+		set tSC=..ProcessXmlMessage(stream,.pResponse)
+		if ($$$ISOK(tSC)){
+	   	   If $ISOBJECT(pResponse) {
+		      set tSC=..ProcessDrFirstHttpResponse(pResponse,"MERGE")
+	      }
+        }
+	 }catch e{ Set tSC = e.AsStatus()
+	 		   Set tSC =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(e.AsStatus())
+
+			}
+	    
+    quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessAddUpdateRequest">
+<Description>
+This Method processes ADT Add Request to be sent to DRFirst</Description>
+<FormalSpec>pRequest:IHC.ITF.Request.DrFirst.AddUpdate.RCExtRequest,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim stream
+	#dim tSC As %Status=$$$OK
+    try{
+	   $$$TRACE("Inside the ProcessAddUpdateRequest")
+	   set stream=..CreateXmlStreamFromObject(pRequest)
+	   set tSC=..ProcessXmlMessage(stream,.pResponse)
+	   if ($$$ISOK(tSC)){
+	      If $ISOBJECT(pResponse) {
+		      set tSC=..ProcessDrFirstHttpResponse(pResponse,"ADDUPDATE")
+	      }
+	   }
+	}catch e{Set tSC = e.AsStatus()
+	 		   Set tSC =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(e.AsStatus())
+	 		   
+			}   
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessXmlMessage">
+<Description>
+This Method creates Generic HTTP request and calls onMessage of the HTTP.GenericOperation to process the HTTP Request</Description>
+<FormalSpec>stream:%Stream,*httpResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	  #dim tSC As %Status=$$$OK
+	  #dim httpRequest As EnsLib.HTTP.GenericMessage
+	  $$$TRACE("Inside the ProcessXmlMessage")
+	  set httpRequest=##class(EnsLib.HTTP.GenericMessage).%New()
+	  do httpRequest.HTTPHeaders.SetAt("text/xml", "content-type")
+      do httpRequest.HTTPHeaders.SetAt(0, "content-length")
+      do httpRequest.HTTPHeaders.SetAt("POST","httprequest")
+      //set httpRequest.Stream=stream
+      do httpRequest.HTTPHeaders.SetAt("xml="_stream.Read(),"IParams_1")
+      do httpRequest.HTTPHeaders.SetAt(1,"iparams")
+      set tSC=..OnMessage(httpRequest,.httpResponse)
+      quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessDrFirstHttpResponse">
+<Description>
+This Methods processes HTTP response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>httpResponse:EnsLib.HTTP.GenericMessage,responseType:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	  #dim tSC As %Status=$$$OK 
+	  #dim statusLine As %String=""
+	  #dim statusCode As %String
+	  #dim statusDesc As %String
+	  #dim errorCode As %String
+	  #dim errorDesc,patStatus As %String
+	  #dim statusLineKey As %String="StatusLine"
+	  #dim mergeResponse As IHC.ITF.Response.DrFirst.Merge.RCExtResponse
+	  #dim addUpdateResponse As IHC.ITF.Response.DrFirst.AddUpdate.RCExtResponse
+	  
+	  // 
+	  do {
+		  $$$TRACE("Inside the ProcessDrFirstHttpResponse.. "_responseType)
+		  set statusLine=httpResponse.HTTPHeaders.GetAt(statusLineKey)
+		  if (statusLine'=""){
+			  set statusCode=$piece(statusLine," ",2)
+			  set statusDesc=$piece(statusLine," ",3)
+		  }
+		  $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+		  // If status code is 200 the check the reponse to see if it got processed correctly or not
+	  	  if (statusCode="200"){
+		  	  If (responseType="ADDUPDATE"){
+			  	  set addUpdateResponse=##class(IHC.ITF.Response.DrFirst.AddUpdate.RCExtResponse).%New()
+			  	  set tSC=..CreateObjectFromXMLStream(httpResponse.Stream,.addUpdateResponse)
+			  	  if $$$ISOK(tSC){
+				  	  $$$TRACE("Add Update Response Status "_addUpdateResponse.Response.Status.content)
+				  	  if ($ZCONVERT(addUpdateResponse.Response.Status.content,"L")="error"){
+					  	  set tSC=$$$ERROR(addUpdateResponse.Response.Error.Code.content,addUpdateResponse.Response.Error.Text.content)
+					  	  quit
+				  	  }else{
+					  	  #dim patient As IHC.ITF.Response.DrFirst.AddUpdate.Patient
+					  	  $$$TRACE("Check Add Update Response Patient List Status ")
+				  	   	  if (($ISOBJECT(addUpdateResponse.Response.PatientList))&&(addUpdateResponse.Response.PatientList.Patient.Count()>0)){
+						  	  set key=""
+						  	  set patient=addUpdateResponse.Response.PatientList.Patient.GetNext(.key)
+						  	  if ((key'="") && $ISOBJECT(patient)){
+							  	  $$$TRACE("Add Update Response Patient List Status "_patient.Status.content)
+							  	  set patStatus=$ZCONVERT(patient.Status.content,"L")
+						  	 	 if ((patStatus'="updated")&&(patStatus'="created")){
+						  	  		set tSC=$$$ERROR(patient.Error.Code.content,patient.Error.Text.content)
+					  	  	  		quit
+						  	 	 }
+						  	  }
+					  	  }
+				  	  }
+				  }
+				  
+			  }elseif (responseType="MERGE"){
+				  set mergeResponse=##class(IHC.ITF.Response.DrFirst.Merge.RCExtResponse).%New()
+			  	  set tSC=..CreateObjectFromXMLStream(httpResponse.Stream,.mergeResponse)
+			  	  if $$$ISOK(tSC){
+				  	  $$$TRACE("Merge Response Status "_mergeResponse.Response.Status.content)
+				  	  if ($ZCONVERT(mergeResponse.Response.Status.content,"L")="error"){
+					  	  set tSC=$$$ERROR(mergeResponse.Response.Error.Code.content,mergeResponse.Response.Error.Text.content)
+					  	  quit
+				  	  }
+			  	  }
+			  }
+			  
+		  }elseif (statusCode="400"){
+			 set tSC=$$$ERROR("HTTP400",statusDesc)
+		 }elseif (statusCode="502"){
+			 set tSC=$$$ERROR("HTTP502",statusDesc)
+		 }else {
+			 set tSC=$$$ERROR("HTTP"_statusCode,statusDesc)
+		 }
+		  	  
+		  	  
+	  }while(0)
+	 
+	  
+	  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CreateXmlStreamFromObject">
+<Description>
+This Method is used to create XML stream from the Object</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>object:%XML.Adaptor</FormalSpec>
+<ReturnType>%Stream</ReturnType>
+<Implementation><![CDATA[
+	  #dim tSC As %Status=$$$OK
+	  #dim xmlString
+	  #dim xmlWriter As %XML.Writer
+	  
+	  set xmlWriter=##class(%XML.Writer).%New()
+	  set xmlWriter.NoXMLDeclaration=1
+	  do xmlWriter.AddInstanceNamespace("xsi")
+	  do xmlWriter.AddSchemaNamespace("xsd")
+	  do xmlWriter.OutputToStream(.stream)
+	   do xmlWriter.RootObject(object)
+	  quit stream
+]]></Implementation>
+</Method>
+
+<Method name="CreateXmlStringFromObject">
+<Description>
+This Method is used to create XML String from the Object</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>object:%XML.Adaptor</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	  #dim tSC As %Status=$$$OK
+	  #dim xmlString
+	  #dim xmlWriter As %XML.Writer
+	  
+	  set xmlWriter=##class(%XML.Writer).%New()
+	  set xmlWriter.NoXMLDeclaration=1
+	  do xmlWriter.AddInstanceNamespace("xsi")
+	  do xmlWriter.AddSchemaNamespace("xsd")
+	  do xmlWriter.OutputToString()
+	  do xmlWriter.RootObject(object)
+	  quit xmlWriter.GetXMLString(.tSC)
+]]></Implementation>
+</Method>
+
+<Method name="CreateObjectFromXMLStream">
+<Description>
+This Method is used to create Object From XML Stream</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[xmlStream:%Stream,&object:%RegisteredObject,className:%String=""]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	  #dim tSC As %Status=$$$OK
+	  #dim xmlString
+	  #dim xmlReader As %XML.Reader
+	  #dim objXMLStream As %GlobalCharacterStream
+	  $$$TRACE("Inside CreateObjectFromXMLStream")
+	  do 
+	  {
+    	 if (className="")&&($ISOBJECT(object)){
+			 set className=object.%ClassName(1)
+		 }
+		 
+		 set resolver=##class(%XML.SAX.NullEntityResolver).%New()
+		 set xmlReader = ##class(%XML.Reader).%New()
+		 set xmlReader.EntityResolver=resolver
+		 if ($ISOBJECT(xmlStream)){
+			 do xmlStream.Rewind()
+			 
+			 set objXMLStream=##class(%GlobalCharacterStream).%New()
+			 while ('xmlStream.AtEnd) {
+				 do objXMLStream.Write(xmlStream.Read())
+			 }
+			 do objXMLStream.Rewind()
+			 set tSC=xmlReader.OpenStream(objXMLStream)
+			 set classShortName=$PIECE(className,".",$LENGTH(className,"."))
+			 do xmlReader.Correlate(classShortName,className)
+			 do xmlReader.Next(.object,.status)
+				 
+		 }
+	  } while(0)
+	  quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.DrFirst.Merge.RCExtRequest">
+	<Method>ProcessMergeRequest</Method>
+	</MapItem>
+	<MapItem MessageType="IHC.ITF.Request.DrFirst.AddUpdate.RCExtRequest">
+	<Method>ProcessAddUpdateRequest</Method>
+	</MapItem>	
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
