@@ -11,7 +11,7 @@ This BPL holds the Transformation which converts the incoming HL7 message to Usi
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='EnsLib.HL7.Message' response='Ens.Response' height='4800' width='2150' >
+<process language='objectscript' request='EnsLib.HL7.Message' response='Ens.Response' height='7000' width='2960' >
 <context>
 <property name='passedFilter' type='%Boolean' initialexpression='0' instantiate='0' >
 </property>
@@ -112,9 +112,26 @@ BPL Definition</Description>
 </property>
 <property name='k1' type='%Integer' instantiate='0' >
 </property>
+<property name='EMPI' type='%Integer' instantiate='0' >
+</property>
+<property name='LookUpLastName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='500' />
+</parameters>
+</property>
+<property name='LookUpFirstName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='500' />
+</parameters>
+</property>
+<property name='LookUpEMPI' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='4550' >
-<scope xpos='200' ypos='250' xend='200' yend='4450' >
+<sequence xend='200' yend='6300' >
+<scope xpos='200' ypos='250' xend='200' yend='6200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <assign name="SetConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
 <code name='CheckReplyCodeActions' xpos='200' ypos='550' >
@@ -134,68 +151,146 @@ BPL Definition</Description>
     set context.errorStatus=tStatus
  }]]]]><![CDATA[>
 </code>
-<if name='CheckValidationStatus' condition='context.ValidationPassed=1' xpos='200' ypos='750' xend='200' yend='3750' >
+<if name='CheckValidationStatus' condition='context.ValidationPassed=1' xpos='200' ypos='750' xend='200' yend='5400' >
 <true>
-<code name='GetMaxAgefromSetting' xpos='470' ypos='900' >
-<![CDATA[ set configValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MaxAge",.pstatus)
- $$$TRACE("Value of MaxAge ="_configValue)
- set configValue=$zstrip(configValue,"*"," ")
- if (configValue>0){
-      set context.MaxAge=configValue
- }else { $$$TRACE("Using default Age value since MaxAge was not set "_context.MaxAge)}]]]]><![CDATA[>
-</code>
-<code name='InitializeVariables' xpos='470' ypos='1000' >
-<![CDATA[ set context.firstNm=$ZStrip(request.GetValueAt("PID:5(1).2"),"<>W")
- set context.lastNm=$ZStrip(request.GetValueAt("PID:5(1).1"),"<>W")
+<code name='InitializeVariablesandCheck' xpos='470' ypos='900' >
+<![CDATA[ // Get the transaction EMPI and Patient name, leading trailing white space stripped and Patient name converted to upper case
+ set context.EMPI=$ZStrip(request.GetValueAt("PID:2.1"),"<>W")
+ 
+ set context.firstNm=$ZConvert($ZStrip(request.GetValueAt("PID:5(1).2"),"<>W"),"U")
+ set context.lastNm=$ZConvert($ZStrip(request.GetValueAt("PID:5(1).1"),"<>W"),"U")
+ 
+ If ((context.EMPI = "")||(context.firstNm = "") || (context.lastNm = ""))
+ {
+    Set sts =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"SKIP the record , Patient EMPI (PID 2.1) or First name(PID 5.2) or Last name (PID5.1) is empty ")
+    do ..%Process.ItfSendEmailOnError("PHI - Initiate to Usiis data error, record skipped ", sts_" Full message : "_request.OutputToString(request.Separators))
+
+    Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName,sts)
+      }
+ 
  set context.dob=$ZStrip(request.GetValueAt("PID:7.1"),"<>W")
  set context.appNm=request.GetValueAt("ZZZ:OriginalSendingApplication")
  set context.transType=request.GetValueAt("ZZZ:Transactiontype")
  set context.msh9Val=request.GetValueAt("MSH:9.2")]]]]><![CDATA[>
 </code>
-<if name='PassingCondition1' condition='($Length(context.dob)&gt;0)&amp;&amp;($Length(context.firstNm)&gt;0)&amp;&amp;($Length(context.lastNm)&gt;1)' xpos='470' ypos='1100' xend='470' yend='3650' >
+<if name='PassingCondition1' condition='($Length(context.dob)&gt;0)&amp;&amp;($Length(context.firstNm)&gt;0)&amp;&amp;($Length(context.lastNm)&gt;1)' xpos='470' ypos='1000' xend='470' yend='4850' >
 <true>
-<trace name='Passed PassingCondition1' value='"Passed PassingCondition1"' xpos='740' ypos='1250' />
-<code name='getAgeAndUnitnum' xpos='740' ypos='1350' >
-<![CDATA[ //Calculate Age from DoB 
-
- Set tStatus = ##class(IHC.ITF.ITFCOMMON.Util.DateUtil).getAge(context.dob,.Age)
- If $$$ISERR(tStatus)
- {
-  Set context.errorStatus = tStatus
- }
- else
- {
-  Set context.Age = Age
-  $$$TRACE("Calcualted Age from DOB : "_context.Age )
- }
- //Get the matching unitnumber from the Hl7 PID3
+<trace name='Passed PassingCondition1' value='"Passed PassingCondition1"' xpos='740' ypos='1150' />
+<code name='getUnitnum' xpos='740' ypos='1250' >
+<![CDATA[ //Get the matching unitnumber from the Hl7 PID3
  Set context.unitNum = ##class(IHC.ITF.Util.GenericDemogrHl7ToUsiis).getUnitNum(request)]]]]><![CDATA[>
 </code>
-<if name='CheckErrorStatus' condition='$$$ISERR(context.errorStatus)' xpos='740' ypos='1450' xend='740' yend='1800' >
-<annotation><![CDATA[Check getAgeMethod call status]]]]><![CDATA[></annotation>
-<true>
-<code name='CallCheckError' xpos='875' ypos='1600' >
-<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName,"Skip record due to invalid data. "_$SYSTEM.Status.GetOneErrorText(context.errorStatus))]]]]><![CDATA[>
-</code>
-<throw name='ThrowInvalidDOBException' fault='context.errorStatus' xpos='875' ypos='1700' />
-</true>
-</if>
-<code name='CheckWithLookupTable1' xpos='740' ypos='1900' >
-<![CDATA[ Set msh9ValLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMSH9",context.msh9Val,.msh9Value)
- Set firstNmLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipFirstNames",context.firstNm,.firstNmVal)
+<code name='CheckWithLookupTable1' xpos='740' ypos='1350' >
+<![CDATA[ Set firstNmLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipFirstNames",context.firstNm,.firstNmVal)
  Set lastNmLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipLastNames",context.lastNm,.lastNmVal)]]]]><![CDATA[>
 </code>
-<if name='PassingCondition2' condition='($Length(context.unitNum)&gt;0)&amp;&amp;((context.Age&lt;context.MaxAge)||&apos;($$$ISOK(msh9ValLookupSts)))&amp;&amp;&apos;($$$ISOK(firstNmLookupSts))&amp;&amp;&apos;($$$ISOK(lastNmLookupSts))' xpos='740' ypos='2000' xend='740' yend='3550' >
+<if name='PassingCondition2' condition='($Length(context.unitNum)&gt;0)&amp;&amp;&apos;($$$ISOK(firstNmLookupSts))&amp;&amp;&apos;($$$ISOK(lastNmLookupSts))' xpos='740' ypos='1450' xend='740' yend='4750' >
 <true>
-<trace name='Passed PassingCondition2' value='"Passed PassingCondition2"' xpos='1010' ypos='2150' />
-<code name='CheckWithLookupTable2' xpos='1010' ypos='2250' >
+<trace name='Passed PassingCondition2' value='"Passed PassingCondition2"' xpos='1010' ypos='1600' />
+<code name='CheckWithLookupTable2' xpos='1010' ypos='1700' >
 <![CDATA[  Set appNmLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMrgrAppNames",context.appNm,.appNmVal)]]]]><![CDATA[>
 </code>
-<if name='PassingCondition3' condition='(context.transType=context.MMIADDCID)||((context.transType=context.MMIUPDTCID)&amp;&amp;&apos;($$$ISOK(appNmLookupSts)))||((context.transType=context.MMIDELCID)&amp;&amp;($$$ISOK(appNmLookupSts)))' xpos='1010' ypos='2350' xend='1010' yend='3450' >
+<if name='PassingCondition3' condition='(context.transType=context.MMIADDCID)||((context.transType=context.MMIUPDTCID)&amp;&amp;&apos;($$$ISOK(appNmLookupSts)))||((context.transType=context.MMIDELCID)&amp;&amp;($$$ISOK(appNmLookupSts)))' xpos='1010' ypos='1800' xend='1010' yend='4650' >
 <true>
-<trace name='Passed PassingCondition3' value='"Passed PassingCondition3"' xpos='1280' ypos='2500' />
-<transform name='TransformToUsiisHl7Format' class='IHC.ITF.Transform.Dtl.GenericDemogrHl7ToUsiis' source='request' target='context.TransformedHl7' xpos='1280' ypos='2600' />
-<code name='ValidateMessage' xpos='1280' ypos='2700' >
+<trace name='Passed PassingCondition3' value='"Passed PassingCondition3"' xpos='1280' ypos='1950' />
+<code name='checkMSH9 in lookup' xpos='1280' ypos='2050' >
+<![CDATA[ Set msh9ValLookupSts = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMSH9",context.msh9Val,.msh9Value)]]]]><![CDATA[>
+</code>
+<if name='Check Transaction Type' condition='$$$ISOK(msh9ValLookupSts)' xpos='1280' ypos='2150' xend='1280' yend='3450' >
+<true>
+<code name='Initialize custom logic variables' xpos='1550' ypos='2300' >
+<![CDATA[  
+ //Get the matched EMPI and patient name from lookup data table IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames
+ 
+ set obj = ##class(IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames).%OpenId(context.EMPI)
+ If $ISOBJECT(obj)
+ {
+   set context.LookUpEMPI = $ZConvert($ZStrip(obj.EMPI,"<>W"),"U")
+   set context.LookUpLastName = $ZConvert($ZStrip(obj.LastName,"<>W"),"U")
+   set context.LookUpFirstName = $ZConvert($ZStrip(obj.FirstName,"<>W"),"U")
+ }]]]]><![CDATA[>
+</code>
+<if name='LookUpEMPI = Tx EMPI' condition='context.LookUpEMPI = context.EMPI' xpos='1550' ypos='2400' xend='1550' yend='3350' >
+<true>
+<if name='Lookup LastName = Tx Lastname' condition='context.LookUpLastName = context.lastNm' xpos='1820' ypos='2550' xend='1820' yend='3250' >
+<true>
+<if name='Lookup FirstNm = Tx First Nm' condition='context.LookUpFirstName = context.firstNm' xpos='2090' ypos='2700' xend='2090' yend='3150' >
+<true>
+<trace name='Skip A08 Transaction' value='"EMPI and Patient name doesnt match with lookup data table, skipping the transaction "' xpos='2360' ypos='2850' />
+<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;EMPI and Patient Last name and First name not mathing with the data in lookup table  IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames so Message is Skipped&quot;)" action="set" xpos='2360' ypos='2950' />
+<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='2360' ypos='3050' />
+</true>
+<false>
+<trace name='First name not in Data lookup' value='"Transaction First name not matching in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, continue processing the A08 transaction"' xpos='2090' ypos='2850' />
+<code name='Update Pat First name to table' xpos='2090' ypos='2950' >
+<![CDATA[ set EMPIObj = ##class(IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames).%OpenId(context.EMPI)
+ If $ISOBJECT(EMPIObj)
+ {
+   set EMPIObj.FirstName = context.firstNm
+ set sts = EMPIObj.%Save()
+ If $$$ISOK(sts)
+ {
+   $$$TRACE("Transaction Patient First name updated into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table successfully")
+ }
+ else
+ { 
+   $$$TRACE("Failed to update Patient First name into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, Error : "_sts)
+ }
+ }]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='Last name not in Data lookup' value='"Transaction Last name not matching in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, continue processing the A08 transaction"' xpos='1820' ypos='2700' />
+<code name='Update Pat First and Last name to table' xpos='1820' ypos='2800' >
+<![CDATA[ set EMPIObj = ##class(IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames).%OpenId(context.EMPI)
+ If $ISOBJECT(EMPIObj)
+ {
+   set EMPIObj.LastName = context.lastNm
+   set EMPIObj.FirstName = context.firstNm
+ set sts = EMPIObj.%Save()
+ If $$$ISOK(sts)
+ {
+   $$$TRACE("Transaction Patient name updated into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table successfully")
+ }
+ else
+ { 
+   $$$TRACE("Failed to update  Patient name into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, Error : "_sts)
+ }
+ }]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='EMPI not in Data lookup' value='"EMPI not available in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, continue processing the A08 transaction"' xpos='1550' ypos='2550' />
+<code name='Add EMPI,Pat name to table' xpos='1550' ypos='2650' >
+<![CDATA[ set EMPIObj = ##class(IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames).%New()
+ set EMPIObj.EMPI = context.EMPI
+ set EMPIObj.LastName = context.lastNm
+ set EMPIObj.FirstName = context.firstNm
+ set sts = EMPIObj.%Save()
+ If $$$ISOK(sts)
+ {
+   $$$TRACE("Transaction EMPI and Patient name saved into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table successfully")
+ }
+ else
+ { 
+   $$$TRACE("Failed to insert Transaction EMPI and Patient name into IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Data.skipEMPIandPatientNames table, Error : "_sts)
+ }]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='Transaction type is not A08' value='"Transaction type is not A08 , continue the message processing without Custom filter logic based on EMPI and Patient name"' xpos='1280' ypos='2300' />
+</false>
+</if>
+<if name='skipRecord check' condition='context.skipRecord = 1' xpos='1280' ypos='3550' xend='1280' yend='4550' >
+<false>
+<transform name='TransformToUsiisHl7Format' class='IHC.ITF.Transform.Dtl.GenericDemogrHl7ToUsiis' source='request' target='context.TransformedHl7' xpos='1415' ypos='3700' />
+<code name='ValidateMessage' xpos='1415' ypos='3800' >
 <annotation><![CDATA[Check if the message passes the message validation as set in the Validation Settings]]]]><![CDATA[></annotation>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
  set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(context.TransformedHl7,validationSettingValue)
@@ -204,13 +299,13 @@ BPL Definition</Description>
     set context.errorStatus=tStatus
  }]]]]><![CDATA[>
 </code>
-<trace name='TraceValidationPassed' value='" Status of validation after transformation "_$G(tStatus)_" get status text "_$SYSTEM.Status.GetOneErrorText(tStatus)' xpos='1280' ypos='2800' />
-<if name='PassedValidation' condition='context.ValidationPassed=1' xpos='1280' ypos='2900' xend='1280' yend='3350' >
+<trace name='TraceValidationPassed' value='" Status of validation after transformation "_$G(tStatus)_" get status text "_$SYSTEM.Status.GetOneErrorText(tStatus)' xpos='1415' ypos='3900' />
+<if name='PassedValidation' condition='context.ValidationPassed=1' xpos='1415' ypos='4000' xend='1415' yend='4450' >
 <true>
-<code name='ResetErrorCode' xpos='1550' ypos='3050' >
+<code name='ResetErrorCode' xpos='1685' ypos='4150' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigNames' xpos='1550' ypos='3150' >
+<code name='GetTargetConfigNames' xpos='1685' ypos='4250' >
 <annotation><![CDATA[Get TargetConfigNames from component Settings]]]]><![CDATA[></annotation>
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
      
@@ -223,7 +318,7 @@ BPL Definition</Description>
      Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
  }]]]]><![CDATA[>
 </code>
-<foreach name='SendToAllTargets' property='context.targetList' key='context.k1' xpos='1550' ypos='3250' xend='200' yend='450' >
+<foreach name='SendToAllTargets' property='context.targetList' key='context.k1' xpos='1685' ypos='4350' xend='200' yend='450' >
 <annotation><![CDATA[Send message to all targets]]]]><![CDATA[></annotation>
 <trace value='"In loop " _  context.k1 _ ", Send to: " _ context.targetList.GetAt(context.k1)' xpos='200' ypos='250' />
 <call name='call traget' target='@context.targetList.GetAt(context.k1)' async='1' xpos='200' ypos='350' >
@@ -237,29 +332,39 @@ BPL Definition</Description>
 </foreach>
 </true>
 <false>
-<code name='SetValidationFailedError' xpos='1280' ypos='3050' >
+<code name='SetValidationFailedError' xpos='1415' ypos='4150' >
 <annotation><![CDATA[send validation failed error to disable component]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName,"SKIP record due to validation failure. "_$SYSTEM.Status.GetOneErrorText(context.errorStatus))]]]]><![CDATA[>
 </code>
 </false>
 </if>
-</true>
-<false>
-<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIADDCID value : &quot;&quot;&quot;_context.MMIADDCID_&quot;&quot;&quot; ,OR the following combination should be true, ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIUPDTCID value : &quot;&quot;&quot;_context.MMIUPDTCID_&quot;&quot;&quot; AND ZZZ:OriginalSendingApplication &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMrgrAppNames lookup. OR the following combination should be true, ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIDELCID value : &quot;&quot;&quot;_context.MMIDELCID_&quot;&quot;&quot; AND ZZZ:OriginalSendingApplication &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMrgrAppNames lookup. - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='1010' ypos='2500' />
-<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='1010' ypos='2600' />
 </false>
 </if>
 </true>
 <false>
-<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;UnitNum &gt; 0, actual UnitNum &quot;&quot;&quot;_context.unitNum_&quot;&quot;&quot; ,Age calculated from DOB &lt; MaxAge Setting, actual Age &quot;&quot;&quot;_context.Age_&quot;&quot;&quot; or MSH9 not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMSH lookup , actual MSH9 &quot;&quot;&quot;_context.msh9Val_&quot;&quot;&quot; ,FirstName(PID:5(1).2) not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipFirstNames lookup , actual FirstName &quot;&quot;&quot;_context.firstNm_&quot;&quot;&quot; ,LastName(PID:5(1).1) not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipLastNames lookup , actual LastName &quot;&quot;&quot;_context.lastNm_&quot;&quot;&quot;. - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='740' ypos='2150' />
-<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='740' ypos='2250' />
+<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIADDCID value : &quot;&quot;&quot;_context.MMIADDCID_&quot;&quot;&quot; ,OR the following combination should be true, ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIUPDTCID value : &quot;&quot;&quot;_context.MMIUPDTCID_&quot;&quot;&quot; AND ZZZ:OriginalSendingApplication &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMrgrAppNames lookup. OR the following combination should be true, ZZZ:Transactiontype value : &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; = context.MMIDELCID value : &quot;&quot;&quot;_context.MMIDELCID_&quot;&quot;&quot; AND ZZZ:OriginalSendingApplication &quot;&quot;&quot;_context.transType_&quot;&quot;&quot; not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMrgrAppNames lookup. - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='1010' ypos='1950' />
+<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='1010' ypos='2050' />
 </false>
 </if>
 </true>
 <false>
-<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;DOB &gt; 0, actual DOB &quot;&quot;&quot;_context.dob_&quot;&quot;&quot; ,FirstName(PID:5(1).2) &gt;0, actual FirstName &quot;&quot;&quot;_context.firstNm_&quot;&quot;&quot; ,LastName(PID:5(1).1) &gt;1, actual LastName &quot;&quot;&quot;_context.lastNm_&quot;&quot;&quot; - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='470' ypos='1250' />
-<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='470' ypos='1350' />
+<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;UnitNum &gt; 0, actual UnitNum &quot;&quot;&quot;_context.unitNum_&quot;&quot;&quot; , MSH9 not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipMSH lookup , actual MSH9 &quot;&quot;&quot;_context.msh9Val_&quot;&quot;&quot; ,FirstName(PID:5(1).2) not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipFirstNames lookup , actual FirstName &quot;&quot;&quot;_context.firstNm_&quot;&quot;&quot; ,LastName(PID:5(1).1) not in IHC.ITF.Process.Bpl.GenericDemogrHl7ToUsiis.Lookup.skipLastNames lookup , actual LastName &quot;&quot;&quot;_context.lastNm_&quot;&quot;&quot;. - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='740' ypos='1600' />
+<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='740' ypos='1700' />
 </false>
+</if>
+</true>
+<false>
+<assign name="SetWarningText" property="context.errorStatus" value="$$$ERROR(5001,&quot;DOB &gt; 0, actual DOB &quot;&quot;&quot;_context.dob_&quot;&quot;&quot; ,FirstName(PID:5(1).2) &gt;0, actual FirstName &quot;&quot;&quot;_context.firstNm_&quot;&quot;&quot; ,LastName(PID:5(1).1) &gt;1, actual LastName &quot;&quot;&quot;_context.lastNm_&quot;&quot;&quot; - Any of the conditions failed so Message is Skipped&quot;)" action="set" xpos='470' ypos='1150' />
+<assign name="SkipRecord" property="context.skipRecord" value="1" action="set" xpos='470' ypos='1250' />
+</false>
+</if>
+<if name='SkipRecordCheck' condition='context.skipRecord=1' xpos='470' ypos='4950' xend='470' yend='5300' >
+<true>
+<trace name='SkipMessage' value='"Message did not pass all the checks"' xpos='605' ypos='5100' />
+<code name='AddSkipRecordError' xpos='605' ypos='5200' >
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record. "_$SYSTEM.Status.GetOneErrorText(context.errorStatus))]]]]><![CDATA[>
+</code>
+</true>
 </if>
 </true>
 <false>
@@ -269,16 +374,23 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<if name='SkipRecordCheck' condition='context.skipRecord=1' xpos='200' ypos='3850' xend='200' yend='4200' >
+<if name='SkipRecordCheck' condition='context.skipRecord=1' xpos='200' ypos='5500' xend='200' yend='5850' >
 <true>
-<trace name='SkipMessage' value='"Message did not pass all the checks"' xpos='335' ypos='4000' />
-<code name='AddSkipRecordError' xpos='335' ypos='4100' >
+<trace name='SkipMessage' value='"Message did not pass all the checks"' xpos='335' ypos='5650' />
+<code name='AddSkipRecordError' xpos='335' ypos='5750' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record. "_$SYSTEM.Status.GetOneErrorText(context.errorStatus))]]]]><![CDATA[>
 </code>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='4300' xend='200' yend='350' >
+<catchall xpos='200' ypos='5950' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+<catchall xpos='200' ypos='6050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
