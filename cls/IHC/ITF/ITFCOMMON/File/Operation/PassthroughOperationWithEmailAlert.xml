@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.File.Operation.PassthroughOperationWithEmailAlert">
+<Super>EnsLib.File.PassthroughOperation</Super>
+<TimeCreated>63641,20199.70134</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Adapter">
+<Type>EnsLib.File.OutboundAdapter</Type>
+</Property>
+
+<Parameter name="INVOCATION">
+<Default>Queue</Default>
+</Parameter>
+
+<Property name="SuccessEmailSubject">
+<Description>
+This is the subject to use on the success email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SucessEmailBody">
+<Description>
+This is the body that will be included in the success email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="FailureEmailSubject">
+<Description>
+This is the subject to use on the failure email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="FailureEmailBody">
+<Description>
+This is the body that will be included in the failure email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="valueToBeReplaced">
+<Description>
+Property to store the values to be replaced</Description>
+<Type>%String</Type>
+<Collection>array</Collection>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>SuccessEmailSubject:Additional, SucessEmailBody:Additional,FailureEmailSubject:Additional, FailureEmailBody:Additional</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:%Persistent</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Quit:'$IsObject(pRequest.Stream) $$$ERROR($$$EnsErrGeneral,"No Stream contained in StreamContainer Request")
+	Set tFilename=..Adapter.CreateTimestamp(##class(%File).GetFilename(pRequest.OriginalFilename),..Filename)
+	Set tSC=..Adapter.PutStream(tFilename, pRequest.Stream)
+	Do pRequest.%Save() ; re-save in case PutStream() optimization changed the Stream filename
+	
+	$$$TRACE("Current Retry Count : "_..RetryCount)
+	set MaxRetry = (..FailureTimeout/..RetryInterval)+1
+	$$$TRACE(..FailureTimeout_"  ****  "_..RetryInterval_"   *****  "_"Max retry : "_MaxRetry)	
+	Set tFileName = ##class(%File).GetFilename(pRequest.OriginalFilename) _ " "
+
+	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,3)
+	Set extractDate =  $EXTRACT(currentDate,0,11)
+	Set extractTime = $EXTRACT(currentDate,11,$LENGTH(currentDate))
+	
+	
+	
+	do ..valueToBeReplaced.SetAt(tFileName,"%FN")
+	do ..valueToBeReplaced.SetAt(extractDate,"%CD")
+	do ..valueToBeReplaced.SetAt(extractTime,"%CT")
+	
+	
+	
+	
+	Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(..SuccessEmailSubject)
+	Set updatedFailureEmailSubject = ..replaceWithParticularFormat(..FailureEmailSubject)
+	Set updatedSuccessEmailbody = ..replaceWithParticularFormat(..SucessEmailBody)
+	Set updatedFailureEmailbody = ..replaceWithParticularFormat(..FailureEmailBody)
+	
+	//Sending Email
+	If $$$ISOK(tSC)
+	{
+		$$$TRACE("Sending alert for successful file transfer.")
+		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
+		do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+		do ..valueToBeReplaced.SetAt("Success","%EM")
+	}
+	ElseIf(..RetryCount=MaxRetry)	
+	{
+		$$$TRACE("Sending alert for failure in file transfer.")
+		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
+		do ..valueToBeReplaced.SetAt(tSC,"%EM")
+		do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
+		
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+    Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement")
+	Quit SubBody
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnSuccess">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(sub, txt, ..%ConfigName)
+ do ..SendAlert(alert)
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnError">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(sub, txt, ..%ConfigName)
+ Set status= ..SendAlert(alert)
+]]></Implementation>
+</Method>
+</Class>
+</Export>

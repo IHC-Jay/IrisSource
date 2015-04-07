@@ -6,30 +6,41 @@
 
 <Property name="SuccessEmailSubject">
 <Description>
-This is the subject to use on the success email</Description>
+This is the subject to use on the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
 <Property name="SucessEmailBody">
 <Description>
-Email This is the body that will be included in the success email</Description>
+Email This is the body that will be included in the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="2500"/>
 </Property>
 
 <Property name="FailureEmailSubject">
 <Description>
-This is the subject to use on the failure email</Description>
+This is the subject to use on the failure email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
 <Property name="FailureEmailBody">
 <Description>
-Email This is the body that will be included in the failure email</Description>
+Email This is the body that will be included in the failure email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="valueToBeReplaced">
+<Description>
+Property to store the values to be replaced</Description>
+<Type>%String</Type>
+<Collection>array</Collection>
 </Property>
 
 <Parameter name="ADAPTER">
@@ -50,6 +61,7 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 
 <Property name="TempFilename">
 <Description><![CDATA[
+This property is a help for identifying the different identifers
 Name of a temporary file to output the document(s) to. Upon completion of the upload the file with this name
 to the FTP server it is renIamed to the name specified in the Filename setting. If this setting is blank no temporary file will be used.<p/>
 May include timestamp specifiers. The %f specifier if present will be 
@@ -68,31 +80,72 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 <FormalSpec>pRequest:Ens.StreamContainer,*pResponse:%Persistent</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	
 	Quit:'$IsObject(pRequest.Stream) $$$ERROR($$$EnsErrGeneral,"No Stream contained in StreamContainer Request")
-	$$$LOGINFO("Calling Super class")
-	Set tFileName=""
-	set tSC = ##super(pRequest,pResponse)
-	$$$LOGINFO("Current Retry Count : "_..RetryCount)
-	set MaxRetry = (..FailureTimeout/..RetryInterval)+1
-	$$$LOGINFO(..FailureTimeout_"  ****  "_..RetryInterval_"   *****  "_"Max retry : "_MaxRetry)	
-	//If the Filename in setting is %F then get the Filename
-	If ..Filename = "%f"
-	{
-		Set tFileName = ##class(%File).GetFilename(pRequest.OriginalFilename) _ " "
+	Set tNameIn=##class(%File).GetFilename(pRequest.OriginalFilename)
+	Set (tFilename,tFinalFilename)=..Adapter.CreateTimestamp(tNameIn,..Filename)
+	If ""'=..TempFilename {
+		Set tFilename=..Adapter.CreateTimestamp(tNameIn,..TempFilename)
 	}
+	Set tSC=..Adapter.PutStream(tFilename, pRequest.Stream)
+	If tFinalFilename'=tFilename&&$$$ISOK(tSC) Set tSC=..Adapter.Rename(tFilename, tFinalFilename)
+	
+	
+	// For this Retry logic to work, Opeeration Setting "Reply Code Actions" should have a code with R , e.g E=RD or E=RF
+	$$$TRACE("Current Retry Count : "_..RetryCount)
+	set MaxRetry = (..FailureTimeout/..RetryInterval)+1
+	$$$TRACE(..FailureTimeout_"  ****  "_..RetryInterval_"   *****  "_"Max retry : "_MaxRetry)	
+	
+	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,3)
+	Set extractDate =  $EXTRACT(currentDate,0,11)
+	Set extractTime = $EXTRACT(currentDate,11,$LENGTH(currentDate))
+	
+	do ..valueToBeReplaced.SetAt(tFinalFilename,"%FN")
+	do ..valueToBeReplaced.SetAt(extractDate,"%CD")
+	do ..valueToBeReplaced.SetAt(extractTime,"%CT")
+	
+	
+	Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(..SuccessEmailSubject)
+	Set updatedFailureEmailSubject = ..replaceWithParticularFormat(..FailureEmailSubject)
+	Set updatedSuccessEmailbody = ..replaceWithParticularFormat(..SucessEmailBody)
+	Set updatedFailureEmailbody = ..replaceWithParticularFormat(..FailureEmailBody)
+	
+	$$$TRACE("Retry:"_..Retry)
+	$$$TRACE("FailureTimeOut:"_..FailureTimeout)
+	//Sending Email
 	If $$$ISOK(tSC)
 	{
-		$$$LOGINFO("Sending alert for successful file transfer.")
+		$$$TRACE("Sending alert for successful file transfer.")
 		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
-		do ..ItfSendEmailOnSuccess(tFileName_..SuccessEmailSubject, tFileName_..SucessEmailBody)
+		do ..valueToBeReplaced.SetAt("Success","%EM")
+		do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
 	}
 	ElseIf(..RetryCount=MaxRetry)	
 	{
-		$$$LOGINFO("Sending alert for failure in file transfer.")
+		$$$TRACE(MaxRetry_"  Retry Count inside else part : "_..RetryCount)
+		$$$TRACE("Sending alert for failure in file transfer.")
 		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
-		do ..ItfSendEmailOnError(tFileName_..FailureEmailSubject, tFileName_..FailureEmailBody)
+		do ..valueToBeReplaced.SetAt(tSC,"%EM")
+		do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
 	}
 	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+     Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement")
+	Quit SubBody
 ]]></Implementation>
 </Method>
 
