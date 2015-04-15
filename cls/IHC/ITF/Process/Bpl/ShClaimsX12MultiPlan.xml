@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.ShClaimsX12MultiPlan">
+<Description>
+</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63648,25660.933738</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.StreamContainer' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='JournalProcess' type='%String' initialexpression='"J-Sh-Claims_MultiPlan"' instantiate='0' >
+</property>
+<property name='configName' type='%String' instantiate='0' >
+</property>
+<property name='X12StreamCtxt' type='Ens.StreamContainer' instantiate='1' >
+</property>
+<property name='NewFileName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='k1' type='%Integer' instantiate='0' >
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Deploy code' xpos='200' ypos='450' >
+<annotation><![CDATA[check Reploy code]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Get MaxError and Custom Property' xpos='200' ypos='550' >
+<annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = $$$ERROR("Initialization error, No TargetConfigMask found")
+ }
+ else
+ {
+ 	$$$TRACE("TargetConfigMask: " _ configValue)
+  }
+  $$$TRACE("Stream size  " _ request.Stream.Size)
+ 	  ]]]]><![CDATA[>
+</code>
+<assign name="Request stream to Context" property="context.X12StreamCtxt" value="request" action="set" xpos='200' ypos='650' />
+<assign name="Config to Context" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='750' />
+<code name='Validate X12 and Set Filename' xpos='200' ypos='850' >
+<![CDATA[  Set Filename = $P(request.OriginalFilename,"/",$Length(request.OriginalFilename,"/"))
+  $$$TRACE("Inside code block _"_Filename)
+  Set context.NewFileName = Filename
+  If $P(Filename,"5010_MP",1)=""
+ {
+   Set context.NewFileName = "5010_SH"_$P(Filename,"5010_MP",2)
+ }
+ Do request.Stream.Rewind()
+ $$$TRACE("request.Stream.Read(3)   "_request.Stream.Read(3))
+ Do request.Stream.Rewind()
+ If ($ZStrip(request.Stream.Read(3),"<>W")="ISA")
+ {
+	 $$$TRACE("Inside ISA if condition   "_request.Stream.Read(110))
+	 Do request.Stream.Rewind()
+	 Set X12Msg110Char = request.Stream.Read(110)
+	 Do request.Stream.Rewind()
+	 Set X12Msg250Char = request.Stream.Read(250)
+
+  Set status = ..%Process.getSegDelimX12(X12Msg110Char,.SegDelim,context.configName)
+  Set status = ..%Process.getFieldDelimX12(X12Msg110Char,.FieldDelim,context.configName)
+  
+   $$$TRACE("Inside code block SegDelim _"_SegDelim)
+   $$$TRACE("Inside code block FieldDelim _"_FieldDelim)
+  
+  Set iGSSegBegin = $Find(X12Msg250Char,SegDelim_"GS")
+  $$$TRACE("iGSSegBegin _  "_iGSSegBegin)
+  If iGSSegBegin>=0
+  {
+	  Set iGSSegBegin=iGSSegBegin-1
+	  Set iGSSegEnd = $Find(X12Msg250Char,SegDelim,iGSSegBegin+1)
+	  $$$TRACE("iGSSegEnd _  "_iGSSegEnd)
+	  If iGSSegEnd>=0
+	  {
+	  	Set GSSeg = $Extract(X12Msg250Char,iGSSegBegin+1,iGSSegEnd-1)
+	  }
+	  Else
+	  {
+		  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Unable to split out GS segment from  <" _X12Msg250Char_">")
+	  }
+  }
+  Else
+  {
+	   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Unable to split out GS segment from  <" _X12Msg250Char_">")
+  }
+
+ $$$TRACE("Inside code block GSSeg _"_GSSeg)
+ Set status = ..%Process.getX12Field(GSSeg,SegDelim,FieldDelim,"9",.GS08Val,context.configName)
+ 
+ $$$TRACE("Inside code block GS08Val _"_GS08Val) 
+  
+ }
+ 
+ //Set the popualted file name
+ If $ZStrip(Filename,"<>W")=""
+ {
+	 Set sts = ..%Process.buildPublishFileName(GS08Val,context.NewFileName)
+ }
+ Set context.X12StreamCtxt.Stream = request.Stream
+ Set context.X12StreamCtxt.OriginalFilename = context.NewFileName
+ $$$TRACE("End of code block  _"_context.X12StreamCtxt.OriginalFilename)
+ 
+ ]]]]><![CDATA[>
+</code>
+<call name='Call Journal' target='@context.JournalProcess' async='1' xpos='200' ypos='950' >
+<request type='Ens.StreamContainer' >
+<assign property="callrequest" value="context.X12StreamCtxt" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<code name='Get Target list' xpos='200' ypos='1050' >
+<![CDATA[ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+<foreach name='SendToAllTargets' property='context.targetList' key='context.k1' xpos='200' ypos='1150' xend='200' yend='450' >
+<trace value='"In loop " _  context.k1 _ ", Send to: " _ context.targetList.GetAt(context.k1)' xpos='200' ypos='250' />
+<call name='call target' target='@context.targetList.GetAt(context.k1)' async='0' timeout='"PT60S"' xpos='200' ypos='350' >
+<request type='Ens.StreamContainer' >
+<assign property="callrequest" value="context.X12StreamCtxt" action="set" />
+</request>
+<response type='Ens.Response' >
+<assign property="response" value="callresponse" action="set" />
+</response>
+</call>
+</foreach>
+<faulthandlers>
+<catchall xpos='200' ypos='1250' xend='200' yend='250' />
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Method name="getSegDelimX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Msg:%String,*SegDelim:%String="",ConfigName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 Set tSC = $$$OK
+	 If $Length($ZStrip(Msg,"<>W"))>106
+     {
+	 Set SegDelim = $Extract(Msg,106)
+     }
+     Else
+	 {
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(ConfigName,"Unable to retrieve segment delimiter from  <" _Msg_ "> because the message is too short")
+	 }
+	 Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="getFieldDelimX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>Msg:%String,*FieldDelim:%String,ConfigName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 Set tSC = $$$OK
+	 If $Length($ZStrip(Msg,"<>W"))>106
+     {
+	 Set FieldDelim = $Extract(Msg,104)
+	 }
+     Else
+     {
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(ConfigName,"Unable to retrieve field delimiter from  <" _Msg_ "> because the message is too short")
+	 }
+	 Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="getX12Field">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>SegVal:%String,SegDelim:%String,FieldDelim:%String,FieldNum:%String,*FieldVal:%String="",ConfigName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	Set FieldVal = $P(SegVal,FieldDelim,FieldNum)
+	Set FieldVal=$Translate(FieldVal,SegDelim,"")
+	/*If FieldVal=""
+	{
+		Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(ConfigName,"Unable to retrieve "_FieldNum_" from  Segment <" _SegVal_ "> ")
+	}*/
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// This method set the file name based on X12 GS08 value
+
+]]></Content>
+</UDLText>
+
+<Method name="buildPublishFileName">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>GS08Val:%String,*Fname:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC = $$$OK
+	//Current datetime in yyyymmddHHmmss format
+	Set dNow = $ZD($H,8)_$Translate($ZT($H,1),":","")
+	
+	If ($Find(GS08Val,"005010X222")>=0)||($Find(GS08Val,"004010X098")>=0)
+	{
+		Set Fname = "5010_SH_H_"_dNow_"_1"
+	}
+	ElseIf ($Find(GS08Val,"005010X223")>=0)||($Find(GS08Val,"004010X096")>=0)
+	{
+		Set Fname = "5010_SH_U_"_dNow_"_1"
+	}
+	Else
+	{
+		Set Fname = "SH_billing_MP_"_dNow_".txt_1"
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
