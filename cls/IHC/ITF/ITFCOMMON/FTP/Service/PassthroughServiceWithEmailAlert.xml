@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.FTP.Service.PassthroughServiceWithEmailAlert">
+<Super>Ens.BusinessService</Super>
+<TimeCreated>63684,50181.15321</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.FTP.InboundAdapter</Default>
+</Parameter>
+
+<Property name="SuccessEmailSubject">
+<Description>
+This is the subject to use on the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SucessEmailBody">
+<Description>
+Email This is the body that will be included in the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="valueToBeReplaced">
+<Description>
+Property to store the values to be replaced</Description>
+<Type>%String</Type>
+<Collection>array</Collection>
+</Property>
+
+<Property name="Filename">
+<Description><![CDATA[
+Name of file to output the document(s) to. May include timestamp specifiers. The %f specifier if present will be 
+replaced with the name of the document's original source filename (stripped of characters illegal in target filenames).<p>
+See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping options.]]></Description>
+<Type>%String</Type>
+<InitialExpression>"%f_%Q"</InitialExpression>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+<Parameter name="MINLEN" value="1"/>
+</Property>
+
+<Property name="TempFilename">
+<Description><![CDATA[
+This property is a help for identifying the different identifers
+Name of a temporary file to output the document(s) to. Upon completion of the upload the file with this name
+to the FTP server it is renIamed to the name specified in the Filename setting. If this setting is blank no temporary file will be used.<p/>
+May include timestamp specifiers. The %f specifier if present will be 
+replaced with the name of the document's original source filename (stripped of characters illegal in target filenames).<p/>
+See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping options.]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="TargetConfigNames">
+<Description>
+Configuration item(s) to which to send file stream messages</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TempFilename:Additional,SuccessEmailSubject:Additional, SucessEmailBody:Additional]]></Default>
+</Parameter>
+
+<Parameter name="CONTAINERCLASS">
+<Description>
+Setting the Target Config Names as part of the configuration</Description>
+<Default>Ens.StreamContainer</Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<FormalSpec>pInput:%Stream.Object,*pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	///Get the Filename from the input stream
+	Set tSource = pInput.Attributes("Filename")
+	///Wrap the Stream object to StreamContainer	
+	set pInput = $classmethod(..#CONTAINERCLASS,"%New",pInput)
+	/// If the adapter has a value for ArchivePath, send async; otherwise send synchronously
+	/// to ensure that we don't return to the Adapter and let it delete the file before the
+	/// target Config Item is finished processing it. 
+	Set tWorkArchive=(""'=..Adapter.ArchivePath) 
+	
+	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,3)
+	Set extractDate =  $EXTRACT(currentDate,0,11)
+	Set extractTime = $EXTRACT(currentDate,11,$LENGTH(currentDate))
+
+	do ..valueToBeReplaced.SetAt(tSource,"%FN")
+	do ..valueToBeReplaced.SetAt(extractDate,"%CD")
+	do ..valueToBeReplaced.SetAt(extractTime,"%CT")	
+	
+	Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(..SuccessEmailSubject)
+	Set updatedSuccessEmailbody = ..replaceWithParticularFormat(..SucessEmailBody)
+
+	$$$TRACE("Sending alert for successful file transfer.")
+	do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+	
+	
+	//Set ^TargetConfigNames("TC") = ..TargetConfigNames
+	
+	For iTarget=1:1:1 { 
+		Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")
+		If tWorkArchive {			
+			Set tSC=..SendRequestAsync(tOneTarget,pInput)					
+		}		
+		Else {
+			#; If not archiving send Sync to avoid Adapter deleting file before Operation gets it
+			Set tSC=..SendRequestSync(tOneTarget,pInput)
+		}			 
+	}	 
+	
+			
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+     Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement")
+	Quit SubBody
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnSuccess">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(sub, txt, ..%ConfigName)
+ do ..SendAlert(alert)
+]]></Implementation>
+</Method>
+</Class>
+</Export>
