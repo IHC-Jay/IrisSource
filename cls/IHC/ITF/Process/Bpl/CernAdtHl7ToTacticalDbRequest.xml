@@ -25,6 +25,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='IhAliasPoolNCID' type='%String' initialexpression='"526760978"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='homeAddressTypeNcid' type='%String' initialexpression='"199"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -62,12 +67,44 @@ BPL Definition</Description>
 </property>
 <property name='eventType' type='%String' instantiate='0' >
 </property>
+<property name='accountNumber' type='%String' instantiate='0' >
+</property>
+
+<property name='PV118' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' >
+</property>
+
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' >
+</property>
+
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddContextIhAliasPool' type='%String' initialexpression='"526760978"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+
+<property name='hddContext3mDefault' type='%String' initialexpression='"2000"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+
+
+
 </context>
 <sequence xend='200' yend='1850' >
 <scope xpos='200' ypos='250' xend='200' yend='1750' >
-<trace name='Inside BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
-<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
-</trace>
 <assign name="getAndSetProcessName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' >
 <annotation><![CDATA[Process Configuration Name]]]]><![CDATA[></annotation>
 </assign>
@@ -87,9 +124,16 @@ BPL Definition</Description>
   }
  else
  {
-    Set status = $$$ERROR("Initialization error, No target found")
+    Set status = $$$ERROR("Initialization error, No TargetConfigNames found in the Settings")
  }
  
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+    $$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+       Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ }
+
 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
@@ -97,6 +141,16 @@ BPL Definition</Description>
  	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
  }
 
+ set context.IhAliasPoolNCID="526760978" 
+ set configValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"IhAliasPoolNCID",.configValue) 
+ $$$TRACE("Value of IhAliasPoolNCID"_configValue)
+ if ($$$ISOK(pstatus)&&(configValue'=""))
+ {
+    $$$TRACE("IhAliasPoolNCID "_configValue) 
+    set context.IhAliasPoolNCID=configValue
+ } else{$$$TRACE("Config setting IhAliasPoolNCID not set. Using default value of "_context.IhAliasPoolNCID)} 
+ 
 
  set context.emailTypeNcid="50450664" 
  set configValue=""
@@ -135,36 +189,101 @@ BPL Definition</Description>
  else { $$$TRACE("Passed Validation Check: " _ context.validationSettingValue) }
  
  set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList().ID")
- $$$TRACE("EMPI Number: " _ context.empiNumber)  
- 
+ $$$TRACE("EMPI Number: " _ context.empiNumber)   
  $$$TRACE("Is a Number(EMPI#) : " _ $ISVALIDNUM(context.empiNumber)) 
  if ($ISVALIDNUM(context.empiNumber)'="1"){
 	  set context.isValidationPassed=0
 	  $$$TRACE("EMPI# is NOT a number ")
-	  Do ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.facilityId, "Invalid Empi number. Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)	  
+	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.empiNumber, "MRN(EMPI):  ["_ context.empiNumber _"] in PID_3.1 from iCentra Adt is NOT a number. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent _"]")	  	  
  }
  
  
  set context.facilityId=request.GetValueAt("MSH:SendingFacility.namespaceID")
- $$$TRACE("Facility ID: " _ context.facilityId)  
- 
+ $$$TRACE("Facility ID: " _ context.facilityId)
  $$$TRACE("Is a Number(FacilityID) : " _ $ISVALIDNUM(context.facilityId)) 
  if ($ISVALIDNUM(context.facilityId)'="1"){	  
 	  $$$TRACE("FacilityId is NOT a number ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.facilityId, "Facility Id is NOT a number. Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)	  
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facilityId, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
  }
  
- set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")
- $$$TRACE("EventType : " _ context.eventType)  
-  
+ set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")  
+ set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.eventTypesOut", context.eventType, .retVal )
+ $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
+ if (retVal ="1") {      
+      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "Invalid EventType:["_context.eventType_"] EMPI:["_context.empiNumber _"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
+ }
+
+ set context.accountNumber = request.GetValueAt("PID:PatientAccountNumber.ID") 
+ $$$TRACE("context.accountNumber:[" _ context.accountNumber _"]") 
+ if ($ISVALIDNUM(context.accountNumber)'="1"){	
+     set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.accNumberEventTypeIn", context.eventType, .retVal )
+     $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
+     if (retVal '="1") {
+	     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record - Invalid AccountNumber:["_context.accountNumber_"] and the event type:[" _  context.eventType_"]. EMPI:["_context.empiNumber _ "]")
+	     
+     }   
+ }
 ]]]]><![CDATA[>
 </code>
 <if name='validateMessage' condition='context.isValidationPassed=1' xpos='200' ypos='850' xend='200' yend='1400' >
 <true>
+
+<code name='initializeHddContexts' xpos='740' ypos='2100' >
+<![CDATA[
+    set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.IhAliasPool", .retVal )
+	set context.hddContextIhAliasPool = retVal 		
+
+    set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.3mDefault", .retVal )
+	set context.hddContext3mDefault = retVal 		
+
+]]]]><![CDATA[>
+</code>
+
+<code name='getRepFromNcid hdd requests' xpos='740' ypos='2300' >
+<![CDATA[
+  	$$$TRACE(" Get Rep from Ncid Hdd lookup call")
+  	
+  	set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+  	
+  	set zz119PatTypeNcid = request.GetValueAt("ZZ1:ZZ119PatientTypeNcid")  	
+  	if (zz119PatTypeNcid '= ""){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , zz119PatTypeNcid,  context.hddContextIhAliasPool, "PV118:PatientType")  	  	
+		$$$TRACE("Hdd Request ZZ1:19 : " _ zz119PatTypeNcid)		
+	}
+	
+	set ZZ111PatientClassNcid = request.GetValueAt("ZZ1:ZZ111PatientClassNcid")  	
+  	if (ZZ111PatientClassNcid '= ""){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ZZ111PatientClassNcid,  context.hddContext3mDefault, "ZZ111:PatientClass")  	  	
+		$$$TRACE("Hdd Request ZZ1:11 : " _ ZZ111PatientClassNcid)		
+	}
+	
+	set pv110HospServiceNcid = request.GetValueAt("PV1:HospitalService")  	
+  	if (pv110HospServiceNcid '= ""){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , pv110HospServiceNcid,  context.hddContextIhAliasPool, "PV110:HospitalService")  	  	
+		$$$TRACE("Hdd Request PV1:10 : " _ pv110HospServiceNcid)		
+	}
+	
+	
+  	
+]]]]><![CDATA[>
+</code>
+
+<call name='callHddOperation GetRepFromNcid' target='@context.hddTargetConfigName' async='0' xpos='470' ypos='4000' >
+<request type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' >
+<assign property="callrequest" value="context.hddRepRequest" action="set" />
+</request>
+<response type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' >
+<assign property="context.hddRepResponse" value="callresponse" action="set" />
+</response>
+</call>
+<trace name='number of HDD objects ' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='470' ypos='4100' />
+
+  	
 <code name='getTargetConfigList' xpos='470' ypos='1000' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTacticalDbRequest' source='request' target='context.tacDbRequest' xpos='470' ypos='1100' >
 <annotation><![CDATA[translates TacticalDb Hl7 to Oracle TacticalDb Request]]]]><![CDATA[></annotation>
 </transform>
@@ -219,9 +338,19 @@ BPL Definition</Description>
 <InitialExpression>"5"</InitialExpression>
 </Property>
 
+<Property name="IhAliasPoolNCID">
+<Type>%String</Type>
+<InitialExpression>"526760978"</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>EmailTypeNCID:Additional,HomeAddressTypeNCID:Additional,MaxRetries:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>IhAliasPoolNCID:Additional,EmailTypeNCID:Additional,HomeAddressTypeNCID:Additional,MaxRetries:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
+
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
@@ -236,6 +365,12 @@ BPL Definition</Description>
 </Value>
 <Value name="3">
 <Value>MaxRetries</Value>
+</Value>
+<Value name="4">
+<Value>IhAliasPoolNCID</Value>
+</Value>
+<Value name="5">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
