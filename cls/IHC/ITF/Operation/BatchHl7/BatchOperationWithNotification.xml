@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.BatchHl7.BatchOperationWithNotification">
+<ClassType/>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.HL7.Operation.BatchStandard</Super>
+<TimeCreated>63774,33294.414013</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.OutboundAdapter</Default>
+</Parameter>
+
+<UDLText name="T">
+<Content><![CDATA[/* override default value */
+]]></Content>
+</UDLText>
+
+<Property name="Filename">
+<Description><![CDATA[
+Name of file to output the document(s) to. May include timestamp specifiers. The %f specifier if present will be 
+replaced with the name of the document's original source stream (stripped of characters illegal in filenames).<p/>
+See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping options.]]></Description>
+<Type>%String</Type>
+<InitialExpression>"%f_%Q%!+(_a)"</InitialExpression>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+<Parameter name="MINLEN" value="1"/>
+</Property>
+
+<Property name="SuccessEmailSubject">
+<Description>
+BusinessOperation class for writing HL7 messages to a file.  Supports individual or batched messages.
+This is the subject to use on the success email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SucessEmailBody">
+<Description>
+This is the body that will be included in the success email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="FailureEmailSubject">
+<Description>
+This is the subject to use on the failure email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="FailureEmailBody">
+<Description>
+This is the body that will be included in the failure email</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="valueToBeReplaced">
+<Description>
+Property to store the values to be replaced</Description>
+<Type>%String</Type>
+<Collection>array</Collection>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>SuccessEmailSubject:Additional, SucessEmailBody:Additional,FailureEmailSubject:Additional, FailureEmailBody:Additional</Default>
+</Parameter>
+
+<Method name="outputDocument">
+<FormalSpec>pFilename:%String,pDocument:EnsLib.HL7.Message,pSeparators:%String,pDoFraming:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC = ..Adapter.open(pFilename)  Quit:$$$ISERR(tSC) tSC
+	Set $ZT="Trap"
+	Use ..Adapter.Device  Set tSC=..OutputFramedToDevice(pDocument,pSeparators,"",0,..IOLogEntry,.pDoFraming)  Use ..Adapter.OldIO
+	Set $ZT=""
+Exit
+	Set tSC1=..Adapter.close()
+	Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+		// For this Retry logic to work, Operation Setting "Reply Code Actions" should have a code with R , e.g E=RD or E=RF
+	$$$TRACE("Current Retry Count : "_..RetryCount)
+	set MaxRetry = (..FailureTimeout/..RetryInterval)+1
+	$$$TRACE(..FailureTimeout_"  ****  "_..RetryInterval_"   *****  "_"Max retry : "_MaxRetry)	
+	Set tFileName = ##class(%File).GetFilename(pRequest.OriginalFilename) _ " "
+
+	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,3)
+	Set extractDate =  $EXTRACT(currentDate,0,11)
+	Set extractTime = $EXTRACT(currentDate,11,$LENGTH(currentDate))
+	
+	
+	
+	do ..valueToBeReplaced.SetAt(tFileName,"%FN")
+	do ..valueToBeReplaced.SetAt(extractDate,"%CD")
+	do ..valueToBeReplaced.SetAt(extractTime,"%CT")
+	
+	
+	
+	
+	Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(..SuccessEmailSubject)
+	Set updatedFailureEmailSubject = ..replaceWithParticularFormat(..FailureEmailSubject)
+	Set updatedSuccessEmailbody = ..replaceWithParticularFormat(..SucessEmailBody)
+	Set updatedFailureEmailbody = ..replaceWithParticularFormat(..FailureEmailBody)
+	
+	//Sending Email
+	If $$$ISOK(tSC)
+	{
+		$$$TRACE("Sending alert for successful file transfer.")
+		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
+		do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+		do ..valueToBeReplaced.SetAt("Success","%EM")
+	}
+	ElseIf(..RetryCount=MaxRetry)	
+	{
+		$$$TRACE("Sending alert for failure in file transfer.")
+		;set alert.AlertText=$$$ITFCOMMONSendEmailOnSuccess _ ":emailSubject: "_..EmailSubject_" emailBody:"_..EmailBody
+		do ..valueToBeReplaced.SetAt(tSC,"%EM")
+		do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
+		
+	}
+	Quit tSC
+
+Trap
+	Set $ZT="",tSC=$$$EnsSystemError
+	Goto Exit
+]]></Implementation>
+</Method>
+
+<Method name="outputSegment">
+<FormalSpec>pFilename:%String,pSegObj:EnsLib.HL7.Segment,pSeparators:%String,pCount:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	If $Case(pSegObj.Name,"FTS":1,"BTS":1,:0) Set pSegObj=pSegObj.%ConstructClone()  Do pSegObj.SetValueAt(pCount,1)
+	Quit ..Adapter.PutStream(pFilename,pSegObj,pSeparators)
+]]></Implementation>
+</Method>
+
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+    Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement")
+	Quit SubBody
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnSuccess">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(sub, txt, ..%ConfigName)
+ do ..SendAlert(alert)
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnError">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(sub, txt, ..%ConfigName)
+ Set status= ..SendAlert(alert)
+]]></Implementation>
+</Method>
+</Class>
+</Export>

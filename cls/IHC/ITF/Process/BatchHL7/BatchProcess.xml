@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.BatchHL7.BatchProcess">
+<ClassType>persistent</ClassType>
+<Super>Ens.BusinessProcess</Super>
+<TimeCreated>63771,45719.473199</TimeCreated>
+
+<Property name="TargetConfigNames">
+<Description>
+Configuration item(s) to which to send messages</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<Method name="OnRequest">
+<FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+	If pRequest.DocTypeName = "BHS" { 
+	$$$TRACE("Create batch header segments ...")
+ Do ##class(IHC.ITF.Transform.BatchHl7.DTL.FHS).Transform(pRequest,.tFHS)
+ Do ##class(IHC.ITF.Transform.BatchHl7.DTL.BHS).Transform(pRequest,.tBHS)
+ 
+ Set tSegment = ##class(EnsLib.HL7.Segment).%New()
+ Set tSegment.Separators=tBHS.Separators
+ Do tSegment.SetValueAt("MessageDocsRef"_tSegment.FS_2)
+ Do tBHS.InsertSegmentAt(tSegment,2)
+ Do tBHS.RemoveSegmentAt(3)
+ Set tBTS=##class(EnsLib.HL7.Segment).%New()
+ Set tBTS.Separators=tBHS.Separators
+ Do tBTS.SetValueAt("BTS"_tBTS.FS_tBHS.ChildCount)
+ Do tBHS.SetSegmentAt(tBTS,3)
+ Set tSC= tBHS.%Save()
+ Set ^BatchHL7("BHSId") = tBHS.%Id()
+ 
+ Set tSegment = ##class(EnsLib.HL7.Segment).%New()
+ Set tSegment.Separators=tBHS.Separators
+ Do tSegment.SetValueAt("BHSDocsRef"_tSegment.FS_2)
+ Do tFHS.InsertSegmentAt(tSegment,2)
+ Do tFHS.AddChild(2, tBHS)
+ 
+ Do tFHS.RemoveSegmentAt(3)
+ Set tFTS=##class(EnsLib.HL7.Segment).%New()
+ Set tFTS.Separators=tFHS.Separators
+ Do tFTS.SetValueAt("FTS"_tFTS.FS_tFHS.ChildCount)
+ Do tFHS.SetSegmentAt(tFTS,3)
+ 
+ Set tSC = tFHS.%Save()
+ Set ^BatchHL7("FHSId") = tFHS.%Id()
+ }
+ ElseIf pRequest.DocTypeName = "BTS" {
+	 	$$$TRACE("Create batch tailer segments ...")
+ Set tFHS = ##class(EnsLib.HL7.Message).%OpenId(^BatchHL7("FHSId"))
+ Set tSC = ..SendRequestAsync(..TargetConfigNames,tFHS,0)
+ }
+ Else {
+	 $$$TRACE("Add message to the batch ...")
+ Set tBHS = ##class(EnsLib.HL7.Message).%OpenId(^BatchHL7("BHSId"))
+ Do tBHS.AddChild(2,pRequest)
+ Set tBTS=##class(EnsLib.HL7.Segment).%New()
+ Set tBTS.Separators=tBHS.Separators
+ 
+ Do tBTS.SetValueAt("BTS"_tBTS.FS_tBHS.ChildCount)
+ Do tBHS.SetSegmentAt(tBTS,3)
+ 
+ Set tSC = tBHS.%Save()
+ }
+ Quit tSC
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>BatchProcessDefaultData</DefaultData>
+<Data name="BatchProcessDefaultData">
+<Subscript>"BatchProcess"</Subscript>
+<Value name="1">
+<Value>TargetConfigNames</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
