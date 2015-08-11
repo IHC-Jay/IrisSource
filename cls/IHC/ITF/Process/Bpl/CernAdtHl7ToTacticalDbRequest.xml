@@ -100,6 +100,16 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='hddContextICentraToIhc50035' type='%String' initialexpression='"526003992"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+<property name='hddContextiCentraLocationHierDisp' type='%String' initialexpression='"526065969"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
 
 
 </context>
@@ -111,19 +121,69 @@ BPL Definition</Description>
 <trace name='IncomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='550' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
+
+<code name='validateMsgStructure' xpos='200' ypos='750' >
+<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Message Begins...") 
+ set context.validationSettingValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+ if ($$$ISOK(pstatus)){
+    set context.validationSettingValue=configValue
+ }
+  
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){ 
+   set context.isValidationPassed=0 
+   $$$TRACE("Failed Validation Check: " _ context.validationSettingValue)
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }else{
+	$$$TRACE("Passed Validation Check: " _ context.validationSettingValue) 
+ }
+ set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ $$$TRACE("EMPI Number: " _ context.empiNumber) 
+ 
+ ]]]]><![CDATA[>
+</code>
+ 
+ 
+ 
+ <code name='CheckEventType' xpos='200' ypos='750' >
+<annotation>
+<![CDATA[ Check Message Event Type is valid or not ]]]]><![CDATA[></annotation>
+<![CDATA[
+ set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")  
+ set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.eventTypesOut", context.eventType, .retVal )
+ $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
+ if (retVal ="1") {      
+      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "Invalid EventType:["_context.eventType_"]. EMPI:["_context.empiNumber _"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
+ }
+]]]]><![CDATA[>
+</code>
+
+ <code name='CheckAccountNumber' xpos='200' ypos='750' >
+<![CDATA[ 
+ set context.accountNumber = request.GetValueAt("PID:PatientAccountNumber.ID") 
+ $$$TRACE("context.accountNumber:[" _ context.accountNumber _"]") 
+ if ($ISVALIDNUM(context.accountNumber)'="1"){	
+     set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.accNumberEventTypeIn", context.eventType, .retVal )
+     $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
+     if (retVal '="1") {
+	     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record - Invalid AccountNumber:["_context.accountNumber_"] and the event type:[" _  context.eventType_"]. EMPI:["_context.empiNumber _ "]. Hl7 Msg:[" _ request.RawContent  _"]")	  	  	     
+     }   
+ }
+]]]]><![CDATA[>
+</code>
+
 <code name='intializeProperties' xpos='200' ypos='650' >
 <annotation><![CDATA[userInitialze()]]]]><![CDATA[></annotation>
 <![CDATA[ 
  
  $$$TRACE("Getting Target Config Names ..")
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ($$$ISOK(pstatus) && (configValue'=""))
- {
+ if ($$$ISOK(pstatus) && (configValue'="")){
  	$$$TRACE("TargetConfigNames: " _ configValue)
  	set context.targetConfigNames=configValue
-  }
- else
- {
+ }else{
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found in the Settings")
  }
  
@@ -134,10 +194,8 @@ BPL Definition</Description>
        Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
  }
 
-
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = ""))
- {
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) {
  	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
  }
 
@@ -145,87 +203,40 @@ BPL Definition</Description>
  set configValue=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"IhAliasPoolNCID",.configValue) 
  $$$TRACE("Value of IhAliasPoolNCID"_configValue)
- if ($$$ISOK(pstatus)&&(configValue'=""))
- {
+ if ($$$ISOK(pstatus)&&(configValue'="")){
     $$$TRACE("IhAliasPoolNCID "_configValue) 
     set context.IhAliasPoolNCID=configValue
- } else{$$$TRACE("Config setting IhAliasPoolNCID not set. Using default value of "_context.IhAliasPoolNCID)} 
+ } else{
+	 $$$TRACE("Config setting IhAliasPoolNCID not set. Using default value of "_context.IhAliasPoolNCID)
+ } 
  
 
  set context.emailTypeNcid="50450664" 
  set configValue=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"EmailTypeNCID",.configValue) 
  $$$TRACE("Value of EmailTypeNCID="_configValue)
- if ($$$ISOK(pstatus)&&(configValue'=""))
- {
+ if ($$$ISOK(pstatus)&&(configValue'="")){
     $$$TRACE("emailTypeNcid: "_configValue) 
     set context.emailTypeNcid=configValue
- } else{$$$TRACE("Config setting EmailTypeNCID not set. Using default value of "_context.emailTypeNcid)} 
+ } else{
+	 $$$TRACE("Config setting EmailTypeNCID not set. Using default value of "_context.emailTypeNcid)
+ } 
  
  set context.homeAddressTypeNcid="199" 
  set configValue=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HomeAddressTypeNCID",.configValue) 
  $$$TRACE("Value of HomeAddressTypeNCID="_configValue)
- if ($$$ISOK(pstatus)&&(configValue'=""))
- {
+ if ($$$ISOK(pstatus)&&(configValue'="")){
     $$$TRACE("HomeAddressTypeNcid: "_configValue) 
     set context.homeAddressTypeNcid=configValue
- } else{$$$TRACE("Config setting HomeAddressTypeNCID not set. Using default value of "_context.homeAddressTypeNcid)} 
- 
- set context.validationSettingValue=""
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
-  if ($$$ISOK(pstatus)){
-     set context.validationSettingValue=configValue
-  } 
+ } else{
+	 $$$TRACE("Config setting HomeAddressTypeNCID not set. Using default value of "_context.homeAddressTypeNcid)
+ }  
+  
   ]]]]><![CDATA[>
 </code>
-<code name='validateMessage' xpos='200' ypos='750' >
-<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Message Begins...") 
- set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
- if (tStatus'=$$$OK){ set context.isValidationPassed=0 
-      $$$TRACE("Failed Validation Check: " _ context.validationSettingValue)
-  }
- else { $$$TRACE("Passed Validation Check: " _ context.validationSettingValue) }
- 
- set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList().ID")
- $$$TRACE("EMPI Number: " _ context.empiNumber)   
- $$$TRACE("Is a Number(EMPI#) : " _ $ISVALIDNUM(context.empiNumber)) 
- if ($ISVALIDNUM(context.empiNumber)'="1"){
-	  set context.isValidationPassed=0
-	  $$$TRACE("EMPI# is NOT a number ")
-	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.empiNumber, "MRN(EMPI):  ["_ context.empiNumber _"] in PID_3.1 from iCentra Adt is NOT a number. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent _"]")	  	  
- }
- 
- 
- set context.facilityId=request.GetValueAt("MSH:SendingFacility.namespaceID")
- $$$TRACE("Facility ID: " _ context.facilityId)
- $$$TRACE("Is a Number(FacilityID) : " _ $ISVALIDNUM(context.facilityId)) 
- if ($ISVALIDNUM(context.facilityId)'="1"){	  
-	  $$$TRACE("FacilityId is NOT a number ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facilityId, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
- }
- 
- set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")  
- set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.eventTypesOut", context.eventType, .retVal )
- $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
- if (retVal ="1") {      
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "Invalid EventType:["_context.eventType_"] EMPI:["_context.empiNumber _"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
- }
 
- set context.accountNumber = request.GetValueAt("PID:PatientAccountNumber.ID") 
- $$$TRACE("context.accountNumber:[" _ context.accountNumber _"]") 
- if ($ISVALIDNUM(context.accountNumber)'="1"){	
-     set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.accNumberEventTypeIn", context.eventType, .retVal )
-     $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
-     if (retVal '="1") {
-	     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "SKIP record - Invalid AccountNumber:["_context.accountNumber_"] and the event type:[" _  context.eventType_"]. EMPI:["_context.empiNumber _ "]")
-	     
-     }   
- }
-]]]]><![CDATA[>
-</code>
-<if name='validateMessage' condition='context.isValidationPassed=1' xpos='200' ypos='850' xend='200' yend='1400' >
+<if name='isValidMessage' condition='context.isValidationPassed=1' xpos='200' ypos='850' xend='200' yend='1400' >
 <true>
 
 <code name='initializeHddContexts' xpos='740' ypos='2100' >
@@ -235,16 +246,20 @@ BPL Definition</Description>
 
     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.3mDefault", .retVal )
 	set context.hddContext3mDefault = retVal 		
+	
+	set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.iCentraToIhc50035", .retVal )
+	set context.hddContextICentraToIhc50035 = retVal 		
+	
+	set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.iCentraLocationHierarchyDisplay", .retVal )
+	set context.hddContextiCentraLocationHierDisp = retVal 		
 
 ]]]]><![CDATA[>
 </code>
 
 <code name='getRepFromNcid hdd requests' xpos='740' ypos='2300' >
 <![CDATA[
-  	$$$TRACE(" Get Rep from Ncid Hdd lookup call")
-  	
-  	set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
-  	
+  	$$$TRACE(" Get Rep from Ncid Hdd lookup call")  	
+  	set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()  	
   	set zz119PatTypeNcid = request.GetValueAt("ZZ1:ZZ119PatientTypeNcid")  	
   	if (zz119PatTypeNcid '= ""){
 		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , zz119PatTypeNcid,  context.hddContextIhAliasPool, "PV118:PatientType")  	  	
@@ -261,10 +276,50 @@ BPL Definition</Description>
   	if (pv110HospServiceNcid '= ""){
 		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , pv110HospServiceNcid,  context.hddContextIhAliasPool, "PV110:HospitalService")  	  	
 		$$$TRACE("Hdd Request PV1:10 : " _ pv110HospServiceNcid)		
+	}	
+	
+	set zz29ClinicsFlag = request.GetValueAt("ZZ2:ZZ29ClinicsFlag")  		
+	if (zz29ClinicsFlag = "Y"){
+		set locationContext = context.hddContextICentraToIhc50035
+	}else{
+		set locationContext = context.hddContextiCentraLocationHierDisp
+	}
+	$$$TRACE(" LocationContext for Cerner Pat Local representstion is " _ locationContext)	 		
+	set bedNcid = request.GetValueAt("ZZ1:ZZ112BedNcid")	
+	
+	$$$TRACE(" bedNcid ZZ1-12 is " _ bedNcid)	 	
+  	if (bedNcid '= "" && $ISVALIDNUM(bedNcid)= "1"){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , bedNcid,  locationContext, "ZZ:CernerPatLoc")  	  	
+		$$$TRACE("Hdd Request ZZ1-12 is " _ bedNcid)		
+	} else{
+		set roomNcid = request.GetValueAt("ZZ1:ZZ113RoomNcid") 
+		$$$TRACE("roomNcid ZZ1-13 is " _ roomNcid)	
+		if (roomNcid '= "" && $ISVALIDNUM(roomNcid)= "1"){
+			Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , roomNcid,  locationContext, "ZZ:CernerPatLoc")  	  	
+		    $$$TRACE("Room Ncid ZZ1-13 is " _ roomNcid)		
+		} else{
+			set pointOfCareNcid = request.GetValueAt("ZZ1:ZZ114PointOfCareNcid") 
+			$$$TRACE("PointOfCareNcid ZZ1-14 is " _ pointOfCareNcid)		
+		     if (pointOfCareNcid '= "" && $ISVALIDNUM(pointOfCareNcid)= "1"){
+			    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , pointOfCareNcid,  locationContext, "ZZ:CernerPatLoc")  	  	
+		        $$$TRACE("Hdd Request ZZ1-15 is " _ pointOfCareNcid)		
+		     } 	else{
+			     set buildingNcid = request.GetValueAt("PV1:AssignedPatietnLocation.building") 
+			     $$$TRACE("buildingNcid PV1-3-7 is " _ buildingNcid)
+			     if (buildingNcid '= "" && $ISVALIDNUM(buildingNcid)= "1"){
+			    	Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , buildingNcid,  locationContext, "ZZ:CernerPatLoc")  	  	
+		        	$$$TRACE("Hdd Request PV1-3-7 is " _ buildingNcid)		
+		     	}   			     
+			 }
+		}
 	}
 	
-	
-  	
+	set pv2AccCodeNcid = request.GetValueAt("PV2:AccommodationCode.identifierST")  	
+  	if (pv2AccCodeNcid '= ""){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , pv2AccCodeNcid,  context.hddContextIhAliasPool, "PV2.2:AccCode")  	  	
+		$$$TRACE("Hdd Request PV2:2 : " _ pv2AccCodeNcid)		
+	}
+		  	
 ]]]]><![CDATA[>
 </code>
 
