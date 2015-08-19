@@ -539,7 +539,7 @@ Get files that are checked-in to SVN</Description>
 <Implementation><![CDATA[
 	set tempFile = $$$USRBASEDIR _ usrNm _ "/tempSvnList"
 	 Do ##class(%File).Delete(tempFile)
-	 Quit ..CreateListOfFilesInSvn(usrNm, passwd, nmSp)
+	 return ..CreateListOfFilesInSvn(usrNm, passwd, nmSp)
 ]]></Implementation>
 </Method>
 
@@ -550,76 +550,78 @@ Get files that are checked-in to SVN</Description>
 <FormalSpec>usrNm:%String,passwd:%String,nmSp:%String</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-	// All files for ITFCOMMON namespace will be under IHC
-	if (nmSp = "ITFCOMMON")
-	{
-		set nmSp = "IHC"
-	}
-	set tempFile = $$$USRBASEDIR _ usrNm _ "/tempSvnList"
-
-    Set filesList= ##class(%Library.ListOfDataTypes).%New()
-
- 	If ( ##class(%File).Exists(tempFile) = 0)
-     {
-		Do ..GetFilesInSvn(usrNm , passwd )
+	 NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
      
-
-     	If ##class(%File).Exists(tempFile)
-     	{
-		 	Do ..AddFilesToList(tempFile, filesList)
-			 Do ..AddSvnFilesToSourceControl(filesList, usrNm)
-     	}
-       
-  		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Number files in SVN list: " _ filesList.Count())
-     }
-  Quit filesList.Count()
-]]></Implementation>
-</Method>
-
-<UDLText name="T">
-<Content><![CDATA[
-// Read file with svn information and add to FileList
-
-]]></Content>
-</UDLText>
-
-<Method name="AddFilesToList">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>tempFile:%String,filesList:%Library.ListOfDataTypes</FormalSpec>
-<Implementation><![CDATA[
-	Set file=##class(%File).%New(tempFile)
-		Do file.Open("RS")
+	// All files for ITFCOMMON namespace will be under IHC
+	set numFiles = 0
 	
-    	While 'file.AtEnd 
-    	{ 
-     		set ln = file.ReadLine(,.sc,.eol) 
-     		If $$$ISERR(sc) 
-     		{ 
-     			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "ERROR reading file")
-     			 Quit 
-     			} 
-     		elseIf eol 
-     		{ 
-     			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("EOF " _ eol)
-     		} 
-     		else
-     		{
-	     		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN File name: " _ ln)
-	     		if ($F(ln, "PATH=") > 0)
-	     		{
-		     		set fullPath = $E(ln, 6, *)
-	     		}
-	    		elseif ( $LENGTH(ln) > 1)
-	    		{
-		    		set fileNm =  fullPath _ "/" _ ln
-		    		if ( (##class(%File).Exists(fileNm) = 1) && (##class(%File).DirectoryExists(fileNm) = 0) )
-		    		  {
-		    			DO filesList.Insert(fileNm)
-		    		}
-	    		}
-     		}
-    	}
-    	// Do ##class(%File).Delete(tempFile)
+	set tempFile = $$$USRBASEDIR _ usrNm _ "/tempSvnList"
+	set fileInfo = ""
+ 
+ 	set fullPath =  $$$USRBASEDIR _ usrNm _  $$$SVNSRCTRUNK 
+
+ 	Set cmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ fullPath 
+    Set stat = $ZF(-1, cmd)
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetFilesInSvn: " _ $$$SVNUPDATEALL _ " for " _ fullPath _": "_stat)
+
+    Set cmd = $$$SVNINFO _ " -R --username " _ usrNm _ " --password " _ passwd  _ " " _ fullPath _ " | grep -E ""URL|Kind|Last Changed"" > " _ tempFile
+	Set stat = $ZF(-1, cmd)
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _ "for " _ fullPath _" : " _ stat)
+	
+	If ( ##class(%File).Exists(tempFile) = 0)
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Did not create file: " _ tempFile)
+		Quit
+	}
+
+	Set fileObj=##class(%Library.File).%New(tempFile)
+         set fileOpen = fileObj.Open("RS") ; Read mode and as stream
+        set int = 1
+        set isFile = 0
+         While 'fileObj.AtEnd 
+         {
+	         set readStr = fileObj.ReadLine(1000, .sc, .stat)
+	         if ($L(readStr) > 0)
+	         {
+		         if (readStr [ "URL:")
+		         {
+			         set file = $$$USRBASEDIR _ $USERNAME _  $$$SVNSRCTRUNK_ $E(readStr, $F(readStr, $ZSTRIP($$$SVNSRCURL, "*W") _ "/"), *)
+			         
+		         }
+		         elseif(readStr [ "Node Kind: file")
+		         {		         
+			         set int = int + 1
+			         set isFile = 1
+		         }
+		         elseif(readStr [ "Rev: ")
+		         {
+			         set rev = $E(readStr,  $F(readStr , "Rev: "), *)
+		         }
+		         elseif(readStr [   "Date: ")
+		         {
+			         if (isFile = 1)
+			         {
+			       		set fileStamp = $E(readStr,  $F(readStr , "Date: "), $F(readStr , " -") -3)
+			       		
+			       		set isFile = 0
+			       		set updStr = rev
+			       		set oper = "UPDATE"
+			       		&sql(UPDATE  IHC_ITF_SrcCtrlPkg.SrcCtrlTbl SET FileModifiedTime=:fileStamp, Comment = :updStr WHERE FileName=:file )
+			       		if SQLCODE '= 0 {
+				       		set oper = "INSERT"
+	       					&sql(INSERT INTO IHC_ITF_SrcCtrlPkg.SrcCtrlTbl (FileName, Username, FileModifiedTime) VALUES (:file, :usrNm, :fileStamp))
+        				}
+        				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( int _ ". " _ oper _ " - " _ file _ ", " _ rev _ ", " _ fileStamp _ ", SQLCODE: " _ SQLCODE)
+        				set numFiles = numFiles + 1
+			         }
+		         }
+	        	
+	         }	       
+         }
+         Do fileObj.Close()
+         Return numFiles
 ]]></Implementation>
 </Method>
 
