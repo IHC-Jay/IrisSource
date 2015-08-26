@@ -35,6 +35,85 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 <Parameter name="MAXLEN" value="10"/>
 </Property>
 
+<Method name="GetUniqueChildForNcid">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Interface.HddObject
+	set listInd = pRequest.listOfHddNcidObj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	set ncid = ""
+	
+	while ( listInd '= "")
+	{
+		set rep = ""
+	  	set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
+	  	Do ..GetUniqueChild(reqObj.NCID,.rep)
+	  	
+	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	  set hddObj.Comment = "Get UniqueChild for Ncid"
+	  set hddObj.NCID = reqObj.NCID
+	  set hddObj.Context = ""
+	  set hddObj.Domain = ""
+	  set hddObj.Rep = rep
+	  set hddObj.Index = reqObj.Index
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHddNcidObj.Next(listInd)
+	}
+	
+	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueChild">
+<FormalSpec><![CDATA[ncid:%String,&rep:%String]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  try 
+  {
+ 	Set rep = ""
+ 	set rep = ..GetUniqueChildFromHddRepCache(ncid)
+ 	if (rep '= "")
+	{
+	  	return
+	}	
+	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
+	set servicePort.Location = ..Location
+	
+	Set code = servicePort.getUniqueChild(ncid,	"526815527", "526815738", ..dbEnv, 0)	
+		  if $GET(code)
+		  {
+		  	Set rep = code.text		  	
+		  	Do ..InsertValuesToHddUniqueChildCache(ncid, rep)
+		  	Quit
+		  }
+		  else
+		  {
+			  Set rep = "ERROR" 
+		  }
+	
+ 	
+ }  
+ CATCH exceptionvar
+ {
+     Set rep = "ERROR"  
+	  If $ZERROR["<ZSOAP>" {
+	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+	     Set repNcid = errTxt
+         $$$LOGERROR("Exception in GetUniqueChild NCID: " _ncid _", Context: 526815527 and 526815738 = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$LOGERROR($ZERROR)
+	  }
+	  else
+	  {
+		  throw exceptionvar
+	  }
+  }
+]]></Implementation>
+</Method>
+
 <Method name="GetHelp1PatientRelationshipForNcids">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.Help1PatientRelationshipLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
@@ -84,7 +163,6 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	} 		
 	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
 	set servicePort.Location = ..Location
-		
 	Set code = servicePort.getHelp1PatientRelationship(help1RelationshipNcid, ..dbEnv, 0)
 	if $GET(code){
 		Set rep = code.text	
@@ -235,8 +313,7 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
   {
  	Set billTypeList = ""
  	&sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddBillingTypeCache)
- 	set billTypeList = ..GetHelp1BillingTypeFromHddBillingTypeCache(billTypeNcid)
- 	$$$TRACE("GetHelp1BillingType ::::"_billTypeList)
+ 	set billTypeList = ..GetHelp1BillingTypeFromHddBillingTypeCache(billTypeNcid) 	
  	
  	if ( billTypeList '= ""){
 	 	return
@@ -249,8 +326,7 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	if (listBillType.Count() < 1){
 	 	   $$$LOGERROR("HDD service did not return billing type for the Ncids : " _ billTypeNcids )
 	 	   Set billTypeList = "ERROR"
- 	}else{	     
- 	$$$TRACE(" RETURNED BILINGTYPE.. "_listBillType.GetAt(1)_":"_listBillType.GetAt(2)_":"_listBillType.GetAt(3)_":"_listBillType.GetAt(4))
+ 	}else{	      	
  	        Set billTypeString = listBillType.GetAt(1)_":"_listBillType.GetAt(2)_":"_listBillType.GetAt(3)_":"_listBillType.GetAt(4)
  	        $$$TRACE(" RETURNED BILINGTYPE.. "_billTypeString)
  	        
@@ -326,8 +402,7 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	Set code = servicePort.getUniqueRepByNcid(ncid, context, ..dbEnv, 0)
 		  if $GET(code)
 		  {
-		  	Set rep = code.text
-		  	$$$TRACE("getUniqueRepByNcid " _ ncid _ ": " _rep)
+		  	Set rep = code.text		  	
 		  	Do ..InsertValuesToHddRepCache(ncid, context, rep)
 		  	Quit
 		  }
@@ -454,6 +529,23 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 <Method name="InsertValuesToHddRelationshipCache">
 <FormalSpec>relationshipString:%String,help1RelationshipNcid:%String</FormalSpec>
 <Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddHelp1RelationshipCache(Help1RelationshipType, RelationshipNcid) values(:relationshipString, :help1RelationshipNcid))
+]]></Implementation>
+</Method>
+
+<Method name="InsertValuesToHddUniqueChildCache">
+<FormalSpec>relationshipString:%String,objNcid:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache(Representation, Ncid) values(:relationshipString, :objNcid))
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueChildFromHddRepCache">
+<FormalSpec>objNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set objRep = "" 
+	Do ..ClearHddTables()
+	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache where Ncid = :objNcid)
+	return objRep
 ]]></Implementation>
 </Method>
 
@@ -598,6 +690,9 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	</MapItem>	
 	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.Help1PatientRelationshipLookupRequest"> 	
 		<Method>GetHelp1PatientRelationshipForNcids</Method>
+	</MapItem>	
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildLookupRequest"> 	
+		<Method>GetUniqueChildForNcid</Method>
 	</MapItem>	
 	</MapItems>
 ]]></Data>
