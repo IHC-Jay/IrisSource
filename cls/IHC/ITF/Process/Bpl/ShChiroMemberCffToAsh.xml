@@ -5,7 +5,7 @@
 </Description>
 <ClassType>persistent</ClassType>
 <ProcedureBlock>1</ProcedureBlock>
-<Super>Ens.BusinessProcessBPL</Super>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63791,19088.262931</TimeCreated>
 
 <XData name="BPL">
@@ -91,16 +91,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='500' />
 </parameters>
 </property>
-<property name='successEmailSubject' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='250' />
-</parameters>
-</property>
-<property name='successEmailText' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='500' />
-</parameters>
-</property>
 <property name='fileRequest' type='Ens.StreamContainer' instantiate='0' >
 </property>
 <property name='ftpStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
@@ -125,12 +115,12 @@ BPL Definition</Description>
 <property name='DataFileCnt' type='%Integer' instantiate='0' >
 </property>
 </context>
-<sequence xend='200' yend='2650' >
-<scope xpos='200' ypos='250' xend='200' yend='2550' >
+<sequence xend='200' yend='2550' >
+<scope xpos='200' ypos='250' xend='200' yend='2450' >
 <trace name='InsideBP' value='"Inside configName "_process.%ConfigName' xpos='200' ypos='350' />
 <assign name="setConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
 <code name='RetrieveTargetConfigNames' xpos='200' ypos='550' >
-<![CDATA[  // Get Operation Name for calling the file Decryption
+<![CDATA[  // Get Operation Name for calling the file Encryption
   set configValue=""
   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNamesEncryption",.configValue)
   if ($$$ISERR(pstatus))
@@ -217,15 +207,7 @@ BPL Definition</Description>
   set context.secretKeyPassword=configValue]]]]><![CDATA[>
 </code>
 <code name='RetrieveEmailDetails' xpos='200' ypos='950' >
-<![CDATA[ // Subject for successful email
-  set configValue=""
-  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"SuccessEmailSubject",.configValue)
-  set context.successEmailSubject=configValue
-  
-   // Body for successful email
-  set configValue=""
-  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"SuccessEmailBody",.configValue)
-  set context.successEmailText=configValue
+<![CDATA[ 
   
  // Subject for Failure email
   set configValue=""
@@ -304,18 +286,14 @@ BPL Definition</Description>
 </request>
 <response type='Ens.Response' />
 </call>
-<trace name='SuccessEmail' value='context.filePath_context.encryptedFileName_"Generate Successful File Creation Email "_##class(%File).Exists(context.filePath_context.encryptedFileName)' xpos='200' ypos='2000' />
-<code name='GenerateSuccessEmail' xpos='200' ypos='2100' >
-<![CDATA[  
-    set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(context.successEmailSubject,context.successEmailText,context.configName)
- do process.SendAlert(emailAlertRequest)
-]]]]><![CDATA[>
-</code>
-<code name='CreateteStreamforFileOperation' xpos='200' ypos='2200' >
+<trace name='Succes trace' value='context.filePath_context.encryptedFileName_"Generate Successful File Creation  "_##class(%File).Exists(context.filePath_context.encryptedFileName)' xpos='200' ypos='2000' />
+<code name='Create Stream and Email' xpos='200' ypos='2100' >
 <![CDATA[ // Create Stream
  set encryptedFileName=context.filePath_context.encryptedFileName
  if (##class(%File).Exists(encryptedFileName)=0){
-     set status=$$$ERROR($$$GeneralError,"encrypted file does not exists")
+     set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(context.failEmailSubject,context.failEmailText,context.configName)
+ do process.SendAlert(emailAlertRequest)
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Encrypted file does not exists : "_encryptedFileName_" so unable to send the file to ASH through SFTP Operation")
  }
  
  Set streamFile=##class(%FileCharacterStream).%New()
@@ -326,16 +304,22 @@ BPL Definition</Description>
  set context.fileRequest=##class(Ens.StreamContainer).%New(stream)
  set context.fileRequest.OriginalFilename = encryptedFileName
  
+     // delete the file once saved into global and streamed to output
+ set deleteSuccess = ##class(%File).Delete(encryptedFileName)
+ If $$$ISERR(deleteSuccess)
+ {
+  $$$LOGERROR("Unable to delete temporary file :"_encryptedFileName)
+ } 
  ]]]]><![CDATA[>
 </code>
-<call name='CallFileOperation' target='@context.targetConfigNames' async='0' xpos='200' ypos='2300' >
+<call name='CallFileOperation' target='@context.targetConfigNames' async='0' xpos='200' ypos='2200' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.fileRequest" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
 <faulthandlers>
-<catchall xpos='200' ypos='2400' xend='200' yend='350' >
+<catchall xpos='200' ypos='2300' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
@@ -353,20 +337,6 @@ BPL Definition</Description>
 Name of the operation for encrypting the passed file</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="250"/>
-</Property>
-
-<Property name="SuccessEmailSubject">
-<Description>
-Email Subject</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="150"/>
-</Property>
-
-<Property name="SuccessEmailBody">
-<Description>
-Email Subject</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="350"/>
 </Property>
 
 <Property name="FailureEmailSubject">
@@ -432,14 +402,13 @@ Secret Key Password</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default><![CDATA[TargetConfigNamesEncryption:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FileFolder:Additional,EncryptedFileName:Additional,SuccessEmailSubject:Additional,SuccessEmailBody:Additional,FailureEmailSubject:Additional,FailureEmailBody:Additional,IHCKEYRINGPATH:Additional,IHCPRIVATEKEYRINGFILE:Additional,IHCPUBLICKEYRINGFILE:Additional,SecretKeyPassword:Additional,PublicKeyName:Additional,-NextOperation,-TargetConfigMask,-Validation]]></Default>
+<Default><![CDATA[TargetConfigNamesEncryption:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FileFolder:Additional,EncryptedFileName:Additional,FailureEmailSubject:Additional,FailureEmailBody:Additional,IHCKEYRINGPATH:Additional,IHCPRIVATEKEYRINGFILE:Additional,IHCPUBLICKEYRINGFILE:Additional,SecretKeyPassword:Additional,PublicKeyName:Additional,-NextOperation,-TargetConfigMask,-Validation]]></Default>
 </Parameter>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
 <DefaultData>ShChiroMemberCffToAshDefaultData</DefaultData>
 <Data name="ShChiroMemberCffToAshDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"ShChiroMemberCffToAsh"</Subscript>
 <Value name="1">
 <Value>TargetConfigNamesEncryption</Value>
