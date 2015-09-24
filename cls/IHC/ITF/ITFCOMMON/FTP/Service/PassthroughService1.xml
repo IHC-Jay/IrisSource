@@ -137,13 +137,27 @@ If this value is set to zero, the sequence number will not change.</Description>
 
 <Property name="ResetSequenceOnRestart">
 <Description>
-Deterimines whether or not we reset the sequence number when we restart this business service</Description>
+Determines whether or not we reset the sequence number when we restart this business service</Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="JournalIncomingData">
+<Description>
+Determines whether or not we journal data as it is received (before other processing)</Description>
+<Type>%Boolean</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Property name="JournalOutgoingData">
+<Description>
+Determines whether or not we journal data as it is sent (after other processing)</Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default><![CDATA[RegexFileFilter:Basic,TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},SuccessEmailSubject:Alerting,SucessEmailBody:Alerting,FailureEmailSubject:Alerting,FailureEmailBody:Alerting, ActionOnSourceFile:Basic, StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing, MaximumSequenceNumber:Sequencing, ResetSequenceOnRestart:Sequencing]]></Default>
+<Default><![CDATA[RegexFileFilter:Basic,TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},SuccessEmailSubject:Alerting,SucessEmailBody:Alerting,FailureEmailSubject:Alerting,FailureEmailBody:Alerting, ActionOnSourceFile:Basic, JournalIncomingData:Journaling,JournalOutgoingData:Journaling,StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing, MaximumSequenceNumber:Sequencing, ResetSequenceOnRestart:Sequencing]]></Default>
 </Parameter>
 
 <Parameter name="CONTAINERCLASS">
@@ -156,6 +170,11 @@ Setting the Target Config Names as part of the configuration</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	$$$TRACE("OnInit")
+			
+	Set ..MinimumSequenceNumber=$ZSTRIP(..MinimumSequenceNumber,"<>W")
+	$$$TRACE("Current Minimum Sequence Number is "_..MinimumSequenceNumber)
+	Set ..MaximumSequenceNumber=$ZSTRIP(..MaximumSequenceNumber,"<>W")
+	$$$TRACE("Current Maximum Sequence Number is "_..MaximumSequenceNumber)
 	
 	do ..ResetSequenceNumber()
 	
@@ -167,13 +186,13 @@ Setting the Target Config Names as part of the configuration</Description>
 <FormalSpec>pInput:%Stream.Object,*pOutput:%RegisteredObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	Set tSC= $$$OK
  	///Get the Filename from the input stream
 	Set tSource = pInput.Attributes("Filename")
 
 	$$$TRACE("OnProcessInput: "_tSource)
-	Set ..MinimumSequenceNumber=$ZSTRIP(..MinimumSequenceNumber,"<>W")
-	Set ..MaximumSequenceNumber=$ZSTRIP(..MaximumSequenceNumber,"<>W")
-		
+	
+
 	///Wrap the Stream object to StreamContainer	
 	set pInput = $classmethod(..#CONTAINERCLASS,"%New",pInput)
 	/// If the adapter has a value for ArchivePath, send async; otherwise send synchronously
@@ -181,20 +200,24 @@ Setting the Target Config Names as part of the configuration</Description>
 	/// target Config Item is finished processing it. 
 	Set tWorkArchive=(""'=..Adapter.ArchivePath) 
 	
+	//Inbound Journal
+	if (..JournalIncomingData) {
+		Set tSC=..JournalData(pInput, "Inbound")
+	}
+	
 	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,1,3)
 	Set extractDate = $EXTRACT(currentDate,0,10)
 	Set extractTime = $EXTRACT(currentDate,12,$LENGTH(currentDate))
 		
-	//do ..valueToBeReplaced.SetAt(tSource,"%f")
 	do ..valueToBeReplaced.SetAt(tSource,"%f")
 	do ..valueToBeReplaced.SetAt(extractDate,"%CD")
 	do ..valueToBeReplaced.SetAt(extractTime,"%CT")
 	do ..valueToBeReplaced.SetAt($REPLACE($ZSTRIP(extractDate_"_"_extractTime,"*W"),":","."),"%Q")
-	//We are storing the current sequence number in ^ItfGlobal(..%ConfigName, "CurrentSequenceNumber")
+	//We are storing the current sequence number in ^ItfGlobal(<Service Name>, "CurrentSequenceNumber")
 	do ..valueToBeReplaced.SetAt(^ItfGlobal(..%ConfigName, "CurrentSequenceNumber"),"%#")
 
 
-	if (""'=..RegexFileFilter) { // If RegexFileFilter is not empty
+	if ($$$ISOK(tSC) && ""'=..RegexFileFilter) { // If RegexFileFilter is not empty
 		if $Match(tSource,..RegexFileFilter) {
 			$$$TRACE(tSource_" matches regex filter "_..RegexFileFilter_" we will process this file.")
 		}
@@ -208,18 +231,32 @@ Setting the Target Config Names as part of the configuration</Description>
 	}
 
 	//Note: the following line is intended to skip this block if the ActionOnSourceFile field is empty, This is the intended behavior
-	if ""'=..ActionOnSourceFile{
+	if ($$$ISOK(tSC) && (""'=..ActionOnSourceFile)){
 		if ("DELETE"=$ZStrip(..ActionOnSourceFile,"<>W")){  //If we want to delete the source file
 				If ..Adapter.delete(tSource,..Adapter.FilePath) {
-					$$$sysTRACE("Deleted '"_tSource_" from FTP server after successful processing")
+					$$$sysTRACE("IHC.ITF.ITFCOMMON.FTP.Service.PassthroughService1: Deleted '"_tSource_" from FTP server after successful processing")
 				} Else {
 					Do ..Adapter.disconnectOnNetErr(,1)
 					If '..Adapter.Connected Set tSC=$$$ERROR($$$EnsErrGeneral,"Failed to delete '"_tSource_" from FTP server after successful processing after successful processing - "_..Adapter.FTP.ReturnCode_":"_..Adapter.FTP.ReturnMessage)  Quit
-					$$$LOGWARNING("Failed to delete '"_tSource_" from FTP server after successful processing after successful processing - "_..Adapter.FTP.ReturnCode_":"_..Adapter.FTP.ReturnMessage)
+					$$$LOGWARNING("IHC.ITF.ITFCOMMON.FTP.Service.PassthroughService1: Failed to delete '"_tSource_" from FTP server after successful processing after successful processing - "_..Adapter.FTP.ReturnCode_":"_..Adapter.FTP.ReturnMessage)
+					Set tSC=$$$ERROR("ITFCOMMON:10101","Error deleting source file: "_..Adapter.FilePath_"/"_tSource_"; ATTEMPTED NEW NAME: "_UpdatedActionOnSourceFile_". Make sure the specified directory name is visible and writable.")
 				}	
 		}
 	}
+	//The following two conditionals only worked sometimes if combined into one conditional
+	if ("DELETE"'=$ZStrip(..ActionOnSourceFile,"<>W")) {
+	if ($$$ISOK(tSC) && (""'=..ActionOnSourceFile)){
+			Set UpdatedActionOnSourceFile = ..replaceWithParticularFormat(..ActionOnSourceFile)
+			$$$TRACE("Moving source file to "_..ActionOnSourceFile_".")
+			Set renameResults = ..Adapter.rename(tSource,UpdatedActionOnSourceFile,..Adapter.FilePath)
+			if (renameResults = 0) {
+				Set tSC=$$$ERROR("ITFCOMMON:10101","Error renaming source file; ORIGINAL NAME: "_..Adapter.FilePath_"/"_tSource_"; ATTEMPTED NEW NAME: "_UpdatedActionOnSourceFile_". Make sure the specified directory name is visible and writable.")
+			}
+		}
+	}
 	
+	//Send to outbound components
+	if $$$ISOK(tSC){
 	Set numTargets = $L(..TargetConfigNames,",")
 	For iTarget=1:1:numTargets
 		{
@@ -232,15 +269,12 @@ Setting the Target Config Names as part of the configuration</Description>
 				Set tSC=..SendRequestSync(tOneTarget,pInput)
 			}			 
 		}
-	
-	if ""'=..ActionOnSourceFile && "DELETE"'="DELETE"=$ZStrip(..ActionOnSourceFile,"<>W"){
-		Set UpdatedActionOnSourceFile = ..replaceWithParticularFormat(..ActionOnSourceFile)
-		$$$TRACE("Moving source file to "_..ActionOnSourceFile_".")
-		Set renameResults = ..Adapter.rename(tSource,UpdatedActionOnSourceFile,..Adapter.FilePath)
-		if (renameResults = 0) {
-			Set tSC=$$$ERROR("ITFCOMMON:10101","Error renaming source file; file was processed but source file was not renamed! ORIGINAL NAME:"_..Adapter.FilePath_"/"_tSource_"; ATTEMPTED NEW NAME: "_UpdatedActionOnSourceFile_". Make sure the specified directory name is visible and writable.")
-		}
 	}
+		
+	//Outbound Journal
+	If ($$$ISOK(tSC) && (..JournalOutgoingData)) {
+		Set tSC=..JournalData(pInput, "Outbound")
+	}	
 	
 	//Sending Email
 	If $$$ISOK(tSC)
@@ -376,6 +410,17 @@ Setting the Target Config Names as part of the configuration</Description>
 	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
 		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
 	}
+]]></Implementation>
+</Method>
+
+<Method name="JournalData">
+<FormalSpec>pInput:Ens.StreamContainer,Location:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set journalStream=##class(%Stream.GlobalCharacter).%New()
+	Set tSC = journalStream.CopyFromAndSave(pInput.Stream)
+	$$$TRACE("IHC.ITF.ITFCOMMON.Service.PassthroughService1: "_Location_" Journal: "_pInput.Stream.%Id()_" has been successfully saved to database. Stream OID is "_journalStream.GetStreamId()_"; Stream ID is "_journalStream.Id_".")
+	Quit tSC
 ]]></Implementation>
 </Method>
 </Class>
