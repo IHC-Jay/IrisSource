@@ -101,7 +101,7 @@ Configuration item(s) to which to send file stream messages</Description>
 This is the value the sequence number is set to each time the component is restarted, assuming  ResetSequenceOnRestart is 
 set to true</Description>
 <Type>%Integer</Type>
-<InitialExpression>1</InitialExpression>
+<InitialExpression>0</InitialExpression>
 </Property>
 
 <Property name="MinimumSequenceNumber">
@@ -149,15 +149,8 @@ Determines whether or not we journal data as it is received (before other proces
 <InitialExpression>1</InitialExpression>
 </Property>
 
-<Property name="JournalOutgoingData">
-<Description>
-Determines whether or not we journal data as it is sent (after other processing)</Description>
-<Type>%Boolean</Type>
-<InitialExpression>0</InitialExpression>
-</Property>
-
 <Parameter name="SETTINGS">
-<Default><![CDATA[RegexFileFilter:Basic,TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},SuccessEmailSubject:Alerting,SucessEmailBody:Alerting,FailureEmailSubject:Alerting,FailureEmailBody:Alerting, ActionOnSourceFile:Basic, JournalIncomingData:Journaling,JournalOutgoingData:Journaling,StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing, MaximumSequenceNumber:Sequencing, ResetSequenceOnRestart:Sequencing]]></Default>
+<Default><![CDATA[RegexFileFilter:Basic,TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},SuccessEmailSubject:Alerting,SucessEmailBody:Alerting,FailureEmailSubject:Alerting,FailureEmailBody:Alerting, ActionOnSourceFile:Basic, JournalIncomingData:Journaling,StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing, MaximumSequenceNumber:Sequencing, ResetSequenceOnRestart:Sequencing]]></Default>
 </Parameter>
 
 <Parameter name="CONTAINERCLASS">
@@ -177,6 +170,7 @@ Setting the Target Config Names as part of the configuration</Description>
 	$$$TRACE("Current Maximum Sequence Number is "_..MaximumSequenceNumber)
 	
 	do ..ResetSequenceNumber()
+	do ..IncrementSequenceNumber()
 	
 	Quit $$$OK
 ]]></Implementation>
@@ -193,7 +187,7 @@ Setting the Target Config Names as part of the configuration</Description>
  	///Get the Filename from the input stream
 	Set tSource = pInput.Attributes("Filename")
 
-	$$$TRACE("OnProcessInput: "_tSource)
+	$$$TRACE("Begin OnProcessInput: "_tSource)
 
 
 	///Wrap the Stream object to StreamContainer	
@@ -203,9 +197,9 @@ Setting the Target Config Names as part of the configuration</Description>
 	/// target Config Item is finished processing it. 
 	Set tWorkArchive=(""'=..Adapter.ArchivePath) 
 	
-	//Inbound Journal
+	//Journal
 	if (..JournalIncomingData) {
-		Set tSC=..JournalData(pInput, "Inbound")
+		Set tSC=..JournalData(pInput)
 	}
 	
 	Set currentDate = $ZDATETIME($ZTIMESTAMP,3,1,3)
@@ -220,7 +214,7 @@ Setting the Target Config Names as part of the configuration</Description>
 	do ..valueToBeReplaced.SetAt(^ItfGlobal(..%ConfigName, "CurrentSequenceNumber"),"%#")
 
 
-	if ($$$ISOK(tSC) && ""'=..RegexFileFilter) { // If RegexFileFilter is not empty
+	if ($$$ISOK(tSC) && (""'=..RegexFileFilter)) { // If RegexFileFilter is not empty
 		if $Match(tSource,..RegexFileFilter) {
 			$$$TRACE(tSource_" matches regex filter "_..RegexFileFilter_" we will process this file.")
 		}
@@ -233,6 +227,12 @@ Setting the Target Config Names as part of the configuration</Description>
 		$$$TRACE("No RegexFileFilter specified; regex filter will not be applied.")
 	}
  if (MatchesRegex) {
+	 
+	//Journal
+	if (..JournalIncomingData) {
+		Set tSC=..JournalData(pInput)
+	}
+	
 	//Note: the following line is intended to skip this block if the ActionOnSourceFile field is empty, This is the intended behavior
 	if ($$$ISOK(tSC) && (""'=..ActionOnSourceFile)){
 		if ("DELETE"=$ZStrip(..ActionOnSourceFile,"<>W")){  //If we want to delete the source file
@@ -272,11 +272,6 @@ Setting the Target Config Names as part of the configuration</Description>
 				Set tSC=..SendRequestSync(tOneTarget,pInput)
 			}			 
 		}
-	}
-		
-	//Outbound Journal
-	If ($$$ISOK(tSC) && (..JournalOutgoingData)) {
-		Set tSC=..JournalData(pInput, "Outbound")
 	}	
 	
 	//Sending Email
@@ -298,12 +293,15 @@ Setting the Target Config Names as part of the configuration</Description>
 		Job ##class(Ens.Director).EnableConfigItem(..%ConfigName,0,1)
 	}
 		do ..IncrementSequenceNumber()
- 	}
+		$$$TRACE("Complete OnProcessInput: "_tSource)
+ 	} //End if MatchesRegex
 	}
-	catch {
+	catch error {
+		$$$TRACE("Crash out of OnProcessInput: "_tSource)
 		do ..IncrementSequenceNumber() //We want to increment the number, even if there is a crash
+		THROW error
 	}
-
+	
 	Quit tSC
 ]]></Implementation>
 </Method>
@@ -422,12 +420,12 @@ Setting the Target Config Names as part of the configuration</Description>
 </Method>
 
 <Method name="JournalData">
-<FormalSpec>pInput:Ens.StreamContainer,Location:%String</FormalSpec>
+<FormalSpec>pInput:Ens.StreamContainer</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set journalStream=##class(%Stream.GlobalCharacter).%New()
 	Set tSC = journalStream.CopyFromAndSave(pInput.Stream)
-	$$$TRACE("IHC.ITF.ITFCOMMON.Service.PassthroughService1: "_Location_" Journal: "_pInput.Stream.%Id()_" has been successfully saved to database. Stream OID is "_journalStream.GetStreamId()_"; Stream ID is "_journalStream.Id_".")
+	$$$TRACE("IHC.ITF.ITFCOMMON.Service.PassthroughService1: JournalData: "_pInput.Stream.%Id()_" has been successfully saved to database. Stream OID is "_journalStream.GetStreamId()_"; Stream ID is "_journalStream.Id_".")
 	Quit tSC
 ]]></Implementation>
 </Method>
