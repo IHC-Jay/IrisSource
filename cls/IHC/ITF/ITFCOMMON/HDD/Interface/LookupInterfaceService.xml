@@ -19,7 +19,7 @@ Call Interface specifc HDD webservice</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>Location:Basic,dbEnv:Basic,HddUpdateDay:Basic,HddUpdateTime:Basic</Default>
+<Default>Location:Basic,dbEnv:Basic,HddUpdateDay:Basic,HddUpdateTime:Basic,MimicTuxedoServiceCall:Basic,DefaultContextValue:Basic</Default>
 </Parameter>
 
 <Property name="HddUpdateDay">
@@ -33,6 +33,22 @@ Hdd Update Day- Sunday: 0, Monday: 1, Saturday: 6</Description>
 Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="10"/>
+</Property>
+
+<Property name="MimicTuxedoServiceCall">
+<Description>
+This setting is use to mimic the Tuxedo service call where default context is used if the Representatio of NCID returned
+as blanks for the passed context.</Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="DefaultContextValue">
+<Description>
+Default/DisplayContext. This is used only when MimicTuxedoServiceCall is set to true and the representation of NCID
+is returned as blank</Description>
+<Type>%String</Type>
+<InitialExpression>"1259,2000,367"</InitialExpression>
 </Property>
 
 <Method name="GetUniqueChildForNcid">
@@ -376,6 +392,16 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 		set rep = ""
 	  	set reqObj = pRequest.listOfHddRepObj.GetAt(listInd)
 	  	Do ..GetUniqueRepByNcid(reqObj.NCID, reqObj.Context, .rep)
+	  	// Following lines are added by Sushant to use default context - 10/06/2015
+	  	if ((rep="")&&..MimicTuxedoServiceCall&&(..DefaultContextValue'=""))
+	  	{      
+	  		For i = 1 : 1 : $LENGTH(..DefaultContextValue, ","){
+ 				Set wContext = $PIECE(..DefaultContextValue, ",", i)
+   				Do ..GetUniqueRepByNcid(reqObj.NCID, wContext, .rep)
+   				quit:rep'=""
+	  		}
+	  	}
+	  	// End Add
 	  	$$$TRACE("  Returned Rep "_rep)	  	
 	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
 	  set hddObj.Comment = "Get Unique Representation for Ncid"
@@ -432,12 +458,17 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	  If $ZERROR["<ZSOAP>" {
 	     set errTxt = $System.Status.GetErrorText(%objlasterror)
 	     Set repNcid = errTxt	  	        
-         $$$LOGERROR("Exception in GetUniqueRepByNcid NCID: " _ncid _", Context: " _ context _ " = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
-         $$$LOGERROR($ZERROR)
+         $$$TRACE("Exception in GetUniqueRepByNcid NCID: " _ncid _", Context: " _ context _ " = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$TRACE($ZERROR)
          If errTxt["TerminologyWebServiceException"{
-	         $$$LOGERROR("TerminologyWebServiceException")
+	         $$$TRACE("TerminologyWebServiceException")
 	         Set rep = ""
 	     }
+	     //Sushant -Start Change
+         if ((errTxt["ERROR #6059:")){
+	         throw exceptionvar
+         }
+         //Sushant - End Change
 	  }
 	  else
 	  {
@@ -493,8 +524,14 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
   
     set servicePort.Location = ..Location	 
-    
- 	Set repNcid = servicePort.getUniqueNcidByRep(rep, domain, context, ..dbEnv, 0) 
+    if ('..MimicTuxedoServiceCall){
+	    Set repNcid = servicePort.getUniqueNcidByRep(rep, domain, context, ..dbEnv, 0) 
+    }else{
+	    Set repNcid = servicePort.getNcidsByRep(rep, domain, context, ..dbEnv, 0)
+	    if ((repNcid'="")&&$ISOBJECT(repNcid)){
+		    set repNcid=repNcid.GetAt(1)
+	    }
+    }
  	if ( repNcid '= ""){
 		$$$TRACE("getUniqueNcidByRep " _ repNcid) 	
 		Do ..InsertValuesToHddNcidCache(repNcid, domain, context, rep)
@@ -508,11 +545,16 @@ Hdd Update Time - Format: "hh:mm" (24-hour clock)</Description>
 	  Set repNcid = "ERROR"  
 	  If $ZERROR["<ZSOAP>" {
 	     set errTxt = $System.Status.GetErrorText(%objlasterror)
-         $$$LOGERROR("Exception in GetUniqueNcidByRep  Rep: " _ rep _ ", domain: " _ Domain _ ", Context:" _ context _ " = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location )
-         $$$LOGERROR($ZERROR)
+         $$$TRACE("Exception in GetUniqueNcidByRep  Rep: " _ rep _ ", domain: " _ domain _ ", Context:" _ context _ " = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location )
+         $$$TRACE($ZERROR)
          If errTxt["TerminologyWebServiceException"{
 	         Set repNcid = ""
 	     }
+	     //Sushant -Start Change
+         if (errTxt["ERROR #6059:"){
+	         throw exceptionvar
+         }
+         //
 	  }
 	  else
 	  {
