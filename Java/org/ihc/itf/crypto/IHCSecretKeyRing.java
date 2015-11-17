@@ -56,7 +56,7 @@ public class IHCSecretKeyRing extends BcPGPSecretKeyRingCollection {
 	        while (secretRingIterator.hasNext()) {
 	        	PGPSecretKeyRing secretKeyRing =  secretRingIterator.next();
 
-	            IHCCryptoUtils.printOut("Looking at ring <" + ringCounter + ">");
+	            IHCCryptoUtils.printOut("getSecretEncryptionKey: Looking at ring <" + ringCounter + ">");
 
 	            boolean foundMatch = false;
 	            int keyCounter = 0;
@@ -84,7 +84,7 @@ public class IHCSecretKeyRing extends BcPGPSecretKeyRingCollection {
 	        IHCCryptoUtils.printOut("Number of searched Rings in Collection is " + ringCounter);
 
 	        if (null == returnKey) {
-	            IHCCryptoUtils.printOut("Search for <" + keyid + "> was UN-successful");
+	            IHCCryptoUtils.printOut("Search for SecretEncryptionKey <" + keyid + "> was UN-successful");
 	        } else {
 	           
 	                IHCCryptoUtils.printOut( IHCCryptoUtils.printKeyAttributes(returnKey.getPublicKey()));

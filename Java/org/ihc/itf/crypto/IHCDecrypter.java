@@ -21,7 +21,6 @@ import org.bouncycastle.openpgp.PGPKeyFlags;
 import org.bouncycastle.openpgp.PGPKeyPair;
 import org.bouncycastle.openpgp.PGPLiteralData;
 import org.bouncycastle.openpgp.PGPMarker;
-import org.bouncycastle.openpgp.PGPObjectFactory;
 import org.bouncycastle.openpgp.PGPOnePassSignature;
 import org.bouncycastle.openpgp.PGPOnePassSignatureList;
 import org.bouncycastle.openpgp.PGPPBEEncryptedData;
@@ -186,7 +185,7 @@ public class IHCDecrypter {
 				PGPPrivateKey privateKey = null;
 				PGPPublicKeyEncryptedData publicEncryptedData = null;
 
-				String message = "looking for secret key from given key id in encDataObjIterator: " + encDataObjIterator.hasNext();
+				String message = "Looking for secret key from given key id in encDataObjIterator: " + encDataObjIterator.hasNext();
 				IHCCryptoUtils.printOut(message);
 
 				while (encDataObjIterator != null && encDataObjIterator.hasNext() && privateKey == null) {
@@ -267,7 +266,7 @@ public class IHCDecrypter {
 					InputStream literalDataInStream = literalData
 							.getInputStream();
 
-					log_message = "Original file name: "
+					log_message = "PGPLiteralData: Original file name: "
 							+ literalData.getFileName();
 					IHCCryptoUtils.printOut(log_message);
 
@@ -312,7 +311,7 @@ public class IHCDecrypter {
 							streamOut.write(ch);
 						}
 
-						streamOut.close();
+						// streamOut.close();
 
 					} else {
 						// Initialize the process that will check the signature
@@ -320,7 +319,7 @@ public class IHCDecrypter {
 						onePassSignature.init(
 								new BcPGPContentVerifierBuilderProvider(), key);
 
-						log_message = "Original file name: "
+						log_message = "PGPOnePassSignatureList: Original file name: "
 								+ literalData.getFileName();
 						IHCCryptoUtils.printOut(log_message);
 
@@ -334,7 +333,8 @@ public class IHCDecrypter {
 							streamOut.write(ch);
 						}
 
-						streamOut.close();
+						// streamOut.close();
+						// IHCCryptoUtils.printOut("Closing the stream");
 
 						// The third object in the compressed data should be the
 						// signed hash(es) or signature packets

@@ -14,11 +14,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
-import java.security.Security;
 import java.util.Iterator;
 
-//Bouncy castle imports
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.openpgp.PGPCompressedData;
 import org.bouncycastle.openpgp.PGPCompressedDataGenerator;
 import org.bouncycastle.openpgp.PGPEncryptedData;
@@ -43,9 +40,8 @@ import org.bouncycastle.openpgp.operator.bc.BcPGPDataEncryptorBuilder;
 import org.bouncycastle.openpgp.operator.bc.BcPGPDigestCalculatorProvider;
 import org.bouncycastle.openpgp.operator.bc.BcPublicKeyDataDecryptorFactory;
 import org.bouncycastle.openpgp.operator.bc.BcPublicKeyKeyEncryptionMethodGenerator;
+//Bouncy castle imports
 
-import Decoder.BASE64Decoder;
-import Decoder.BASE64Encoder;
 
 public class IHCEncrypterDecrypter {
 
@@ -316,6 +312,7 @@ public class IHCEncrypterDecrypter {
 	//
 	public static void main(String[] args) {
 		try {
+			/*
 			Security.addProvider(new BouncyCastleProvider());
 			String TOKEN = "aamine";
 			// ----- Encrypt the message to a file
@@ -335,6 +332,7 @@ public class IHCEncrypterDecrypter {
 			// ----- Decrypt the token that
 			String result = decrypt(newB);
 			IHCCryptoUtils.printOut("Decrypted: " + result);
+			*/
 		} catch (Exception e) {
 			IHCCryptoUtils.printOut("Exception: " + e);
 		}
