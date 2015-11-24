@@ -1,0 +1,498 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched">
+<Description>
+This is an extension of EnsLib.FTP.InboundAdapter that allows us to specify the read order the target files are read in</Description>
+<ClassType/>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.FTP.InboundAdapter</Super>
+<TimeCreated>63868,53775.192501</TimeCreated>
+<Inheritance>right</Inheritance>
+
+<UDLText name="T">
+<Content><![CDATA[/* override from File superclass with new description (FTP not File) */
+]]></Content>
+</UDLText>
+
+<Property name="DeleteFromServer">
+<Description><![CDATA[
+Specifies whether or not to delete files from the FTP server after successful processing <br/>
+If not deleted, the adapter will ignore files already processed until something else removes them from the FTP server.
+NOTE: This has been modified from the original DeleteFromServer and is now set programatically, NOT by the user. To delete the source file, use the ActionOnSourceFile setting]]></Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="ActionOnSourceFile">
+<Description><![CDATA[
+This is the action to be taken on the SOURCE file. 
+<p>If the source file is to be left as is leave this field blank, but be aware this leaves the possibility the file will be processed again.
+<p>If you want to delete the source file from the server, enter DELETE (this replaces the original DeleteFromServer function).
+<p>If the source file needs to be renamed but remain in the current folder on the server, just enter the new name.
+<p>If the file needs to be moved to a new folder on the source server, include the full absolute
+path to the new location including the new file name.
+<p>NOTE: The following special values can also be included in the new file names:
+<br>%f - The original filename of the file
+<br>%CD - The date the file was processed in format 1970-01-01
+<br>%CT - The time the file was processed in format 12:00:00AM
+<br>%# - The current sequence number
+<p>EXAMPLE: Setting this value to %f_%CD_%CT_%# would rename <i>testfile</i> to something like
+<p>testfile_08/07/2015_02:39:23PM_1]]></Description>
+<Type>%String</Type>
+<InitialExpression>"DELETE"</InitialExpression>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="DirectoryContents">
+<Description>
+Hold (as an array of strings) the filenames of all the files in the current directory</Description>
+<Type>%String</Type>
+<Collection>list</Collection>
+</Property>
+
+<Property name="%DirectoryContentsResultSet">
+<Description>
+ResultSet Used to get the contents of the current directory</Description>
+<Type>%ResultSet</Type>
+<Internal>1</Internal>
+</Property>
+
+<Property name="RegexFileFilter">
+<Description><![CDATA[
+Regex pattern(s) to filter which files are processed. If multiple RegexFileFilters are specified (using the RegexFileFilterDelimiter),
+the files will be processed in the order they match the filters.<p>
+For example, if the RegexFileFilter is set to <b>^A.*;^B.*</b> and the RegexFileFilterDelimiter is set to <b>;</b> (semicolon) 
+there will be two RegexFileFilters: <b>^A.*</b> and <b>^B.*</b> . This will cause all files that start with an <b>A</b> to process before
+all files that start with a <b>B</b>.<p>
+IMPORTANT: If you specify both a RegexFileFilter and a File Spec, only files that match the File Spec AND the RegexFileFilter(s)
+will be processed. To use only the Regex Filter, set File Spec to *. To use only the File Spec, leave the RegexFileFilter blank.]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="400"/>
+</Property>
+
+<Property name="RegexFileFilterDelimiter">
+<Description>
+The delimiter used to separate RegexFileFilters; if the character(s) specified in this field are present in the
+RegexFileFilter, the filter will be split into multiple filters. The can be used to allow multiple filters to 
+be used, and also to allow files to be processed in a given order. See the RegexFileFilter for details.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="400"/>
+</Property>
+
+<UDLText name="T">
+<Content><![CDATA[/* override from superclass with new description (mention the RegexFileFilter) */
+]]></Content>
+</UDLText>
+
+<Property name="FileSpec">
+<Description><![CDATA[
+Filename or wildcard file specification for file(s) to retrieve from the FTP server.<p>
+IMPORTANT: If you specify both a FileSpec and a RegexFileFilter, only files that match the File Spec AND the RegexFileFilter(s)
+will be processed. To use only the Regex Filter, set File Spec to *. To use only the File Spec, leave the RegexFileFilter blank.]]></Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="LoopThreshold">
+<Description>
+This is used to force the process to abandon after a given number of files processed (or attempted). In allows the component escape processing if endless processing loop occurs (for example: if processed files are renamed in a way that makes them get processed
+again). In general, this should be left at the default value of 25.</Description>
+<Type>%Integer</Type>
+<InitialExpression>25</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-DeleteFromServer:Basic,RegexFileFilter:Basic,RegexFileFilterDelimiter:Basic,ActionOnSourceFile:Basic,LoopThreshold:Additional,-SemaphoreSpec:Additional</Default>
+</Parameter>
+
+<Method name="delete">
+<FormalSpec>pFilename:%String,pFileDir:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=..setFilePath(pFileDir,.tOldDir)  If $$$ISERR(tSC) { $$$LOGSTATUS(tSC)  Quit 0 }
+	Set tOK=$S(..%isSFTP:..FTP.DeleteSSH(pFilename),1:..FTP.Delete(pFilename))
+	Do:'tOK ..disconnectOnNetErr(,1)
+	If ..Connected { Set tSC=..restoreFilePath(tOldDir)  If $$$ISERR(tSC) $$$LOGSTATUS(tSC)  Quit 0 }
+	Quit tOK
+]]></Implementation>
+</Method>
+
+<Method name="rename">
+<FormalSpec>pFilename:%String,pNewFilename:%String,pFileDir:%String,pOverwrite:%Boolean</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+
+	Set tSC=..setFilePath(pFileDir,.tOldDir)  If $$$ISERR(tSC) { $$$LOGSTATUS(tSC)  Quit 0 }
+	Set tOK=$S(..%isSFTP:..FTP.RenameSSH(pFilename,pNewFilename),1:..FTP.Rename(pFilename,pNewFilename))
+	Do:'tOK ..disconnectOnNetErr(,1)
+	If ..Connected { Set tSC=..restoreFilePath(tOldDir)  If $$$ISERR(tSC) $$$LOGSTATUS(tSC)  Quit 0 }
+	Quit tOK
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<Internal>1</Internal>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=..testPaths()  Quit:$$$ISERR(tSC) tSC
+
+	Set tStyle = $ZSTRIP($ZCVT(..ServerListStyle,"L"),"*W","-_,;:/")
+	Set:..%isSFTP tStyle="unix"
+	Set:"vmsa"=$E(tStyle,1,$L("vmsa")) ..VMSLatestVersionOnly=0
+	If ""=..FilenameExpression {
+		If "msdos"=tStyle {
+			// Standard listing style for Windows server in MS-DOS mode
+			Set ..FilenameExpression = "$this.spacepiece(%line,4,999)" ; 4th space-delimited piece is the name
+			Set ..TimestampExpression = "$this.spacepiece(%line,1,3)" ; include size too - to detect that kind of change also
+			Set ..IsDirExpression = "($this.spacepiece(%line,3)=""<DIR>"")"
+			Set ..SizeExpression = "$this.spacepiece(%line,3)"
+		} Elseif "vms"=tStyle || ("vmsa"=$E(tStyle,1,$L("vmsa"))) {
+			// Standard VMS style server listing
+			Set ..FilenameExpression = "$this.spacepiece(%line,1)"
+			Set ..TimestampExpression = "$this.spacepiece(%line,3,6)"
+			Set ..IsDirExpression = "($this.spacepiece(%line,1)["".DIR;"")"
+			Set ..SizeExpression = "$piece($this.spacepiece(%line,2),""/"",1)"
+		} Elseif "as400"=tStyle {
+			// AS/400 / iSeries style server listing
+			Set ..FilenameExpression = "$this.spacepiece(%line,6)"
+			Set ..TimestampExpression = "$this.spacepiece(%line,1,5)"
+			Set ..IsDirExpression = "($ZCVT($this.spacepiece(%line,5),""U"")=""*DIR"")"
+			Set ..SizeExpression = "$this.spacepiece(%line,2)"
+			If ..ConfirmComplete#2 Set ..ConfirmComplete=$$$XOR(..ConfirmComplete,1)  $$$LOGWARNING("Turning off ConfirmComplete='Size' not allowed for AS400 file 'members'")
+		} ElseIf "netware"=tStyle {
+			// NetWare listing style
+			Set ..FilenameExpression = "$this.spacepiece(%line,8,999)" 
+			Set ..TimestampExpression = "$this.spacepiece(%line,1,7)" 
+			Set ..IsDirExpression = "(""d""=$E(%line))"
+			Set ..SizeExpression = "$this.spacepiece(%line,4)"
+		} Else {
+			// Standard Unix style server listing
+			Set ..FilenameExpression = "$this.spacepiece(%line,9,999)"
+			Set ..TimestampExpression = "$this.spacepiece(%line,1,8)"
+			Set ..IsDirExpression = "(""d""=$E(%line))"
+			Set ..SizeExpression = "$this.spacepiece(%line,5)"
+		}
+	}
+	Set ..SemaphoreSpec=$ZSTRIP(..SemaphoreSpec,"<>W")
+	If ..SemaphoreSpec'="" {
+		Set tSemaphoreSpec="",tNumberOfSpecs=$L(..SemaphoreSpec,";")
+		For c=1:1:tNumberOfSpecs {
+			Set tPair=$P(..SemaphoreSpec,";",c),tWarn=0
+			If tPair'="" {
+				Set tTargetSpec=$P(tPair,"=",1)
+				Set:(tTargetSpec="") tTargetSpec="*",tWarn=1
+				Set tSemSpec=$P(tPair,"=",2)
+				Set:(tSemSpec="") tSemSpec=tTargetSpec,tTargetSpec="*"
+				Set:('tWarn&&tTargetSpec'="*") tWarn=tSemSpec=tTargetSpec 
+				If tWarn $$$LOGWARNING("Incorrect Semaphore Specification"_" "_..SemaphoreSpec)
+				Set tSemaphoreSpec=tSemaphoreSpec_tTargetSpec_"="_tSemSpec_$S(c=tNumberOfSpecs:"",1:";")
+			}
+		}
+		Set ..SemaphoreSpec=tSemaphoreSpec
+	}
+	Set:..StayConnected>0&&(..StayConnected<..CallInterval) ..KeepaliveInterval=..StayConnected
+	Do ..FileListStreamNewObject() $$$ASSERT($IsObject(..FileListStream))
+	Set ..FileListStream.LineTerminator=$C(13,10)
+	Do ..FileSizeStreamNewObject() $$$ASSERT($IsObject(..FileSizeStream))
+	Set ..FileSizeStream.LineTerminator=$c(13,10)
+
+	Set ..%CurrResultSet=##class(%ResultSet).%New($$$CurrentClass_":DeepList")  $$$ASSERT($IsObject(..%CurrResultSet))
+	Kill ..%CurrResultSet.Data
+	$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnInit(): clean up on restart")
+	Kill $$$EnsRuntimeAppData(..BusinessHost.%ConfigName,"adapter.ftp") ; clean up on restart
+	Set:"vms"=tStyle&&("*"=..FileSpec) ..FileSpec="*.*" ; force functional wildcard for Search on VMS
+	If 0=..BusinessHost.%GetParameter("LOGTRANSFERS") Set ..%logTransfers=0
+
+	If ..StayConnected<0 { Set tSC=..Connect(..ConnectTimeout,1)  If $$$ISERR(tSC) $$$LOGWARNING($$$StatusDisplayString(tSC)) } // timeout is not fatal at this point, but do log it
+	Else { $$$SetJobMonitor(..BusinessHost.%ConfigName,$$$SystemName_":"_$Job,$$$eMonitorConnected,"0|"_$$$timeUTC) }
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnTask">
+<Internal>1</Internal>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#define ErrorFileTable(%tk) $$$EnsRuntimeAppData(..BusinessHost.%ConfigName,"adapter.ftp",%tk)
+#define DoneFileTable(%tk)  $$$EnsStaticAppData(..BusinessHost.%ConfigName,"adapter.ftp",%tk)
+	Set FilesRemaining = 1
+	Set LoopThresholdCounter = ..LoopThreshold
+	Do ..RefreshDirectoryContents()
+	Set $ZT="Trap", tSC=$$$OK, (tOneFilename,tFullFilename,tFilename,tTableKey)="", tDone=0
+	if ("DELETE"=$ZStrip(..ActionOnSourceFile,"<>W")){  //If we want to delete the source file
+		Set ..DeleteFromServer = 1
+	}
+	else {
+		Set ..DeleteFromServer = 0
+	}
+	 
+	Do {
+		Set LoopThresholdCounter = LoopThresholdCounter-1
+				
+		if (LoopThresholdCounter > 0) 
+		{
+			Quit:""=..FileSpec
+				
+			If '..Connected Set tSC=..Connect(..ConnectTimeout,1)
+			Quit:$$$ISERR(tSC)
+			
+			$$$catTRACE("connwait","IHC.ITF.Adapter.OnTask() Looking for files '"_..FileSpec_"' in path '"_..FilePath_"'")
+			Set tSC=..%CurrResultSet.Execute($this,..FilePath,..FileSpec,..SubdirectoryLevels,$S(..%isSFTP:"FileListSSH",1:"FileList"),..SemaphoreSpec)  Quit:$$$ISERR(tSC)
+			Kill ^||Ens.FileInbound.Found,^||Ens.FileInbound.Semaphore
+					
+			#; find the next one that can be processed
+			For {
+				/* 
+					Check if the last file needs retrying 
+					and use the current row rather than advancing.
+				*/
+				If ..%LastFileNeedsRetrying {
+					$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): Last file needs retrying.")
+					Set ..%LastFileNeedsRetrying=0
+				} Else {
+					If '..%CurrResultSet.Next(.tSC) {//If %CurrResultSet is empty
+						$$$TRACE("Done iterating the ResultSet for the current query execution - clean it up")
+						#; Done iterating the ResultSet for the current query execution - clean it up
+						Do ..%CurrResultSet.Close()
+						Kill ..%CurrResultSet.Data ; clean it out so next loop iteration will re-Execute the query
+						#; delete the semaphore files used in this cycle
+						Set tTableKey=$O(^||Ens.FileInbound.Semaphore(""),1,tSemaphorename)
+
+						Do:'..StayConnected ..Disconnect(1)
+						#; Remove errored files from the Error global if they no longer exist, and remove processed files from the Done global if they no longer exist
+						Quit:$$$ISERR(tSC) ; if the list failed we don't know if the files are still there
+						
+						Quit
+					} Else { $$$ASSERT($$$ISOK(tSC)) }
+				}	
+			
+				Set tOneFilename=..%CurrResultSet.Data("ItemName"), tFullFilename=..%CurrResultSet.Data("Name"), tFileDir=..%CurrResultSet.Data("ItemDir"), tModified=..%CurrResultSet.Data("DateModified"), tSize=..%CurrResultSet.Data("Size"), tSemaphorename=..%CurrResultSet.Data("SemaphoreName")  $$$ASSERT(""'=tOneFilename&&(""'=tFullFilename))
+				Set tTableKey = ..getFileSubscript(tFullFilename)
+				Set ^||Ens.FileInbound.Found(tTableKey)=tFullFilename
+			
+				#;Hash to avoid subscript error from long filename and path
+						
+				Lock +$$$ErrorFileTable(tTableKey):0 Else  $$$TRACE("Skipping locked file '"_tTableKey_"'") Continue
+			
+				#; Skip the files we have already processed except if they are modified; if they errored only warn once
+				If $G($$$DoneFileTable(tTableKey))=tModified If '$G(^(tTableKey,"done"_$E($G($$$ErrorFileTable(tTableKey)),-1))) { Set ^("done")=1 $$$TRACE("Skipping previously processed file '"_tFullFilename_"'") } Lock -$$$ErrorFileTable(tTableKey)  Continue
+						
+				If $G($$$ErrorFileTable(tTableKey))=tModified If $G(^(tTableKey,"wrn")) { Kill ^("wrn") $$$TRACE("Skipping previously errored file '"_tFullFilename_"' with timestamp '"_tModified_"'") } Lock -$$$ErrorFileTable(tTableKey) Continue
+			
+				If ..VMSLatestVersionOnly && ..%isVMS && ('..IsVMSLatestVersion(tFullFilename)) {
+					If '..DeleteFromServer {
+						If '$G(^(tTableKey,"ver"_$E($G($$$ErrorFileTable(tTableKey)),-1))) { Set ^("ver")=1  $$$TRACE("Skipping not-latest version of file '"_tFullFilename_"'") } 
+					} Else {
+						If '..delete(tOneFilename,tFileDir) {
+							Do ..disconnectOnNetErr(,1)
+							If '$G(^(tTableKey,"ver"_$E($G($$$ErrorFileTable(tTableKey)),-1))) { Set ^("ver")=1 $$$TRACE("Failed to delete not-latest version of file '"_tFullFilename_"' - "_..FTP.ReturnCode_":"_..FTP.ReturnMessage) }
+						} Else {
+							$$$LOGINFO("Deleted non-latest version of file "_tFullFilename)
+							Kill $$$ErrorFileTable(tTableKey)					
+						}
+					}
+					Lock -$$$ErrorFileTable(tTableKey)  Continue
+				}
+			
+				Set $$$ErrorFileTable(tTableKey)=tModified, ^(tTableKey,"wrn")=1
+			
+				Set tFilename=tOneFilename, tOneFilename=""
+				$$$TRACE("IHC.ITF.Adapter.InShSftpEbixFeedSched.OnTask() Found a good one: "_tFilename)
+				Quit ; found a good one
+			}
+			Quit:""=tFilename //I think an empty filename at this point means no file was found
+			$$$TRACE("tTableKey="_tTableKey)
+			Set HigherPriorityFile = ..HasPriority(tTableKey)
+			if (..DirectoryContents.Count() < 1){ // If there is nothing matching the File Spec left in the directory
+				$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): No files matching File Spec located in source directory.")
+				Set FilesRemaining = 0
+				
+			}
+			elseif (HigherPriorityFile=""){ // If there are files remaining that match the File Spec, but NOT the RegexFileFilter
+				$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): Files matching File Spec located in source directory, but none will be processed because none match the RegexFileFilter(s)")
+				Set FilesRemaining = 0
+				
+			}else {
+					Set FilesRemaining = 1 // If we are not done, then we need to keep going
+					if ($Match(tTableKey,"^.*QTC_ID_EXTRACT_.*txt")){ //if this is an ID file
+						//$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): "_tTableKey_" is an ID file.")
+						Set tSC=..processFile(tFilename,tModified,tSize,.tDone,tFileDir,tSemaphorename) Quit:$$$ISERR(tSC) //Process the ID file
+						$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): Done processing ID file: "_tTableKey_".")
+						Set $$$DoneFileTable(tTableKey) = tModified //Add the ID file to the done file list
+						Do ..TraceDoneFileTableContents("IDFile")
+					}
+					elseif ($Match(tTableKey,"^.*QTC_REL_EXTRACT_.*txt")){ //Else if this is a relationship file
+						//$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): "_tTableKey_" is a Relationship file.")
+						Set FileNameDifferentiator = $EXTRACT(tTableKey,$FIND(tTableKey,"EXTRACT_"),*-4) //This is the section of the filename that the ID and relationships have in common.  It is used to keep ID/Relationship file pair differentiated from other such file pairs.
+						Set MatchingIDFile = ..FilePath_"/QTC_ID_EXTRACT_"_FileNameDifferentiator_".txt" //This is the name of the ID file that should (must) have been processed before this relationship file can be.
+						//$$$TRACE("FileNameDifferentiator="_FileNameDifferentiator_"  ---  Matching ID File is "_MatchingIDFile)
+						//Do ..TraceDoneFileTableContents("RelationshipFile")
+						If ($GET($$$DoneFileTable(MatchingIDFile))'=""){ //If there is an ID file matching this relationship file in the done file list
+							Set tSC=..processFile(tFilename,tModified,tSize,.tDone,tFileDir,tSemaphorename) Quit:$$$ISERR(tSC) // Process the relationship file
+							$$$TRACE("IHC.ITF.FTP.Adapter.InShSftpEbixFeedSched.OnTask(): Done processing relationship file: "_tTableKey_".")
+							Set $$$DoneFileTable(tTableKey) = tModified //Add the relationship file to the done file list
+							Set FilesRemaining = 0
+							Kill $$$DoneFileTable(tTableKey) //Remove the relationship file to the done file list
+							Kill $$$DoneFileTable(MatchingIDFile) //Remove the ID file to the done file list
+							
+							Do ..TraceFileTableContents("Successful finish")		
+						}
+						else {//Else if there is no ID file in the done file list, then we have a relationship file with no ID file
+							Set FilesRemaining = 0
+							Kill $$$DoneFileTable(tTableKey) //Remove the relationship file to the done file list
+							Kill $$$DoneFileTable(MatchingIDFile) //Remove the ID file to the done file list
+							//Do ..TraceFileTableContents("Error thrown")
+							Set tSC=$$$ERROR($$$EnsErrGeneral,"This interface is required to process ID files before the relationship files; however, we received a relationship file ("_tTableKey_") without a previous ID file ("_MatchingIDFile_"). Contact the source system and restart the component once the file path ("_..FilePath_") contains an ID file, or all files have been removed.")
+						}
+					}	
+			}
+		}
+	} While ((LoopThresholdCounter > -1) && (FilesRemaining = 1))
+	//Do ..TraceDoneFileTableContents("After While exits")
+Exit
+	If tDone {
+		$$$ASSERT($$$ISOK(tSC))
+		If tDone=-1&&..VMSLatestVersionOnly&&..%isVMS {
+			#; If deleted on VMS but other VMS versions of the file may exist, suppress messages about them
+			Set $$$ErrorFileTable(tTableKey)=""
+		} Else {
+			Kill $$$ErrorFileTable(tTableKey)
+		}
+	} ElseIf $$$ISERR(tSC) {
+		Set tErrText=$$$StatusText(tSC)
+		Do ..disconnectOnNetErr(tErrText,1)
+		#; Don't count it as a file error if it was a network error or retryable
+		If ""'=tFilename && ('..Connected || ($$$StatusDisplayString(tSC)["<Ens>ErrFTP" && (tErrText?.E1"="1(1"52"1N,1"4"2N)1PC.E))) { ; retry on timeouts also
+			Kill $$$ErrorFileTable(tTableKey)
+			$$$TRACE("IHC.ITF.Adapter.InShSftpEbixFeedSched.OnTask(): Setting file to be processed again (%LastFileNeedsRetrying=')")
+			Set ..%LastFileNeedsRetrying=1
+		}
+		Set:..StayConnected&&'..Connected ..%LastNetErr=tErrText
+	}
+	Lock:""'=tFilename -$$$ErrorFileTable(tTableKey)
+	Do ..TraceDoneFileTableContents("Exiting exit")
+	Quit tSC
+Trap
+	Set $ZT="",tSC=$$$EnsSystemError
+	Lock:""'=tFilename -$$$ErrorFileTable(tTableKey)
+	Do ..TraceDoneFileTableContents("Exiting Trap")
+	Goto Exit
+]]></Implementation>
+</Method>
+
+<Method name="HasPriority">
+<Description>
+Checks to see if there are any files that have a higher priority for parsing given the RegexFileFilter and RegexFileFilterDelimiter</Description>
+<FormalSpec>CurrentFilepath:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Set FileWithPriority = ""
+	if (""=..RegexFileFilter){
+		Set FileWithPriority=CurrentFilepath
+	}
+	else {
+	// For each RegexFileFilter (as modified by the RegexFileFilterDelimiter
+		Set RegexFileFilterCounter = 1
+			For { //For each RegexFileFilter; in descending order of priority. Once we find a hit, then that filename HasPriority
+				Quit:RegexFileFilterCounter>$LENGTH(..RegexFileFilter,..RegexFileFilterDelimiter) //Exit loop if we have checked all the RegexFileFilters
+				Set CurrentRegexFileFilter=$PIECE(..RegexFileFilter,..RegexFileFilterDelimiter,RegexFileFilterCounter)
+				//If the current file matches the CurrentRegexFileFilter, it qualifies for highest priority
+				Set CurrentFilename = $PIECE(CurrentFilepath,"/",*)
+				if $Match(CurrentFilename,CurrentRegexFileFilter){ //If the file we are checking for priority matches the current regexfilefilter
+					Set FileWithPriority=CurrentFilepath
+				}
+				if (""=FileWithPriority) {
+					//
+					//If the current file does not match the CurrentRegexFileFilter, check all the other files in the folder to see if they do
+					//
+					for DirectoryContentsCounter=1:1:..DirectoryContents.Count() { // For each filename in the current directory
+						Set CurrentFilename = $PIECE(..DirectoryContents.GetAt(DirectoryContentsCounter),"/",*)
+						if ($Match(CurrentFilename,CurrentRegexFileFilter)){
+							Set FileWithPriority=""_..DirectoryContents.GetAt(DirectoryContentsCounter)
+						}
+						Quit:""'=FileWithPriority //Quit if we found a priority file
+					}
+				}
+				Quit:""'=FileWithPriority // Quit if we found a priority file
+				Set RegexFileFilterCounter=RegexFileFilterCounter+1
+			} //End For each RegexFileFilter	
+		
+	}
+	if (""=FileWithPriority) {
+		$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.HasPriority("_CurrentFilepath_"): No file has priority.")
+	}
+	else {
+		$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.HasPriority("_CurrentFilepath_"): "_FileWithPriority_" has priority.")
+	}
+	Quit FileWithPriority
+]]></Implementation>
+</Method>
+
+<Method name="RefreshDirectoryContents">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	//$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.RefreshDirectoryContents()")
+	Do ..DirectoryContents.Clear()
+	Set ..%DirectoryContentsResultSet=##class(%ResultSet).%New($$$CurrentClass_":DeepList")  $$$ASSERT($IsObject(..%CurrResultSet))
+	Kill ..%DirectoryContentsResultSet.Data
+		
+	Set tSC=..%DirectoryContentsResultSet.Execute($this,..FilePath,..FileSpec,..SubdirectoryLevels,$S(..%isSFTP:"FileListSSH",1:"FileList"),..SemaphoreSpec)  Quit:$$$ISERR(tSC)
+	While ..%DirectoryContentsResultSet.Next(.tSC)  {
+		Do ..DirectoryContents.Insert(..%DirectoryContentsResultSet.%GetData(1))
+		//$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.RefreshDirectoryContents(): Adding "_ ..%DirectoryContentsResultSet.%GetData(1) _ " to DirectoryContents")
+	}
+	
+	Do ..%DirectoryContentsResultSet.Close()
+	Kill ..%DirectoryContentsResultSet.Data ; clean it out so next loop iteration will re-Execute the query
+]]></Implementation>
+</Method>
+
+<Method name="TraceDirectoryContents">
+<Implementation><![CDATA[
+	for DirectoryContentsCounter=1:1:..DirectoryContents.Count() {
+		$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.TraceDirectoryContents().DirectoryContents["_DirectoryContentsCounter_"]: "_..DirectoryContents.GetAt(DirectoryContentsCounter))
+	}
+	$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Adapter.InboundAdapter2.TraceDirectoryContents(): DirectoryContents.Count="_..DirectoryContents.Count())
+]]></Implementation>
+</Method>
+
+<Method name="TraceErrorFileTableContents">
+<FormalSpec>Location:%String</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("TraceErrorFileTableContents("_Location_")")
+ 	Set key = $Order(^Ens.AppData("PAYER",..BusinessHost.%ConfigName,"adapter.ftp",""))
+ 	While (key '= "")
+ 	{
+    	// Write out contents
+    	$$$TRACE(Location_ " ErrorFileTableContents "_key_"="_$G(^CacheTemp.EnsRuntimeAppData("PAYER",..BusinessHost.%ConfigName,"adapter.ftp",key)))
+    	// Find next node
+    	Set key = $Order(^CacheTemp.EnsRuntimeAppData("PAYER",..BusinessHost.%ConfigName,"adapter.ftp",key))
+	}
+]]></Implementation>
+</Method>
+
+<Method name="TraceDoneFileTableContents">
+<FormalSpec>Location:%String</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("TraceDoneFileTableContents("_Location_")")
+ 	Set key = $Order(^Ens.AppData(..BusinessHost.%ConfigName, "adapter.ftp",""))
+ 	While (key '= "")
+ 	{
+    	// Write out contents
+    	$$$TRACE(Location_" DoneFileTableContents "_key_"="_$G(^Ens.AppData(..BusinessHost.%ConfigName, "adapter.ftp", key)))
+    	// Find next node
+    	Set key = $Order(^Ens.AppData(..BusinessHost.%ConfigName, "adapter.ftp", key))
+	}
+]]></Implementation>
+</Method>
+
+<Method name="TraceFileTableContents">
+<FormalSpec>Location:%String</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("TraceFileTableContents("_Location_")")
+	Do ..TraceDoneFileTableContents(Location)
+	Do ..TraceErrorFileTableContents(Location)
+]]></Implementation>
+</Method>
+</Class>
+</Export>
