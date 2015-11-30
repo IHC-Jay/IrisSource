@@ -1,0 +1,345 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToHdm">
+<Description>
+Cerner Adt Legacy to Muse BPL</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63796,33078.674777</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4450' width='3000' layout='manual' >
+<context>
+<property name='configName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
+</property>
+<property name='validationSettingValue' type='%String' instantiate='0' >
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='empiNumber' type='%String' instantiate='0' >
+</property>
+<property name='facilityId' type='%String' instantiate='0' >
+</property>
+<property name='msgType' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='isFilterInEvent' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='isIcentraFacility' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='isHdmPatientType' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='patientType' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='billingType' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='notHdmBillingType' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='dischargeDisp' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='notHdmDischargeDisp' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='isRecurringPatient' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='isPreType' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+<property name='processingId' type='%String' initialexpression='"P"' instantiate='0' >
+<annotation><![CDATA[in Production, it's "P"]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xpos='200' ypos='150' xend='200' yend='4400' >
+<scope xpos='200' ypos='250' xend='200' yend='4300' >
+<trace name='Debug ' value='"Enter BPL..."' xpos='200' ypos='350' />
+<assign name="getAndSetProcessName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' >
+<annotation><![CDATA[Process Configuration Name]]]]><![CDATA[></annotation>
+</assign>
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='550' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='validateMsgStructure' xpos='200' ypos='650' >
+<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ Set context.validationSettingValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  } 
+  
+ $$$TRACE("Validate Message Begins...") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){ 
+ 	set context.isValidationPassed=0 
+    $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
+    // Skip the record.
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }else{
+	  $$$TRACE("Passed Validation Settings: " _ context.validationSettingValue) 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='getMessageType.TriggerEvent' xpos='199' ypos='749' >
+<annotation><![CDATA[get Message type]]]]><![CDATA[></annotation>
+<![CDATA[     Set context.msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+     set context.facilityId =request.GetValueAt("MSH:SendingFacility.namespaceID")
+      $$$TRACE("Trigger Event: " _ context.msgType)  
+      $$$TRACE("Sending Facility: " _ context.facilityId) 
+      set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHdm.Lookup.AdtEventsFilterIn", context.msgType, .retVal )
+     set context.isFilterInEvent = retVal
+     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
+       set context.isFilterInEvent = 0
+       if (context.msgType="A31") {
+          $$$TRACE("It's a A31 message.")
+          if (context.facilityId="199") {
+            $$$TRACE("Reset facility id from 199 to 130 for A31 message.")
+            set context.isFilterInEvent = 1
+            set context.facilityId = "130"
+          }
+       }
+    } else {
+	   $$$TRACE("Value of Adt Event Filter Out from the lookup table :" _ context.isFilterInEvent)
+    }]]]]><![CDATA[>
+</code>
+<if name='checkMessageTriggerEvent' condition='context.isFilterInEvent' xpos='200' ypos='850' xend='200' yend='4050' >
+<true>
+<code name='validateEmpiNumber' xpos='470' ypos='1000' >
+<annotation><![CDATA[Get EMPI(CMRN)]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
+  set context.empiNumber=""
+  set k1="",tSC=1 
+  Set context.empiNumber=request.GetValueAt("PID:3(1).1.1")         
+ $$$TRACE("EMPI: " _ context.empiNumber) 
+ if ($ISVALIDNUM(context.empiNumber)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='validateSendingFacility' xpos='466' ypos='1098' >
+<![CDATA[ $$$TRACE("Validate Sending Facility...") 
+ $$$TRACE("Facility ID: " _ context.facilityId) 
+ set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHdm.Lookup.AdtFacilityFilterIn", context.facilityId, .retVal )
+  set context.isIcentraFacility = retVal
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
+       set context.isIcentraFacility = 0
+  }
+]]]]><![CDATA[>
+</code>
+<if name='isIcentraFacility' condition='context.isIcentraFacility=1' xpos='470' ypos='1200' xend='470' yend='3950' >
+<true>
+<code name='check patient type' xpos='744' ypos='1348' >
+<![CDATA[ $$$TRACE("Check patient type...") 
+ set context.patientType=request.GetValueAt("PV1:18")
+   $$$TRACE("Patient Type: " _ context.patientType) 
+ if (context.patientType '="") {
+   set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHdm.Lookup.HdmAdtPatientType", context.patientType, .retVal )
+    set context.isHdmPatientType = retVal
+   if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
+       set context.isHdmPatientType= 0
+   }
+ }
+ else {
+        set context.isHdmPatientType= 1
+ }
+ ]]]]><![CDATA[>
+</code>
+<if name='isHdmPatientType' condition='context.isHdmPatientType' xpos='740' ypos='1450' xend='740' yend='3850' >
+<true>
+<code name='Check billing type' xpos='1010' ypos='1600' >
+<![CDATA[ $$$TRACE("Check patient type...") 
+ set context.billingType=request.GetValueAt("ZZ2:2")
+ $$$TRACE("Billing Type: " _ context.billingType) 
+ if (context.billingType '="") {
+    set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHdm.Lookup.HdmAdtBillingTypeFilterOut", context.billingType, .retVal )
+    set context.notHdmBillingType = retVal
+    if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
+       set context.notHdmBillingType= 0
+    }
+ }
+ else {
+            set context.notHdmBillingType= 0
+ }]]]]><![CDATA[>
+</code>
+<if name='notHdmBillingType' condition='context.notHdmBillingType' xpos='1010' ypos='1700' xend='1010' yend='3750' >
+<true>
+<code name='Skip, Not Hdm billing type' xpos='1010' ypos='1850' >
+<![CDATA[ $$$TRACE("Not HDM Billing Type, Skip message ...")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='check discharge disp' xpos='1280' ypos='1850' >
+<![CDATA[ $$$TRACE("Check Discharge disposition...") 
+ set context.dischargeDisp=request.GetValueAt("ZZ1:20")
+ $$$TRACE("Discharge Disposition: " _ context.dischargeDisp) 
+ if (context.dischargeDisp'="") {
+    set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHdm.Lookup.AdtDischargeDispFilterOut", context.dischargeDisp, .retVal )
+    set context.notHdmDischargeDisp = retVal
+    if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
+       set context.notHdmDischargeDisp = 0
+    }
+  }]]]]><![CDATA[>
+</code>
+<if name='Not HDM discharge disposition' condition='context.notHdmDischargeDisp' xpos='1280' ypos='1950' xend='1280' yend='3650' >
+<true>
+<code name='Not HDM discharge disposition' xpos='1280' ypos='2100' >
+<![CDATA[ $$$TRACE("Not HDM Discharge Disposition, Skip message ...")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Check recurring patient' xpos='1546' ypos='2100' >
+<![CDATA[ $$$TRACE("Check recurring flag...") 
+ set recurrFlg=request.GetValueAt("ZZ2:4")
+  $$$TRACE("Recurring flag: " _ recurrFlg) 
+  $$$TRACE("Billing Type: " _ context.billingType)
+ if ( recurrFlg = "Y") {
+   if (context.BillingType '="A05") {
+     set context.isRecurringPatient=1
+   }
+ }]]]]><![CDATA[>
+</code>
+<if name='recurring patient' condition='context.isRecurringPatient' xpos='1550' ypos='2200' xend='1550' yend='3550' >
+<true>
+<code name='Skip recurring patient msg' xpos='1550' ypos='2350' >
+<![CDATA[ $$$TRACE("Skip recurring patient msg...")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Check life time Rx patient' xpos='1820' ypos='2350' >
+<![CDATA[ $$$TRACE("Check Life Time Rx patient...") 
+ set lifeTmRxFlg=request.GetValueAt("ZZ2:5")]]]]><![CDATA[>
+</code>
+<if name='Life Time Rx Flag' condition='lifeTmRxFlg="Y"' xpos='1820' ypos='2450' xend='1820' yend='3450' >
+<true>
+<code name='Skip Life Time Rx patient msg' xpos='1820' ypos='2600' >
+<![CDATA[ $$$TRACE("Skip Life Time Rx patient msg...")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='pre type' xpos='2090' ypos='2600' >
+<![CDATA[ $$$TRACE("Check Pre Type flag ...") 
+ set preTypeFlg=request.GetValueAt("ZZ2:6.1")
+  $$$TRACE("Pre Type flag: " _ preTypeFlg) 
+ if (preTypeFlg="Y") {
+    if ( context.billingType="A11") {
+       set context.isPreType=1
+    }
+ }]]]]><![CDATA[>
+</code>
+<if name='check patient pre type flag' condition='context.isPreType' xpos='2164' ypos='2706' xend='2090' yend='3350' >
+<true>
+<code name='Skip Pre Type patient msg' xpos='2090' ypos='2850' >
+<![CDATA[ $$$TRACE("Skip Pre Type patient msg...")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToHdm' source='request' target='response' xpos='2360' ypos='2850' >
+<annotation><![CDATA[translateslegacy Adt to Muse Hl7]]]]><![CDATA[></annotation>
+</transform>
+<code name='getTargetConfigList' xpos='2360' ypos='2950' >
+<![CDATA[  
+ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())
+ ]]]]><![CDATA[>
+</code>
+<trace name='Send message' value='"Send message to targets"' xpos='2360' ypos='3050' />
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='2360' ypos='3150' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach>
+<code name='RESETERROR' xpos='2360' ypos='3250' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
+
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</false>
+</if>
+</false>
+</if>
+</false>
+</if>
+</false>
+</if>
+</true>
+<false>
+<code name='Skip NonHdm patient type msg' xpos='740' ypos='1600' >
+<![CDATA[ $$$TRACE("Not HDM Patient Type, Skip message ...") 
+ ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<code name='Skip message' xpos='470' ypos='1350' >
+<![CDATA[  $$$TRACE("Not iCentra facility, Skip message ...") 
+ 
+ /// set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message validation failed.")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<code name='skipMessage' xpos='200' ypos='1000' >
+<annotation><![CDATA[skip message]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ $$$TRACE("Skip message...") 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "Hl7 message trigger event is not in the filterin table.")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='4150' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
