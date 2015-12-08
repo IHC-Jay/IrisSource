@@ -11,7 +11,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2550' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
 </property>
@@ -32,9 +32,9 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='HddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.NcidLookupRequest' instantiate='1' >
+<property name='HddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='1' >
 </property>
-<property name='HddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.LookupResponse' instantiate='1' >
+<property name='HddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' >
 </property>
 <property name='LocationContext' type='%String' initialexpression='526065969' instantiate='0' >
 <parameters>
@@ -76,9 +76,21 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='TargetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='TargetIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='NewResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1650' >
-<scope xpos='200' ypos='250' xend='200' yend='1550' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -117,25 +129,45 @@ BPL Definition</Description>
 	  $$$TRACE("Facility# is NOT a VALID number ")
 	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid facility number: ["_context.Facility_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
 	  set context.ValidationPassed=0
- }]]]]><![CDATA[>
+ }
+]]]]><![CDATA[>
 </code>
-<code name='Get Custom Property and Filter' xpos='200' ypos='650' >
+<code name='Get Custom Property' xpos='200' ypos='650' >
 <annotation><![CDATA[Get MaxError and Custom Property. Also do filtering.]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)
 
- 
-  if (context.Facility '="199") {
-    set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPL.CernAdtToComputrition.Lookup.HospitalToTarget", context.Facility, .retVal )
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEvents",.configValue)
+ $$$TRACE("Allowed Events: " _configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to find allowed events list in settings this is unexpected, shutting down.")
+ }else {
+    $$$TRACE("Getting message type")
+    set AllowedEvents = $LISTFROMSTRING(configValue, ",")
+    set context.TriggerEvent=request.GetValueAt("MSH:MessageType.triggerevent")
+    if (context.TriggerEvent="A44") {
+       ///Change to an A18
+       set context.TriggerEvent="A18"
+    }
+    $$$TRACE("Checking against allowed events")
+    if ($LISTFIND(AllowedEvents, context.TriggerEvent) =0) {
+       $$$TRACE("Unable to find Trigger Event in the settings: " _context.TriggerEvent_ ", not an allowed event skipping message.")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to find Trigger Event in the settings, not an event wanted on this pathway: " _context.TriggerEvent_ ", skipping message. Hl7 Record: " _request.RawContent)
+    }
+ }
+ if (context.Facility '="199") {
+    set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.HospitalToTarget", context.Facility, .retVal )
     if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {       
        $$$TRACE("Unable to get Target from the lookup table not a transaction needed on this pathway, skipping record")
        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to get Target from the lookup table not a transaction needed on this pathway, skipping record")
     } else {
        set context.Target = retVal
     }
- }]]]]><![CDATA[>
+ }
+
+]]]]><![CDATA[>
 </code>
-<if condition='context.ValidationPassed=1' xpos='200' ypos='750' xend='200' yend='1300' >
+<if name='validation passed' condition='context.ValidationPassed=1' xpos='200' ypos='750' xend='200' yend='1950' >
 <true>
 <code name='Set Variables' xpos='470' ypos='900' >
 <![CDATA[ Set context.Pid4=request.GetValueAt("PID:AlternatePatientIDPID(1).ID")         
@@ -147,8 +179,9 @@ BPL Definition</Description>
  
  Set context.TriggerEvent=request.GetValueAt("MSH:MessageType.triggerevent")
  
- set context.HddTargetConfigName=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName",.pstatus)
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName", .configValue)
  if ($$$ISOK(pstatus)){
+    set context.HddTargetConfigName = configValue
     $$$TRACE("HddTargetConfigName: " _ context.HddTargetConfigName)
  }else{
             Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get HDDTargetConfigName, shutting down.")
@@ -161,47 +194,49 @@ BPL Definition</Description>
     if (Ncid '= "") {
        set context.LocationInfo = "ZZZ(2):15VisitPatientType"
     }else {
-       set Ncid = request.GetValueAt("ZZZ(2).14VisitAdmitSource")
+       set Ncid = request.GetValueAt("ZZZ(2):14VisitAdmitSource")
        if (Ncid '= "") {
           set context.LocationInfo = "ZZZ(2):14VisitAdmitSource"
        }
     }
  }
+ $$$TRACE("Ncid: " _ Ncid _ ". Location used: " _context.LocationInfo_ ". Context used: " _context.LocationContext)
  if (Ncid '= "") {
-    set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Utility).CreateHddRepReqObject()
-    do ##class(IHC.ITF.ITFCOMMON.HDD.Utility).AddNcidToRepObject(context.HddRepRequest, Ncid, context.LocationContext, LocationInfo)
-    $$$TRACE("Created HDD request for " _LocationInfo_ ". Using HddTargetConfigName: " _context.HddTargetConfigName)
+    set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+    do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.HddRepRequest, Ncid, context.LocationContext, context.LocationInfo)
+    $$$TRACE("Created HDD request for " _context.LocationInfo_ ". Using HddTargetConfigName: " _context.HddTargetConfigName)
  }]]]]><![CDATA[>
 </code>
 <call name='Location Lookup' target='@context.HddTargetConfigName' async='0' xpos='470' ypos='1000' >
-<request type='IHC.ITF.ITFCOMMON.HDD.NcidLookupRequest' >
+<request type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' >
 <assign property="callrequest" value="context.HddRepRequest" action="set" />
 </request>
-<response type='IHC.ITF.ITFCOMMON.HDD.LookupResponse' >
+<response type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' >
 <assign property="context.HddRepResponse" value="callresponse" action="set" />
 </response>
 </call>
 <code name='Set Location Variables' xpos='470' ypos='1100' >
-<![CDATA[ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Utility).GetHddObject(context.HddRepResponse, context.LocationInfo)
+<annotation><![CDATA[Set Location Variables and do filtering]]]]><![CDATA[></annotation>
+<![CDATA[ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.HddRepResponse, context.LocationInfo)
  if (hddObj '= ""){
     set patLoc = hddObj.Rep
     $$$TRACE("Created HDD Req for " _context.LocationInfo_ " NCID: " _hddObj.NCID_ ", context: " _context.LocationContext)
  }
 
  $$$TRACE("Patient location: " _patLoc)
- set patLocList = $LISTFROMSTRING(patLoc, "-")
+ set patLocList = $LISTFROMSTRING(patLoc, "|")
  set patLocListLength = $LISTLENGTH(patLocList)
  $$$TRACE("Pat Location(Cerner Rep) List count:"_patLocListLength)   
- if patLocListLength>3{
-    set context.PointOfCareUnit = $LIST(patLocList,2) 
-    set context.Room = $LIST(patLocList,3)   
-    set context.Bed =  $LIST(patLocList,4) 
- }elseIF patLocListLength=3{	   
-    set context.PointOfCareUnit = $LIST(patLocList,2) 
-    set context.Room = $LIST(patLocList,3)   
+ if patLocListLength>=5{
+    set context.PointOfCareUnit = $LIST(patLocList,3) 
+    set context.Room = $LIST(patLocList,4)   
+    set context.Bed =  $LIST(patLocList,5) 
+ }elseIF patLocListLength>=4{	   
+    set context.PointOfCareUnit = $LIST(patLocList,3) 
+    set context.Room = $LIST(patLocList,4)   
     set context.Bed =  ""
- }elseIF  patLocListLength=2{	   
-    set context.PointOfCareUnit = $LIST(patLocList,2) 
+ }elseIF  patLocListLength>=3{	   
+    set context.PointOfCareUnit = $LIST(patLocList,3) 
     set context.Room = ""   
     set context.Bed =  ""
  }
@@ -211,21 +246,114 @@ BPL Definition</Description>
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Nurse unit set to DSCSER not a record wanted on this pathway, skipping record.")
  }
  
- set unitStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPL.CernAdtToComputrition.Lookup.NurseUnitToSend", context.Facility, .retVal )
- if ($$$ISERR(unitStat) || (retVal = "Unknown") || (retVal ="")) {       
-    $$$TRACE("Unable to find Nurse Unit list on the lookup table this is unexpected as it passed the facility check, shutting down.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to find Nurse Unit list on the lookup table this is unexpected as it passed the facility check, shutting down.")
+ if ((context.TriggerEvent = "A08") && (context.Room = "") && (context.Bed = "")) {
+    $$$TRACE("A08 can't have blank room and bed, skipping record. Hl7 Record: " _request.RawContent)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "A08 can't have blank room and bed, skipping record. Hl7 Record: " _request.RawContent)
+ }
+  set unitStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitToSend", context.Facility, .unitVal )
+ if ($$$ISERR(unitStat) || (unitVal = "Unknown") || (unitVal ="")) {       
+    $$$TRACE("Unable to find Nurse Unit list on the lookup table this is unexpected as it passed the facility check, shutting down. Value returned: " _unitVal)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to find Nurse Unit list on the lookup table this is unexpected as it passed the facility check, shutting down. Hl7 Record: " _ request.RawContent)
  } else {
-    if ($In(context.PointOfCareUnit, retVal) '="1")  {
-           $$$TRACE("Unable to find Nurse Unit on the lookup table: " _context.PointOfCareUnit_ ", skipping message.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to find Nurse Unit on the lookup table: " _context.PointOfCareUnit_ ", skipping message.")
-    }else {
-       
+    set NUAllowList = $LISTFROMSTRING(unitVal, ",")
+    if ($LISTFIND(NUAllowList, context.PointOfCareUnit) =0) {
+       $$$TRACE("Unable to find Nurse Unit on the lookup table: " _context.PointOfCareUnit_ ", skipping message.")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to find Nurse Unit on the lookup table, not a unit wanted on this pathway: " _context.PointOfCareUnit_ ", skipping message. Hl7 Record: " _ request.RawContent)
+    }
+ }
+ 
+ set eventTypeAndUnitStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.EventTypeNurseUnitToSkip", context.Facility, .eventAndUnitVal )
+ if (($$$ISERR(eventTypeAndUnitStat)) || (eventAndUnitVal = "Unknown") || (eventAndUnitVal = "")) {
+    ///Do Nothing  
+ } else {
+    set EventAndNUFilterList = $LISTFROMSTRING(eventAndUnitVal, ",")
+    if ($LISTFIND(EventAndNUFilterList, context.TriggerEvent_context.PointOfCareUnit) >0) {
+       $$$TRACE("Event Type and Nurse Unit on the lookup table: IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.EventTypeNurseUnitToSkip: " _context.TriggerEvent_context.PointOfCareUnit_ ", skipping message.")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Event Type and Nurse Unit on the lookup table: IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.EventTypeNurseUnitToSkip: " _context.TriggerEvent_context.PointOfCareUnit_ ", skipping message. Hl7 Record: " _ request.RawContent)
+    }
+ }
+ 
+ set allowStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSend", context.Facility_context.PointOfCareUnit, .retAllowVal )
+ $$$TRACE("Return Value from nurse unit and room to send: " _retAllowVal)
+ set skipStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSkip", context.Facility, .retSkipVal )
+ $$$TRACE("Return Value from nurse unit and room to skip: " _retSkipVal)
+ if (($$$ISERR(skipStatus)) || (retSkipVal = "Unknown") || (retSkipVal = "")) {
+    ///Do Nothing  
+ } else {
+    set NUAndRoomFilterList = $LISTFROMSTRING(retSkipVal, ",")
+    set NUAndRoomAllowList = $LISTFROMSTRING(retAllowVal, ",")
+    if (($LISTFIND(NUAndRoomFilterList, context.PointOfCareUnit_context.Room) >0) && ($LISTFIND(NUAndRoomAllowList, context.Room) =0)) {
+       $$$TRACE("Nurse Unit and Room on the lookup table: IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSkip: " _context.PointOfCareUnit_context.Room_ " and Room not on the lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSend " _context.Room_ ", skipping message.")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Nurse Unit and Room on the lookup table: IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSkip and Room not on the lookup table: IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.NurseUnitAndRoomToSend " _context.Room_ ", skipping message. Hl7 Record: " _ request.RawContent)
     }
  }
     ]]]]><![CDATA[>
 </code>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToComputrition' source='request' target='response' xpos='470' ypos='1200' />
+<if name='Not enterprise change' condition='context.Facility &apos;= "199"' xpos='470' ypos='1300' xend='470' yend='1750' >
+<true>
+<call name='Send' target='@context.Target' async='1' xpos='470' ypos='1450' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</true>
+<false>
+<trace name='In 199 code' value='"In 199 code. Message: "_response.RawContent' xpos='740' ypos='1450' />
+<code name='Get List of Hospitals' xpos='740' ypos='1550' >
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"EnterpriseLoopLocations",.LoopLocations) 
+ $$$TRACE("Value of Loop Locations="_LoopLocations)
+ set length = $L(LoopLocations, ",")
+ $$$TRACE("Length of Loop Locations=" _length)
+ if ($$$ISOK(pstatus)&&(LoopLocations'=""))
+ {
+    For iTarget=1:1:$L(LoopLocations, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(LoopLocations,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = context.TargetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+         }
+          $$$TRACE("targetList count " _ context.TargetList.Count())
+ }else{
+	 $$$TRACE("Config setting for EnterpriseLoopLocations not Available")
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Initialization error, No configuration for EnterpriseLoopLocations found")
+	 }]]]]><![CDATA[>
+</code>
+<foreach name='Send to enterprise locations' property='context.TargetList' key='context.TargetIndex' xpos='740' ypos='1650' xend='200' yend='550' >
+<code name='change facility fields and set target' xpos='200' ypos='250' >
+<![CDATA[ set context.Facility = context.TargetList.GetAt(context.TargetIndex)
+ $$$TRACE("Facility to send to: " _context.Facility)
+ $$$TRACE("Setting target")
+ set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.HospitalToTarget", context.Facility, .retVal )
+ if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Target from the lookup table not a transaction needed on this pathway, skipping record")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to get Target from the lookup table not a transaction needed on this pathway, skipping record")
+ } else {
+    $$$TRACE("Target: " _retVal)
+    set context.Target = retVal
+ }]]]]><![CDATA[>
+</code>
+<code name='Change loop values' xpos='200' ypos='350' >
+<![CDATA[ set context.NewResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt(context.Facility, "MSH:SendingFacility.namespaceID")]]]]><![CDATA[>
+</code>
+<call name='Send' target='@context.Target' async='1' xpos='200' ypos='450' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.NewResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach>
+</false>
+</if>
+<code name='Reset error' xpos='470' ypos='1850' >
+<![CDATA[ $$$TRACE("Resetting error count")
+  
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
 </true>
 <false>
 <code name='Skip Message' xpos='200' ypos='900' >
@@ -234,7 +362,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1400' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -250,7 +378,7 @@ BPL Definition</Description>
 
 <Property name="HddTargetConfigName">
 <Description>
-HDD Operation: The target name used for HDD calls</Description>
+HddTargetConfigName: The target name used for HDD calls</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
@@ -263,8 +391,15 @@ If it is on this list and passes the rest of the filtering logic it will be allo
 <Parameter name="MAXLEN" value="2000"/>
 </Property>
 
+<Property name="EnterpriseLoopLocations">
+<Description>
+EnterpriseLoopLocations: Locations to use to loop through when interface receives a 199 record.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedEvents:Additional</Default>
+<Default>HddTargetConfigName:Additional,AllowedEvents:Additional,EnterpriseLoopLocations:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -277,6 +412,9 @@ If it is on this list and passes the rest of the filtering logic it will be allo
 </Value>
 <Value name="2">
 <Value>AllowedEvents</Value>
+</Value>
+<Value name="3">
+<Value>EnterpriseLoopLocations</Value>
 </Value>
 </Data>
 </Storage>
