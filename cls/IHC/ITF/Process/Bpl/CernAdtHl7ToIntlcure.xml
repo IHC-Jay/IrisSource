@@ -1,0 +1,268 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToIntlcure">
+<Description>
+Cerner ADT to Intellicure</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63845,47139.188967</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2650' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='threeLetterFac' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='facId' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='triggerEvent' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='target' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
+</property>
+<property name='targetIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='newFacId' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='newResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='mergeAdtEvents' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2400' >
+<scope xpos='200' ypos='250' xend='200' yend='2300' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='incoming message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
+<code name='Check Reply code' xpos='200' ypos='550' >
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tStatus'=$$$OK){
+    set context.ValidationPassed=0
+ 	set context.errorStatus=tStatus}
+ 	
+ $$$TRACE("Validate Empi(CMRN)...") 
+ Set empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")         
+ 
+ $$$TRACE("EMPI: " _ empiNumber) 
+ if ($ISVALIDNUM(empiNumber)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi number: ["_empiNumber_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+	  set context.ValidationPassed=0
+ }]]]]><![CDATA[>
+</code>
+<if name='Validate Message' condition='context.isValidationPassed=1' xpos='200' ypos='750' xend='200' yend='2050' >
+<true>
+<code name='Set target when MSH-4 not 199' xpos='470' ypos='900' >
+<![CDATA[ set patIdList = request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ $$$TRACE("PID-3: "_patIdList)
+ if (patIdList = "") {
+    $$$TRACE("No PID-3 (required), skipping record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No PID-3 (required), skipping record.")
+ }
+ 
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+
+ $$$TRACE("Validate Sending Facility...") 
+ set context.facId=request.GetValueAt("MSH:SendingFacility.namespaceID")
+ $$$TRACE("Facility ID: " _ context.facId) 
+ if ($ISVALIDNUM(context.facId)'="1"){	  
+    $$$TRACE("FacilityId is NOT a number ")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
+ }
+
+ set context.threeLetterFac = ""
+ if (context.facId '="199") {
+    set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPL.CernAdtHl7ToIntlcure.Lookup.FacilityToTarget", context.facId, .retVal )
+    if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Target from the lookup table - skipping record")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to get Target from the lookup table, skipping record")
+    } else {
+       set context.target = retVal
+       set context.threeLetterFac = $P(context.target,"-",*)
+       $$$TRACE("Target operation="_context.Target_" TLF="_context.threeLetterFac)
+    }
+ }
+
+ ]]]]><![CDATA[>
+</code>
+<code name='Get Message Context Values' xpos='470' ypos='1000' >
+<![CDATA[ $$$TRACE("Setting up context variables")
+ set event = request.GetValueAt("MSH:MessageType.triggerevent")
+ $$$TRACE("Trigger Event: " _event)
+ set context.triggerEvent = event]]]]><![CDATA[>
+</code>
+<code name='Get Merge ADT events' xpos='470' ypos='1100' >
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"MergeAdtEvents",.MergeEvents) 
+ if ($$$ISOK(pstatus)&&(MergeEvents '=""))
+ {
+    $$$TRACE("Value of merge ADT events="_context.mergeAdtEvents)
+    set context.mergeAdtEvents = MergeEvents
+ } else {
+    $$$TRACE("Config setting for MergeAdtEvents not Available")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Initialization error, No configuration for MergeAdtEvents found")
+	 }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToIntlcure' source='request' target='response' xpos='470' ypos='1200' />
+<trace name='After transform' value='"After transform message: "_response.RawContent' xpos='470' ypos='1300' />
+<if name='not enterprise change' condition='context.facId &apos;= "199"' xpos='470' ypos='1400' xend='470' yend='1850' >
+<true>
+<call name='Send' target='@context.target' async='1' xpos='470' ypos='1550' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</true>
+<false>
+<trace name='In 199 code' value='"In 199 code. Message: "_response.RawContent' xpos='740' ypos='1550' />
+<code name='Get list of facilities ' xpos='740' ypos='1650' >
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"EnterpriseLoopLocations",.LoopLocations) 
+ $$$TRACE("Value of Loop Locations="_LoopLocations)
+ set length = $L(LoopLocations, ",")
+ $$$TRACE("Number of Loop Locations=" _length)
+ if ($$$ISOK(pstatus)&&(LoopLocations'=""))
+ {
+    For iTarget=1:1:$L(LoopLocations, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(LoopLocations,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = context.targetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+         }
+          $$$TRACE("targetList count " _ context.targetList.Count())
+ }else{
+	 $$$TRACE("Config setting for EnterpriseLoopLocations not Available")
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Initialization error, No configuration for EnterpriseLoopLocations found")
+	 }]]]]><![CDATA[>
+</code>
+<foreach name='Send to Enterprise Locations' property='context.targetList' key='context.targetIndex' xpos='740' ypos='1750' xend='200' yend='550' >
+<code name='change facility fields and set target' xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE("In for each loop")
+ set context.newFacId = ""
+ set context.target = ""
+ set context.newFacId = context.targetList.GetAt(context.targetIndex)
+ $$$TRACE("Enterprise facility to send to: "_context.newFacId)
+ 
+ set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPL.CernAdtHl7ToIntlcure.Lookup.FacilityToTarget", context.newFacId, .retVal )
+ if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {       
+    $$$TRACE("Unable to get Target from the lookup table - skipping record")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to get Target from the lookup table, skipping record")
+ } else {
+    set context.target = retVal
+    set context.threeLetterFac = $P(context.target,"-",*)
+    $$$TRACE("Target operation="_context.Target)
+ } 
+]]]]><![CDATA[>
+</code>
+<code name='change loop values' xpos='200' ypos='350' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt(context.newFacId,"MSH:SendingFacility.namespaceID")
+ do context.newResponse.SetValueAt("Intellicure-"_context.threeLetterFac,"MSH:ReceivingFacility.namespaceID") ]]]]><![CDATA[>
+</code>
+<call name='call targets' target='@context.target' async='1' xpos='200' ypos='450' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach>
+</false>
+</if>
+<code name='Reset Error' xpos='470' ypos='1950' >
+<![CDATA[ $$$TRACE("Resetting error count")
+  
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Skip message' xpos='200' ypos='900' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2150' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Property name="EnterpriseLoopLocations">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="MergeAdtEvents">
+<Type>%String</Type>
+<InitialExpression>"A18,A30,A44"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>EnterpriseLoopLocations:Additional,MergeAdtEvents:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToIntlcureDefaultData</DefaultData>
+<Data name="CernAdtHl7ToIntlcureDefaultData">
+<Subscript>"CernAdtHl7ToIntlcure"</Subscript>
+<Value name="1">
+<Value>EnterpriseLoopLocations</Value>
+</Value>
+<Value name="2">
+<Value>MergeAdtEvents</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
