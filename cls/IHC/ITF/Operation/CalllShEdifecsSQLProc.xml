@@ -1,0 +1,429 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.CalllShEdifecsSQLProc">
+<Description>
+This class has method to call the select heatlh Stored procedures and also generate the EFT file if call is successful</Description>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>63459,50388.534767</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+This class is used to write the Merge transaction to LDAP</Description>
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.Request,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$LOGERROR("Invalid Request Type")
+	quit $$$ERROR(5001,"Invalid Request")
+]]></Implementation>
+</Method>
+
+<Method name="ProcessGenerateEftFileRequest">
+<Description>
+This method calls Select Health Stored procedure getIHCPK_DND_CORE_ERA_IHCSP_DND_CORE_ERA_PRINT to get the EFT data in ACH format
+and reads the result set to create outputs it to the file.</Description>
+<FormalSpec>pRequest:Ens.Request,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	#dim tRTs As %ListOfObjects
+	#dim tResultSet,snap As EnsLib.SQL.Snapshot
+	#dim debug As %Boolean=0
+	set debug=$g(^IHCDebugCode(..%ConfigName),0)
+	set tRTs1=##class(EnsLib.SQL.Snapshot).%New()
+	set os=""
+	$$$TRACE("Inside "_..%ConfigName_" Method ProcessGenerateEftFileRequest")
+	set ioParms=5
+	set ioParms(1)="DND_Dental_835"
+	set ioParms(1,"SqlType")=12
+	;set ioParms(2,"SqlType")=4
+	;set ioParms(3,"SqlType")=12
+	;set ioParms(4,"SqlType")=1
+	
+	
+	
+	/*set tOutParms=3
+	set tOutParms(1,"SqlType")=12
+	set ioParms(1,"IOType")=4
+	set tOutParms(2,"SqlType")=8
+	set ioParms(1,"IOType")=4
+	set tOutParms(3,"SqlType")=12
+	set ioParms(1,"IOType")=4*/
+	
+
+    $$$TRACE("calling getIHCPK_DND_CORE_ERA_IHCSP_DND_CORE_ERA_PRINT")
+	
+	;Set tQuery="{call DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_PRINT(?,?,?,?,?)}"
+	Set tQuery="{ ? = call DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_PRINT(?,?,?,?) }"
+
+	 
+	
+	s snap=##class(EnsLib.SQL.Snapshot).%New()
+	s snap.MaxRowsToGet=-1
+	set tRTs=##class(%Library.ListOfObjects).%New()
+	d tRTs.Insert(snap)
+  	Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"oiooo",.ioParms)
+  	$$$TRACE("Stored Procedure Call status "_tSC)
+  	if ($$$ISOK(tSC)){
+	  	set tResultSet=tRTs.GetAt(1)
+	  	
+	  	if ('$ISOBJECT(tResultSet)||tResultSet.RowCount=0){
+	  	    set status=$$$ERROR("ITFSHKBEFT003","Error receiving result Set from the SQL call to Keybank")
+	  	    set pResponse=##class(IHC.ITF.Response.GenerateEftFileResponse).%New()
+	  		set pResponse.messageCode=$System.Status.GetErrorCodes(status)
+	  		set pResponse.messageDescription=$System.Status.GetOneErrorText(status)
+	  	}else {
+		  	$$$TRACE(" obj count "_tRTs.Count())
+		  	$$$TRACE(" Row Count of the result set"_tResultSet.RowCount)
+		  	$$$TRACE("ioParms 2,3,4,5: "_ioParms(2)_" ** "_ioParms(3)_" ** "_ioParms(4)_" ** "_ioParms(5))
+		  	;set status=..Process835RestultSet(tResultSet,pRequest.FileName,.pResponse)
+	  	}
+  	}
+  	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="Process835RestultSet">
+<Description><![CDATA[
+Method to process the result set and generate file
+The result set has 3 columns (fields). 
+1. RecordType -> 1= File Header,5-> Batch Header, 6-> Entry Detail, 7-> Addenda Record, 8-> Batch Control, 9-> File Control
+2. FieldID
+3. Field value.
+The methods reads the result set sequentially and expects it to have the result sent in sequence.
+The output file has following structure 
+File Header[Batch Header[EntryDetail,Addenda Record]Batch Control]File Control where []-> Indicates repeat]]></Description>
+<FormalSpec>pEftResultSet:EnsLib.SQL.Snapshot,fileName:%String,*pResponse:IHC.ITF.Response.GenerateEftFileResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim trs As %ResultSet.Static
+	#dim tSC As %Status=$$$OK
+	#dim tFileBuildComplete As %Boolean=0	
+	#dim tFile As %File
+	#dim recTypeValue,fieldIDValue,fieldValueValue,tRecord AS %String=""
+	#dim FILEHEADERRECTYPE As %String = "1"
+	#dim COBATCHHEADERRECORD As %String = "5"
+	#dim ENTRYDETAILRECORD As %String = "6"
+	#dim ADDENDARECORD As %String = "7"
+	#dim COBATCHCONTROLRECORD As %String = "8"
+	#dim FILECONTROLRECORD As %String = "9"
+	#dim totalAmountCalcCredit,totalAmountCalcDebit,Index,rowNum=0
+	#dim tCredit,tDebit=0
+	#dim totalCalculatedListCredit,totalCalculatedListDebit,totalSentList As %ListOfDataTypes
+	set totalCalculatedListCredit=##class(%ListOfDataTypes).%New()
+	set totalCalculatedListDebit=##class(%ListOfDataTypes).%New()
+	set totalSentList=##class(%ListOfDataTypes).%New()
+	
+	set debug=$g(^IHCDebugCode(..%ConfigName),1)
+	$$$TRACE("Inside Process835RestultSet")
+	
+		
+		set rowNum=pEftResultSet.Next(.sc)
+		if ((rowNum=0) || $$$ISERR(sc)){
+			set tSC=$$$ERROR("ITFSHKBEFT005","Error Reading Result set - step 1")
+			quit
+		}
+		
+		set:debug ^IHCDebugCode(..%ConfigName,"rowcount ")=pEftResultSet.RowCount
+		//Build file Header Record
+		$$$TRACE("Building File Header")
+		set headerString=""
+		do {
+		  	set Val1=pEftResultSet.GetData(1)
+		  	set Val2=pEftResultSet.GetData(2)
+		  	set Val3=pEftResultSet.GetData(3)
+		  	
+		  	$$$LOGINFO("rowNum : "_rowNum_" Val1**** "_Val1_"Val2**** "_Val2_"Val3***** "_Val3)
+		   	set rowNum=pEftResultSet.Next(.sc)
+		  	if ((rowNum=0)||$$$ISERR(sc)){
+			  		set tSC=$$$ERROR("ITFSHKBEFT005","Incomplete Result set received or Error processing Resultset in Building file Header loop.")
+		  	}
+		  	if (rowNum=3)
+		  	{
+			  	$$$TRACE("Reached 3 rows ")
+			  	Quit
+		  	}
+		} while (rowNum'=0)
+		quit:$$$ISERR(tSC)
+		/*set tSC=tFile.WriteLine(headerString)
+		if ('$$$ISOK(tSC)){
+			set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing Header record to file "__fileName)
+			quit
+		}
+		// Build Batch level details
+		set sumOfBatchTotalsDebit=0
+		set sumOfBatchTotalsCredit=0
+		do {
+			set totalAmountCalcCredit=0
+			set totalAmountCalcDebit=0
+			// buid batch Header
+			$$$TRACE("Building Batch Header Records") 
+			set batchHeaderString=""
+			do {
+		  		set recTypeValue=pEftResultSet.GetData(1)
+		  		if (recTypeValue'=COBATCHHEADERRECORD){
+				  	quit
+		  		}
+		  		set fieldIDValue=pEftResultSet.GetData(2)
+		  		set fieldValueValue=pEftResultSet.GetData(3)
+		  		set batchHeaderString=batchHeaderString_fieldValueValue
+				set rowNum=pEftResultSet.Next(.sc)
+		  		if ((rowNum=0)||$$$ISERR(sc)){
+			  		set tSC=$$$ERROR("ITFSHKBEFT005","Incomplete Result set received or Error processing Resultset in Building Batch Header loop.")
+		  		}
+			} while (rowNum'=0)
+			quit:$$$ISERR(tSC)
+			set tSC=tFile.WriteLine(batchHeaderString)
+			if ('$$$ISOK(tSC)){
+				set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing batchHeaderString record to file "__fileName)
+				quit
+			}
+			
+			// build  Batch level details record
+			$$$TRACE("Building detail Records") 
+			set detailRecord=""
+			do {
+		  		set recTypeValue=pEftResultSet.GetData(1)
+		  		if (recTypeValue'=ENTRYDETAILRECORD){
+			  		if (detailRecord'=""){
+				  		set tSC=tFile.WriteLine(detailRecord)
+						if ($$$ISERR(tSC)){
+								set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing detailRecord record to file "__fileName)
+						}
+						set detailRecord=""
+				  	}
+					// Check if it is a Addenda Record
+					set nextRecord=0
+				  	if (recTypeValue=ADDENDARECORD){
+					  	// build Addenda 
+					  	set addendaString=""
+					  	do {
+						  	set recTypeValue=pEftResultSet.GetData(1)
+						  	if (recTypeValue'=ADDENDARECORD){
+							  	quit
+						  	}
+						  	set fieldValueValue=pEftResultSet.GetData(3)
+		  					set addendaString=addendaString_fieldValueValue
+		  					set rowNum=pEftResultSet.Next(.sc)
+		  					if ((rowNum=0)||$$$ISERR(sc)){
+			  					set tSC=$$$ERROR("ITFSHKBEFT005","Incomplete Result set received or Error processing Resultset in Addenda record loop.")
+		  					}
+						} while (rowNum'=0)
+						quit:$$$ISERR(tSC)
+						set tSC=tFile.WriteLine(addendaString)
+						if ($$$ISERR(tSC)){
+							set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing detailRecord record to file "__fileName)
+							quit
+						}
+						if (recTypeValue'=ENTRYDETAILRECORD){ quit} 
+					}else{ quit}
+				  	
+		  		}
+		  		set fieldIDValue=pEftResultSet.GetData(2)
+		  		set fieldValueValue=pEftResultSet.GetData(3)
+		  		set fieldValueValueTmp = fieldValueValue
+		  		//Is this a debit or credit transaction
+		  		if (fieldIDValue="2"){
+			  		if ((fieldValueValue="22") || (fieldValueValue="23") || (fieldValueValue="32") || (fieldValueValue="33"))
+                      {
+                           set tCredit=1
+                      }
+                      else
+                      {
+                          set tDebit=1
+                      }
+		  		}
+		  		//Total the amounts for the successful email
+		  		if (fieldIDValue="6"){
+			  		if (tCredit){
+				  		set tmpAmount=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+				  		set totalAmountCalcCredit=totalAmountCalcCredit+tmpAmount
+			  		}
+			  		if (tDebit){
+				  		set tmpAmount=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+				  		set totalAmountCalcDebit=totalAmountCalcDebit+tmpAmount
+			  		}
+		  		}
+			  	set detailRecord=detailRecord_fieldValueValue
+			  	set rowNum=pEftResultSet.Next(.sc)
+		  		if ((rowNum=0)||$$$ISERR(sc)){
+			  		set tSC=$$$ERROR("ITFSHKBEFT005","Incomplete Result set received or Error processing Resultset in Building Detail record loop.")
+		  		}
+			} while (rowNum'=0)
+			quit:$$$ISERR(tSC)
+			set:debug ^IHCDebugCode(..%ConfigName,"totalAmountCalcCredit")=totalAmountCalcCredit
+			set:debug ^IHCDebugCode(..%ConfigName,"totalAmountCalcDebit")=totalAmountCalcDebit
+			set:debug ^IHCDebugCode(..%ConfigName,"isDebit")=tDebit
+			set:debug ^IHCDebugCode(..%ConfigName,"isCredit")=tCredit
+		
+			$$$TRACE("Write Batch Control Record")
+			set batchControlString=""
+			do {
+		  		set recTypeValue=pEftResultSet.GetData(1)
+		  		if (recTypeValue'=COBATCHCONTROLRECORD){
+			  		if (recTypeValue=FILECONTROLRECORD){
+				  		set tFileBuildComplete=1
+			  		}
+			  		quit
+		  		}
+		  		set fieldIDValue=pEftResultSet.GetData(2)
+		  		set fieldValueValue=pEftResultSet.GetData(3)
+		  		set batchControlString=batchControlString_fieldValueValue
+		  		if (fieldIDValue="5") //Compare Total calculated amount to total debit amount (detail level accumalation to Batch control)
+		  		{   
+		  		    set totalAmountSent=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+		  		    set sumOfBatchTotalsDebit = sumOfBatchTotalsDebit + totalAmountSent
+			  		set:debug ^IHCDebugCode(..%ConfigName,"totalAmountCalcDebit and and control record ")=totalAmountCalcDebit_" "_totalAmountSent
+					if ((tDebit)&&(totalAmountCalcDebit'=totalAmountSent)){
+				  		$$$TRACE("Calculated Debit "_totalAmountCalcDebit_" Actual Debit "_totalAmountSent)
+				  		set tSC=$$$ERROR("ITFSHKBEFT006","Calculated Debit amounts do not match the total for the file")
+				  		quit
+			  		}else {
+				  	  do totalCalculatedListDebit.Insert(totalAmountCalcDebit)
+                      if (totalAmountCalcDebit '= 0)
+                      {
+                           do totalSentList.Insert(totalAmountSent)
+                      }
+			  		}
+		  		}
+		  		if (fieldIDValue="6") //Compare Total calculated amount to total credit amount (detail level accumalation to Batch control)
+		  		{
+			  		set totalAmountSent=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+			  		set sumOfBatchTotalsCredit = sumOfBatchTotalsCredit + totalAmountSent
+			  		set:debug ^IHCDebugCode(..%ConfigName,"totalAmountCalcCredit and control record ")=totalAmountCalcCredit_" "_totalAmountSent
+					if ((tCredit)&&(totalAmountCalcCredit'=totalAmountSent)){
+				  		$$$TRACE("Calculated Credit "_totalAmountCalcCredit_" Actual Credit "_fieldValueValue)
+				  		set tSC=$$$ERROR("ITFSHKBEFT007","Calculated Credit amounts do not match the total for the file")
+			  		}else {
+				  	  do totalCalculatedListCredit.Insert(totalAmountCalcCredit)
+                      if (totalAmountCalcCredit '= 0)
+                      {
+                           do totalSentList.Insert(totalAmountSent)
+                      }
+			  		}
+		  		}
+		  		set rowNum=pEftResultSet.Next(.sc)
+		  		if ((rowNum=0)||$$$ISERR(sc)){
+			  		set tSC=$$$ERROR("ITFSHKBEFT005","Incomplete Result set received or Error processing Resultset in Building Batch control record loop.")
+		  		}
+			} while (rowNum'=0)
+			quit:$$$ISERR(tSC)
+			set tSC=tFile.WriteLine(batchControlString)
+			if ('$$$ISOK(tSC)){
+				set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing batchControlString record to file "__fileName)
+				quit
+			}
+			
+		}while (tFileBuildComplete=0)
+		
+		if ($$$ISERR(tSC)){
+			quit
+		}
+	  	//Build File Control
+	   
+		$$$TRACE("Building File Control")
+		set fileControlString=""
+		do {
+		  	set recTypeValue=pEftResultSet.GetData(1)
+		  	set fieldIDValue=pEftResultSet.GetData(2)
+		  	set fieldValueValue=pEftResultSet.GetData(3)
+		  	set fileControlString=fileControlString_fieldValueValue
+		  	if (fieldIDValue="6") //compare totaled batch Debit amount to the file debit amount
+		  	{
+			  	set totalFileControlDebit=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+			  	$$$TRACE("Debug - Total Debit Amount for this file is: "_totalFileControlDebit_" Total sum of all Debits in batches is : "_sumOfBatchTotalsDebit)
+			  	set:debug ^IHCDebugCode(..%ConfigName,"Calculated Batch Debit and total for the file")=sumOfBatchTotalsDebit_"    "_totalFileControlDebit
+			  	if (totalFileControlDebit'=sumOfBatchTotalsDebit)
+			  	{
+				  	set tSC=$$$ERROR("ITFSHKBEFT008","Calculated Batch Debit amounts do not match the total for the file")
+			  	}
+		  	}
+		  	if (fieldIDValue="7") //compare totaled batch Credit amount to the file credit amount
+		  	{
+			  	set totalFileControlCredit=$FNUMBER($ZSTRIP(fieldValueValue,"*PA"," "),"D","")
+			  	$$$TRACE("Debug - Total Credit Amount for this file is: "_totalFileControlCredit_" Total sum of all Credit in batches is : "_sumOfBatchTotalsCredit)
+			  	set:debug ^IHCDebugCode(..%ConfigName,"Calculated Batch Credit amount and Total for the file")=sumOfBatchTotalsCredit_"    "_totalFileControlCredit
+			  	if (totalFileControlCredit'=sumOfBatchTotalsCredit)
+			  	{
+				  	set tSC=$$$ERROR("ITFSHKBEFT009","Calculated Batch Debit amounts do not match the total for the file")
+			  	}
+		  	}
+		  	set rowNum=pEftResultSet.Next(.sc)
+		} while (rowNum'=0)
+		set tSC=tFile.WriteLine(fileControlString)
+		if ('$$$ISOK(tSC)){
+			set tSC=$$$ERROR("ITFSHKBEFT004","Error Writing Header record to file "__fileName)
+			quit
+		}
+	  } while(0)
+	  
+	  set pResponse=##class(IHC.ITF.Response.GenerateEftFileResponse).%New()  
+	  if $$$ISERR(tSC){
+		  do tFile.%Delete()
+	      set pResponse.messageCode=$System.Status.GetErrorCodes(tSC)
+	   	  set pResponse.messageDescription=$System.Status.GetOneErrorText(tSC) 
+	   }
+	   else{
+		  set pResponse.messageCode=1
+	   	  set pResponse.messageDescription="SUCCESS"
+	   	  set pResponse.immediateDestination=immediateDestination
+	   	  set pResponse.totalCalculatedListCredit=totalCalculatedListCredit
+	   	  set pResponse.totalCalculatedListDebit=totalCalculatedListDebit
+	   	  set pResponse.totalFileControlCredit=totalFileControlCredit
+	   	  set pResponse.totalFileControlDebit=totalFileControlDebit
+	   	  set pResponse.totalSentList=totalSentList
+	   }*/
+	 
+	 
+  	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessUpdateEftFileStatusRequest">
+<Description>
+This method calls Select Health Stored procedure call DND.IHCPK_DND_CORE_EFT.IHCSP_DND_EFT_SET_FILE_STATUS to update the status of file sent operation</Description>
+<FormalSpec>pRequest:IHC.ITF.Request.UpdateEftFileStatusRequest,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	#dim debug As %Boolean=0
+	$$$TRACE("Inside "_..%ConfigName_" Method ProcessUpdateEftFileStatusRequest")
+	set ioParms=3
+	set ioParms(1)=pRequest.PaymentId
+	set ioParms(1,"SqlType")=4
+	set ioParms(2)=pRequest.PaymentType
+	set ioParms(2,"SqlType")=12
+	set ioParms(3)=pRequest.status
+	set ioParms(3,"SqlType")=12
+    $$$TRACE("calling DND.IHCPK_DND_CORE_EFT.IHCSP_DND_EFT_SET_FILE_STATUS")
+	
+	Set tQuery="{call DND.IHCPK_DND_CORE_EFT.IHCSP_DND_EFT_SET_FILE_STATUS(?, ?, ?)}"
+	
+	s snap=##class(EnsLib.SQL.Snapshot).%New()
+	s snap.MaxRowsToGet=-1
+	set tRTs=##class(%Library.ListOfObjects).%New()
+	d tRTs.Insert(snap)
+  	Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"iii",.ioParms)
+  	$$$TRACE("Stored Procedure Call status "_tSC)
+  	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.Request">
+	<Method>ProcessGenerateEftFileRequest</Method>
+	</MapItem>
+	<MapItem MessageType="IHC.ITF.Request.UpdateEftFileStatusRequest">
+	<Method>ProcessUpdateEftFileStatusRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
