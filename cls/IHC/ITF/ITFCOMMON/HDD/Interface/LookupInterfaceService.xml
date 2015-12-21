@@ -64,13 +64,16 @@ is returned as blank</Description>
 	{
 		set rep = ""
 	  	set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
-	  	Do ..GetUniqueChild(reqObj.NCID,.rep)
+	  	Do ..GetUniqueChild(reqObj.NCID, reqObj.Context,reqObj.GlobalDomainContext, .rep)
 	  	
 	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
 	  set hddObj.Comment = "Get UniqueChild for Ncid"
 	  set hddObj.NCID = reqObj.NCID
-	  set hddObj.Context = ""
-	  set hddObj.Domain = ""
+	  
+	  set hddObj.Context = reqObj.Context
+	  
+	  set hddObj.Domain = reqObj.GlobalDomainContext
+	  
 	  set hddObj.Rep = rep
 	  set hddObj.Index = reqObj.Index
 	  Do list.Insert(hddObj)
@@ -85,13 +88,15 @@ is returned as blank</Description>
 </Method>
 
 <Method name="GetUniqueChild">
-<FormalSpec><![CDATA[ncid:%String,&rep:%String]]></FormalSpec>
+<FormalSpec><![CDATA[ncid:%String,relationshipNcid:%String,contextNcid:%String,&rep:%String]]></FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
   try 
   {
  	Set rep = ""
- 	set rep = ..GetUniqueChildFromHddRepCache(ncid)
+ 	set rep = ..GetUniqueChildFromHddRepCache(ncid,relationshipNcid,contextNcid)
+ 	
+ 	 
  	if (rep '= "")
 	{
 	  	return
@@ -99,11 +104,14 @@ is returned as blank</Description>
 	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
 	set servicePort.Location = ..Location
 	
-	Set code = servicePort.getUniqueChild(ncid,	"526815527", "526815738", ..dbEnv, 0)	
+	Set code = servicePort.getUniqueChild(ncid,	relationshipNcid, contextNcid, ..dbEnv, 0)
+	 	
 		  if $GET(code)
 		  {
-		  	Set rep = code.text		  	
-		  	Do ..InsertValuesToHddUniqueChildCache(ncid, rep)
+		  	Set rep = code.text	
+		  	
+		  	$$$LOGERROR($ZERROR)  	
+		  	Do ..InsertValuesToHddUniqueChildCache(rep, ncid,relationshipNcid,contextNcid)
 		  	Quit
 		  }
 		  else
@@ -119,7 +127,7 @@ is returned as blank</Description>
 	  If $ZERROR["<ZSOAP>" {
 	     set errTxt = $System.Status.GetErrorText(%objlasterror)
 	     Set repNcid = errTxt
-         $$$LOGERROR("Exception in GetUniqueChild NCID: " _ncid _", Context: 526815527 and 526815738 = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$LOGERROR("Exception in GetUniqueChild NCID: " _ncid _", Context: "_relationshipNcid_" and "_ contextNcid _" = " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
          $$$LOGERROR($ZERROR)
          If errTxt["TerminologyWebServiceException"{
 	         Set rep = ""
@@ -175,7 +183,7 @@ is returned as blank</Description>
   {
  	Set rep = "" 	
  	set rep = ..GetHelp1RelationshipFromCache(help1RelationshipNcid)
- 	$$$TRACE("GetHelp1Relationship ::::"_rep)
+ 	
  	
  	if ( rep '= ""){
 	 	return
@@ -352,8 +360,7 @@ is returned as blank</Description>
 	 	   Set billTypeList = "ERROR"
  	}else{	      	
  	        Set billTypeString = listBillType.GetAt(1)_":"_listBillType.GetAt(2)_":"_listBillType.GetAt(3)_":"_listBillType.GetAt(4)
- 	        $$$TRACE(" RETURNED BILINGTYPE.. "_billTypeString)
- 	        
+ 	         	        
 		  	Do ..InsertValuesToHddBillingTypeCache(billTypeString, billTypeNcid)
 		  	Set billTypeList = billTypeString
 		 } 	
@@ -402,7 +409,7 @@ is returned as blank</Description>
 	  		}
 	  	}
 	  	// End Add
-	  	$$$TRACE("  Returned Rep "_rep)	  	
+	  	
 	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
 	  set hddObj.Comment = "Get Unique Representation for Ncid"
 	  set hddObj.NCID = reqObj.NCID
@@ -596,18 +603,18 @@ is returned as blank</Description>
 </Method>
 
 <Method name="InsertValuesToHddUniqueChildCache">
-<FormalSpec>relationshipString:%String,objNcid:%String</FormalSpec>
-<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache(Representation, Ncid) values(:relationshipString, :objNcid))
+<FormalSpec>relationshipString:%String,objNcid:%String,objRelshipNcid:%String,objContextNcid:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache(Representation, Ncid, Context, GlobalDomainContext) values(:relationshipString, :objNcid, :objRelshipNcid, :objContextNcid))
 ]]></Implementation>
 </Method>
 
 <Method name="GetUniqueChildFromHddRepCache">
-<FormalSpec>objNcid:%String</FormalSpec>
+<FormalSpec>objNcid:%String,objRelshipNcid:%String,objContextNcid:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	set objRep = "" 
 	Do ..ClearHddTables()
-	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache where Ncid = :objNcid)
+	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache where Ncid = :objNcid and Context = :objRelshipNcid and GlobalDomainContext=:objContextNcid)
 	return objRep
 ]]></Implementation>
 </Method>
