@@ -242,7 +242,7 @@ This XML block defines the contents of this page.</Description>
 <ReturnType>%ResultSet</ReturnType>
 <Implementation><![CDATA[
 	set nmSp = %session.Data("NmSp")
-	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("In CreateRS")
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("In CreateRS, namespace: " _ nmSp)
     Set tRS = ""
     Set tSC = $$$OK
     set usrNm = $get(%session.Data("UsNm"))
@@ -292,27 +292,32 @@ This XML block defines the contents of this page.</Description>
 			zenPage.getComponentById('nmSp').setValue("ITFCOMMON")
 		}
 		zenPage.SetIncAllSvn();
+		
 		var table = zenPage.getComponentById('srcCtrlTable');
 		  table.setProperty("selectedRows", "")
-		  zenPage.getComponentById('lblAccess').setValue('Verifying');
+		  zenPage.getComponentById('lblAccess').setValue('Retrieving');
 		   zenSynchronousMode = false;
+		   /*
+		   var group = this.createComponent('modalGroup'); 
+      group.setProperty('height', 100);
+      zenPage.addChild(group);
+      
+      var lbl = this.createComponent('label'); 
+      group.addChild(lbl); 
+      lbl.setProperty('value','Please Wait, Getting items for: ' + val)
+		zenPage.refreshContents(true); 
+    	group.show('Verify', 'dynamic');
+    	*/
+     	zenPage.getComponentById('lblAccess').setProperty('hidden', false);
+     	
 		  timerVar = setInterval(function(){ zenPage.VerifyTimer()}, 1000);
-  		  var numRows = zenPage.GetSrcCtrlItems();
+		  var time1 = new Date();
+		  time1ms= time1.getTime(time1);
+  		  zenPage.GetSrcCtrlItems();
+  		 
   		  
-	      if( numRows > 0)
-	      {
-	                    
-             // refresh data in contact table
-             var table = zenPage.getComponentById('srcCtrlTable');
-             table.executeQuery();
-	      }
-	      else
-	      {
-		      alert('No items in table: IHC_ITF_SrcCtrlPkg.SrcCtrlTbl');
-	      }
-       
 	} catch(e){
-        alert('Catch error:' +e.message);
+        alert('refreshSrcCtrlInfo: Catch error:' +e.message);
         zenSynchronousMode = true;
         clearInterval(this);
     }
@@ -325,21 +330,38 @@ This XML block defines the contents of this page.</Description>
 <Implementation><![CDATA[
    try
 	    {
-		    if( zenPage.getComponentById('lblAccess').getValue().substr(0, 9)  != 'Verifying')
+		    var time2 = new Date();
+		    time2ms= time2.getTime(time2);
+		    if(time2ms - time1ms > 120000)
+		    {
+			    clearInterval(timerVar); 
+	  			
+   				zenSynchronousMode = true;
+   				zenPage.getComponentById('lblAccess').setValue('TimeOut');
+		    }
+		    var labVal = zenPage.getComponentById('lblAccess').getValue();
+		    // zenPage.WriteLable(labVal + ", " + (time2ms - time1ms));
+		    if( labVal.substr(0, 10)  != 'Retrieving')
   			{
-	  			clearInterval(timerVar);  
+	  			clearInterval(timerVar); 
 	  			if (zenPage.modalStack != null && zenPage.modalStack.length>0)
 	  			{
 	  				zenPage.endModal();		
 	  			}		
-   				zenSynchronousMode = true;   			  				 
+   				zenSynchronousMode = true;
+   				 // refresh data in contact table
+   				if( zenPage.getComponentById('lblAccess').getValue().substr(0, 4) == 'Done')
+  				{ 
+          			var table = zenPage.getComponentById('srcCtrlTable');
+          			table.executeQuery();   			  				 
+  				}
   			}
   			else
   			{
 	  			var val = zenPage.getComponentById('lblAccess').getValue();
-	  			if (val.length > 20)
+	  			if (val.length > 21)
 	  			{
-		  			zenPage.getComponentById('lblAccess').setValue("Verifying..");
+		  			zenPage.getComponentById('lblAccess').setValue('Retrieving.');
 	  			}
 	  			else
 	  			{
@@ -791,25 +813,47 @@ This XML block defines the contents of this page.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="GetSrcCtrlItems">
-<ReturnType>%Integer</ReturnType>
+<Method name="WriteLable">
+<FormalSpec>clVal:%String</FormalSpec>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
-	set rows = 1
+	 set val = ..%GetValueById("lblAccess")
 	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("WriteLable: zen val: " _ val _ ", javascript val" _ clVal)
+]]></Implementation>
+</Method>
+
+<Method name="GetSrcCtrlItems">
+<ZenMethod>1</ZenMethod>
+<Implementation><![CDATA[
+	set retRows = 1
+	set retStat = ""
 	try
 	{
-		
-	  SET rows = ##class(IHC.ITF.SrcCtrlPkg.ItfSrcCtrlUtil).GetItems( $get(%session.Data("NmSp")), $get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
-	  
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Start GetSrcCtrlItems")
+		set vCls = ##class(IHC.ITF.SrcCtrlPkg.ItfSrcCtrlUtil).%New()
+	  SET stat = vCls.GetItems( $get(%session.Data("NmSp")), $get(%session.Data("UsNm")), $get(%session.Data("PsWd")), .retRows)
+	  if ($$$ISOK(stat))
+	  {
+		  	set retStat = "Done, number of items: " _ retRows 
+	  		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetSrcCtrlItems: status OK , rows: " _ retRows)
+	  }
+	  else
+	  {
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetSrcCtrlItems: status fail: " _ stat)
+	  }
 	} catch err
 	{
+		set retStat = "Error in GetItems"
 		set errStr = err.Data _ " " _ err.Name
 		&js<alert('Error in Setup, check debug file ');>
-		set rows = 0
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Error in GetSrcCtrlItems: " _ errStr)
 	}
-	Do ..%SetValueById("lblAccess", "Done")
-	Quit rows
+	Do ..%SetValueById("lblAccess", retStat)
+	set val = ..%GetValueById("lblAccess")
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("End GetSrcCtrlItems: " _ val)
+	Quit
 ]]></Implementation>
 </Method>
 
