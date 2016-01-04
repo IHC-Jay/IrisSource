@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Service.TelcorBillingReportAlertScheduler">
+<Description>
+This service looks at the Global set by the Billing Process to get number of records processed. 
+Name of the global is ^TELCORBILLINGCOUNTER. It stores the Count against Source sytem and date.
+If the count is greater than 0 means that many records did not get sent to the Telcor</Description>
+<Super>Ens.BusinessService</Super>
+<TimeCreated>63797,56887.373902</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+Use the Adapter to invoke this service every set amount of time</Description>
+<Default>Ens.InboundAdapter</Default>
+</Parameter>
+
+<Property name="SuccessEmailSubject">
+<Description><![CDATA[
+This is the subject to use on the success email.<br>
+It also uses replacement constants #FORDATE and #OUTSTANDINGCOUNT and if present it replaces with the Count in Global
+^TELCORBILLINGCOUNTER and the date of report]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SucessEmailBody">
+<Description><![CDATA[
+Email This is the body that will be included in the success email.<br>
+It also uses replacement constants #FORDATE and 3OUTSTANDINGCOUNT and if present it replaces with the Count in Global
+^TELCORBILLINGCOUNTER and the date of report]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="FailureEmailSubject">
+<Description><![CDATA[
+This is the subject to use on the failure email.<br>
+It also uses replacement constants #FORDATE and #OUTSTANDINGCOUNT and if present it replaces with the Count in Global
+^TELCORBILLINGCOUNTER and the date of report]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="FailureEmailBody">
+<Description><![CDATA[
+Email This is the body that will be included in the failure email.<br>
+It also uses replacement constants #FORDATE and #OUTSTANDINGCOUNT and if present it replaces with the Count in Global
+^TELCORBILLINGCOUNTER and the date of report]]></Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="SourceSystem">
+<Description>
+Source sytem whose global needs to be read and alert generated</Description>
+<Type>%String</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>SourceSystem:Additional,SuccessEmailSubject:Additional, SucessEmailBody:Additional,FailureEmailSubject:Additional, FailureEmailBody:Additional</Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<FormalSpec><![CDATA[pInput:%RegisteredObject,*pOutput:%RegisteredObject,&pHint:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+        #dim tSC As %Status = $$$OK
+		// Get current Date 
+		$$$TRACE("Inside OnProcessInput...")
+		set priorDate=$SYSTEM.SQL.DATEADD("DD",-1,$H)
+		set priorDateH=$ZDATEH($p(priorDate," "),3)
+		set forDate=$ZDATE(priorDateH,8)
+		// If report processed for prior day then quit without further action. Else look at the Globals
+		if ('$data(^TELCORBILLINGREPORT(..%ConfigName,forDate))){
+			$$$TRACE("Processing For Date "_forDate)
+			// Kill the old status global
+			k ^TELCORBILLINGREPORT(..%ConfigName)
+			// Check if the data present in the counter if data is present means the billing records were present otherwise No billing
+			// records received for Telcor from the source system
+			If ($data(^TELCORBILLINGCOUNTER(..SourceSystem,forDate))){
+				set wOutstandingCount=^TELCORBILLINGCOUNTER(..SourceSystem,forDate)
+				$$$TRACE("Outstanding counts For Date "_forDate_" are "_wOutstandingCount)
+				If (wOutstandingCount=0){
+					set wSubject=..SuccessEmailSubject
+					set wBody=..SucessEmailBody
+					set wSubject=$REPLACE(wSubject,"#OUTSTANDINGCOUNT",wOutstandingCount)
+					set wSubject=$REPLACE(wSubject,"#FORDATE",forDate)
+					set wBody=$REPLACE(wBody,"#OUTSTANDINGCOUNT",wOutstandingCount)
+					set wBody=$REPLACE(wBody,"#FORDATE",forDate)
+					do ..ItfSendEmailOnSuccess(wSubject,wBody)
+				}Else{
+					set wSubject=..FailureEmailSubject
+					set wBody=..FailureEmailBody
+					set wSubject=$REPLACE(wSubject,"#OUTSTANDINGCOUNT",wOutstandingCount)
+					set wSubject=$REPLACE(wSubject,"#FORDATE",forDate)
+					set wBody=$REPLACE(wBody,"#OUTSTANDINGCOUNT",wOutstandingCount)
+					set wBody=$REPLACE(wBody,"#FORDATE",forDate)
+					do ..ItfSendEmailOnError(wSubject,wBody)
+				}
+			}Else{
+				$$$TRACE("No Billing records found For Date "_forDate)
+				set tSC=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,"No Billing transaction processed for date "_forDate_".Kindly check with the source system.")
+			}
+			set ^TELCORBILLINGREPORT(..%ConfigName,forDate)=1
+			
+		}
+
+		quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnSuccess">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(sub, txt, ..%ConfigName)
+ do ..SendAlert(alert)
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnError">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(sub, txt, ..%ConfigName)
+ Set status= ..SendAlert(alert)
+]]></Implementation>
+</Method>
+</Class>
+</Export>
