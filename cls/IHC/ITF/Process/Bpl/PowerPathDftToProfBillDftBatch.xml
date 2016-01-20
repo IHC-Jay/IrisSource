@@ -110,6 +110,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='encryptionKeyName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='4050' >
 <scope xpos='200' ypos='250' xend='200' yend='3950' >
@@ -278,10 +283,10 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<while name='ServiceID&apos;=""' condition='context.serviceIDForSession&apos;=""' xpos='470' ypos='1700' xend='200' yend='1750' >
+<while name='ServiceID&apos;=""' condition='context.serviceIDForSession&apos;=""' xpos='470' ypos='1700' xend='200' yend='2100' >
 <assign name="FilenameforService" property="context.FileName" value="process.FilePath_process.%SessionId_context.serviceIDForSession_&quot;.TXT&quot;" action="set" xpos='200' ypos='250' />
 <trace name='InsideWhile' value='"Inside While Loop Checking For File Name "_context.FileName' xpos='200' ypos='350' />
-<if name='CHECKFILEFORSERVICEID' condition='##class(%Library.File).Exists(context.FileName)' xpos='200' ypos='450' xend='200' yend='1550' >
+<if name='CHECKFILEFORSERVICEID' condition='##class(%Library.File).Exists(context.FileName)' xpos='200' ypos='450' xend='200' yend='1900' >
 <true>
 <code name='CreateStream' xpos='470' ypos='600' >
 <![CDATA[ // Create Stream from the file . Also add the control record at the end of strind
@@ -309,19 +314,83 @@ BPL Definition</Description>
     }
   }]]]]><![CDATA[>
 </code>
-<if name='IfFtpOperationName&apos;=""' condition='context.ftpOperationName&apos;=""' xpos='470' ypos='800' xend='470' yend='1350' >
+<if name='IfFtpOperationName&apos;=""' condition='context.ftpOperationName&apos;=""' xpos='470' ypos='800' xend='470' yend='1700' >
 <true>
-<call name='SendStreamToOperation' target='@context.ftpOperationName' async='1' xpos='740' ypos='950' >
+<code name='CheckIfEncryption Needed' xpos='740' ypos='950' >
+<![CDATA[ // Check if th Encryption is needed for the service ID
+ set context.encryptionKeyName=""
+ set encryptionKey=""
+  set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PowerPathDftToProfBillDftBatch.Lookup.EncryptionConfig", context.serviceIDForSession_"-"_"KEYNAME", .encryptionKey)  
+   $$$TRACE("Status of  Encryption Key lookup "_tStatus)
+   if ($$$ISOK(tStatus)){
+      set context.encryptionKeyName=encryptionKey
+      $$$TRACE("Encryption Key name "_encryptionKey)
+   }
+   ]]]]><![CDATA[>
+</code>
+<if name='EncryptionneededbeforeSending' condition='context.encryptionKeyName&apos;=""' xpos='740' ypos='1050' xend='740' yend='1300' >
+<true>
+<code name='EncryptFileCode' xpos='1010' ypos='1200' >
+<![CDATA[  
+    // Append control record to the end of workfile for the service ID
+  Do {
+      $$$TRACE("Encrypting file context.FileName")
+      set file=##class(%File).%New(context.FileName)
+      set tStatus=file.Open("AWU")
+      quit:'$$$ISOK(tStatus)
+      set tStatus=file.Write("FTS|"_^IHCPowerPathToProfBill("Counter",process.%SessionId,context.serviceIDForSession)_"|")
+      quit:'$$$ISOK(tStatus)
+      // Call Encryption operation
+      set encRequest=##class(IHC.ITF.ITFCOMMON.DStruc.FileEncrypt).%New()
+      set encRequest.unencryptedDirectory=process.FilePath
+      set encRequest.unencryptedFilename=process.%SessionId_context.serviceIDForSession_".TXT"
+      set encRequest.encryptedDirectory=process.FilePath
+      set encRequest.encryptedFilename="enc"_encRequest.unencryptedFilename
+      set encRequest.publicKeyRingFile=process.IHCPUBLICKEYRINGFILE
+      set encRequest.secretKeyRingFile=process.IHCSECRETKEYRINGFILE 
+      set encRequest.publicKeyName=context.encryptionKeyName
+      set encRequest.secretKeyRingPwd=""
+  
+      //Get the Encrypted Stream.
+      set tStatus=process.SendRequestSync(process.TargetConfigNamesEncryption,encRequest,.response)
+      quit:'$$$ISOK(tStatus)
+      If ('##class(%File).Exists(process.FilePath_encRequest.encryptedFilename)){
+	      set tStatus= ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "File Encryption for context.FileName Failed.")
+	      Quit
+      }
+      //Create stream from Encrypted file.
+      // Create Stream from the file . Also add the control record at the end of strind
+      Set streamFile=##class(%FileCharacterStream).%New()
+      Do streamFile.LinkToFile(process.FilePath_encRequest.encryptedFilename)
+	  set stream=##class(%Stream.GlobalCharacter).%New()
+      Set tStatus = stream.CopyFrom(streamFile)
+      quit:'$$$ISOK(tStatus)
+      set ftpRequest=##class(Ens.StreamContainer).%New(stream)
+      set ftpRequest.OriginalFilename = encRequest.encryptedFilename
+      // Call Ftp Operation
+      do process.SendRequestAsync(context.ftpOperationName,ftpRequest)
+  
+  }while(0)
+  set status=tStatus
+  try {
+	  set tStatus=##class(%Library.File).Delete(process.FilePath_encRequest.encryptedFilename)
+  }Catch{}]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<call name='SendStreamToOperation' target='@context.ftpOperationName' async='1' xpos='740' ypos='1200' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.ftpRequest" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
-<assign name="PowerPathOperation" property="context.PowerPathOperationName" value="process.PowerPathTargetConfigNames" action="set" xpos='740' ypos='1050' />
-<code name='SETFILENAME' xpos='740' ypos='1150' >
+</false>
+</if>
+<assign name="PowerPathOperation" property="context.PowerPathOperationName" value="process.PowerPathTargetConfigNames" action="set" xpos='740' ypos='1400' />
+<code name='SETFILENAME' xpos='740' ypos='1500' >
 <![CDATA[ set context.ftpRequest.OriginalFilename = context.serviceIDForSession]]]]><![CDATA[>
 </code>
-<call name='SendStreamToPowerPathOperation' target='@context.PowerPathOperationName' async='1' xpos='740' ypos='1250' >
+<call name='SendStreamToPowerPathOperation' target='@context.PowerPathOperationName' async='1' xpos='740' ypos='1600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.ftpRequest" action="set" />
 </request>
@@ -332,18 +401,19 @@ BPL Definition</Description>
 <trace name='TRACEOPERATIONNOTSET' value='"Operation Not set for "_context.serviceIDForSession' xpos='470' ypos='950' />
 </false>
 </if>
-<code name='DeleteTheFileforServiceId' xpos='470' ypos='1450' >
+<code name='DeleteTheFileforServiceId' xpos='470' ypos='1800' >
 <![CDATA[  //
   $$$TRACE("Deleting File "_context.FileName)
-  
-  set status=##class(%Library.File).Delete(context.FileName)]]]]><![CDATA[>
+  try{
+     set tStatus=##class(%Library.File).Delete(context.FileName)
+     }Catch{}]]]]><![CDATA[>
 </code>
 </true>
 <false>
 <trace name='FileNotFound' value='"File not Found For Service ID "_context.FileName' xpos='200' ypos='600' />
 </false>
 </if>
-<assign name="GetNextServiceID" property="context.serviceIDForSession" value="$Order(^IHCPowerPathToProfBill(&quot;Counter&quot;,process.%SessionId,context.serviceIDForSession))" action="set" xpos='200' ypos='1650' />
+<assign name="GetNextServiceID" property="context.serviceIDForSession" value="$Order(^IHCPowerPathToProfBill(&quot;Counter&quot;,process.%SessionId,context.serviceIDForSession))" action="set" xpos='200' ypos='2000' />
 </while>
 </false>
 </if>
@@ -407,8 +477,43 @@ PowerPath Target Config Names</Description>
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="TargetConfigNamesEncryption">
+<Description>
+Name of the operation for encrypting the passed file</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="IHCKEYRINGPATH">
+<Description>
+Encryption key file path</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="IHCSECRETKEYRINGFILE">
+<Description>
+Encryption File Name - Secret</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="IHCPUBLICKEYRINGFILE">
+<Description>
+Encryption File Name - Public</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="SecretKeyPassword">
+<Description>
+Secret Key Password</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>FileTargetConfigNames:Additional,FilePath:Additional,ServiceIdTargetConfigNamesMap:Additional,PowerPathTargetConfigNames:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default><![CDATA[FileTargetConfigNames:Additional,FilePath:Additional,ServiceIdTargetConfigNamesMap:Additional,PowerPathTargetConfigNames:Additional,TargetConfigNamesEncryption:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},IHCKEYRINGPATH:Additional,IHCSECRETKEYRINGFILE:Additional,IHCPUBLICKEYRINGFILE:Additional,PUBLICKEYNAME:Additional,-NextOperation,-TargetConfigMask]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -427,6 +532,21 @@ PowerPath Target Config Names</Description>
 </Value>
 <Value name="4">
 <Value>PowerPathTargetConfigNames</Value>
+</Value>
+<Value name="5">
+<Value>TargetConfigNamesEncryption</Value>
+</Value>
+<Value name="6">
+<Value>IHCKEYRINGPATH</Value>
+</Value>
+<Value name="7">
+<Value>IHCSECRETKEYRINGFILE</Value>
+</Value>
+<Value name="8">
+<Value>IHCPUBLICKEYRINGFILE</Value>
+</Value>
+<Value name="9">
+<Value>SecretKeyPassword</Value>
 </Value>
 </Data>
 </Storage>
