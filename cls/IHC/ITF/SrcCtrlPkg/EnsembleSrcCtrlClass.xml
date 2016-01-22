@@ -18,6 +18,9 @@ Insert information of all files that are checked-in to SVN into a table</Descrip
      
 	// All files for ITFCOMMON namespace will be under IHC
 	set numFiles = 0
+	set lastSvnDtTm = ..GetSVNLastUpdateTime()
+	set lastSvnIntTm = $ZDATETIMEH(lastSvnDtTm, 3, 1)
+	
 	set stDtTm = $ZDATETIME($HOROLOG,3, 1)
 	set tempFile = $$$USRBASEDIR _ usrNm _ "/tempSvnList"
 	set fileInfo = ""
@@ -39,7 +42,7 @@ Insert information of all files that are checked-in to SVN into a table</Descrip
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Did not create file: " _ tempFile)
 		Quit
 	}
-
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Update files checkedin after: " _ lastSvnDtTm _ " Internal time: "_ lastSvnIntTm)
 	Set fileObj=##class(%Library.File).%New(tempFile)
          set fileOpen = fileObj.Open("RS") ; Read mode and as stream
         set int = 1
@@ -72,21 +75,27 @@ Insert information of all files that are checked-in to SVN into a table</Descrip
 			         if (isFile = 1)
 			         {
 			       		set fileStamp = $E(readStr,  $F(readStr , "Date: "), $F(readStr , " -") -3)
-			       		
-			       		set isFile = 0
-			       		set updStr = rev
-			       		set oper = "UPDATE"
-			       		&sql(UPDATE  IHC_ITF_SrcCtrlPkg.ClassInfo 
-			       		SET FileModifiedTime=:fileStamp, VersionNumber = :updStr, CheckinUser = :author 
-			       		WHERE FileName=:file )
-			       		if SQLCODE '= 0 {
-				       		set oper = "INSERT"
-	       					&sql(INSERT INTO IHC_ITF_SrcCtrlPkg.ClassInfo 
-	       					(FileName, FileModifiedTime, VersionNumber, CheckinUser) 
-	       					VALUES (:file, :fileStamp, :updStr, :author))
-        				}
-        				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( int _ ". " _ oper _ " - " _ file _ ", " _ rev _ ", " _ fileStamp _ ", SQLCODE: " _ SQLCODE)
-        				set numFiles = numFiles + 1
+			       		set flIntTm = $ZDATETIMEH(fileStamp, 3, 1)
+			       		if ( ($PIECE(flIntTm, ",") > $PIECE(lastSvnIntTm, ","))
+						|| ( ($PIECE(lastSvnIntTm, ",") = $PIECE(flIntTm, ",") ) 
+						&& ($PIECE(flIntTm, ",", 2) > $PIECE(lastSvnIntTm, ",", 2)) )
+						)
+						{
+			       			set isFile = 0
+			       			set updStr = rev
+			       			set oper = "UPDATE"
+			       			&sql(UPDATE  IHC_ITF_SrcCtrlPkg.ClassInfo 
+			       			SET FileModifiedTime=:fileStamp, VersionNumber = :updStr, CheckinUser = :author 
+			       			WHERE FileName=:file )
+			       			if SQLCODE '= 0 {
+				     	  		set oper = "INSERT"
+	       						&sql(INSERT INTO IHC_ITF_SrcCtrlPkg.ClassInfo 
+	       						(FileName, FileModifiedTime, VersionNumber, CheckinUser) 
+	       							VALUES (:file, :fileStamp, :updStr, :author))
+        					}
+        					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( int _ ". " _ oper _ " - " _ file _ ", " _ rev _ ", " _ fileStamp _ ", internal time: " _ flIntTm _ ", SQLCODE: " _ SQLCODE)
+        					set numFiles = numFiles + 1
+			         	}
 			         }
 		         }
 	        	
@@ -332,7 +341,7 @@ Get the information about classes from Audit table into the source control table
      if (  ##class(%File).Exists(tempFile)) 
      {
 	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "file exists: " _ tempFile)
-	    set cmd = "diff -w -B --suppress-common-lines " _ tempFile _ " " _ fileNm _ " > " _ diffFile
+	    set cmd = "diff -w -B --suppress-common-lines " _ tempFile _ " " _ fullFileNm _ " > " _ diffFile
 	    Set stat = $ZF(-1, cmd)
 	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(diffFile)
 	    Set diffStr = ..GetFileContent(diffFile) 
