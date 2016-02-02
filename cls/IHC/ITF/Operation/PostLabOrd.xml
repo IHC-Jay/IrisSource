@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.PostLabOrd">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>63916,25528.811345</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Adapter">
+<Type>EnsLib.SQL.OutboundAdapter</Type>
+</Property>
+
+<Parameter name="INVOCATION">
+<Default>Queue</Default>
+</Parameter>
+
+<Method name="ExecutePostSql">
+<FormalSpec>pRequest:IHC.ITF.Request.x4MedicaLabOrdHl7ToPost,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+	#dim tSC As %Status=$$$OK
+	#dim OrdSelectSnap,OrdIdSnap As EnsLib.SQL.Snapshot
+	#dim debug As %Boolean=0
+	set debug=$g(^IHCDebugCode(..%ConfigName),0)
+	#dim orddate As %Library.Date
+
+	Set OrdSelectSnap=##class(EnsLib.SQL.Snapshot).%New()
+	Set OrdSelectSnap.MaxRowsToGet=-1
+	$$$TRACE("Order id before select "_pRequest.OrderId)
+	Set tOrdSelectQuery="SELECT ORDERID FROM POST.FOURMEDICAORDER WHERE ORDERID = ?"	
+
+	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId)
+	$$$TRACE("Order id select status "_tSCSelect)
+	
+	Set RetOrdId = ""
+	If $$$ISOK(tSCSelect)
+	{
+		If OrdSelectSnap.Next()
+		{
+			Set RetOrdId = OrdSelectSnap.GetData(1)
+		}
+	}
+	else
+	{
+		$$$TRACE("Error in executing Select OrderId query")
+		Quit tSCSelect
+	}
+	$$$TRACE("Ret ord id and "_RetOrdId_" inbound orderid "_pRequest.OrderId)
+	
+	//Code to get the recent ID vale from the table
+	Set OrdIdSnap=##class(EnsLib.SQL.Snapshot).%New()
+	Set OrdIdSnap.MaxRowsToGet=-1
+	Set tOrdIdSelectQuery="SELECT * FROM (SELECT ID FROM POST.FOURMEDICAORDER ORDER BY ID DESC) WHERE ROWNUM = 1"	
+
+	Set tSCIDSelect =  ..Adapter.ExecuteQuery(.OrdIdSnap,tOrdIdSelectQuery)
+	$$$TRACE("id select status "_tSCIDSelect)
+	
+	Set RetId = ""
+	If $$$ISOK(tSCIDSelect)
+	{
+		If OrdIdSnap.Next()
+		{
+			Set RetId = OrdIdSnap.GetData(1)
+		}
+	}
+	else
+	{
+		$$$TRACE("Error in executing Select top ID query")
+		Quit tSCIDSelect
+	}
+	$$$TRACE("Ret  id and "_RetId)
+		$$$TRACE("date diff serviced date "_$Extract(pRequest.ServicedDate,1,8)_" curr date "_$ZDATE($HOROLOG,3))
+		
+		If (RetOrdId'=pRequest.OrderId)
+		{
+			$$$TRACE("inside if of  RetOrdId'=pRequest.OrderId")
+			//Insert the data
+			Set tOrdInsertQuery="insert into post.fourmedicaorder (Id,patientid, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname,serviceddate, serviced) "_
+			"values(?,?,?,?,?,?,?,?,?,?,?,?)"
+		
+			//insert into post.fourmedicaorder (id, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname, serviced)
+			//values (POST.FourMedicaOrder_SEQ.NEXTVAL, 'Harvey', 'N', 'Keitel', TO_DATE('1946/11/25', 'yyyy/mm/dd'), 
+            //    'M', 121, TO_DATE('2015/3/20', 'yyyy/mm/dd'), 'Dr. House', 'N')
+			
+			Set dob = $Replace($Zdate($ZdateH(pRequest.PatientDOB,8),3),"-","/")
+			Set OrdDate = $Replace($Zdate($ZdateH($Extract(pRequest.OrderDate,1,8),8),3),"-","/")
+			Set ServicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),"-","/")
+			
+			;Set tSC =..Adapter.ExecuteQuery(.OrdInsertSnap,tOrdInsertQuery,"",pRequest.PatientId,pRequest.PatientFirstName,pRequest.PatientMidldleName,pRequest.PatientLastName,pRequest.PatientDOB,pRequest.PatientGender,pRequest.OrderId,$SYSTEM.SQL.TODATE(OrdDate,"yyyy/mm/dd"),pRequest.PhysicianName,$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd"),pRequest.Serviced)
+			
+			//set up multidimensional array of parameters
+			set par(1)=$INCREMENT(RetId)
+			set par(2)=pRequest.PatientId
+			set par(3)=pRequest.PatientFirstName
+			set par(4)=pRequest.PatientMidldleName
+			set par(5)=pRequest.PatientLastName
+			set par(6)=dob
+			set par(7)=pRequest.PatientGender
+			set par(8)=pRequest.OrderId
+			set par(9)=	orddate 	//$SYSTEM.SQL.TODATE(OrdDate,"yyyy/mm/dd")
+			
+			set par(10)=pRequest.PhysicianName
+			set par(11)= ServicedDate		//$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd")
+			set par(12)=pRequest.Serviced
+			
+			set par=12
+
+			$$$TRACE(par(1)_" ~~~ "_par(2)_" ~~~ "_par(3)_" ~~~ "_par(4)_" ~~~ "_par(5)_" ~~~ "_par(6)_" ~~~ "_par(7)_" ~~~ "_par(8)_" ~~~ "_par(9)_" ~~~ "_par(10)_" ~~~ "_par(11)_" ~~~ "_par(12))
+			
+			Set tSC =..Adapter.ExecuteUpdateParmArray(.nrows,tOrdInsertQuery,.par)
+	
+  			$$$TRACE("Order id insert status "_tSC)
+  					
+			Quit:$$$ISERR(tSC) tSC
+		}
+	$$$TRACE("date diff serviced date "_$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3)_" curr date "_$ZDATE($HOROLOG,3))
+		If (pRequest.ServicedDate'="")&&(($System.SQL.DATEDIFF("dd",$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),$ZDATE($HOROLOG,3))<=0))
+		{
+    	     //update the Post db flag
+	     
+	     	Set ServicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),"-","/")
+	     	
+	     	Set tOrdUpdateQuery="Update post.fourmedicaorder (serviceddate, serviced) values (?,?) Where Orderid= ?"
+	     	Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd"),"Y",pRequest.OrderId)
+	     	$$$TRACE("Update serviced flag status "_tSC)
+	     
+     	}
+     	Else
+     	{
+	    	$$$TRACE("ServicedDate is empty or greater than current date,ServicedDate value :   "_pRequest.ServicedDate)
+	     
+     	}
+		  	
+	
+	/*ElseIf(MessageType = "A08")
+	{
+		//Update the record
+		Set tOrdUpdateQuery="Update post.fourmedicaorder (serviceddate, serviced) values (?,?) Where Orderid= ?"
+		
+		Set tPatUpdateQuery="Update post.fourmedicaorder (firstname, middlename, lastname, dob, sex) values (?,?,?,?,?) Where patientid = ?"
+		
+		Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,pRequest.ServicedDate,pRequest.Serviced,pRequest.OrderId)
+		
+		Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedPat,tPatUpdateQuery,pRequest.PatientFirstName,pRequest.PatientMidldleName,pRequest.PatientLastName,pRequest.PatientDOB,pRequest.PatientGender,pRequest.PatientId)
+		
+		
+	}
+	*/
+	
+	/*Set tOrdSelectQuery="SELECT ORDERID,ORDERDATE FROM POST.FOURMEDICAORDER WHERE ORDERID = ?"
+	
+	Set OrdSelectSnap=##class(EnsLib.SQL.Snapshot).%New()
+	Set OrdSelectSnap.MaxRowsToGet=-1
+	
+	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId)
+	
+		$$$TRACE("Order id select status "_tSCSelect)*/
+	
+   
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.x4MedicaLabOrdHl7ToPost"> 
+		<Method>ExecutePostSql</Method>
+	</MapItem>
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
