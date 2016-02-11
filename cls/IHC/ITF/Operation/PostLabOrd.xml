@@ -30,17 +30,19 @@
 	Set OrdSelectSnap=##class(EnsLib.SQL.Snapshot).%New()
 	Set OrdSelectSnap.MaxRowsToGet=-1
 	$$$TRACE("Order id before select "_pRequest.OrderId)
-	Set tOrdSelectQuery="SELECT ORDERID FROM POST.FOURMEDICAORDER WHERE ORDERID = ?"	
+	Set tOrdSelectQuery="SELECT ORDERID,TESTID FROM POST.FOURMEDICAORDER WHERE ORDERID = ?  AND TESTID = ?"	
 
-	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId)
+	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId,pRequest.TestId)
 	$$$TRACE("Order id select status "_tSCSelect)
 	
 	Set RetOrdId = ""
+	Set RetTestId = ""
 	If $$$ISOK(tSCSelect)
 	{
 		If OrdSelectSnap.Next()
 		{
 			Set RetOrdId = OrdSelectSnap.GetData(1)
+			Set RetTestId = OrdSelectSnap.GetData(2)
 		}
 	}
 	else
@@ -48,12 +50,13 @@
 		$$$TRACE("Error in executing Select OrderId query")
 		Quit tSCSelect
 	}
-	$$$TRACE("Ret ord id and "_RetOrdId_" inbound orderid "_pRequest.OrderId)
+	$$$TRACE("Ret ord id and "_RetOrdId_" inbound orderid "_pRequest.OrderId_"RetTestid  "_RetTestId)
 	
 	//Code to get the recent ID vale from the table
 	Set OrdIdSnap=##class(EnsLib.SQL.Snapshot).%New()
 	Set OrdIdSnap.MaxRowsToGet=-1
 	Set tOrdIdSelectQuery="SELECT * FROM (SELECT ID FROM POST.FOURMEDICAORDER ORDER BY ID DESC) WHERE ROWNUM = 1"	
+    // Set tOrdIdSelectQuery="SELECT * FROM post.fourmedicaorder WHERE DOB = TO_DATE('25-11-1946' , 'DD-MM-YYYY') and ROWNUM = 1"	
 
 	Set tSCIDSelect =  ..Adapter.ExecuteQuery(.OrdIdSnap,tOrdIdSelectQuery)
 	$$$TRACE("id select status "_tSCIDSelect)
@@ -71,23 +74,28 @@
 		$$$TRACE("Error in executing Select top ID query")
 		Quit tSCIDSelect
 	}
-	$$$TRACE("Ret  id and "_RetId)
+	
+	$$$TRACE("Ret  id = "_RetId _ ", pRequest.OrderId = " _ pRequest.OrderId)
 		$$$TRACE("date diff serviced date "_$Extract(pRequest.ServicedDate,1,8)_" curr date "_$ZDATE($HOROLOG,3))
 		
 		If (RetOrdId'=pRequest.OrderId)
 		{
 			$$$TRACE("inside if of  RetOrdId'=pRequest.OrderId")
 			//Insert the data
-			Set tOrdInsertQuery="insert into post.fourmedicaorder (Id,patientid, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname,serviceddate, serviced) "_
-			"values(?,?,?,?,?,?,?,?,?,?,?,?)"
+			Set tOrdInsertQuery="insert into post.fourmedicaorder (Id,patientid, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname,serviceddate, serviced, active, testid) "_
+			"values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
 		
 			//insert into post.fourmedicaorder (id, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname, serviced)
 			//values (POST.FourMedicaOrder_SEQ.NEXTVAL, 'Harvey', 'N', 'Keitel', TO_DATE('1946/11/25', 'yyyy/mm/dd'), 
-            //    'M', 121, TO_DATE('2015/3/20', 'yyyy/mm/dd'), 'Dr. House', 'N')
+            //    'M', 121, TO_DATE('2015/03/20', 'yyyy/mm/dd'), 'Dr. House', 'N')
 			
-			Set dob = $Replace($Zdate($ZdateH(pRequest.PatientDOB,8),3),"-","/")
-			Set OrdDate = $Replace($Zdate($ZdateH($Extract(pRequest.OrderDate,1,8),8),3),"-","/")
-			Set ServicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),"-","/")
+			Set servicedDate = ""
+			
+			Set dob = $Replace($Zdate($ZdateH(pRequest.PatientDOB,8),2)," ","-")
+			Set ordDate = $Replace($Zdate($ZdateH($Extract(pRequest.OrderDate,1,8),8),2)," ","-")
+			
+			Set:pRequest.ServicedDate'="" servicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),2)," ","-")
+			
 			
 			;Set tSC =..Adapter.ExecuteQuery(.OrdInsertSnap,tOrdInsertQuery,"",pRequest.PatientId,pRequest.PatientFirstName,pRequest.PatientMidldleName,pRequest.PatientLastName,pRequest.PatientDOB,pRequest.PatientGender,pRequest.OrderId,$SYSTEM.SQL.TODATE(OrdDate,"yyyy/mm/dd"),pRequest.PhysicianName,$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd"),pRequest.Serviced)
 			
@@ -95,71 +103,68 @@
 			set par(1)=$INCREMENT(RetId)
 			set par(2)=pRequest.PatientId
 			set par(3)=pRequest.PatientFirstName
-			set par(4)=pRequest.PatientMidldleName
+			set par(4)= pRequest.PatientMidldleName
 			set par(5)=pRequest.PatientLastName
-			set par(6)=dob
+			set par(6)= dob  
 			set par(7)=pRequest.PatientGender
 			set par(8)=pRequest.OrderId
-			set par(9)=	orddate 	//$SYSTEM.SQL.TODATE(OrdDate,"yyyy/mm/dd")
+			set par(9)= ordDate // _" 11:45"
 			
 			set par(10)=pRequest.PhysicianName
-			set par(11)= ServicedDate		//$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd")
+			set par(11)= servicedDate
 			set par(12)=pRequest.Serviced
-			
-			set par=12
+			set par(13)="Y"
+			set:pRequest.IsActive'="" par(13)=pRequest.IsActive
+			set par(14)="EMPTY"
+			set:pRequest.TestId'="" par(14)=pRequest.TestId
+			set par=14
 
-			$$$TRACE(par(1)_" ~~~ "_par(2)_" ~~~ "_par(3)_" ~~~ "_par(4)_" ~~~ "_par(5)_" ~~~ "_par(6)_" ~~~ "_par(7)_" ~~~ "_par(8)_" ~~~ "_par(9)_" ~~~ "_par(10)_" ~~~ "_par(11)_" ~~~ "_par(12))
+			$$$TRACE(par(1)_" ~~~ "_par(2)_" ~~~ "_par(3)_" ~~~ "_par(4)_" ~~~ "_par(5)_" ~~~ "_par(6)_" ~~~ "_par(7)_" ~~~ "_par(8)_" ~~~ "_par(9)_" ~~~ "_par(10)_" ~~~ "_par(11)_" ~~~ "_par(12)_" ~~~ "_par(13)_" ~~~ "_par(14))
 			
+			try
+			{
 			Set tSC =..Adapter.ExecuteUpdateParmArray(.nrows,tOrdInsertQuery,.par)
+			} catch err
+			{
+			  $$$TRACE("error in insert: " _ err.Code _ ", " _ err.Name _ ", " _ err.Location)
+			}
 	
   			$$$TRACE("Order id insert status "_tSC)
   					
 			Quit:$$$ISERR(tSC) tSC
+			
 		}
-	$$$TRACE("date diff serviced date "_$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3)_" curr date "_$ZDATE($HOROLOG,3))
-		If (pRequest.ServicedDate'="")&&(($System.SQL.DATEDIFF("dd",$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),$ZDATE($HOROLOG,3))<=0))
+		
+		;$$$TRACE("date diff serviced date "_$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3)_" curr date "_$ZDATE($HOROLOG,3))
+		If (pRequest.ServicedDate'="")
 		{
+    	    If (($System.SQL.DATEDIFF("dd",$ZDATE($HOROLOG,3),$Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3))<=0))
+    	    {
     	     //update the Post db flag
-	     
-	     	Set ServicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),3),"-","/")
+	     	$$$TRACE("Inside serviced date update")
+	     	Set ServicedDate = $Replace($Zdate($ZdateH($Extract(pRequest.ServicedDate,1,8),8),2)," ","-")
 	     	
-	     	Set tOrdUpdateQuery="Update post.fourmedicaorder (serviceddate, serviced) values (?,?) Where Orderid= ?"
-	     	Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,$SYSTEM.SQL.TODATE(ServicedDate,"yyyy/mm/dd"),"Y",pRequest.OrderId)
+	     	Set tOrdUpdateQuery="UPDATE POST.FOURMEDICAORDER SET SERVICEDDATE= ? , SERVICED = ? WHERE ORDERID= ? AND TESTID = ?"
+	     	Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,ServicedDate,"Y",pRequest.OrderId,pRequest.TestId)
 	     	$$$TRACE("Update serviced flag status "_tSC)
+    	    }
+    	    Else
+     		{
+	    		$$$LOGINFO("ServicedDate is greater than current date,ServicedDate value :   "_pRequest.ServicedDate)
+	     
+     		}
 	     
      	}
      	Else
      	{
-	    	$$$TRACE("ServicedDate is empty or greater than current date,ServicedDate value :   "_pRequest.ServicedDate)
+	    	$$$LOGINFO("ServicedDate is empty :   "_pRequest.ServicedDate)
 	     
      	}
-		  	
+		 	
 	
-	/*ElseIf(MessageType = "A08")
-	{
-		//Update the record
-		Set tOrdUpdateQuery="Update post.fourmedicaorder (serviceddate, serviced) values (?,?) Where Orderid= ?"
-		
-		Set tPatUpdateQuery="Update post.fourmedicaorder (firstname, middlename, lastname, dob, sex) values (?,?,?,?,?) Where patientid = ?"
-		
-		Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,pRequest.ServicedDate,pRequest.Serviced,pRequest.OrderId)
-		
-		Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedPat,tPatUpdateQuery,pRequest.PatientFirstName,pRequest.PatientMidldleName,pRequest.PatientLastName,pRequest.PatientDOB,pRequest.PatientGender,pRequest.PatientId)
-		
-		
-	}
-	*/
 	
-	/*Set tOrdSelectQuery="SELECT ORDERID,ORDERDATE FROM POST.FOURMEDICAORDER WHERE ORDERID = ?"
 	
-	Set OrdSelectSnap=##class(EnsLib.SQL.Snapshot).%New()
-	Set OrdSelectSnap.MaxRowsToGet=-1
-	
-	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId)
-	
-		$$$TRACE("Order id select status "_tSCSelect)*/
-	
-   
+	  
 	quit tSC
 ]]></Implementation>
 </Method>
