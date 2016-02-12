@@ -97,6 +97,21 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='unitNbr' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='encNmbr' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='2250' >
 <scope xpos='200' ypos='250' xend='200' yend='2150' >
@@ -117,22 +132,39 @@ BPL Definition</Description>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)
  
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = "") )
- {
-   Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+   
+   //TargetConfigNames validation
+ set context.targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ context.targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
  }
- else
- {
-     set context.targetList = configValue
-     $$$TRACE("TargetConfigNames: " _ context.targetList)
- }
   
-  
-  
- 	  ]]]]><![CDATA[>
+ 
+ ]]]]><![CDATA[>
 </code>
-<code name='Get FilterProviderIds' xpos='200' ypos='650' >
+<code name='No MPI skipping messages' xpos='200' ypos='650' >
+<![CDATA[ set context.unitNbr=request.GetValueAt("PID:PatientIdentifierList().ID")
+ $$$TRACE("MPI="_context.unitNbr) 
+ if (context.unitNbr="")
+ {
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Missing EMPI number (PID-3), Skipping the record."_" Hl7 Msg:"_request.RawContent)
+ }
+
+ ]]]]><![CDATA[>
+</code>
+<code name='N encounter nmbr skipping message' xpos='200' ypos='750' >
+<![CDATA[ set context.encNmbr=request.GetValueAt("PID:PatientAccountNumber.ID")
+ $$$TRACE("Encounter number="_context.encNmbr) 
+ if (context.encNmbr = "") 
+ {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Missing encounter number (PID-18), Skipping the record."_" Hl7 Msg:"_request.RawContent)
+ }]]]]><![CDATA[>
+</code>
+<code name='Get FilterProviderIds' xpos='200' ypos='850' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterProviderIds",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") )
  {
@@ -146,7 +178,7 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<code name='Get NoGT1Segments' xpos='200' ypos='750' >
+<code name='Get NoGT1Segments' xpos='200' ypos='950' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"NoGT1Segments",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") )
  {
@@ -158,7 +190,7 @@ BPL Definition</Description>
      $$$TRACE("NoGT1Segments: " _ context.noGT1Segments)
  }]]]]><![CDATA[>
 </code>
-<code name='Get SkipUnits' xpos='200' ypos='850' >
+<code name='Get SkipUnits' xpos='200' ypos='1050' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"SkipUnits",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") )
  {
@@ -170,7 +202,7 @@ BPL Definition</Description>
     $$$TRACE("SkipUnits: " _ context.skipUnits)
  }]]]]><![CDATA[>
 </code>
-<code name='Get MergeADT' xpos='200' ypos='950' >
+<code name='Get MergeADT' xpos='200' ypos='1150' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"MergeADT",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") )
  {
@@ -182,54 +214,14 @@ BPL Definition</Description>
     $$$TRACE("MergeADT: " _ context.mergeAdt)
  }]]]]><![CDATA[>
 </code>
-<code name='GetInputsForValidation' xpos='200' ypos='1050' >
-<![CDATA[
- set context.LocationID = request.GetValueAt("MSH:4")
- $$$TRACE("Value of Location ID : "_context.LocationID)
- set context.IsValidLocation =0
- set LocList = context.LocationList.Next("")
- while ( LocList '= "")
-   {
- 	set PropLocation = context.LocationList.GetAt(LocList)
-	if (context.LocationID = PropLocation)
-	{
-	    set context.IsValidLocation = 1
-			
-	}
-	    set LocList = context.LocationList.Next(LocList)
-	}
-
-  	
- set TriggerEvent = request.GetValueAt("MSH:MessageType.triggerevent")
- set context.IsValidEventID =0
- $$$TRACE("Value of TriggerEvent : "_TriggerEvent)
- set EveList = context.EventList.Next("")
- while ( EveList '= "")
-	{
-            set PropEvent = context.EventList.GetAt(EveList)
-	    if (TriggerEvent = PropEvent)
-	    {
-		set context.IsValidEventID = 1
-	    }
-		set EveList = context.EventList.Next(EveList)
-	}
-	
-	
- set context.PatientID= request.GetValueAt("PID:PatientIdentifierList(1).ID") 
- set context.IsPatientIDNotNull =0
- if (context.PatientID '="")
- {
- 	set context.IsPatientIDNotNull =1
- }]]]]><![CDATA[>
-</code>
-<code name='Get MSH-9.2' xpos='200' ypos='1150' >
+<code name='Get MSH-9.2' xpos='200' ypos='1250' >
 <![CDATA[ $$$TRACE("Setting up context variables")
  set event = request.GetValueAt("MSH:MessageType.triggerevent")
  $$$TRACE("Trigger Event: " _event)
  set context.triggerEvent = event]]]]><![CDATA[>
 </code>
-<transform name='Translation for PowerPath ADT' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToPowerPath' source='request' target='response' xpos='200' ypos='1250' />
-<foreach name='Send to target' property='context.targetList' key='context.cntr' xpos='200' ypos='1350' xend='200' yend='450' >
+<transform name='Translation for PowerPath ADT' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToPowerPath' source='request' target='response' xpos='200' ypos='1350' />
+<foreach name='Send to target' property='context.targetList' key='context.cntr' xpos='200' ypos='1450' xend='200' yend='450' >
 <call name='Send to target' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -238,13 +230,34 @@ BPL Definition</Description>
 </call>
 <trace name='Send' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='350' />
 </foreach>
-<if name='secondSend required' condition='context.secondSend="Y"' xpos='200' ypos='1450' xend='200' yend='1800' >
+<if name='secondSend required' condition='context.secondSend="Y"' xpos='200' ypos='1550' xend='200' yend='1800' >
 <true>
-<code name='change context variables' xpos='335' ypos='1600' >
-<![CDATA[ set context.newResponse = response.%ConstructClone(1)]]]]><![CDATA[>
+<foreach name='send to target again' property='context.targetList' key='context.cntr' xpos='335' ypos='1700' xend='200' yend='450' >
+<code name='set variables for second call' xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE("prepare for Second Send("_context.cntr_"): " _ context.lastNm)
+ 
+ set context.newResponse = response.%ConstructClone(1)
+ 
+ do context.newResponse.SetValueAt(context.lastNm, "PID:PatientName (1).familylastname.lastnameprefix")
+ $$$TRACE("Second Send ready: " _ context.lastNm)
+ do context.newResponse.SetValueAt(context.firstNm, "PID:PatientName(1).givenname")
+ $$$TRACE("Second Send ready: " _ context.firstNm)
+ do context.newResponse.SetValueAt(context.middleNm, "PID:PatientName(1).middleinitialorname")
+ $$$TRACE("Second Send ready: " _ context.middleNm)
+ do context.newResponse.SetValueAt(context.sfx, "PID:PatientName(1).suffix")
+ $$$TRACE("Second Send ready: " _ context.sfx)
+ do context.newResponse.SetValueAt(context.pfx, "PID:PatientName(1).prefix")
+ $$$TRACE("Second Send ready: " _ context.pfx)
+  do context.newResponse.SetValueAt(context.dgre, "PID:PatientName(1).degree")
+  $$$TRACE("Second Send ready: " _ context.dgre)
+  do context.newResponse.SetValueAt(context.SSN, "PID:SSNNumberPatient")]]]]><![CDATA[>
 </code>
-<foreach name='send to target again' property='context.targetList' key='context.cntr' xpos='335' ypos='1700' xend='200' yend='350' >
-<empty xpos='200' ypos='250' />
+<call name='call second send' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='350' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
 </foreach>
 </true>
 </if>
