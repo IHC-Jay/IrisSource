@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Routine name="InitializeNewSrcCtrl" type="MAC" languagemode="0"><![CDATA[
+ #INCLUDE Ensemble
+ Write !, "ZDATE: " _ $ZDATETIME($HOROLOG,3, 1)
+ 
+  
+ set $NAMESPACE ="%SYS"
+   &sql(Select MIN( UTCTimeStamp)
+    	Into  :utcTm 
+		From %SYS.Audit  )
+		Write !, utcTm
+		
+		&sql(Select count( *)
+    	Into  :num
+		From %SYS.Audit Where Event in ( 'ROUTINECHANGE', 'MODIFY', 'CHANGE')  )
+		Write !, utcTm _ ", " _ num
+		
+		&sql(DECLARE CA1 CURSOR FOR
+		Select AuditIndex, Username, Namespace, Event, Description,  UTCTimeStamp
+    	Into :ind, :usrNm, :nmSp, :evt, :desc, :utcTm 
+		From %SYS.Audit  
+		Where Event in ( 'ROUTINECHANGE', 'MODIFY', 'CHANGE')
+		and Status = 1
+		order by Description, AuditIndex)
+		 
+		
+		  &sql(OPEN CA1)
+  &sql(FETCH CA1)
+  set prevNm = "ZZZZZ"
+  set prevUsrNm = "ZZZZZ"
+  set locTm = "ZZZZ"
+  set prevNmSp = "ZZZZ"
+  set prevIntNm = "ZZZZ"
+  set numUpd = 0
+  WHILE (SQLCODE = 0) {
+     set pos = $FIND($REVERSE(desc),$REVERSE(".cls"))
+     if (pos <= 0)
+     {
+	     set pos = $FIND($REVERSE(desc),$REVERSE(".CLS"))
+     }
+
+     if ( (desc [ "IHC") && (pos = 5) && ('(desc [ "Thread1.cls"))  && ('(desc [ "Context.cls")) )
+     {
+     	set nm = $ZCONVERT($P(desc, "|", 3), "U")
+     	if ( (nm '= "") && (prevNm '= nm) ) {
+	     	
+	  	 	set $NAMESPACE ="ITFCOMMON"
+        	Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateClassInformationInTable(prevIntNm , prevNmSp , locTm , prevUsrNm )
+        	set $NAMESPACE = "%SYS"
+        	
+			set prevNm = nm
+			set prevNmSp = nmSp
+			set prevIntNm = $P(desc, "|", 3)
+			s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
+			set prevUsrNm = usrNm
+			set numUpd = numUpd + 1
+    	}
+    	else
+    	{
+	    	s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
+	    	set prevUsrNm = usrNm
+	    	// WRITE !, ind _ ". " _ locTm
+    	}
+     }
+     elseif ( $F(desc, "HL7") = 4)
+     {
+	     set intNm =  $P(desc, " ", 2) _ "." _ $P(desc, " ", 1)
+	     s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
+	     set $NAMESPACE ="ITFCOMMON"
+	     Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateClassInformationInTable(intNm , nmSp , locTm , usrNm )
+	     set $NAMESPACE = "%SYS"
+	     set numUpd = numUpd + 1
+     }
+     &sql(FETCH CA1) 
+    }
+    &sql(CLOSE CA1)
+    Write !, "Updated: " _ numUpd
+     set $NAMESPACE ="ITFCOMMON"
+     Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateProcessTime("SVN update", "2014-02-17 16:10:00", "2014-02-17 16:10:10")
+     Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateProcessTime("Ensemble update", $ZDATETIME($HOROLOG,3, 1), $ZDATETIME($HOROLOG,3, 1))
+
+    QUIT
+]]></Routine>
+</Export>
