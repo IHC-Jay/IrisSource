@@ -13,6 +13,18 @@ Insert information of all files that are checked-in to SVN into a table IHC_ITF_
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
 	
+	set tStat = ..CheckSvnSetup(usrNm, passwd)
+			 	  
+	 IF $$$ISERR( tStat )
+	 {
+		  	set tExp = ##class(%Exception.General).%New()
+		  	set tExp.Name = "Setup error: " _ tStat.Data
+		  	set tExp.Code=999
+		  	set tExp.Location = "CheckSvnSetup"
+		  	set tExp.Data = "Check: " _ $$$USRBASEDIR _ usrNm
+		  	Throw tExp
+	 }
+	  		
 	 NEW $NAMESPACE
     SET $NAMESPACE = "ITFCOMMON"
      
@@ -118,7 +130,7 @@ Get the information about classes from Audit table into the source control table
   set $NAMESPACE = "ITFCOMMON"
   set prevEnsDt = ..GetEnsembleLastUpdateTime()
   
-  set prevDt = $PIECE($ZDATETIMEH(prevEnsDt, 3, 1), ",") - 1
+  set prevDt = $PIECE($ZDATETIMEH(prevEnsDt, 3, 1), ",")
   set nowDt = $PIECE($H, ",")
   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("UpdateClassesFromAudit: " _ $username _ ", last update: " _ prevEnsDt)
   set stDtTm = $ZDATETIME($HOROLOG,3, 1)
@@ -145,9 +157,9 @@ Get the information about classes from Audit table into the source control table
   &sql(FETCH C1)
   set prevNm = "ZZZZZ"
   set prevUsrNm = "ZZZZZ"
-  set locTm = "ZZZZ"
-  set prevNmSp = "ZZZZ"
-  set prevIntNm = "ZZZZ"
+  set locTm = "ZZZZZ"
+  set prevNmSp = "ZZZZZ"
+  set prevIntNm = "ZZZZZ"
   WHILE (SQLCODE = 0) {
      set pos = $FIND($REVERSE(desc),$REVERSE(".cls"))
      if (pos <= 0)
@@ -174,16 +186,29 @@ Get the information about classes from Audit table into the source control table
     	{
 	    	s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
 	    	set prevUsrNm = usrNm
+	    	set prevNmSp = nmSp
+	    	
 	    	// WRITE !, ind _ ". " _ locTm
     	}
      }
      elseif ( $F(desc, "HL7") = 4)
      {
 	     set intNm =  $P(desc, " ", 2) _ "." _ $P(desc, " ", 1)
-	     s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
-	     set $NAMESPACE ="ITFCOMMON"
-	     Do ..UpdateClassInformationInTable(intNm , nmSp , locTm , usrNm )
-	     set $NAMESPACE = "%SYS"
+	     if ( (intNm '= "") && (prevNm '= intNm) ) {
+	     	
+	     	set $NAMESPACE ="ITFCOMMON"
+	     	Do ..UpdateClassInformationInTable(prevNm , prevNmSp , locTm , prevUsrNm )
+	     	s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
+	     	set $NAMESPACE = "%SYS"
+	     	set prevNm = intNm
+	     }
+	     else
+    	{
+	    	s locTm =##Class(%SYS.Audit).ConvertUTCToLocal(utcTm)
+	    	set prevUsrNm = usrNm
+	    	set prevNmSp = nmSp
+	    	// WRITE !, ind _ ". " _ locTm
+    	}
      }
      &sql(FETCH C1) 
     }
@@ -221,7 +246,7 @@ Get the information about classes from Audit table into the source control table
 	  	 set $NAMESPACE ="ITFCOMMON"
 	  	 set clId = -1
 	  	 
-	  	 if (prevIntNm '= "ZZZZ")
+	  	 if (prevIntNm '= "ZZZZZ")
 		 {
 	  	 	Set flNm = ..RelativeFileName(prevIntNm)
 		 	set upIntNm = $ZCONVERT(prevIntNm, "U")	
@@ -1294,6 +1319,118 @@ If needed, create and add all directories from root to SVN</Description>
          }
          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(TempFile _ " length: " _ $LENGTH(fileInfo))
          Quit fileInfo
+]]></Implementation>
+</Method>
+
+<Method name="CheckSvnSetup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	NEW $NAMESPACE
+    SET $NAMESPACE = "ITFCOMMON"
+	set tSC = ..DoSvnSetup(usrNm, passwd)
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Create required directories, update svn tree
+
+]]></Content>
+</UDLText>
+
+<Method name="DoSvnSetup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 	
+	 set svnBaseDir = $$$USRBASEDIR _ usrNm
+ 	 set tSC = ..createSvnDirectories(svnBaseDir)
+ 	 if $$$ISERR(tSC)
+ 	 {
+	 	  Quit tSC
+ 	 }
+     // Checkout complete source tree
+     SET svnSrcTrunk = svnBaseDir _ $$$SVNSRCTRUNK
+     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnSrcTrunk)
+     IF ' ##class(%File).DirectoryExists(svnSrcTrunk)
+	 {
+	   Do ##class(%File).CreateDirectoryChain(svnSrcTrunk)
+	 }
+	 set fullPath = svnSrcTrunk _ "cls"
+	 IF ' ##class(%File).DirectoryExists(fullPath)
+	 {
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
+	   Set status = $ZF(-1, svnCmd)
+	   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " " _ status)
+	 }
+	 set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
+	  
+	 Set status = $ZF(-1, svnCmd)
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnSrcTrunk _ ", stat: " _ status)
+	 
+	 // Release files
+	 set svnBaseDir = $$$USRRELEASEBASEDIR  _ usrNm
+	 set tSC = ..createSvnDirectories(svnBaseDir)
+	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK
+	 IF ' ##class(%File).DirectoryExists(svnRelTrunk)
+	 {
+	   Do ##class(%File).CreateDirectory(svnRelTrunk)
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password " _ passwd _ " " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk 
+	   Set status = $ZF(-1, svnCmd)
+	   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk _ " " _ status)
+	 }
+	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password " _ passwd _ " " _ svnRelTrunk 
+	  Set status = $ZF(-1, svnCmd)
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnRelTrunk _ ", stat: " _ status)
+	 
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckSvnSetup: OK ")
+     Quit $$$OK
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Create base directories
+
+]]></Content>
+</UDLText>
+
+<Method name="createSvnDirectories">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrBaseDir:%String</FormalSpec>
+<Implementation><![CDATA[
+	 // check for the parent directory
+	
+	 
+	 IF ' ##class(%File).DirectoryExists(usrBaseDir)
+	 {
+		 if $$$ISERR( ##class(%File).CreateDirectory(usrBaseDir))
+		    Quit $$$ERROR(100, "User Home directory could not be created: " _usrBaseDir)
+     }
+     ELSE {
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ " User Home directory exists")
+     }
+     
+     SET svnBaseDir = usrBaseDir _ $$$SVNSRCTRUNK
+     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ svnBaseDir) 
+	 IF ' ##class(%File).DirectoryExists(svnBaseDir)
+     {
+         Do ##class(%File).CreateDirectoryChain(svnBaseDir)
+         
+	 }
+	 ELSE {
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories " _ svnBaseDir _ " User Home directory exists")
+     }
+     
+     IF ' ##class(%File).DirectoryExists(svnBaseDir)
+     {
+	     Quit $$$ERROR(100, "User SVN directory could not be created: " _ svnBaseDir)
+     }
+     Quit $$$OK
 ]]></Implementation>
 </Method>
 
