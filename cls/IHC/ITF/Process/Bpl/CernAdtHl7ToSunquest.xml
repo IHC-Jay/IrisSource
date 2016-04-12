@@ -87,6 +87,11 @@ BPL Definition</Description>
 </property>
 <property name='bcFacId' type='%Integer' instantiate='0' >
 </property>
+<property name='newResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1900' >
 <scope xpos='200' ypos='250' xend='200' yend='1800' >
@@ -161,7 +166,7 @@ BPL Definition</Description>
      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-9.2 is A31. Skipping the record.")
  }]]]]><![CDATA[>
 </code>
-<if name='isValid Msg' condition='context.isValidationPassed=1' xpos='200' ypos='650' xend='200' yend='1550' >
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='650' xend='200' yend='1550' >
 <true>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='800' >
 <annotation><![CDATA[translate Cerner Legacy ADT to Sunquest ADT format]]]]><![CDATA[></annotation>
@@ -175,7 +180,7 @@ BPL Definition</Description>
     
  set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer", context.sendingFacility, .retVal )	        
  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
-     //Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility:["_context.sendingFacility_"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	      	
+     //Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility:["_context.sendingFacility_"]. Skipping the record.")	  	      	
      set context.broadCastFacility = ""
      $$$TRACE("Value of BroadCastFacilities: "_context.sendingFacility )
    }else{
@@ -185,14 +190,15 @@ BPL Definition</Description>
          set st = context.broadCastFacilityList.Insert($LIST(list,index))
      }  
      $$$TRACE("Value of BroadCastFacilities: "_context.broadCastFacility )
+     $$$TRACE("Value of MSH-9.2: "_ response.GetValueAt("MSH:9.2"))
+     $$$TRACE("Value of PV1-18.1 "_response.GetValueAt("PV1:18.1") )
  }]]]]><![CDATA[>
 </code>
 <if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1100' xend='335' yend='1350' >
 <annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
 <true>
-<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1250' xend='200' yend='800' >
-<sync calls='CallTargetConfigNames' type='any' xpos='200' ypos='250' />
-<code name='Validation &amp; Update Msg' xpos='200' ypos='350' >
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1250' xend='200' yend='700' >
+<code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
 <![CDATA[ set context.bcFacId = context.broadCastFacilityList.GetAt(context.bcFacIndex)
  $$$TRACE(" Sending Cerner Facility to targetFacility: "_context.bcFacId )    
  Do response.SetValueAt(context.bcFacId, "MSH:SendingFacility.namespaceID")
@@ -202,36 +208,121 @@ BPL Definition</Description>
  //Filter message if MSH-4 is '122' and PV1-3.2 is 'CRLR' 
  set pv132Room = request.GetValueAt("PV1:AssignedPatientLocation.room") 
  if ( (context.bcFacId = "122") && (pv132Room = "CRLR") ) {
-     $$$TRACE("MSH-4 is 122 & PV1-3.2 is CRLR, so skip message" _ "Hl7 Msg:[" _ response.RawContent  _"]")
+     $$$LOGINFO("MSH-4 is <122> & PV1-3.2 is <CRLR>, so skip message")
      set context.isValidationPassed=0     
-     //set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-4 is 122 & PV1-3.2 is CRLR. Skipping the record." _ "Hl7 Msg:[" _ response.RawContent  _"]")
  } else {
      set context.isValidationPassed=1
  }
  ]]]]><![CDATA[>
 </code>
-<if name='isValid' condition='context.isValidationPassed=1' xpos='200' ypos='450' xend='200' yend='700' >
+<if name='isValid' condition='context.isValidationPassed' xpos='200' ypos='350' xend='200' yend='600' >
 <true>
-<foreach property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='600' xend='200' yend='350' >
-<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='250' >
+<foreach name='Send To Each Broadcast Fac' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='500' xend='200' yend='800' >
+<switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
+<code name='Send 2 Msgs' xpos='470' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A01", "MSH:9.2")
+ do context.newResponse.SetValueAt("A01", "EVN:1")
+]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A01' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
+</case>
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; ((response.GetValueAt("PV1:18.1") = "O") || (response.GetValueAt("PV1:18.1") = "E"))' name='A04 case' >
+<code name='Send 2 Msgs' xpos='740' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A04", "MSH:9.2")
+ do context.newResponse.SetValueAt("A04", "EVN:1")
+]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A04' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<default>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</default>
+</switch>
 </foreach>
 </true>
 </if>
 </foreach>
 </true>
 <false>
-<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1250' xend='200' yend='350' >
-<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='250' >
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1250' xend='200' yend='800' >
+<switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
+<code name='Send 2 Msgs' xpos='470' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A01", "MSH:9.2")
+ do context.newResponse.SetValueAt("A01", "EVN:1")]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A01' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
+</case>
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; ((response.GetValueAt("PV1:18.1") = "O") || (response.GetValueAt("PV1:18.1") = "E"))' name='A04 case' >
+<code name='Send 2 Msgs' xpos='740' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A04", "MSH:9.2")
+ do context.newResponse.SetValueAt("A04", "EVN:1")]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A04' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<default>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</default>
+</switch>
 </foreach>
 </false>
 </if>
