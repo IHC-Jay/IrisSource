@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.SunquestBillingHl7ToTelcorHl7">
+<Description>
+Bpl split Hl7 Batch to single Hl7 Messgae</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64019,36920.91367</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3400' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
+</property>
+<property name='batchFacilityID' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='BatchComment' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='telcorResponse' type='EnsLib.HL7.Message' instantiate='1' >
+</property>
+<property name='facilityTLA' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='3050' >
+<scope xpos='200' ypos='250' xend='200' yend='2950' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+ 
+ 
+
+ 	  ]]]]><![CDATA[>
+</code>
+<if name='Check FHS' condition='request.{FHS}&apos;=""' xpos='200' ypos='650' xend='200' yend='2700' >
+<true>
+<trace name='Has FHS or FTS' value='"Has FHS or FTS - End of File"' xpos='200' ypos='800' />
+<code name='Send to Bp' xpos='200' ypos='900' >
+<![CDATA[   set key=$ZDATE($H,8)
+  $$$TRACE("Inside Code block send to Telcor")        
+  set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%ExistsId(key)
+  $$$TRACE("If Id Exists:"_isExists)
+  if isExists {  
+                //If the Id Exist
+                Set telcorMessage = ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%OpenId(key)
+               Set listOfIds = telcorMessage.TelcorMsgIds
+               $$$TRACE("Fac Id Count:"_listOfIds.Count())
+               for ids=1:1:listOfIds.Count(){            
+                    set parent = ##class(EnsLib.HL7.Message).%OpenId(listOfIds.GetAt(ids))                    
+                        //Send the Message to Router  
+                        set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
+                        $$$TRACE("Output:"_parent.OutputToString())
+                    }                   
+               }    
+
+         
+          ]]]]><![CDATA[>
+</code>
+<code name='Kill The Global and Stored Message' xpos='200' ypos='1000' >
+<![CDATA[   set key=$ZDATE($H,8)
+  $$$TRACE("key:"_key)
+  set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%ExistsId(key)  
+  if isExists {  
+               do ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%DeleteId(key)
+               $$$TRACE("Values Deleted From the Table")
+    }]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='No FHS' value='"No Fhs"' xpos='470' ypos='800' />
+<if name='Check of BHS Or BTS' condition='(request.{BHS}&apos;="") || (request.{BTS}&apos;="")' xpos='470' ypos='900' xend='470' yend='2600' >
+<true>
+<assign name="Set the Facility ID" property="context.batchFacilityID" value="request.{BHS:BatchReceivingFacility}" action="set" xpos='470' ypos='1050' />
+<trace name='Trace Faclilty ID' value='"Facid:"_context.batchFacilityID' xpos='470' ypos='1150' />
+<assign name="Set ID from BTS" property="context.BatchComment" value="request.{BTS:BatchComment}" action="set" xpos='470' ypos='1250' />
+</true>
+<false>
+<trace name='Trace No Bhs' value='"no Bhs or Bts"' xpos='740' ypos='1050' />
+<if name='Check MHS' condition='request.{MSH}&apos;=""' xpos='740' ypos='1150' xend='740' yend='2500' >
+<true>
+<trace name='Has Msh' value='"Has MSH"_request.OutputToString()' xpos='1010' ypos='1300' />
+<assign name="Get Facility Id from MSH" property="context.batchFacilityID" value="request.{MSH:ReceivingFacility}" action="set" xpos='1010' ypos='1400' />
+<trace name='"Msh Facility"' value='"MSH Facid:"_context.batchFacilityID' xpos='1010' ypos='1500' />
+<code name='Get tfacilityTLA ' xpos='1010' ypos='1600' >
+<![CDATA[ //Get the value from LookUp
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestBillingHl7.IHCSiteIDtoFacility",context.batchFacilityID,.tfacilityTLA)
+ if ($$$ISOK(tStatus)){        
+        set context.facilityTLA=tfacilityTLA        
+     }else{
+         set errorMessage = "MSH-6 (or BTS-2): " _context.batchFacilityID_" is not a currently-known hospital facility.  Input message:"_request.OutputToString()
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, errorMessage )  
+     }
+     $$$TRACE("context.facilityTLA:"_context.facilityTLA)]]]]><![CDATA[>
+</code>
+<code name=' Check the MessageType and TiggerType' xpos='1010' ypos='1700' >
+<![CDATA[ //Get the MessgaeType
+ set messageType = request.GetValueAt("MSH:9.1")
+ //Get the TriggerType
+ Set triggerType = request.GetValueAt("MSH:9.2")
+ if (messageType '= "DFT") && (triggerType'="P03"){
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"MSH-9: Not a DFT^P03 transaction. InputMessage: "_request.OutputToString())
+ }
+ $$$TRACE("After MSH Cjheck")]]]]><![CDATA[>
+</code>
+<code name='Skip the Message if its invalid charge code' xpos='1010' ypos='1800' >
+<![CDATA[
+ set invalidChargeCode=""
+ set isError=0
+ //Get the value from LookUp 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestBillingHl7.TelcorProperties","InvalidChargeCode",.configValue)  
+ if ($$$ISOK(status)){     
+       set invalidChargeCode=configValue        
+     }else{
+       set isError=1
+     }
+     $$$TRACE("invalidChargeCode:"_invalidChargeCode)
+ Set isInvalidCharge =0
+ if 'isError{
+        //Loop Through the Ft1 Segement 
+       For i = 1:1:request.GetValueAt("FT1grp(*)") {	 
+ 	  set pathvalue=request.GetValueAt("FT1("_i_"):Transactioncode.identifier",,.status)
+         	If ""'= pathvalue{
+ 	          if pathvalue [ invalidChargeCode {
+ 		      set isInvalidCharge = 1
+ 		  }
+ 	      } 
+        }
+       $$$TRACE("isInvalidCharge :"_isInvalidCharge )
+     if isInvalidCharge {
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skipping the record. Invalid charge code: [ "_ chargeCode_" ] in FT1_7 ")  
+       }
+   }]]]]><![CDATA[>
+</code>
+<code name='Check to see if allowByChargeCodeAndFacility' xpos='1010' ypos='1900' >
+<![CDATA[  set BBChargeCodesStop=""
+  set ISTATChargeCodesStop =""
+ //Get the value from LookUp 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestBillingHl7.BBChargeCodesStop",context.batchFacilityID,.tBBChargeCodesStop) 
+
+  if ($$$ISOK(tStatus)){ 
+         set BBChargeCodesStop=tBBChargeCodesStop 
+         $$$TRACE("Charge Stop:"_BBChargeCodesStop)
+     }
+ 
+ //Get the value from LookUp 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestBillingHl7.ISTATChargeCodesStop",context.batchFacilityID,.tISTATChargeCodesStop ) 
+
+ if ($$$ISOK(tStatus)){
+         set ISTATChargeCodesStop =tISTATChargeCodesStop 
+         $$$TRACE("Charge Stop:"_ISTATChargeCodesStop )
+     }
+ 
+  // Check if the charge Code needs to sent or not     
+  set tmpErroMsg=""
+  set tmpIsError=0
+  For i = 1:1:request.GetValueAt("FT1(*)") {	 
+ 	  set pathvalue=request.GetValueAt("FT1("_i_"):Transactioncode.identifier",,.status)
+ 	     $$$TRACE("ChargeCode Pathval:"_pathvalue)
+         	If ""'= pathvalue{
+ 	          if pathvalue = "1111111" {
+ 		      set tmpErroMsg = tmpErroMsg_" Invalid charge code, skipping"
+ 		      set tmpIsError=1
+ 		  }
+ 		  if BBChargeCodesStop [ pathvalue {
+ 		     set tmpErroMsg = tmpErroMsg_" Invalid Blood bank charge code, skipping"
+ 		     set tmpIsError=1 
+ 		  }
+ 		 if ISTATChargeCodesStop [ pathvalue {
+ 		     set tmpErroMsg = tmpErroMsg_" Invalid Blood bank charge code, skipping"
+ 		     set tmpIsError=1 
+ 		  } 
+ 	      } 
+        }
+        
+        //If Error Skip the Message in other words dont send the record
+        if tmpIsError {
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, tmpErroMsg)  
+       }]]]]><![CDATA[>
+</code>
+<trace name='Call Transformatiom' value='"Call Transformation"' xpos='1010' ypos='2000' />
+<transform name='Call Telcor Transform' class='IHC.ITF.Transform.Dtl.SunquestBillingHl7ToTelcorHl7' source='request' target='context.telcorResponse' xpos='1010' ypos='2100' />
+<trace name='TranformedValue' value='"tranformed Value"_context.telcorResponse.OutputToString()' xpos='1010' ypos='2200' />
+<code name='To Store the Transformed Telcor Dtl' xpos='1010' ypos='2300' >
+<![CDATA[  //Create a messgae from the transformed  value
+  set message = ##class(EnsLib.HL7.Message).ImportFromString(context.telcorResponse.OutputToString())
+  set message.DocType="2.3:DFT_P03"
+  //Save the messgae
+  do message.%Save()
+  $$$TRACE("Add Fac to Class")
+   set key=$ZDATE($H,8)
+    set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%ExistsId(key)      
+    if 'isExists {  
+             $$$TRACE("Adding Fac to Class for the firstime")
+             Set telcorMessgae = ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%New()    
+             set telcorMessgae.Id=key
+             $$$TRACE("REsponse:"_message.%Id())
+             do telcorMessgae.TelcorMsgIds.Insert(message.%Id())
+             do telcorMessgae.%Save()
+         }else{
+            $$$TRACE("Adding Fac to Class for the secontime")
+             Set telcorMessgae= ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%OpenId(key)
+             do telcorMessgae.TelcorMsgIds.Insert(message.%Id())
+             do telcorMessgae.%Save()  
+         }
+         
+    ]]]]><![CDATA[>
+</code>
+<code name='Reset the Error' xpos='1010' ypos='2400' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='No Msh' value='"No MHS"' xpos='740' ypos='1300' />
+</false>
+</if>
+</false>
+</if>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2800' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[  $$$TRACE("Expection is Thrown")
+  $$$TRACE("Fault:"_..%Context.%LastFault)
+  $$$TRACE("Fault:"_..%Context.%LastError)
+  //Before throwing Error delete the table
+  set key=$ZDATE($H,8)
+  $$$TRACE("key:"_key)
+  if ('(..%Context.%LastError["ITFCOMMON:10102") && '(..%Context.%LastError["ITFCOMMON:10105")){
+     set isExists=##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%ExistsId(key)  
+     if isExists {  
+             $$$TRACE("Delete the table as Expection is Thrown")
+               do ##class(IHC.ITF.BILLING.DStruc.StoreTelcorMessage).%DeleteId(key)
+               $$$TRACE("Values Deleted From the Table")
+      }
+    }else{
+       $$$TRACE("Since its Skip Messgae or Fail Msg dont delete the table")
+    }
+ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>SunquestBillingHl7ToTelcorHl7DefaultData</DefaultData>
+<Data name="SunquestBillingHl7ToTelcorHl7DefaultData">
+<Subscript>"SunquestBillingHl7ToTelcorHl7"</Subscript>
+<Value name="1">
+<Value>InvalidChargeCode</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
