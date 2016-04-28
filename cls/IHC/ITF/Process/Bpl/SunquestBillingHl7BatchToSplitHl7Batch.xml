@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.SunquestBillingHl7BatchToSplitHl7Batch">
+<Description>
+Bpl split Hl7 Batch to single Hl7 Messgae</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64009,47350.123065</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3050' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
+</property>
+<property name='batchFacilityID' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='BatchComment' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2800' >
+<scope xpos='200' ypos='250' xend='200' yend='2700' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+ 
+ 
+
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0
+    set context.errorStatus=tempStatus
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2450' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<if name='Check FHS' condition='request.{FHS}&apos;=""' xpos='470' ypos='1000' xend='470' yend='2350' >
+<true>
+<trace name='Has FHS or FTS' value='"Has FHS or FTS - End of File"' xpos='470' ypos='1150' />
+<code name='Send to Router' xpos='470' ypos='1250' >
+<![CDATA[ $$$TRACE("Inside Code block send to router")     
+     set listId = $g(^SunQuestBatchHL7("allIds"))
+       $$$TRACE("Global Length"_$LISTLENGTH(listId))          
+      for i=1:1:$LISTLENGTH(listId){
+             $$$TRACE("Id in Global:"_$LIST(listId,i))
+             set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId($LIST(listId,i))
+               $$$TRACE("If Id Exists:"_isExists)
+  if isExists {  
+                //If the Id Exist
+                Set facId = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%OpenId($LIST(listId,i))
+                $$$TRACE("Fac Id in Table:"_facId.FacilityId)                
+               set count = 1        
+               Set listOfIds = facId.Hl7Message        
+               $$$TRACE("Fac Id Count:"_listOfIds.Count())
+               for ids=1:1:listOfIds.Count(){            
+                    set parent = ##class(EnsLib.HL7.Message).%OpenId(listOfIds.GetAt(ids))
+                    if count=listOfIds.Count(){
+                         $$$TRACE("Inside final Record") 
+                         //Create BTS String
+                         set BTSeg="BTS|"_listOfIds.Count()_"|"_facId.FacilityId_"|"_count_"^0^0^0|"
+                         set BTSegX = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&"_BTSeg))  
+                         set clone = parent.%ConstructClone()       
+                         set status = clone.AppendSegment(BTSegX)
+                         do clone.%Save()
+                         $$$TRACE("Clone:"_clone.OutputToString())                         
+                         //Send the Message to Router
+                         set tStatus=process.SendRequestAsync(process.TargetConfigNames,clone,.Response)                          
+                   }else{
+                        //Send the Message to Router  
+                        set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
+                        $$$TRACE("Output:"_parent.OutputToString())
+                    }
+                    set count = count+1
+               }    
+            }
+          }
+          //Once the Split is sent, send the FTS messgae
+          set tStatus=process.SendRequestAsync(process.TargetConfigNames,request,.Response)  
+          ]]]]><![CDATA[>
+</code>
+<code name='Kill The Global and Stored Message' xpos='470' ypos='1350' >
+<![CDATA[  set listId = $g(^SunQuestBatchHL7("allIds"))
+      for i=1:1:$LISTLENGTH(listId){
+             $$$TRACE("Id to be deleted:"_$LIST(listId,i))
+             set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId($LIST(listId,i))
+  if isExists {  
+             set st = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%DeleteId($LIST(listId,i))
+          }
+      }
+      kill ^SunQuestBatchHL7]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='No FHS' value='"No Fhs"' xpos='740' ypos='1150' />
+<if name='Check of BHS Or BTS' condition='(request.{BHS}&apos;="") || (request.{BTS}&apos;="")' xpos='740' ypos='1250' xend='740' yend='2250' >
+<true>
+<assign name="Set the Facility ID" property="context.batchFacilityID" value="request.{BHS:BatchReceivingFacility}" action="set" xpos='740' ypos='1400' />
+<trace name='Trace Faclilty ID' value='"Facid:"_context.batchFacilityID' xpos='740' ypos='1500' />
+<assign name="Set ID from BTS" property="context.BatchComment" value="request.{BTS:BatchComment}" action="set" xpos='740' ypos='1600' />
+<code name='Code to check if BHS matches with MSH' xpos='740' ypos='1700' >
+<![CDATA[
+  $$$TRACE("Inside BTS/BHS Block")
+ Set id = context.BatchComment_$ZDATE($H,8) 
+  set isExists=##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId(id)
+  if isExists {       
+       Set facId = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%OpenId(id)
+       $$$TRACE("Fac Id in Table:"_facId.FacilityId)
+       set i = 1        
+        Set listOfIds = facId.Hl7Message        
+        $$$TRACE("Fac Id Count:"_listOfIds.Count())
+            for i=1:1:listOfIds.Count(){
+             set parent = ##class(EnsLib.HL7.Message).%OpenId(listOfIds.GetAt(i))
+            $$$TRACE("Output:"_parent.OutputToString())
+        }   
+        
+  }else{
+     $$$TRACE("Inside BTS/BHS Else Block")     
+     set listId = $g(^SunQuestBatchHL7("allIds"))
+      for i=1:1:$LISTLENGTH(listId){
+             $$$TRACE("Id to be deleted:"_$LIST(listId,i))
+             set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId($LIST(listId,i))
+  if isExists {  
+             set st = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%DeleteId($LIST(listId,i))
+          }
+      }
+     $$$TRACE("THROW ERROR AS BTS FACID in not matching in the MSH IDs")
+  }]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='Trace No Bhs' value='"no Bhs or Bts"' xpos='1010' ypos='1400' />
+<if name='Check MHS' condition='request.{MSH}&apos;=""' xpos='1010' ypos='1500' xend='1010' yend='2150' >
+<true>
+<trace name='Has Msh' value='"Has MSH"' xpos='1280' ypos='1650' />
+<assign name="Get Facility Id from MSH" property="context.batchFacilityID" value="request.{MSH:ReceivingFacility}" action="set" xpos='1280' ypos='1750' />
+<trace name='"Msh Facility"' value='"MSH Facid:"_context.batchFacilityID' xpos='1280' ypos='1850' />
+<code name='To Update Fee Schedule' xpos='1280' ypos='1950' >
+<![CDATA[ set feeScheduleUpdated=0
+ set newCloneId=""
+ set transAlt=request.GetValueAt("FT1(1):Transactiondescriptionaltern")
+ $$$TRACE("Afternate:"_transAlt)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestBillingHl7.SunquestLocAndTestCodeToTelcorLoc",transAlt,.tfeeSchedule)
+    if ($$$ISOK(tStatus)){
+        set cloneMsg = request.%ConstructClone()          
+        set s = cloneMsg.SetValueAt(tfeeSchedule,"FT1(1):Feeschedule")
+        do cloneMsg.%Save()
+        set feeScheduleUpdated = 1
+        set newCloneId =cloneMsg.%Id()
+        $$$TRACE("FeeSchedule:"_tfeeSchedule)       
+        $$$TRACE("Updated Fee Schedule"_cloneMsg.OutputToString())
+     }else{
+        //Reset the values 
+        set feeScheduleUpdated=0
+        set newCloneId=""
+     }
+    ]]]]><![CDATA[>
+</code>
+<code name='Store Each MSH' xpos='1280' ypos='2050' >
+<![CDATA[  $$$TRACE("feeScheduleUpdated:"_feeScheduleUpdated_"  "_"newCloneId:"_newCloneId)
+  Set id = context.batchFacilityID_$ZDATE($H,8) 
+  set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId(id)
+  
+  if 'isExists {
+      $$$TRACE("This Faclility Id is for the First Time")
+      set facId=##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%New()
+      set facId.Id = id
+      set facId.FacilityId=context.batchFacilityID
+      if (feeScheduleUpdated) && (newCloneId '="") {
+      $$$TRACE("Messgae from Clone:"_##class(EnsLib.HL7.Message).%OpenId(newCloneId).OutputToString())
+        do facId.Hl7Message.Insert(newCloneId)
+      }else{
+        do facId.Hl7Message.Insert(request.%Id())
+      }
+      do facId.%Save()      
+      //Check if the Global is Present
+      set ifGlobalExist = $DATA(^SunQuestBatchHL7("allIds"))      
+      //If the Global is not present
+      if 'ifGlobalExist{
+          //Create and add
+          set ^SunQuestBatchHL7("allIds") = $LISTBUILD(id)
+      }else{
+           //If present Update the List
+           set listId = $g(^SunQuestBatchHL7("allIds"))
+           $$$TRACE("Count:"_$LISTLENGTH(listId))
+           //Set the end length
+           set endLen = $LISTLENGTH(listId)+1         
+           //Append the Id to the Last
+	   set $LIST(listId,endLen) = id
+	   //Set the value back to Global
+	   set ^SunQuestBatchHL7("allIds") = listId
+      }      
+  }else{
+   $$$TRACE("Another Facility ID")
+   Set facId = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%OpenId(id)
+   if (feeScheduleUpdated) && (newCloneId '="") {
+      do facId.Hl7Message.Insert(newCloneId)
+     }else {
+      do facId.Hl7Message.Insert(request.%Id())
+     }
+     do facId.%Save()    
+    
+  }
+  ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='No Msh' value='"No MHS"' xpos='1010' ypos='1650' />
+</false>
+</if>
+</false>
+</if>
+</false>
+</if>
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' >
+<annotation><![CDATA[Write the code in this path to Skip error or Check Error. If Check error is used then reset error should be used]]]]><![CDATA[></annotation>
+</trace>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2550' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[     $$$TRACE("Expection is thrown")
+   //Before Throwing Error delete the content and clear the global
+   if ('(..%Context.%LastError["ITFCOMMON:10102") || '(..%Context.%LastError["ITFCOMMON:10105")){
+      set listId = $g(^SunQuestBatchHL7("allIds"))
+      for i=1:1:$LISTLENGTH(listId){
+             $$$TRACE("Id to be deleted:"_$LIST(listId,i))
+             set isExists = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%ExistsId($LIST(listId,i))
+      if isExists {  
+               $$$TRACE("Expection is thrown So delete the table")
+             set st = ##class(IHC.ITF.BILLING.DStruc.StoreBatchHl7).%DeleteId($LIST(listId,i))
+          }
+      }
+      kill ^SunQuestBatchHL7
+   }else{
+	   $$$TRACE("Table not deleted as its Skip or Warn Msg")
+   }
+ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
