@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.InitiateDemogrHl7ToAmWell">
+<Description>
+Translates Initiate Demographics Hl7 to AmericanWell</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63958,42214.764572</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='validationSettingValue' type='%String' initialexpression='""' instantiate='0' >
+</property>
+
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
+
+<property name='httpsRequest' type='IHC.ITF.Request.AmWellHttpsRequest' instantiate='0' >
+</property>
+
+<property name='amwellMrn' type='%String' instantiate='0' initialexpression='""'>
+</property>
+
+<property name='ihcEmpi' type='%String' instantiate='0' >
+</property>
+
+<property name='amWellFacilityNcid' type='%String' initialexpression='"528125086"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+</context>
+<sequence xend='200' yend='1000' >
+<scope xpos='200' ypos='250' xend='200' yend='900' >
+
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='validateMsgStructure' xpos='200' ypos='450' >
+<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  }   
+ $$$TRACE("Validate Message Begins...") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){  	
+    $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
+    // Skip the record.
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }else{
+	  $$$TRACE("Passed Validation Settings: " _ context.validationSettingValue) 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='initializePortalSettings' xpos='200' ypos='550' >
+<annotation><![CDATA[Check/Initialize for Management Portal Settings]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }  
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: [" _ maxErr+"]")  
+]]]]><![CDATA[>
+</code>
+
+
+<code name='setAmWellFacilityNcid' xpos='200' ypos='550' >
+<annotation><![CDATA[Set AmericanWell Facility Ncid]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set configValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AmWellFacilityNcid",.configValue)
+ if ($$$ISOK(pstatus)&&(configValue'="")){
+    $$$TRACE("AmWellFacilityNcid: ["_configValue_"]") 
+    set context.amWellFacilityNcid=configValue
+ } else{
+	 $$$TRACE("Config setting AmWellFacilityNcid is not set. Using default value of "_context.amWellFacilityNcid)
+ }
+]]]]><![CDATA[>
+</code>
+
+ 
+
+<code name='GetAmWellMRN' xpos='200' ypos='650' >
+<annotation><![CDATA[Get AmWell MRN]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Get AmWell MRN...")   
+  set k1="",tSC=1 
+ For { 
+     Set k1=request.GetNextIndex("PID:3()",k1,.tSCTrans)  Quit:k1=""          
+     Set pid341 = request.GetValueAt("PID:3("_(k1)_").4.1")
+     $$$TRACE("pid341: " _ pid341) 
+     If (pid341="528125086") {
+	     $$$TRACE("pid341: " _ "528125086") 
+         Set context.amwellMrn=request.GetValueAt("PID:3("_(k1)_").1.1")         
+         quit
+     }
+     If (pid341["CEOF") {
+	     $$$TRACE("pid341: " _ "CEOF") 
+	     Set context.amwellMrn=request.GetValueAt("PID:3("_(k1)_").1.1")         
+         quit
+     }
+ }
+ $$$TRACE("AmWell MRN: " _ context.amwellMrn) 
+ if ($ISVALIDNUM(context.amwellMrn)'="1"){	  
+	  $$$TRACE("AmWell MRN# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Hl7 message has invalid american well id: ["_context.amwellMrn_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }
+ ]]]]><![CDATA[>
+  </code> 
+  
+  <code name='SkipGuarantorWithNoAmWellMrn' xpos='200' ypos='450' >
+<![CDATA[  
+     Set context.GuarantorAmWellMrn=request.GetValueAt("GT1(1):GuarantorNumber(1).ID")     
+     if ($ISVALIDNUM(context.GuarantorAmWellMrn)'="1"){	  
+	    $$$TRACE("Guarantor AmWell Mrn# is NOT a VALID number ")
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Hl7 message has invalid Guarantor american well id: ["_context.GuarantorAmWellMrn_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+     }    
+ ]]]]><![CDATA[>
+</code>
+
+
+  <code name='GetIhcEmpi' xpos='200' ypos='650' >
+<annotation><![CDATA[Get IHC empi]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Get IHC empi#...")   
+  set k1="",tSC=1 
+ For { 
+     Set k1=request.GetNextIndex("PID:3()",k1,.tSCTrans)  Quit:k1=""          
+     If (request.GetValueAt("PID:3("_(k1)_").4.1")="UN") {
+         Set context.ihcEmpi=request.GetValueAt("PID:3("_(k1)_").1.1")         
+         quit
+     }
+ }
+ $$$TRACE("EMPI: " _ context.ihcEmpi) 
+ if ($ISVALIDNUM(context.ihcEmpi)'="1"){	  
+	  $$$TRACE("EMPI# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi#: ["_context.ihcEmpi_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }
+ ]]]]><![CDATA[>
+  </code> 
+
+<code name='getTargetConfigList' xpos='470' ypos='900' >
+<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count() )
+ ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.InitiateDemogrHl7ToAmWell' source='request' target='response' xpos='470' ypos='1000' >
+<annotation><![CDATA[translates Initiate Demographics Hl7 to American Well]]]]><![CDATA[></annotation>
+</transform>
+
+
+
+
+ <foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach> 
+
+
+<code name='RESETERROR' xpos='470' ypos='1200' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+
+]]]]><![CDATA[>
+</code>
+
+<faulthandlers>
+<catchall xpos='200' ypos='750' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Property name="AmWellFacilityNcid">
+<Type>%String</Type>
+<InitialExpression>"528125086"</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>AmWellFacilityNcid:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>InitiateDemogrHl7ToAmWellDefaultData</DefaultData>
+<Data name="InitiateDemogrHl7ToAmWellDefaultData">
+<Subscript>"InitiateDemogrHl7ToAmWell"</Subscript>
+<Value name="1">
+<Value>AmWellFacilityNcid</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
