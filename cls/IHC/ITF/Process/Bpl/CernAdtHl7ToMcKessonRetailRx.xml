@@ -50,6 +50,7 @@ BPL Definition</Description>
 <property name='PartnerCode' type='%String' initialexpression='"IMT"'  instantiate='0'>
 </property>
 
+
 </context>
 
 <sequence xend='200' yend='1000' >
@@ -92,7 +93,7 @@ BPL Definition</Description>
 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.McKessonRetailProps not exists")  
   } 
   
-    set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.AllowedHospitals")
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.AllowedHospitals")
   if (retVal = 0){
 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.AllowedHospitals not exists")  
   }
@@ -100,15 +101,20 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 
+
 <code name='CheckFacility' xpos='200' ypos='750' >
 <![CDATA[
-    Set sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID")    
-    set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.AllowedHospitals",sendingFacility, .retVal )	
-    if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid facility:["_ sendingFacility _"] for EDW and RODS, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
-    }        
+    Set clinReg =  request.GetValueAt("ZZZ(2):27UB92Condition}")
+    if (clinReg '= "CLIN_REG"){
+    	Set sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID")   
+    	set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToMcKessonRetailRx.AllowedHospitals",sendingFacility, .retVal )	
+    	if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       		set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid facility:["_ sendingFacility _"] for McKesson Retail, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+    	}        
+    }
 ]]]]><![CDATA[>
 </code>
+
  
 <code name='initializeHlFields' xpos='200' ypos='750' >
 <annotation><![CDATA[Check Valid Record]]]]><![CDATA[></annotation>
@@ -184,14 +190,14 @@ BPL Definition</Description>
  
  set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: [" _ maxErr+"]")
- /*
+ 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") ){   
    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetConfigNames found")
  }else{
  	$$$TRACE("TargetConfigNames: " _configValue)
  } 
- */
+ 
  
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AlertForMcKessonRetailRx",.configValue) 
  $$$TRACE("Value of AlertForMcKessonRetailRx :["_configValue_"]")
@@ -216,15 +222,58 @@ BPL Definition</Description>
 <annotation><![CDATA[translates iCentra Adt Legacy Hl7 to McKessonRetailRx ]]]]><![CDATA[></annotation>
 </transform>
 
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
+
+<code name='buildHttpsRequest' xpos='470' ypos='900' >
+<![CDATA[     
+  $$$TRACE("httpsRequest..1 " _ context.AuthToken)
+    set context.httpsRequest = ##class(IHC.ITF.ITFCOMMON.Util.BuildHttpsRequest).buildHttpsRequest(response,context.AuthToken,context.PartnerCode)
+   $$$TRACE("httpsRequest..1 " _ context.httpsRequest)]]]]><![CDATA[>
+</code>
+ <foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
+ <sync calls='CallTargetConfigNames' type='any' xpos='200' ypos='250' />
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
-<assign property="callrequest" value="response" action="set" />
+<assign property="callrequest" value="context.httpsRequest" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
-</foreach>
+</foreach> 
 
+
+<if name='isAlertFlagSet' condition='context.AlertForMcKessonRetailRx = "1"' xpos='470' ypos='1300' xend='470' yend='1750' >
+<true>
+   <code name='UpdateRecordIfAlertFlagIsSet' xpos='200' ypos='350' >
+<![CDATA[ 
+ set keeperPerson=request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ $$$TRACE("Keep Person: " _ keeperPerson) 
+ set deleterPerson=request.GetValueAt("MRG:PriorPatientIdentifierList(1).ID")
+ $$$TRACE("Delete Person: " _ deleterPerson) 
+
+ set context.updatedResponse = response.%ConstructClone(1)
+ do context.updatedResponse.SetValueAt(keeperPerson, "PID:PatientIdentifierList(1).ID")
+ set dob = request.GetValueAt("PID:DateTimeOfBirth.timeofanevent")
+ do context.updatedResponse.SetValueAt(dob, "PID:DateTimeOfBirth.timeofanevent")
+ set diagDescMsg = " EMPI MERGE MSG- DELETE EMPI :"_deleterPerson
+ do context.updatedResponse.SetValueAt(diagDescMsg, "DG1(1):DiagnosisDescription}")  
+ 
+]]]]><![CDATA[>
+</code>
+<code name='buildHttpsRequestForAlertFlagSet' xpos='470' ypos='900' >
+<![CDATA[      
+    set context.httpsRequest = ##class(IHC.ITF.ITFCOMMON.Util.BuildHttpsRequest).buildHttpsRequest(context.updatedResponse,context.AuthToken,context.PartnerCode)
+   $$$TRACE("httpsRequest..2 " _ context.httpsRequest)]]]]><![CDATA[>
+</code>
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
+<sync calls='CallTargetIfAlertFlagSet' type='any' xpos='200' ypos='250' />
+<call name='CallTargetIfAlertFlagSet' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.httpsRequest" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach> 
+</true> 
+</if>
 
 
 <code name='ResetError' xpos='470' ypos='1200' >
@@ -253,7 +302,7 @@ BPL Definition</Description>
 
 <Property name="AlertForMcKessonRetailRx">
 <Description>
-if Alert is 1 A08s will go out for both keeper and deleter for a merge ,If its 0 it goes out for deleter only</Description>
+If Alert is 1 A08s will go out for both keeper and deleter for a merge ,If its 0 it goes out for deleter only</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="1"/>
 </Property>
