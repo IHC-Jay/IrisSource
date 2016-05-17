@@ -22,15 +22,100 @@
 <Implementation><![CDATA[
 
 	#dim tSC As %Status=$$$OK
-	#dim OrdSelectSnap,OrdIdSnap As EnsLib.SQL.Snapshot
+	#dim OrdSelectSnap,OrdIdSnap,PatOrdSnap,PatIdSnap As EnsLib.SQL.Snapshot
 	#dim debug As %Boolean=0
 	set debug=$g(^IHCDebugCode(..%ConfigName),0)
 	#dim orddate As %Library.Date
+	
+	//Code to retrieve Id from ExternalPatient table for the incoming orderid.
+	Set PatOrdSnap=##class(EnsLib.SQL.Snapshot).%New()
+	$$$TRACE("Order id before select "_pRequest.OrderId)
+	Set tOrdSelectQuery="SELECT ID FROM POST.EXTERNALPATIENT WHERE ORDERID = ? "	
 
+	Set tSCSelect =  ..Adapter.ExecuteQuery(.PatOrdSnap,tOrdSelectQuery,pRequest.OrderId)
+	$$$TRACE("Order id select status POST.EXTERNALPATIENT "_tSCSelect)
+	
+	Set RetIdPat = ""
+	If $$$ISOK(tSCSelect)
+	{
+		If PatOrdSnap.Next()
+		{
+			Set RetIdPat = PatOrdSnap.GetData(1)
+
+		}
+		$$$TRACE(pRequest.OrderId_"  Check whether Id exists for that order , in ExtPat table - Id val : "_RetIdPat)
+	}
+	else
+	{
+		$$$TRACE("Error in executing Select Id from POST.EXTERNALPATIENT query")
+		Quit tSCSelect
+	}
+	If (RetIdPat="")
+	{
+		//since a row for orderid doesn't exist in the patient table, insert data into external patient table
+		
+		Set tPatInsertQuery="insert into POST.EXTERNALPATIENT (patientid, firstname, middlename, lastname, dob, sex, orderid) "_
+			"values(?,?,?,?,?,?,?)"
+		
+				
+			//set up multidimensional array of parameters
+			set parm(1)=pRequest.PatientId
+			set parm(2)=pRequest.PatientFirstName
+			set parm(3)= pRequest.PatientMidldleName
+			set parm(4)=pRequest.PatientLastName
+			set parm(5)= pRequest.PatientDOB  
+			set parm(6)=pRequest.PatientGender
+			set parm(7)=pRequest.OrderId
+			
+			set parm=7
+
+			$$$TRACE("Param for insert into Patient table "_parm(1)_" ~~~ "_parm(2)_" ~~~ "_parm(3)_" ~~~ "_parm(4)_" ~~~ "_parm(5)_" ~~~ "_parm(6)_" ~~~ "_parm(7))
+			
+			// insert the data into POST DB POST.EXTERNALPATIENT table
+			try
+			{
+			Set tSC =..Adapter.ExecuteUpdateParmArray(.nrows,tPatInsertQuery,.parm)
+			} catch err
+			{
+			  $$$TRACE("error in insert: " _ err.Code _ ", " _ err.Name _ ", " _ err.Location)
+			}
+	
+  			$$$TRACE("Patient details insert status "_tSC)
+  					
+			Quit:$$$ISERR(tSC) tSC
+			
+			//get the inserted row's Id
+			If tSC
+			{
+				Set PatIdSnap=##class(EnsLib.SQL.Snapshot).%New()
+				Set tOrdSelectQuery="SELECT ID FROM POST.EXTERNALPATIENT WHERE ORDERID = ? "
+				Set tSCSelect =  ..Adapter.ExecuteQuery(.PatIdSnap,tOrdSelectQuery,pRequest.OrderId)
+				
+				If $$$ISOK(tSCSelect)
+				{
+					If PatIdSnap.Next()
+					{
+						Set RetIdPat = PatIdSnap.GetData(1)
+
+					}
+					$$$TRACE(pRequest.OrderId_"  Inserted rows Id val : "_RetIdPat)
+				}
+				else
+				{
+					$$$TRACE("Error in executing Select Id from POST.EXTERNALPATIENT query afer insert of details")
+					Quit tSCSelect
+				}
+			}
+		
+	}
+				
+	//After the below comparison, if valid, use the above RetIdPat val, while inserting into EXTERNALORDERS table
+	
+	//Get order id , test id from EXTERNALORDER table for comparison
 	Set OrdSelectSnap=##class(EnsLib.SQL.Snapshot).%New()
 	Set OrdSelectSnap.MaxRowsToGet=-1
 	$$$TRACE("Order id before select "_pRequest.OrderId)
-	Set tOrdSelectQuery="SELECT ORDERID,TESTID FROM POST.EXTERNALORDERS WHERE ORDERID = ?  AND TESTID = ?"	
+	Set tOrdSelectQuery="SELECT ORDERID,TESTID FROM POST.EXTERNALORDER WHERE ORDERID = ?  AND TESTID = ?"	
 
 	Set tSCSelect =  ..Adapter.ExecuteQuery(.OrdSelectSnap,tOrdSelectQuery,pRequest.OrderId,pRequest.TestId)
 	$$$TRACE("Order id select status "_tSCSelect)
@@ -60,35 +145,28 @@
 		{
 			$$$TRACE("inside if of  RetOrdId'=pRequest.OrderId")
 			//Insert the data
-			Set tOrdInsertQuery="insert into POST.EXTERNALORDERS (patientid, firstname, middlename, lastname, dob, sex, orderid, orderdate, physicianname,serviceddate, serviced, active, testid,SOURCENAME) "_
-			"values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+			Set tOrdInsertQuery="insert into POST.EXTERNALORDER (orderid, orderdate, physicianname,serviceddate, serviced, active, testid,SOURCENAME,EXPID) "_
+			"values(?,?,?,?,?,?,?,?,?)"
 		
-			;Set dob = $Replace($Zdate($ZdateH(pRequest.PatientDOB,8),2)," ","-")
-			;Set ordDate = $Replace($Zdate($ZdateH($Extract(pRequest.OrderDate,1,8),8),2)," ","-")
-			
-						
+				
 			//set up multidimensional array of parameters
-			set par(1)=pRequest.PatientId
-			set par(2)=pRequest.PatientFirstName
-			set par(3)= pRequest.PatientMidldleName
-			set par(4)=pRequest.PatientLastName
-			set par(5)= pRequest.PatientDOB  
-			set par(6)=pRequest.PatientGender
-			set par(7)=pRequest.OrderId
-			set par(8)= pRequest.OrderDate // _" 11:45"
-			
-			set par(9)=pRequest.PhysicianName
-			set par(10)= pRequest.ServicedDate
-			set par(11)=pRequest.Serviced
-			set par(12)="Y"
-			set:pRequest.IsActive'="" par(12)=pRequest.IsActive
-			set par(13)="EMPTY"
-			set:pRequest.TestId'="" par(13)=pRequest.TestId
-			set par(14)="EMPTY"
-			set:pRequest.SourceName'="" par(14)=pRequest.SourceName
-			set par=14
 
-			$$$TRACE(par(1)_" ~~~ "_par(2)_" ~~~ "_par(3)_" ~~~ "_par(4)_" ~~~ "_par(5)_" ~~~ "_par(6)_" ~~~ "_par(7)_" ~~~ "_par(8)_" ~~~ "_par(9)_" ~~~ "_par(10)_" ~~~ "_par(11)_" ~~~ "_par(12)_" ~~~ "_par(13)_" ~~~ "_par(14))
+			set par(1)=pRequest.OrderId
+			set par(2)= pRequest.OrderDate // _" 11:45"
+			
+			set par(3)=pRequest.PhysicianName
+			set par(4)= pRequest.ServicedDate
+			set par(5)=pRequest.Serviced
+			set par(6)="Y"
+			set:pRequest.IsActive'="" par(6)=pRequest.IsActive
+			set par(7)="EMPTY"
+			set:pRequest.TestId'="" par(7)=pRequest.TestId
+			set par(8)="EMPTY"
+			set:pRequest.SourceName'="" par(8)=pRequest.SourceName
+			set par(9)=RetIdPat
+			set par=9
+
+			$$$TRACE("insert the data into POST DB extorders "_par(1)_" ~~~ "_par(2)_" ~~~ "_par(3)_" ~~~ "_par(4)_" ~~~ "_par(5)_" ~~~ "_par(6)_" ~~~ "_par(7)_" ~~~ "_par(8)_" ~~~ "_par(9))
 			
 			// insert the data into POST DB
 			try
@@ -110,7 +188,7 @@
       	     //update the Post db flag
 	     	$$$TRACE("Inside serviced date update")
 	     		     	
-	     	Set tOrdUpdateQuery="UPDATE POST.EXTERNALORDERS SET SERVICEDDATE= ? , SERVICED = ?,ACTIVE = ? WHERE ORDERID= ? AND TESTID = ?"
+	     	Set tOrdUpdateQuery="UPDATE POST.EXTERNALORDER SET SERVICEDDATE= ? , SERVICED = ?,ACTIVE = ? WHERE ORDERID= ? AND TESTID = ?"
 	     	Set tSC =..Adapter.ExecuteUpdate(.RowsAffectedOrd,tOrdUpdateQuery,pRequest.ServicedDate,pRequest.Serviced,pRequest.IsActive,pRequest.OrderId,pRequest.TestId)
 	     	$$$TRACE("Update serviced, active flag status "_tSC_"  Rows affected : "_RowsAffectedOrd)
 
