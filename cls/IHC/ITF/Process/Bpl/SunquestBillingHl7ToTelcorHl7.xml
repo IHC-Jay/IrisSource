@@ -87,39 +87,30 @@ BPL Definition</Description>
 <true>
 <trace name='Has FHS or FTS' value='"Has FHS or FTS - End of File"' xpos='200' ypos='800' />
 <code name='Send to Bp' xpos='200' ypos='900' >
-<![CDATA[   set key=$g(^SunquestToTelcor("Key"))
-  $$$TRACE("Inside Code block send to Telcor")        
-  set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%ExistsId(key)
-  $$$TRACE("If Id Exists:"_isExists)
-  if isExists {  
-                //If the Id Exist
-                Set telcorMessage = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%OpenId(key)
-               Set listOfIds = telcorMessage.TelcorMsgIds
-               //Add Global to the List
-               set ^SUNQUESTTOTELCOR("TELCOR"_$ZDATE($H,8)) = listOfIds.Count()
-               $$$TRACE("Global Va:"_$g(^SUNQUESTTOTELCOR("TELCOR"_$ZDATE($H,8))))
-               $$$TRACE("Fac Id Count:"_listOfIds.Count())
-               for ids=1:1:listOfIds.Count(){            
-                    set parent = ##class(EnsLib.HL7.Message).%OpenId(listOfIds.GetAt(ids))                    
-                        //Send the Message to Router  
-                        set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
-                        $$$TRACE("Output:"_parent.OutputToString())
-                    }                   
-               }    
-
+<![CDATA[   set key=$g(^IHC.Sunquest.TelcorKey("Key"))
+  $$$TRACE("Inside Code block send to Telcor")          
+  set idKey = $ORDER(^IHC.Sunquest.DtlTelcorIds(key,""))
+    set facCount = 0
+    while (idKey'=""){
+       set parent = ##class(EnsLib.HL7.Message).%OpenId(idKey)
+       set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
+       set idKey = $ORDER(^IHC.Sunquest.DtlTelcorIds(key,idKey))
+    }
+  
+  
          
           ]]]]><![CDATA[>
 </code>
 <code name='Kill The Global and Stored Message' xpos='200' ypos='1000' >
-<![CDATA[   set key=$g(^SunquestToTelcor("Key"))
+<![CDATA[   set key=$g(^IHC.Sunquest.TelcorKey("Key"))
   $$$TRACE("key:"_key)
-  set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%ExistsId(key)  
-  if isExists {  
-               do ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%DeleteId(key)
-               $$$TRACE("Values Deleted From the Table")
-    }
-    kill ^SunquestToTelcor("Key")
-    $$$TRACE("Global Killed:"_$DATA(^SunquestToTelcor("Key")))]]]]><![CDATA[>
+
+  kill ^IHC.Sunquest.DtlTelcorIds(key)
+  kill ^IHC.Sunquest.TelcorKey("Key")
+  
+    $$$TRACE("key global Killed:"_$DATA(^IHC.Sunquest.TelcorKey("Key")))
+    
+        $$$TRACE("Msg global Killed:"_$DATA(^IHC.Sunquest.DtlTelcorIds(key)))]]]]><![CDATA[>
 </code>
 </true>
 <false>
@@ -244,29 +235,18 @@ BPL Definition</Description>
   do message.%Save()
   $$$TRACE("Add Fac to Class")
    //Check and see if this is the first message in the file
-  set isExist=$DATA(^SunquestToTelcor("Key")) 
+  set isExist=$DATA(^IHC.Sunquest.TelcorKey("Key")) 
   $$$TRACE("isExist:"_isExist) 
    if 'isExist{
-     set ^SunquestToTelcor("Key") = $ZDATETIME($ZTIMESTAMP,3,1,6)  
+     set ^IHC.Sunquest.TelcorKey("Key") = $ZDATETIME($ZTIMESTAMP,3,1,6)  
   } 
-  $$$TRACE("SunquestToTelcor:>>"_$g(^SunquestToTelcor("Key")))
+  $$$TRACE("SunquestToTelcor:>>"_$g(^IHC.Sunquest.TelcorKey("Key")))
   
-   set key=$g(^SunquestToTelcor("Key"))
-    set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%ExistsId(key)      
-    if 'isExists {  
-             $$$TRACE("Adding Fac to Class for the firstime")
-             Set telcorMessgae = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%New()    
-             set telcorMessgae.Id=key
-             $$$TRACE("REsponse:"_message.%Id())
-             do telcorMessgae.TelcorMsgIds.Insert(message.%Id())
-             do telcorMessgae.%Save()
-         }else{
-            $$$TRACE("Adding Fac to Class for the secontime")
-             Set telcorMessgae= ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%OpenId(key)
-             do telcorMessgae.TelcorMsgIds.Insert(message.%Id())
-             do telcorMessgae.%Save()  
-         }
-         
+   set key=$g(^IHC.Sunquest.TelcorKey("Key"))   
+   
+   set ^IHC.Sunquest.DtlTelcorIds(key,message.%Id())=message.%Id()         
+   
+   
     ]]]]><![CDATA[>
 </code>
 <code name='Reset the Error' xpos='1010' ypos='2400' >
@@ -289,16 +269,14 @@ BPL Definition</Description>
   $$$TRACE("Fault:"_..%Context.%LastFault)
   $$$TRACE("Fault:"_..%Context.%LastError)
   //Before throwing Error delete the table
-  set key=$g(^SunquestToTelcor("Key"))
+  set key=$g(^IHC.Sunquest.TelcorKey("Key"))
   $$$TRACE("key:"_key)
   if ('(..%Context.%LastError["ITFCOMMON:10102") && '(..%Context.%LastError["ITFCOMMON:10105")){
-     set isExists=##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%ExistsId(key)  
-     if isExists {  
-             $$$TRACE("Delete the table as Expection is Thrown")
-               do ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreTelcorMessage).%DeleteId(key)
-               $$$TRACE("Values Deleted From the Table")
-               kill ^SunquestToTelcor("Key")
-      }
+     set key=$g(^IHC.Sunquest.TelcorKey("Key"))
+     if key '= ""{	     
+         kill ^IHC.Sunquest.DtlTelcorIds(key)         
+     }
+     kill ^IHC.Sunquest.TelcorKey("Key")
     }else{
        $$$TRACE("Since its Skip Messgae or Fail Msg dont delete the table")
     }
