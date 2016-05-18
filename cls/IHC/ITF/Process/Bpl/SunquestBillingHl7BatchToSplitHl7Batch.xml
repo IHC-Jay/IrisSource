@@ -98,60 +98,67 @@ BPL Definition</Description>
 <![CDATA[ set fileHeader= request.GetValueAt("FHS:Filecreationdatetime.timeofanevent")
  set facilityReport = "Facility Batch Record Counts:"
  $$$TRACE("Inside Code block send to router")     
-     set listId = $g(^SunQuestBatchHL7("allIds"))
-       $$$TRACE("Global Length"_$LISTLENGTH(listId))          
-      for i=1:1:$LISTLENGTH(listId){
-             $$$TRACE("Id in Global:"_$LIST(listId,i))
-             set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%ExistsId($LIST(listId,i))
-               $$$TRACE("If Id Exists:"_isExists)
-  if isExists {  
-                //If the Id Exist
-                Set facId = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%OpenId($LIST(listId,i))
-                $$$TRACE("Fac Id in Table:"_facId.FacilityId)                
-               set count = 1        
-               Set listOfIds = facId.Hl7Message        
-               $$$TRACE("Fac Id Count:"_listOfIds.Count())
-               for ids=1:1:listOfIds.Count(){            
-                    set parent = ##class(EnsLib.HL7.Message).%OpenId(listOfIds.GetAt(ids))
-                    if count=listOfIds.Count(){
-                         $$$TRACE("Inside final Record") 
-                         set facilityReport = facilityReport_$C(13,10)_"Facility ("_facId.FacilityId_") Record Count:"_ listOfIds.Count()
-                         //Create BTS String
-                         set BTSeg="BTS|"_listOfIds.Count()_"|"_facId.FacilityId_"|"_count_"^0^0^0|"
-                         set BTSegX = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&"_BTSeg))  
-                         set clone = parent.%ConstructClone()       
-                         set status = clone.AppendSegment(BTSegX)
-                         do clone.%Save()
-                         $$$TRACE("Clone:"_clone.OutputToString())                         
-                         //Send the Message to Router
-                         set tStatus=process.SendRequestAsync(process.TargetConfigNames,clone,.Response)                          
-                   }else{
-                        //Send the Message to Router  
-                        set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
-                        $$$TRACE("Output:"_parent.OutputToString())
-                    }
-                    set count = count+1
-               }    
-            }
-          }
-          //Once the Split is sent, send the FTS messgae
-          set tStatus=process.SendRequestAsync(process.TargetConfigNames,request,.Response)  
-          $$$TRACE("facilityReport>>>"_facilityReport)]]]]><![CDATA[>
+ 
+ set fileKey = $g(^IHC.Sunquest.SplitHl7Key("FileName"))
+ 
+ //Loop through the global
+ set facKey = $ORDER(^IHC.Sunquest.StoreBatchHl7(fileKey,""))
+ 
+ while (facKey'=""){
+    set idKey = $ORDER(^IHC.Sunquest.StoreBatchHl7(fileKey,facKey,""))
+    set facCount = 0
+    while (idKey'=""){
+      //Increment the Fac Count
+      set facCount = facCount+1		
+      set parent = ##class(EnsLib.HL7.Message).%OpenId(idKey)
+      if $ORDER(^IHC.Sunquest.StoreBatchHl7(fileKey,facKey,idKey))=""{
+      set facilityReport = facilityReport_$C(13,10)_"Facility ("_facKey_") Record Count:"_facCount
+        // Indicate this a Last record
+         //Create BTS String
+          set BTSeg="BTS|"_facCount_"|"_facKey_"|"_facCount_"^0^0^0|"
+          set BTSegX = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&"_BTSeg))  
+          set clone = parent.%ConstructClone()       
+          set status = clone.AppendSegment(BTSegX)
+          do clone.%Save()
+          $$$TRACE("Clone:"_clone.OutputToString())                         
+          //Send the Message to Router
+          set tStatus=process.SendRequestAsync(process.TargetConfigNames,clone,.Response)                          
+      }else{        
+        $$$TRACE("Output:"_parent.OutputToString())
+         set tStatus=process.SendRequestAsync(process.TargetConfigNames,parent,.Response)  
+      }
+      set idKey = $ORDER(^IHC.Sunquest.StoreBatchHl7(fileKey,facKey,idKey))
+    }
+    set facKey = $ORDER(^IHC.Sunquest.StoreBatchHl7(fileKey,facKey))
+ }
+ 
+ //Instead of sending the entire file send only the FHS and FTS 
+ set fhsSeg = request.GetValueAt("FHS")
+ set ftsSeg = request.GetValueAt("FTS")
+ 
+ //Create a new Message
+ set fhsMsg= ##class(EnsLib.HL7.Message).ImportFromString(fhsSeg) 
+ //Add Fts Segment
+ set ftsSegx = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&"_ftsSeg))   
+ set status = fhsMsg.AppendSegment(ftsSegx)
+ set fhsMsg.DocType="2.2:FHS"
+ do fhsMsg.%Save()
+ 
+ set tStatus=process.SendRequestAsync(process.TargetConfigNames,fhsMsg,.Response)]]]]><![CDATA[>
 </code>
 <code name='Kill The Global and Stored Message' xpos='470' ypos='1450' >
-<![CDATA[  set listId = $g(^SunQuestBatchHL7("allIds"))
-      for i=1:1:$LISTLENGTH(listId){
-             $$$TRACE("Id to be deleted:"_$LIST(listId,i))
-             set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%ExistsId($LIST(listId,i))
-  if isExists {  
-             set st = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%DeleteId($LIST(listId,i))
-          }
-      }
+<![CDATA[
+
+      set fileKey = $g(^IHC.Sunquest.SplitHl7Key("FileName"))   
       // kill the all Global Id
-      kill ^SunQuestBatchHL7
+      if $DATA(^IHC.Sunquest.StoreBatchHl7(fileKey)){
+        kill ^IHC.Sunquest.StoreBatchHl7(fileKey)
+      }
       //Kill the filename as its end of the file
-      Kill ^SplitHl7CurFileName("FileName")
-      $$$TRACE("Values deleted from table:"_$DATA(^SplitHl7CurFileName("FileName")))]]]]><![CDATA[>
+      if $DATA(^IHC.Sunquest.SplitHl7Key("FileName")){
+        Kill ^IHC.Sunquest.SplitHl7Key("FileName")
+      }
+      $$$TRACE("Values deleted from table:"_$DATA(^IHC.Sunquest.SplitHl7Key("FileName")))]]]]><![CDATA[>
 </code>
 <code name='Send Email' xpos='470' ypos='1550' >
 <![CDATA[ set txt="Report on Misys Billing Batch File"_$C(13,10)_"File TimeStamp:"_fileHeader_$C(13,10)_"Processed Time:"_$ZDATETIME($ZTIMESTAMP,3,1,6)_$C(13,10)_facilityReport
@@ -169,8 +176,7 @@ BPL Definition</Description>
 <assign name="Set ID from BTS" property="context.BatchComment" value="request.{BTS:BatchComment}" action="set" xpos='740' ypos='1700' />
 <code name='Code to check if BHS matches with MSH' xpos='740' ypos='1800' >
 <![CDATA[
-  $$$TRACE("Inside BTS/BHS Block:"_^SplitHl7CurFileName("FileName"))
- Set id = context.BatchComment_^SplitHl7CurFileName("FileName") 
+ $$$TRACE("context.BatchComment:>>"_context.BatchComment_">>context.batchFacilityID:>>>"_context.batchFacilityID)  
  if context.BatchComment = context.batchFacilityID{
    $$$TRACE("Do Nothing")
  } else{
@@ -210,58 +216,24 @@ BPL Definition</Description>
 <code name='Store Each MSH' xpos='1280' ypos='2150' >
 <![CDATA[  $$$TRACE("feeScheduleUpdated:"_feeScheduleUpdated_"  "_"newCloneId:"_newCloneId)
   //Check and see if this is the first message in the file
-  set isExist=$DATA(^SplitHl7CurFileName("FileName")) 
+   set isExist=$DATA(^IHC.Sunquest.SplitHl7Key("FileName")) 
   $$$TRACE("isExist:"_isExist) 
    if 'isExist{
-     set ^SplitHl7CurFileName("FileName") = $ZDATETIME($ZTIMESTAMP,3,1,6)  
+     set ^IHC.Sunquest.SplitHl7Key("FileName") = $ZDATETIME($ZTIMESTAMP,3,1,6)  
   } 
-  $$$TRACE("splitHl7CurFileName:>>"_^SplitHl7CurFileName("FileName"))
+  $$$TRACE("splitHl7CurFileName:>>"_^IHC.Sunquest.SplitHl7Key("FileName"))
   
-  //Key will be the combination of Facid and the date of the first message
-  
-  Set id = context.batchFacilityID_$g(^SplitHl7CurFileName("FileName")) 
-  set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%ExistsId(id)
-  
-  if 'isExists {
-      $$$TRACE("This Faclility Id is for the First Time")
-      set facId=##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%New()
-      set facId.Id = id
-      set facId.FacilityId=context.batchFacilityID
-      if (feeScheduleUpdated) && (newCloneId '="") {
-      $$$TRACE("Messgae from Clone:"_##class(EnsLib.HL7.Message).%OpenId(newCloneId).OutputToString())
-        do facId.Hl7Message.Insert(newCloneId)
+  //Key will be the combination of Facid and the date of the first message  
+    if (feeScheduleUpdated) && (newCloneId '="") {
+        set id = newCloneId
       }else{
-        do facId.Hl7Message.Insert(request.%Id())
+        set id = request.%Id()
       }
-      do facId.%Save()      
-      //Check if the Global is Present
-      set ifGlobalExist = $DATA(^SunQuestBatchHL7("allIds"))      
-      //If the Global is not present
-      if 'ifGlobalExist{
-          //Create and add
-          set ^SunQuestBatchHL7("allIds") = $LISTBUILD(id)
-      }else{
-           //If present Update the List
-           set listId = $g(^SunQuestBatchHL7("allIds"))
-           $$$TRACE("Count:"_$LISTLENGTH(listId))
-           //Set the end length
-           set endLen = $LISTLENGTH(listId)+1         
-           //Append the Id to the Last
-	   set $LIST(listId,endLen) = id
-	   //Set the value back to Global
-	   set ^SunQuestBatchHL7("allIds") = listId
-      }      
-  }else{
-   $$$TRACE("Another Facility ID")
-   Set facId = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%OpenId(id)
-   if (feeScheduleUpdated) && (newCloneId '="") {
-      do facId.Hl7Message.Insert(newCloneId)
-     }else {
-      do facId.Hl7Message.Insert(request.%Id())
-     }
-     do facId.%Save()    
-    
-  }
+      
+      set key = $g(^IHC.Sunquest.SplitHl7Key("FileName"))
+     
+  $$$TRACE("Key:"_key)
+  set ^IHC.Sunquest.StoreBatchHl7(key,context.batchFacilityID,id)=id
   ]]]]><![CDATA[>
 </code>
 </true>
@@ -290,18 +262,15 @@ BPL Definition</Description>
 <![CDATA[     $$$TRACE("Expection is thrown")
    //Before Throwing Error delete the content and clear the global
    if ('(..%Context.%LastError["ITFCOMMON:10102") || '(..%Context.%LastError["ITFCOMMON:10105")){
-      set listId = $g(^SunQuestBatchHL7("allIds"))
-      for i=1:1:$LISTLENGTH(listId){
-             $$$TRACE("Id to be deleted:"_$LIST(listId,i))
-             set isExists = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%ExistsId($LIST(listId,i))
-      if isExists {  
-               $$$TRACE("Expection is thrown So delete the table")
-             set st = ##class(IHC.ITF.Process.Bpl.SunquestBillingHl7.StoreBatchHl7).%DeleteId($LIST(listId,i))
-          }
+      // kill the all Global Id
+      set filekey = $g(^IHC.Sunquest.SplitHl7Key("FileName"))
+      if $DATA(^IHC.Sunquest.StoreBatchHl7(filekey)){
+        kill ^IHC.Sunquest.StoreBatchHl7(filekey)
       }
-      kill ^SunQuestBatchHL7
       //Kill the filename as its end of the file
-      Kill ^SplitHl7CurFileName("FileName")
+      if $DATA(^IHC.Sunquest.SplitHl7Key("FileName")){
+        Kill ^IHC.Sunquest.SplitHl7Key("FileName")
+      }
    }else{
 	   $$$TRACE("Table not deleted as its Skip or Warn Msg")
    }
