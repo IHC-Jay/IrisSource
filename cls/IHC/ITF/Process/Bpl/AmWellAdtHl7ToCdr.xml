@@ -38,6 +38,8 @@ BPL Definition</Description>
 </property>
 <property name='isNewGuarantorMrn' type='%String' initialexpression='"N"' instantiate='0' >
 </property>
+<property name='isIhcMrnExists' type='%String' initialexpression='"N"' instantiate='0' >
+</property>
 <property name='updatedResponse' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='35000' />
@@ -89,7 +91,7 @@ BPL Definition</Description>
      Set context.AmWellMrn=request.GetValueAt("PID:PatientIdentifierList(1).ID")  
         
      Set context.GuarantorAmWellMrn=request.GetValueAt("GT1(1):GuarantorNumber(1).ID")
-     Set context.InsSubscriberAmWellMrn=request.GetValueAt("IN1(1):InsuredsIDNumber(2).ID")
+     Set context.InsSubscriberAmWellMrn=request.GetValueAt("IN1(1):InsuredsIDNumber(1).ID")
      if (context.GuarantorAmWellMrn=context.AmWellMrn){
 	     Set context.isNewGuarantorMrn="Y"
 	 }
@@ -137,9 +139,15 @@ BPL Definition</Description>
 		if (indexZEX > 0){	    			 
 			 set patEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
 			 set context.PatientEmpi =$TRANSLATE(patEmpi,$C(13),"")  			
-			 $$$TRACE(" empiNum: [" _context.PatientEmpi_"]")	    						 
+			 $$$TRACE(" empiNum: [" _context.PatientEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
 		}
-   	  }   	
+   	  }else{	   		  
+	     $$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	  
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " Failed to update the CDR. Invalid Data. ")
+	  } 	   	  
+	   	   
+	   	   	
    	if ($L(context.PatientEmpi) > 0){	      	    
    		set context.updatedResponse = response.%ConstructClone(1)
    		$$$TRACE(" Upd updatedResponse " _ context.updatedResponse)
@@ -204,6 +212,7 @@ BPL Definition</Description>
 			 set guarEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)
 			 set context.GuarantorEmpi =$TRANSLATE(guarEmpi,$C(13),"") 			 
 			 $$$TRACE(" Guarantor EmpiNum: [" _ context.GuarantorEmpi_"]")	    			
+			 set context.isIhcMrnExists = "Y"
 		}
    }   
     ]]]]><![CDATA[>
@@ -265,6 +274,7 @@ BPL Definition</Description>
 			 set insSubscriberEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	    			
 			 set context.InsSubscriberEmpi =$TRANSLATE(insSubscriberEmpi,$C(13),"") 			 
 			 $$$TRACE(" Insurance Subscriber EmpiNum: " _ context.InsSubscriberEmpi)	    			
+			 set context.isIhcMrnExists = "Y"
 		}
    }   
     ]]]]><![CDATA[>
@@ -294,7 +304,134 @@ BPL Definition</Description>
 
 <trace name='GetName' value=' "Getting Name..."_context.PatientEmpi' xpos='200' ypos='350' />     
 
+<if name='hasPatientEmpiNumber' condition='($length(context.PatientEmpi) &gt; 0)' xpos='200' ypos='1500' xend='200' yend='2650' >
+ <true>
+ <code name='CallCdrDemogrGetPatName' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatNameRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatNameRequest.mmiNumber = context.PatientEmpi   
+   $$$TRACE(" Target Operation GetPatName: " _ process.TargetOperationCdrGetPatName)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetPatName,getPatNameRequest,.cdrGetPatNameResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetPatNameResponse: " _ cdrGetPatNameResponse.StringValue)   
+	  set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
+      $$$TRACE("CDR Pat Name List count::"_$LISTLENGTH(patNameList))   
+      set patNameListLength = $LISTLENGTH(patNameList)
+	  Do context.updatedResponse.SetValueAt($LIST(patNameList,1), "PID:PatientName(1).familyname.surname") 
+	  IF patNameListLength=2{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,2), "PID:PatientName(1).givenname") 
+	  }
+	  IF patNameListLength=3{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,3), "PID:PatientName(1).secondandfurthergivennamesor") 
+	  }
+    }    
+  ]]]]><![CDATA[>
+    </code>    
+
+<code name='CallCdrDemogrGetPatDob' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatDobRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatDobRequest.mmiNumber = context.PatientEmpi   
+   $$$TRACE(" Target Operation GetPatDOB: " _ process.TargetOperationCdrGetDob)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetDob,getPatDobRequest,.cdrGetPatDobResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetPatDobResponse " _ cdrGetPatDobResponse.StringValue)   
+	  Do context.updatedResponse.SetValueAt(cdrGetPatDobResponse.StringValue, "PID:DateTimeOfBirth.timeofanevent") 
+    }
+  ]]]]><![CDATA[>
+    </code>
+ </true>
+ </if>
  
+ <if name='hasGuarEmpiNumber' condition='($length(context.GuarantorEmpi) &gt; 0)' xpos='200' ypos='1500' xend='200' yend='2650' >
+ <true>
+ <code name='CallCdrDemogrGetGuarName' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatNameRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatNameRequest.mmiNumber = context.GuarantorEmpi   
+   $$$TRACE(" Target Operation GetGuarName: " _ process.TargetOperationCdrGetPatName)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetPatName,getPatNameRequest,.cdrGetPatNameResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetGuarNameResponse: " _ cdrGetPatNameResponse.StringValue)   
+      set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
+      $$$TRACE("CDR Guar Name List count::"_$LISTLENGTH(patNameList))   
+      set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
+      $$$TRACE("CDR Guar Name List count::"_$LISTLENGTH(patNameList))   
+      set patNameListLength = $LISTLENGTH(patNameList)
+	  Do context.updatedResponse.SetValueAt($LIST(patNameList,1), "GT1(1):GuarantorName(1).familyname.surname") 
+	  IF patNameListLength=2{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,2), "GT1(1):GuarantorName(1).givenname") 
+	  }
+	  IF patNameListLength=3{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,3), "GT1(1):GuarantorName(1).secondandfurthergivennamesor") 
+	  }
+	  
+    }
+    
+  ]]]]><![CDATA[>
+    </code>    
+
+<code name='CallCdrDemogrGetGuarDob' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatDobRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatDobRequest.mmiNumber = context.PatientEmpi   
+   $$$TRACE(" Target Operation GetPatDOB: " _ process.TargetOperationCdrGetDob)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetDob,getPatDobRequest,.cdrGetPatDobResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetPatDobResponse " _ cdrGetPatDobResponse.StringValue)   
+	  Do context.updatedResponse.SetValueAt(cdrGetPatDobResponse.StringValue, "GT1(1):GuarantorDateTimeOfBirth.timeofanevent") 
+    }
+  ]]]]><![CDATA[>
+    </code>
+ </true>
+ </if>
+ 
+ <if name='hasInsSubsEmpiNumber' condition='($length(context.InsSubscriberEmpi) &gt; 0)' xpos='200' ypos='1500' xend='200' yend='2650' >
+ <true>
+ <code name='CallCdrDemogrGetInsSubsName' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatNameRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatNameRequest.mmiNumber = context.GuarantorEmpi   
+   $$$TRACE(" Target Operation GetGuarName: " _ process.TargetOperationCdrGetPatName)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetPatName,getPatNameRequest,.cdrGetPatNameResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetGuarNameResponse: " _ cdrGetPatNameResponse.StringValue)   
+	  set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
+      $$$TRACE("CDR Ins Subs Name List count::"_$LISTLENGTH(patNameList))   
+      set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
+      $$$TRACE("CDR Ins Subs Name List count::"_$LISTLENGTH(patNameList))   
+      set patNameListLength = $LISTLENGTH(patNameList)
+	  Do context.updatedResponse.SetValueAt(cdrGetPatNameResponse.StringValue, "IN1(1):NameOfInsured(1).familyname.surname") 
+	  IF patNameListLength=2{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,2), "IN1(1):NameOfInsured(1).givenname") 
+	  }
+	  IF patNameListLength=3{
+		  Do context.updatedResponse.SetValueAt($LIST(patNameList,3), "IN1(1):NameOfInsured(1).secondandfurthergivennamesor") 
+	  }
+	  
+    }
+    
+  ]]]]><![CDATA[>
+    </code>    
+
+<code name='CallCdrDemogrGetInsSubsDob' xpos='1010' ypos='1200' >
+ <![CDATA[  
+   set getPatDobRequest=##class(IHC.ITF.ITFCOMMON.CDR.Hl7AddUpdateMmiStructure).%New()
+   set getPatDobRequest.mmiNumber = context.PatientEmpi   
+   $$$TRACE(" Target Operation GetPatDOB: " _ process.TargetOperationCdrGetDob)
+   set tStatus=process.SendRequestSync(process.TargetOperationCdrGetDob,getPatDobRequest,.cdrGetPatDobResponse)   
+    if (tStatus = $$$OK){
+	  $$$TRACE(" cdrGetPatDobResponse " _ cdrGetPatDobResponse.StringValue)   
+	  Do context.updatedResponse.SetValueAt(cdrGetPatDobResponse.StringValue, "IN1(1):InsuredsDateTimeOfBirth.timeofanevent") 
+    }
+  ]]]]><![CDATA[>
+    </code>
+ </true>
+ </if>
+ 
+ 
+ <if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='200' ypos='1500' xend='200' yend='2650' >
+ <true> 
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='750' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -305,9 +442,18 @@ BPL Definition</Description>
 </foreach>
 <code name='ResetMaxError' xpos='200' ypos='950' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
-
 ]]]]><![CDATA[>
 </code>
+</true>
+<false>
+<code name='hasIhsMrn' xpos='200' ypos='250' >
+<![CDATA[
+   //set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Unable to get the IHC MRN# from CDR, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get the IHC MRN# from CDR, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
 </true>
 <false>
 <code name='SkipInvalidRecordMissingMrnNumber' xpos='200' ypos='250' >
