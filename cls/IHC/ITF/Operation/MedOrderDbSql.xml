@@ -4,13 +4,9 @@
 <Super>Ens.BusinessOperation</Super>
 <TimeCreated>63826,46393.503875</TimeCreated>
 
-<Parameter name="ADAPTER">
-<Default>EnsLib.SQL.OutboundAdapter</Default>
-</Parameter>
-
 <Property name="TargetConfigNames">
 <Type>%String</Type>
-<InitialExpression>"Cdr-MedOrderDb_Cern-Hl7"</InitialExpression>
+<InitialExpression>"Out-Cern-MedOrder-Hl7Tcp"</InitialExpression>
 </Property>
 
 <Parameter name="SETTINGS">
@@ -33,27 +29,6 @@
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
-<Property name="HDDRepReq">
-<Type>IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest</Type>
-</Property>
-
-<Property name="HDDLookRes">
-<Type>IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</Type>
-</Property>
-
-<Property name="HDDObject">
-<Type>IHC.ITF.ITFCOMMON.HDD.Interface.HddObject</Type>
-</Property>
-
-<Property name="LookupIntServObject">
-<Type>IHC.ITF.ITFCOMMON.HDD.Interface.LookupInterfaceService</Type>
-</Property>
-
-<Property name="isTextTransferNeeded">
-<Type>%Integer</Type>
-<InitialExpression>1</InitialExpression>
-</Property>
-
 <Property name="SIGText">
 <Type>%String</Type>
 </Property>
@@ -62,10 +37,82 @@
 <Type>%String</Type>
 </Property>
 
+<Property name="MainQueryStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="ProcessedOrdersStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="AListStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="H2TranslatorStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="FreqAbstractStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="FreqTranslationStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="FreqConversionStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="DoseStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="RouteStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="DispensingStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="TranslationStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="FreqCountStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="UpdateProcStatusStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="UpdateProcessedOrderStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="InsertProcessedOrderStmt">
+<Type>java.sql.PreparedStatement</Type>
+</Property>
+
+<Property name="gateway">
+<Type>%Net.Remote.Gateway</Type>
+</Property>
+
+<Property name="connection">
+<Type>java.sql.Connection</Type>
+</Property>
+
+<Property name="targetList">
+<Type>%ListOfObjects</Type>
+</Property>
+
 <Method name="OnProcessInput">
 <FormalSpec>pInput:%RegisteredObject,*pOutput:%RegisteredObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[	$$$TRACE("Inside  Method OnProcessInput")
+<Implementation><![CDATA[	//$$$TRACE("Inside  Method OnProcessInput")
 ]]></Implementation>
 </Method>
 
@@ -73,7 +120,7 @@
 <ClassMethod>1</ClassMethod>
 <FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
 <Implementation><![CDATA[
-	$$$TRACE("Inside  Method OnGetConnections")
+	//$$$TRACE("Inside  Method OnGetConnections")
 	Do ##super(.pArray,pItem)
 	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
 		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
@@ -81,229 +128,71 @@
 ]]></Implementation>
 </Method>
 
-<Method name="UpdatePreviousProcessed">
-<FormalSpec>status:%String,eventID:%Integer</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	#dim pStat As %Status=$$$OK
-	set tQueryStagingProcessed="update "_..DBSchema_".STAGING set Processed ='"_status_"' where EVENT_ID="_eventID
-		 	
-		 
-		 	try
-		 	{
-			 	set tSCStagingProcessed=..Adapter.SetAutoCommit(1)
-				$$$TRACE("  Query to Execute : "_tQueryStagingProcessed)
-		 		set tSCStagingProcessed=..Adapter.ExecuteUpdate(.tNumRowsAffectedStagingProcessed,tQueryStagingProcessed) 
-		 		$$$TRACE("  SUCCESS Updating Processed Flag to "_status_" in Staging : "_tSCStagingProcessed)
-		 		
-		 	}
-	     	CATCH err 
-	     	{
-		     	$$$LOGERROR( "Error while Updating Processed Flag to "_status_" in Staging "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	         	set tSCStagingProcessed = $$$ERROR( "SQLError:Error while Updating Processed Flag to "_status_"in Staging "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-	      	}
-	      	
-	      	return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="FilterMessages">
-<FormalSpec>resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
-<ReturnType>%Integer</ReturnType>
-<Implementation><![CDATA[
-	
-	// Filtering logic Starts
-		
-		//Check if Order Date less than 01/01/2012 then filter it and Set processed as Y
-		Set extractSQLDate = $EXTRACT(resultRecord.GetData(4),0,10)
-		$$$TRACE("  Exact SQL Date  : "_extractSQLDate)
-		set DiffADate =  $System.SQL.DATEDIFF("d","01/01/2012",extractSQLDate)
-		$$$TRACE("  Diff days  : "_DiffADate)
-		if DiffADate <= 0
-		{
-		    //Setting Processed Flag as "Y" in Staging
-		    $$$TRACE(" Order Date less than 01/01/2012" )
-			set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.GetData(2))
-			return 1	// Record filtered
-		}
-		
-		 $$$TRACE(" Before Drug Ncid  "  )
-		//Check if it is a Text Order
-		if $L(resultRecord.GetData(9)) = 0
-		{
-			//Setting Processed Flag as "Y" in Staging
-		    $$$TRACE(" Order is a Text order since Drug Ncid is Null "  )
-			set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.GetData(2))
-			return 1
-		}
-		
-		$$$TRACE(" Before Order Status  "  )
-		// Check if Order Status is either Discontinued or Error 
-		if (resultRecord.GetData(6) = 1524) || (resultRecord.GetData(6) = 69074) && (..isPreProcessed = 1)
-		{
-			//Setting Processed Flag as "Y" in Staging
-		    $$$TRACE(" Order Status Ncid("_resultRecord.GetData(6)_") is either 1524(Discontinued) or 69074 (Error) "  )
-		    set isdiscontinuedOrError = 0 // Setting flag which is used in updating ProcessedOrder Table
-			set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.GetData(2))
-			
-			return 1	
-		}
-		
-		return 0
-]]></Implementation>
-</Method>
-
-<Method name="UpdateProcessedOrders">
-<FormalSpec>eventID:%Integer,pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	#dim pStat As %Status=$$$OK
-	$$$TRACE("Inside Method UpdateProcessedOrders")
-	
-	$$$TRACE("isPreProcessed"_..isPreProcessed)
-	//Check if it is PreProcessed  orders then update the ProcessedOrders Table
-	if ..isPreProcessed = 0 
-	{
-		$$$TRACE("editVersion"_..editVersion)
-		set ..editVersion = ..editVersion + 1
-		$$$TRACE("editVersion"_..editVersion)
-		set tQueryProcessedOrders="update "_..DBSchema_".PROCESSEDORDERS set Edit_Version='"_..editVersion_"' where EVENT_ID="_eventID
-		 	
-		 
-		 	try
-		 	{
-			 	set tSCProcessedOrders=..Adapter.SetAutoCommit(1)
-				$$$TRACE("  Query to Execute : "_tQueryProcessedOrders)
-		 		set tSCProcessedOrders=..Adapter.ExecuteUpdate(.tNumRowsAffectedProcessedOrders,tQueryProcessedOrders) 
-		 		$$$TRACE("  SUCCESS Updating PROCESSEDORDERS tables VersionId to "_..editVersion_" - "_tSCProcessedOrders)
-		 		
-		 	}
-	     	CATCH err 
-	     	{
-		     	$$$LOGERROR( "Error while PROCESSEDORDERS tables VersionId to "_..editVersion_" - "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	         	set tSCProcessedOrders = $$$ERROR( "SQLError:Error while Updating PROCESSEDORDERS tables VersionId to "_editVersion_" - "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-	      	}
-	      	
-	}
-	else
-	{
-	   $$$TRACE("Inside new column for ProcessedOrder")
-		
-		set tQueryProcessedOrders="insert into "_..DBSchema_".PROCESSEDORDERS values ("_eventID_",0,"_pResp.PID02AltPatientID_",null,"_pResp.RXO0101RequestCode_",'Y',null)"
-		 	
-		 
-		 	try
-		 	{
-			 	set tSCProcessedOrders=..Adapter.SetAutoCommit(1)
-				$$$TRACE("  Query to Execute : "_tQueryProcessedOrders)
-		 		set tSCProcessedOrders=..Adapter.ExecuteUpdate(.tNumRowsAffectedProcessedOrders,tQueryProcessedOrders) 
-		 		$$$TRACE("  SUCCESS inserting new row in "_..DBSchema_".PROCESSEDORDERS - "_tSCProcessedOrders)
-		 		
-		 	}
-	     	CATCH err 
-	     	{
-		     	$$$LOGERROR( "Error while inserting new row in "_..DBSchema_".PROCESSEDORDERS "_..editVersion_" - "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	         	set tSCProcessedOrders = $$$ERROR( "SQLError:Error while inserting new row in "_..DBSchema_".PROCESSEDORDERS "_editVersion_" - "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-	      	}
-	}
-	      	
-	      	return $$$OK
-]]></Implementation>
-</Method>
-
 <Method name="ProcessMedOrderDb">
 <FormalSpec>pRequest:Ens.Request,*pResponse:IHC.ITF.Response.MedOrderDbResponse</FormalSpec>
 <ReturnType>IHC.ITF.Response.MedOrderDbResponse</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("Inside Method ProcessMedOrderDb")
-	$$$TRACE("DBSchema :"_..DBSchema)
-	
-	#dim tSC As %Status=$$$OK
-	#dim tSCProcessedOrd As %Status=$$$OK
-	#dim tSCStagingProcessed As %Status=$$$OK
-	
 	set pResponse=##class(IHC.ITF.Response.MedOrderDbResponse).%New()
+	set pResp=##class(IHC.ITF.Response.ProcessMedOrder).%New()
 	
+	Do ..ConnectionAndStatments() // Creates a connection and creates one statment for each different queries 
 	
-	set tQuery="select * from "_..DBSchema_".STAGING where Processed='N'" //Actual code
-	set tResult = ..ProcessMainQuery(tQuery)
-	$$$TRACE("  After ProcessMainQuery method ")
-	
-	//set tQuery ="select * from "_..DBSchema_".STAGING where EVENT_ID=?" // Testing code
-	//set tResult = ..ProcessQuery(tQuery,3754553849)
+	//Do ..MainQueryStmt.setLong(1,3805957175)
+	Do ..MainQueryStmt.setString(1,"N")
+	set tResult = ..MainQueryStmt.executeQuery()
 	
 	set RecordCount = 0
+	set ProcessedCount = 0
+	set FilteredCount = 0
 	
 	// Process each record got from Staging
-	while tResult.Next() 
+	while tResult.next() 
 	{
 		set RecordCount = RecordCount+1
 		$$$TRACE("  ************** Processing Record Number : "_RecordCount)
-		
-		
-		
-		//if RecordCount > 500
-	//	{
-		//	QUIT
-		//}
-		
-		$$$TRACE("  Processing Event_ID from Staging: "_tResult.GetData(2))
+		Do ..ClearProcessMedOrder(pResp) //Clearing all the values in the object for processing next record
+			
+		$$$TRACE("  Processing Event_ID : "_tResult.getString(2))
 		set ..isPreProcessed = 1 // Resetting the Flag value for the next record
 	    set ..editVersion = 0 // Resetting the  value for the next record
 	    set ..SIGText=""  // Resetting the  value for the next record 
 	
 	//Check record with Processed Orders
-	set tQueryProcessedOrd="select * from "_..DBSchema_".PROCESSEDORDERS where EVENT_ID=?"
-	set tResultProcessedOrd = ..ProcessQuery(tQueryProcessedOrd,tResult.GetData(2))
+	Do ..ProcessedOrdersStmt.setLong(1,tResult.getString(2))
+	set tResultProcessedOrd = ..ProcessedOrdersStmt.executeQuery()
 	
 	// If entry exists in Processed Orders, Set Processed flag as "Y"
-		if tResultProcessedOrd.Next() 
+		if tResultProcessedOrd.next() 
 		{
-			$$$TRACE("  EventID  : ["_tResultProcessedOrd.GetData(1)_"] present in ProcessedOrders table")
 			set ..isPreProcessed = 0 //0 means true - This is a flag to identify if the record is pre processed. this will be used below in ORC segment
-			
-		    $$$TRACE(" EditVersion in Staging : "_tResult.GetData(3)_" and  EditVersion in ProcessedOrders : "_tResultProcessedOrd.GetData(2))
-		    set ..editVersion = tResultProcessedOrd.GetData(2) // Setting this value to use in method to update ProcessedOrder table if necessary 
+		    set ..editVersion = tResultProcessedOrd.getString(2) // Setting this value to use in method to update ProcessedOrder table if necessary 
 		    
 		    //Check If the EditVersion in Staging is less than or equal to the EditVersion of ProcessedOrders, then row is already processed
-		    if tResult.GetData(3) <= tResultProcessedOrd.GetData(2)
+		    if tResult.getString(3) <= tResultProcessedOrd.getString(2)
 		    {
-		    $$$TRACE(" EditVersion in Staging is less than or equal to the EditVersion of ProcessedOrders ")
 		    //Setting Processed Flag as "Y" in Staging
-			set upStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.GetData(1))
-		    
+			//TODO Remove set upStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.getString(1))
+		    set FilteredCount = FilteredCount+1
 		    CONTINUE
 		    }
 		    
 		}
-		//**TODO** - Remove below else block since if control reaches this point we need to set proccess flag to "P"
-		else //  If entry does not exists in Processed Orders, Set Processed flag as "P" to indicate the record is in Process
-		{
-			$$$TRACE("  EventID  : ["_tResult.GetData(2)_"] Not present in ProcessedOrders table")
-		    //Setting Processed Flag as "P" in Staging
-			set upStatus = ..UpdatePreviousProcessed("P",tResult.GetData(2))
-			//set upStatus = ..UpdatePreviousProcessed("N",tResult.GetData(2))
-		}
-		
-		
+
+		//  If entry does not exists in Processed Orders or if editversion matched the criteria, Set Processed flag as "P" to indicate the record is in Process
+		//TODO Remove set upStatus = ..UpdatePreviousProcessed("P",tResult.getString(2))
+
 		//Do Filtering Logic
-		
 		set isfiltered = ..FilterMessages(tResult)
 		
 		if isfiltered = 1
 		{
 			$$$TRACE(" Record Filtered.. Proceding to next record")
-		  	set filterupdateStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.GetData(1))
-		 // set filterupdateStatus = ..UpdatePreviousProcessed("N",tResultProcessedOrd.GetData(1))
+		  	//TODO Remove set filterupdateStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.getString(1))
+		 	set FilteredCount = FilteredCount+1
 		  	CONTINUE
 		}
 		
-		
-		// Create Hl7 fields
-		
-		set pResp=##class(IHC.ITF.Response.ProcessMedOrder).%New()
-		
-		set pResp.EventID = tResult.GetData(2) // Set event id , for testing
+		set pResp.EventID = tResult.getString(2) // Set event id , for testing
 	    		
 		//Process MSH Segment
 		Do ..ProcessMSHSegment(pResp)
@@ -324,32 +213,40 @@
 		Do ..ProcessRXRSegment(pResp,tResult)
 		
 		
-		$$$TRACE(" MSH03 Value : "_pResp.MSH03SendingApp)
-		$$$TRACE(" PID02 Value : "_pResp.PID02AltPatientID)
-		$$$TRACE(" ORC01 Value : "_pResp.ORC01OrderControl)
-		$$$TRACE(" ORC02.1 Value : "_pResp.ORC0201UniquePlacerNo)
-		$$$TRACE(" RXO01.1 Value : "_pResp.RXO0101RequestCode)
-		$$$TRACE(" RXO01.2 Value : "_pResp.RXO0102CodeDescription)
-	    $$$TRACE(" RXO3 Value : "_pResp.RXO03RequestAmountMaximum)
-	    $$$TRACE(" RXO4 Value : "_pResp.RXO04RequestGiveUnits)
-	    $$$TRACE(" NTE02 Value : "_pResp.NTE02SourceComment)
-	    $$$TRACE(" RXR01 Value : "_pResp.RXR01Route)
-		
 		//Update ProcessedOrders Table
-		set upStatusFinal2 = ..UpdateProcessedOrders(tResult.GetData(2),pResp)
+		//TODO Remove 
+		//set upStatusFinal2 = ..UpdateProcessedOrders(tResult.getString(2),pResp)
 		
 		
         // Final update of Processed Flag as "Y
-      	set upStatusFinal = ..UpdatePreviousProcessed("Y",tResult.GetData(2))
-	   // set upStatusFinal = ..UpdatePreviousProcessed("N",tResult.GetData(2))
+        //set upStatusFinal = ..UpdatePreviousProcessed("Y",tResult.getString(2))
+	   
 	 	
 		set ..isPreProcessed = 1 // Resetting the Flag value for the next record
 		set ..editVersion = 0 // Resetting the value for the next record
 		
-	    //Insert the response for this record into the Main Response's List
-		do pResponse.ResponseList.Insert(pResp)
-		$$$TRACE(" EMPI of Response Added to List "_pResponse.ResponseList.GetNext().PID02AltPatientID)
+		set Hl7String = ..ConstructHl7(pResp)
+		Set hl7Message = ##class(EnsLib.HL7.Message).ImportFromString(Hl7String)
+		set sendRecordStatus=..SendRequestAsync(..TargetConfigNames,hl7Message,"CreatedHl7Message")
+		set ProcessedCount = ProcessedCount+1 //Get the record count of Successfully processed records
+		$$$TRACE(" Record with EventId "_pResp.EventID_" send to down")
+		
+		
     }
+    do tResult.close() // Closing the Resultset
+    set pResp.ProcessedRecordCount = ProcessedCount
+    set pResp.FilteredRecordCount = FilteredCount
+    $$$TRACE(" ProcessedCount : "_ProcessedCount)
+    $$$TRACE(" FilteredCount : "_FilteredCount)
+    
+    //Add the last record object to list so that the call is made again . this is used if we are processing records in chunks 
+    if ProcessedCount '=0
+    {
+    	//do pResponse.ResponseList.Insert(pResp)
+    }
+    
+    Do ..connection.close()
+    Do ..gateway.%Disconnect()
     
     $$$TRACE("  No Record ")
 	quit pResponse
@@ -360,7 +257,6 @@
 <FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessMSHSegment Start ")
 	set pResp.MSH01FieldSeperator = "|"
 	set pResp.MSH02EncodingChar = "^~()&"
 	set pResp.MSH03SendingApp = "HDD_contributor"
@@ -370,87 +266,76 @@
 	set pResp.MSH0902Event = "O01"
 	set pResp.MSH11ProcessMode = "O"
 	set pResp.MSH12VersionId = "2.3"
-	$$$TRACE(" ProcessMSHSegment End ")
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="ProcessPIDSegment">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessPIDSegment Start ")
 	set pResp.PID01 = "1"
-	set pResp.PID02AltPatientID = resultRecord.GetData(1)
-	
+	set pResp.PID02AltPatientID = resultRecord.getString(1)
 	set pResp.PID05PatientName = "UNKNOWN^UNKNOWN"
-	$$$TRACE(" ProcessPIDSegment End ")
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="ProcessORCSegment">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessORCSegment Start ")
-	#dim tSCAList As %Status=$$$OK
-	
-
-	
 	// Set ORC01
 	
-	if (resultRecord.GetData(6) = 1555) && (..isPreProcessed = 1)
+	if (resultRecord.getString(6) = 1555) && (..isPreProcessed = 1)
 	{
 		set pResp.ORC01OrderControl = "NW"
 	}
-	elseif (resultRecord.GetData(6) = 1555) && (..isPreProcessed = 0)
+	elseif (resultRecord.getString(6) = 1555) && (..isPreProcessed = 0)
 	{
 		set pResp.ORC01OrderControl = "XO"
 	}
-	elseif resultRecord.GetData(6) = 1524
+	elseif resultRecord.getString(6) = 1524
 	{
 		set pResp.ORC01OrderControl = "DC"
 	}
 	
 	//Set ORC2.1
-	
-	set tQueryAList="select * from "_..DBSchema_".A_LIST where EVENT_ID=?"
-	set tResultAList = ..ProcessQuery(tQueryAList,resultRecord.GetData(2))
+	Do ..AListStmt.setLong(1,resultRecord.getString(2))
+	set tResultAList = ..AListStmt.executeQuery()
 	
 	// If entry exists in A_LIST Orders, Append "A" to Event id and set in ORC2.1
-	if tResultAList.Next() 
+	if tResultAList.next() 
 	{
-		set pResp.ORC0201UniquePlacerNo = "A"_resultRecord.GetData(2)
+		set pResp.ORC0201UniquePlacerNo = "A"_resultRecord.getString(2)
 	}
 	else
 	{
-		set pResp.ORC0201UniquePlacerNo = resultRecord.GetData(2)
+		set pResp.ORC0201UniquePlacerNo = resultRecord.getString(2)
 	}
-		
+	
+	do tResultAList.close() //Closing the Result Set 
 		
 	set pResp.ORC0202PlacerAppId = ""
 	
 	//IF Sort_NCID =  521051182 AND ORC.01 is set to ‘NW’ THEN ‘H’ ELSE ‘O’
 	
-	//if (resultRecord.GetData(25) = 521051182) && (pResp.ORC01OrderControl = "NW")
-	//{
-	//	set pResp.ORC05OrderStatus = "H"
-	//}
-	//else
-	//{
+	if (resultRecord.getString(25) = 521051182) && (pResp.ORC01OrderControl = "NW")
+	{
+		set pResp.ORC05OrderStatus = "H"
+	}
+	else
+	{
 		set pResp.ORC05OrderStatus = "O"
-	//}
+	}
 	
 	
 	
 	
-	Do ..setORC07QuantityTiming(pResp,resultRecord)
-	//set pResp.ORC07QuantityTiming = 	
+	Do ..setORC07QuantityTiming(pResp,resultRecord) 	
 	
-	//Date format we get from DB is 2015-10-14 06:00:00.0 if no time is given in DB
-	
-	set SQLDate = $REPLACE(resultRecord.GetData(4),"-","") //Remove the "-" {20151014 06:00:00.0}
+	//Date format we get from DB is 2015-10-14 06:00:00.0 if no time is given in DB	
+	set SQLDate = $REPLACE(resultRecord.getString(4),"-","") //Remove the "-" {20151014 06:00:00.0}
 	set SQLDate = $REPLACE(SQLDate," ","") // Remove the space {2015101406:00:00.0}
 	set SQLDate = $REPLACE(SQLDate,":","") // Remove the ":" {201510140600:00.0}
 	Set SQLDate = $EXTRACT(SQLDate,0,12) // {201510140600}
@@ -467,66 +352,96 @@
 		set pResp.ORC09TransactionDate = SQLDate
 	}
 	 
-	set pResp.ORC12OrderingProvider = resultRecord.GetData(7)
+	set pResp.ORC12OrderingProvider = resultRecord.getString(7)
 	
-	$$$TRACE(" ProcessORCSegment End ")
+	if $L(pResp.ORC12OrderingProvider) '= 0
+	{
+		set hddRepReq = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+		do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(hddRepReq , resultRecord.getString(7), 1309, "ORC12")
+		
+		set tStatus=..SendRequestSync(..HddTargetConfigName,hddRepReq,.hddResponse)
+ 		if ('tStatus) 
+ 		{
+    	 set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(..%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+	    }
+ 		else 
+ 		{ 
+   			set hddLookRes  = hddResponse 
+ 		}
+ 		
+ 		set OrderingProvider=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddLookRes , "ORC12")
+ 		set pResp.ORC12OrderingProvider = OrderingProvider.Rep
+	}
+	else
+	{
+		set pResp.ORC12OrderingProvider = ""
+	}
+	
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="ProcessRXOSegment">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessRXOSegment Start ")
-	#dim tSCRXO01 As %Status=$$$OK
-	#dim tSCSynID As %Status=$$$OK
-	
 	//Set RXO1.1
 	//Check if entry exsists for Drug_Ncid in H2TRANSLATOR. if so copy the source_id from H2TRANSLATOR else check processed orders-
 	//-if record exists in Processed orders copy the OriginalSynID else leave the field blank
 	
-	set tQueryRXO01="select * from "_..DBSchema_".H2TRANSLATOR where NCID=?"
-	set tResultRXO01 = ..ProcessQuery(tQueryRXO01,resultRecord.GetData(9))
+	Do ..H2TranslatorStmt.setLong(1,resultRecord.getString(9))
+	set tResultRXO01 = ..H2TranslatorStmt.executeQuery()
 	
 	// If entry exists in H2TRANSLATOR, copy the source_id from H2TRANSLATOR to ORM1.1 and NCID_txt to RXO1.2
-	if tResultRXO01.Next() 
+	if tResultRXO01.next() 
 	{
-		$$$TRACE(" Matching Record Exists in H2TRANSLATOR")
-		set pResp.RXO0101RequestCode = tResultRXO01.GetData(2)
-		set pResp.RXO0102CodeDescription = tResultRXO01.GetData(8) //Setting RXO1.2 here itself
-		set pResp.RXO0103CodeMethod = tResultRXO01.GetData(4)
+		set pResp.RXO0101RequestCode = tResultRXO01.getString(2)
+		set pResp.RXO0102CodeDescription = tResultRXO01.getString(8) //Setting RXO1.2 here itself
+		set pResp.RXO0103CodeMethod = tResultRXO01.getString(4)
 	}
 	elseif ..isPreProcessed = 0 //check processed orders exists for the record. If so copy the OriginalSynID
-	{
-		$$$TRACE(" Matching Record Exists in PROCESSEDORDERS")
-			
-		set tQuerySynID="select * from "_..DBSchema_".PROCESSEDORDERS where EVENT_ID=?"
-		set tResultSynID = ..ProcessQuery(tQuerySynID,resultRecord.GetData(2))
+	{	
+		Do ..ProcessedOrdersStmt.setLong(1,resultRecord.getString(2))
+		set tResultSynID = ..ProcessedOrdersStmt.executeQuery()
 	
 	// If entry exists in PROCESSEDORDERS, copy the OriginalSynID from PROCESSEDORDERS to ORM1.1 
-		if tResultSynID.Next() 
+		if tResultSynID.next() 
 		{
-			set pResp.RXO0101RequestCode = tResultSynID.GetData(5)
+			set pResp.RXO0101RequestCode = tResultSynID.getString(5)
 		
 		}
 			
 	}
 	else
 	{
-		$$$TRACE(" NO Matching Record in either H2TRANSLATOR or PROCESSEDORDERS")
 		set pResp.RXO0101RequestCode = ""
 	}
 	
+	do tResultRXO01.close() //Closing the ResultSet
+	
 	//Set ORM1.2
 	//Check if ORM1.2 is already set in above process for ORM1.1. if not we need to do the HDD call for NCID to REP
-	
-	//$$$TRACE("Before HDD call")
-	//Do ..DoHDDToRep(resultRecord.GetData(9), 2000)
-	//$$$TRACE("After HDD call")
 	if $L(pResp.RXO0102CodeDescription) = 0
 	{
-		set pResp.DrugNcid = resultRecord.GetData(9) // Setting this value to do NCIDToRep in Bpl as we are not able to do NCIDToRep here
+		set pResp.DrugNcid = resultRecord.getString(9) // Setting this value to do NCIDToRep in Bpl as we are not able to do NCIDToRep here
+		if ($L(pResp.DrugNcid) '= 0)
+		{
+			set hddRepReq = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+			do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(hddRepReq , resultRecord.getString(9), 2000, "RXO0102")
+		
+			set tStatus=..SendRequestSync(..HddTargetConfigName,hddRepReq,.hddResponse)
+ 			if ('tStatus) 
+ 			{
+    		 set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(..%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+	    	}
+ 			else 
+ 			{ 
+   				set hddLookRes  = hddResponse 
+ 			}
+ 			
+ 			set MedicationName=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddLookRes , "RXO0102")
+ 			set pResp.RXO0102CodeDescription = MedicationName.Rep
+		}
 		
 	}
 	
@@ -536,37 +451,27 @@
 		set pResp.RXO0103CodeMethod = "M"
 	}
 	
-	set pResp.RXO02RequestAmountMinimum = resultRecord.GetData(13)
-	set pResp.RXO03RequestAmountMaximum = resultRecord.GetData(14)
-	
-	$$$TRACE(" Min : "_resultRecord.GetData(13))
-	$$$TRACE(" Max : "_resultRecord.GetData(14))
-	$$$TRACE(" ReqUnit : "_resultRecord.GetData(15))
-	
-	$$$TRACE(" Length Min : "_$L(resultRecord.GetData(13))) 
-	$$$TRACE(" Length Max : "_$L(resultRecord.GetData(14))) 
-	$$$TRACE(" Length ReqUnit : "_$L(resultRecord.GetData(15)))
+	set pResp.RXO02RequestAmountMinimum = resultRecord.getString(13)
+	set pResp.RXO03RequestAmountMaximum = resultRecord.getString(14)
 	
 	//Set ORM1.4. if both min and max amount are NOT null and only Req units ae null then set 91717 for ORM1.4
-	if ($L(resultRecord.GetData(13)) '= 0) && ($L(resultRecord.GetData(14)) '= 0) && ($L(resultRecord.GetData(15)) = 0)
+	if ($L(resultRecord.getString(13)) '= 0) && ($L(resultRecord.getString(14)) '= 0) && ($L(resultRecord.getString(15)) = 0)
 	{
-		$$$TRACE(" Inside minmax condition")
 		set pResp.RXO04RequestGiveUnits = "91717"	
 	}
 	else
 	{
-		$$$TRACE(" Inside minmax Else condition")
-		set pResp.RXO04RequestGiveUnits = resultRecord.GetData(15)
+		set pResp.RXO04RequestGiveUnits = resultRecord.getString(15)
 	}
 	
-	set pResp.RXO09AllowSubstitutions = resultRecord.GetData(24)
-	set pResp.RXO11ReqDispenseAmt = resultRecord.GetData(21)
-	set pResp.RXO12ReqDispenseUnits = resultRecord.GetData(22)
+	set pResp.RXO09AllowSubstitutions = resultRecord.getString(24)
+	set pResp.RXO11ReqDispenseAmt = resultRecord.getString(21)
+	set pResp.RXO12ReqDispenseUnits = resultRecord.getString(22)
 	
-	if ($L(resultRecord.GetData(23)) '= 0) && (resultRecord.GetData(23) '= -1)
+	if ($L(resultRecord.getString(23)) '= 0) && (resultRecord.getString(23) '= -1)
 	{
 	
-		set pResp.RXO13NoOfRefills = resultRecord.GetData(23)
+		set pResp.RXO13NoOfRefills = resultRecord.getString(23)
 	
 	}
 	else
@@ -574,123 +479,85 @@
 		set pResp.RXO13NoOfRefills = ""
 	}
 	
-	$$$TRACE(" ProcessRXOSegment End ")
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="ProcessNTESegment">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessNTESegment Start ")
 	set pResp.NTE01SetID = "1"
 	set pResp.NTE02SourceComment = "O"
-	
-	$$$TRACE(" Comment : "_resultRecord.GetData(26))
-	$$$TRACE(" SIGText in NTE : "_..SIGText)
+
 	set ReplacedComment =""
 	
-	if $L(resultRecord.GetData(26)) '= 0
+	if $L(resultRecord.getString(26)) '= 0
 	{
-		set ReplacedComment = resultRecord.GetData(26)
-		$$$TRACE(" 1 Replaced Comment : "_ReplacedComment)
+		set ReplacedComment = resultRecord.getString(26)
 		set ReplacedComment = $REPLACE(ReplacedComment,$C(13,10),"~") //Replace a two-character sequence of Chr(13) and Chr(10) with '~'
-		$$$TRACE(" 2 Replaced Comment : "_ReplacedComment)
 		set ReplacedComment = $REPLACE(ReplacedComment,$C(10),"~") //Replace remaining Chr(10) with '~'
-		$$$TRACE(" 3 Replaced Comment : "_ReplacedComment)
 		set ReplacedComment = $REPLACE(ReplacedComment,$C(92),"\E\") //Replace Chr(92) with '\E\'
-		$$$TRACE(" 4 Replaced Comment : "_ReplacedComment)
 		set ReplacedComment = $REPLACE(ReplacedComment,"|",":") //Replace all '|' with ':'
-		$$$TRACE(" 5 Replaced Comment : "_ReplacedComment)
 		set ReplacedComment = $REPLACE(ReplacedComment,"^"," ") //Replace all '^' with ' '
-		
-		$$$TRACE(" Final Replaced Comment : "_ReplacedComment)
 	}
-	
-	$$$TRACE(" resultRecord.GetData(26): "_resultRecord.GetData(26))
-	
 	
 	//set NTE03Comment
 	
-	if ($L(resultRecord.GetData(26)) = 0) && ($L(..SIGText)= 0) //Medication name only ( Staging.Comment and SIGText is empty) 
+	if ($L(resultRecord.getString(26)) = 0) && ($L(..SIGText)= 0) //Medication name only ( Staging.Comment and SIGText is empty) 
 	{
-		$$$TRACE(" Inside 1")
 		set pResp.NTE03Comment = "Ordered as: "_pResp.RXO0102CodeDescription //Add Medication name in Bpl from RXO1.2 ( through HDD)
 	}
 	
-	elseif ($L(resultRecord.GetData(26)) '= 0) && ($L(..SIGText)= 0) //Medication name and Comment (Staging.Comment not empty and SIGText is empty)
+	elseif ($L(resultRecord.getString(26)) '= 0) && ($L(..SIGText)= 0) //Medication name and Comment (Staging.Comment not empty and SIGText is empty)
 	{
-		$$$TRACE(" Inside 2")
 		set pResp.NTE03Comment = "Ordered as: "_pResp.RXO0102CodeDescription_"~"_ReplacedComment //Adding Medication name(RXO1.2) after "Ordered as:" in Bpl from RXO1.2 ( through HDD)
 	}
 	
-	elseif ($L(resultRecord.GetData(26)) '= 0) && ($L(..SIGText)> 0)  //Medication name, SIG, and Comment (Staging.Comment not empty and SIGText not empty)
+	elseif ($L(resultRecord.getString(26)) '= 0) && ($L(..SIGText)> 0)  //Medication name, SIG, and Comment (Staging.Comment not empty and SIGText not empty)
 	{
-		$$$TRACE(" Inside 3")
 		set pResp.NTE03Comment = "Ordered as: "_pResp.RXO0102CodeDescription_"~"_..SIGText_"~"_ReplacedComment //Adding Medication name(RXO1.2) after "Ordered as:" in Bpl from RXO1.2 ( through HDD)
 	}
 	
-	elseif ($L(resultRecord.GetData(26)) = 0) && ($L(..SIGText)> 0)  //Medication name and SIG (Staging.Comment is empty and SIGText not empty)
+	elseif ($L(resultRecord.getString(26)) = 0) && ($L(..SIGText)> 0)  //Medication name and SIG (Staging.Comment is empty and SIGText not empty)
 	{
-		$$$TRACE(" Inside 4")
 		set pResp.NTE03Comment = "Ordered as: "_pResp.RXO0102CodeDescription_"~"_..SIGText //Adding Medication name(RXO1.2) after "Ordered as:" in Bpl from RXO1.2 ( through HDD)
 	}
 	else
 	{
-		$$$TRACE(" Inside else")
 		set pResp.NTE03Comment = "Ordered as: "_pResp.RXO0102CodeDescription_"~"_ReplacedComment
 	}
 	
-	$$$TRACE(" ProcessNTESegment End ")
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="ProcessRXRSegment">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE(" ProcessRXRSegment Start ")
-	set pResp.RXR01Route = resultRecord.GetData(16)
-	$$$TRACE(" ProcessRXRSegment End ")
+	set pResp.RXR01Route = resultRecord.getString(16)
 	return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="setORC07QuantityTiming">
-<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:EnsLib.SQL.GatewayResultSet</FormalSpec>
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	
-	$$$TRACE("Inside Method setORC07QuantityTiming")
-	
-	#dim FreqAbstSC As %Status=$$$OK
-	#dim FreqTranstSC As %Status=$$$OK
-	#dim FreqTranstResult As %Status=$$$OK
-	#dim FreqconversionSC As %Status=$$$OK
-	#dim FreqConversionResult As %Status=$$$OK
 	set isConvertToText =1
 	set isConverstionRuleApplied = 0 // 0 is false
 	set FreqText = ""
 	set PrnFlag = "N"
 	
-	$$$TRACE("  Event ID : "_resultRecord.GetData(2))
-	set FreqAbstOrderCount=..GetFrequencyTableRowCount(resultRecord.GetData(2))
-		
-	$$$TRACE("  FREQUENCY_ABSTRACT table Rowcount : "_FreqAbstOrderCount)
-	
-	
-	
+	set FreqAbstOrderCount=..GetFrequencyTableRowCount(resultRecord.getString(2))
 	
 	// Getting records from FREQUENCY_ABSTRACT table 
+	Do ..FreqAbstractStmt.setLong(1,resultRecord.getString(2))
+	set FreqAbstResult = ..FreqAbstractStmt.executeQuery()
+
 	
-	set FreqAbstQuery="select * from "_..DBSchema_".FREQUENCY_ABSTRACT where EVENT_ID=?"
-	set FreqAbstResult = ..ProcessQuery(FreqAbstQuery,resultRecord.GetData(2))
-	
-	
-	
-	do FreqAbstResult.Next()
+	do FreqAbstResult.next()
 	//Text will be transferred to Cerner when:
     //  1. There is more than 1 row of frequencies for the order - OR –
     //  2. There is only 1 frequency, but it is not a named frequency - OR –
@@ -703,275 +570,219 @@
 		set pResp.ORC07QuantityTiming = "" //Scenario 1 - No Frequency_Abstract rows. The case is simple; Timing/Quantity is Null in the ORC segment.
 		return $$$OK
 	}
-	$$$TRACE("  FreqAbstResult.GetData(4) : "_FreqAbstResult.GetData(4))
 	
 	// Check if only one 1 row exists in FREQUENCY_ABSTRACT table 
 	if FreqAbstOrderCount > 1    
 	{
 		set isConvertToText = 0
 	}
-	elseif $L(FreqAbstResult.GetData(4)) = 0 // Check if Named frequencey is empty 
+	elseif $L(FreqAbstResult.getString(4)) = 0 // Check if Named frequencey is empty 
 	{
 		set isConvertToText = 0
 	} 
 	else
 	{
-			
 		// Check if Named Frequency NCID can be translated to Cerner Code
-		set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?" 
-		set FreqTranstResult = ..ProcessQuery(FreqTranstQuery,FreqAbstResult.GetData(4))
+		//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?" 
+		Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
+		set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
 	
 			
-		if FreqTranstResult.Next()
+		if FreqTranstResult.next()
 		{
-			if FreqTranstResult.GetData(5) = "N"
+			if FreqTranstResult.getString(5) = "N"
 			{
 				set isConvertToText = 0
 			}
 		}
 	
+	do FreqTranstResult.close() //Closing the ResultSet
 		
 	}
 	
-	$$$TRACE("  isConvertToText : "_isConvertToText)
-	
-	set NamedFrequencyNCIDValue = FreqAbstResult.GetData(4) // This variable is needed as we need to manipulate it in CoversionRules logic below and use in Scenario 2.1
+	set NamedFrequencyNCIDValue = FreqAbstResult.getString(4) // This variable is needed as we need to manipulate it in CoversionRules logic below and use in Scenario 2.1
 	
 	//Do Conversion Rules - Start
 	if (isConvertToText = 0) && (FreqAbstOrderCount = 1) //if need to convert to text and only one Frequency_Abstract row
-	{
-		$$$TRACE(" Trying to apply Conversion rules ")
-		
-		if FreqAbstResult.GetData(12) = "67655" // How_Often_Day_Week_ncid = 67655 (“every”), then copy value of Day_Of_Week_ncid into Named_Frequency_ncid value.
+	{	
+		if FreqAbstResult.getString(12) = "67655" // How_Often_Day_Week_ncid = 67655 (“every”), then copy value of Day_Of_Week_ncid into Named_Frequency_ncid value.
 		{
-			$$$TRACE(" How_Often_Day_Week_ncid = 67655 ")
-			set NamedFrequencyNCIDValue = FreqAbstResult.GetData(10)
+			set NamedFrequencyNCIDValue = FreqAbstResult.getString(10)
 			set isConverstionRuleApplied = 1
-			$$$TRACE("  NamedFrequencyNCIDValue Value : "_NamedFrequencyNCIDValue)
 		}
 		
-		$$$TRACE(" Timed Ncid "_FreqAbstResult.GetData(5)_ "and Value "_FreqAbstResult.GetData(6))
-		
-		if ($L(FreqAbstResult.GetData(5)) '= 0) && ($L(FreqAbstResult.GetData(6)) '= 0)
+		if ($L(FreqAbstResult.getString(5)) '= 0) && ($L(FreqAbstResult.getString(6)) '= 0)
 		{
-			$$$TRACE(" Checking Timed Ncid Value ")
 			// Get value from ORDERS2.FREQUENCY_CONVERSION
-			
-			set FreqConversionQuery="select * from "_..DBSchema_".FREQUENCY_CONVERSION where TYPE='Timed' AND NCID=? AND LOWVAL=?" 
-			set FreqConversionResult = ..ProcessQueryTwoParam(FreqConversionQuery,FreqAbstResult.GetData(5),FreqAbstResult.GetData(6))
+			Do ..FreqConversionStmt.setLong(1,FreqAbstResult.getString(5))
+			Do ..FreqConversionStmt.setLong(2,FreqAbstResult.getString(6))
+			set FreqConversionResult = ..FreqConversionStmt.executeQuery()
 	
 			// Set ConvertTo value from ORDERS2.FREQUENCY_CONVERSION into Named_Frequency_ncid
-			if FreqConversionResult.Next()
+			if FreqConversionResult.next()
 			{
-				if '""=FreqConversionResult.GetData(8)
+				if '""=FreqConversionResult.getString(8)
 				{
-					set NamedFrequencyNCIDValue = FreqConversionResult.GetData(8)
+					set NamedFrequencyNCIDValue = FreqConversionResult.getString(8)
 					set isConverstionRuleApplied = 1
-					$$$TRACE("  NamedFrequencyNCIDValue Value : "_NamedFrequencyNCIDValue)
 				}
 			}
+			
+			do FreqConversionResult.close() //Closing the ResultSet
 		}
 		
 	}
 	
 	//Do Conversion Rules - END
 	
-	$$$TRACE("  isConverstionRuleApplied : "_isConverstionRuleApplied)
-	
-	  
-	
 	if (isConvertToText = 1) || (isConverstionRuleApplied = 1) //Scenario 2.1 - One Frequency_Abstract row and has a Named_Frequency_ncid value and can be translated in Cerner
 	{
-			$$$TRACE("  Processing Scenario 2.1 - can be translated in Cerner")
-			
-			
-			
 		// Check For PRN Flag with the current namedfrequencyNCID ( it might be changed if conversionrule is applied else it remains same)
-		set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?" 
-		set FreqTranstResult = ..ProcessQuery(FreqTranstQuery,FreqAbstResult.GetData(4))
+		//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?"
+		Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
+		set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
 	
-			
-		if FreqTranstResult.Next()
+		if FreqTranstResult.next()
 		{
-			set PrnFlag = FreqTranstResult.GetData(4)
+			set PrnFlag = FreqTranstResult.getString(4)
 		}
 				
-			
 			//Check if PRN flag rules apply
-			$$$TRACE("  PRN flag value : "_PrnFlag)
-			
 			if PrnFlag = "Y" // Checking if PRN flag in FREQUENCY_TRANSLATION table is "Y"
 			{
 				set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue_"^^^^PRN" //Create Timing quatity as ‘^’ + Named_Frequency_ncid value + ‘^^^^PRN’
-				$$$TRACE("  ORC07QuantityTiming Value : "_pResp.ORC07QuantityTiming)
 			}
 			else // PRN flag is "N"
 			{
 				set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue  //Create Timing quatity as ‘^’ + Named_Frequency_ncid value
-				$$$TRACE("  ORC07QuantityTiming Value : "_pResp.ORC07QuantityTiming)
 			}
 			
 			//If Named NCID value itself is PRN(1534)
-			if FreqAbstResult.GetData(4) = "1534"  //If the Named Frequency is equal to ‘PRN’ (ncid=1534), then change the Named_Frequency_ncid to value 156950 (‘As Directed’) and set the PRN Flag to true.
+			if FreqAbstResult.getString(4) = "1534"  //If the Named Frequency is equal to ‘PRN’ (ncid=1534), then change the Named_Frequency_ncid to value 156950 (‘As Directed’) and set the PRN Flag to true.
 			{
-				$$$TRACE("  Named Frequency NCID value itself is PRN(1534) : "_NamedFrequencyNCIDValue)
 				set pResp.ORC07QuantityTiming = "^156950^^^^PRN"
-				$$$TRACE("  ORC07QuantityTiming Value : "_pResp.ORC07QuantityTiming)
 			}
+			
+			do FreqTranstResult.close() //Closing the ResultSet
 			
 		
 	}
 	else //Scenario 2.2 - One/Many Frequency_Abstract row and cannot be translated in Cerner
-
 	{
-		$$$TRACE("  Processing Scenario 2.2 - cannot be translated in Cerner")
-		$$$TRACE("  Processing Text Generation")
+
 		set pResp.ORC07QuantityTiming = ""   //The Timing / Quantity field in the ORC segment is left Null.
 		
 		if (FreqAbstOrderCount > 1) || (FreqAbstOrderCount = 1)
 		{
-            $$$TRACE(" Inside FreqAbstOrderCount > 1 || FreqAbstOrderCount = 1")
-            $$$TRACE(" 1")
-			//set ..SIGText = "SIG:   / Freq: "
-			
-			$$$TRACE(" 2")
 			set counter = 1
-			$$$TRACE(" 3")
- 			$$$TRACE(" Rowcount  : "_FreqAbstOrderCount)
 			while ((counter < (FreqAbstOrderCount + 1)) && (FreqAbstOrderCount '= 0))
 			{
-                
-
-                $$$TRACE(" Start of If")
-				 $$$TRACE(" Inside "_FreqAbstResult.GetData(4))
-				 $$$TRACE(" Length "_$L(FreqAbstResult.GetData(4)))
-				//if FreqAbstResult.GetData(4)> 0 // If Named Frequency not null
-				if $L(FreqAbstResult.GetData(4)) '= 0
+				//if FreqAbstResult.getString(4)> 0 // If Named Frequency not null
+				if $L(FreqAbstResult.getString(4)) '= 0
 				{
-					$$$TRACE(" Inside '""=FreqAbstResult.GetData(4)")
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.GetData(4))_", " //Concat SIGText and add a space in the end.
-					$$$TRACE("  FreqText value inside Named freq : "_FreqText)
+					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(4))_", " //Concat SIGText and add a space in the end.
 				}
-				$$$TRACE(" 1")
-				if ($L(FreqAbstResult.GetData(13)) '= 0) && ($L(FreqAbstResult.GetData(14)) '= 0) // If How_often_Day_Month_ncid and Day_Of_Month_Value are both not Null
+				if ($L(FreqAbstResult.getString(13)) '= 0) && ($L(FreqAbstResult.getString(14)) '= 0) // If How_often_Day_Month_ncid and Day_Of_Month_Value are both not Null
 				{
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.GetData(14))_", "_FreqAbstResult.GetData(13)_" day of the month"_", "
-					$$$TRACE("  FreqText value inside Day_Month_ncid : "_FreqText)
+					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(14))_", "_FreqAbstResult.getString(13)_" day of the month"_", "
 				}
-				$$$TRACE(" 2")
-				if ($L(FreqAbstResult.GetData(4)) = 0) && ($L(FreqAbstResult.GetData(10)) '= 0) && ($L(FreqAbstResult.GetData(12))'= 0) //If Named_Frequency_ncid is null and (Day_of_Week_ncid and How_Often_Day_Week_ncid are not Null)
+				if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(10)) '= 0) && ($L(FreqAbstResult.getString(12))'= 0) //If Named_Frequency_ncid is null and (Day_of_Week_ncid and How_Often_Day_Week_ncid are not Null)
 				{
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.GetData(12))_" "_..GetTransalationForNCID(FreqAbstResult.GetData(10))_", "
-					$$$TRACE("  FreqText value inside Day_of_Week : "_FreqText)
+					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(12))_" "_..GetTransalationForNCID(FreqAbstResult.getString(10))_", "
 				}
-				$$$TRACE(" 3")
-				if ($L(FreqAbstResult.GetData(4)) = 0) && ($L(FreqAbstResult.GetData(5))'= 0) //If Timed_Frequency_ncid is Not Null and Named_Frequency_ncid is Null
+				if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(5))'= 0) //If Timed_Frequency_ncid is Not Null and Named_Frequency_ncid is Null
 				{
-					set FreqText = FreqText_"Every "_FreqAbstResult.GetData(6)_" "_..GetTransalationForNCID(FreqAbstResult.GetData(5))_", "
-					$$$TRACE("  FreqText value inside Timed/Named_Frequency_ncid not null : "_FreqText)
+					set FreqText = FreqText_"Every "_FreqAbstResult.getString(6)_" "_..GetTransalationForNCID(FreqAbstResult.getString(5))_", "
 				}
-				$$$TRACE(" 4")
-				if $L(FreqAbstResult.GetData(7)) '= 0 //If Range_Frequency_ncid is Not Null
+				if $L(FreqAbstResult.getString(7)) '= 0 //If Range_Frequency_ncid is Not Null
 				{
-					set FreqText = FreqText_"Every "_FreqAbstResult.GetData(8)_" to "_FreqAbstResult.GetData(9)_" "_..GetTransalationForNCID(FreqAbstResult.GetData(7))_", "
-					$$$TRACE("  FreqText value inside Range_Frequency_ncid is Not Null : "_FreqText)
+					set FreqText = FreqText_"Every "_FreqAbstResult.getString(8)_" to "_FreqAbstResult.getString(9)_" "_..GetTransalationForNCID(FreqAbstResult.getString(7))_", "
 				}
-				$$$TRACE(" 5")
-				if $L(FreqAbstResult.GetData(15)) '= 0 //If Text Frequency is Not Null
+				if $L(FreqAbstResult.getString(15)) '= 0 //If Text Frequency is Not Null
 				{
-					set FreqText = FreqText_" "_FreqAbstResult.GetData(15)_", "
-					$$$TRACE("  FreqText value inside Text Frequency is Not Null : "_FreqText)
+					set FreqText = FreqText_" "_FreqAbstResult.getString(15)_", "
 				}
-				
-				$$$TRACE(" 6")
-                                
-              
-                                
+        
                 // Increment counter
                 set counter = counter + 1
                 
                 //Move cursor to next row
-               	do FreqAbstResult.Next()
+               	do FreqAbstResult.next()
 			}
 			
-			$$$TRACE(" FreqText Before IF : "_FreqText)
 			//After while loop If Freqtext is generated then add "/ Freq: to the Freqtext
 			if $L(FreqText) '= 0
 			{
-				$$$TRACE(" FreqText INSIDE IF : "_FreqText)
 				Set FreqText = $EXTRACT(FreqText,0,$L(FreqText)-2) // Removing the extra ","
-				$$$TRACE(" FreqText AFTER REMOVE: "_FreqText)
 				set FreqText = "/ Freq: "_FreqText
 			}
-			$$$TRACE("Final FreqText value : "_FreqText)
-			$$$TRACE(" ENd of If")
+
 		}
 		
 	}
 	
+	do FreqAbstResult.close()
 	
-
-			$$$TRACE(" BEFORE DOSETEXT")
 			//Check the Transalation for Dose units
 			
 			set DoseText = ""
-			if $L(resultRecord.GetData(15)) '= 0 //Dose Units not null 
+			if $L(resultRecord.getString(15)) '= 0 //Dose Units not null 
 			{
-					set DoseQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?" 
-					set DoseResult = ..ProcessQuery(DoseQuery,resultRecord.GetData(15))
+					//set DoseQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?" 
+					Do ..DoseStmt.setLong(1,resultRecord.getString(15))
+					set DoseResult = ..DoseStmt.executeQuery()
 					
-					if DoseResult.Next()
+					if DoseResult.next()
 					{
-						if DoseResult.GetData(5) = "N"
+						if DoseResult.getString(5) = "N"
 						{
-							set DoseText = "Dose units: "_DoseResult.GetData(2)
+							set DoseText = "Dose units: "_DoseResult.getString(2)
 						}
 					}
 					
-					$$$TRACE(" Value of DoseText : "_DoseText)
-	
+					do DoseResult.close() //Closing the ResultSet
 			}
 			
 			
 			//Check the Transalation for Route 
 			
 			set RouteText = ""
-			if $L(resultRecord.GetData(16)) '= 0 //Route not null 
+			if $L(resultRecord.getString(16)) '= 0 //Route not null 
 			{
-					set RouteQuery="select * from "_..DBSchema_".ROUTE_MAP where ROUTE_METHOD_NCID = ?" 
-					set RouteResult = ..ProcessQuery(RouteQuery,resultRecord.GetData(16))
+					//set RouteQuery="select * from "_..DBSchema_".ROUTE_MAP where ROUTE_METHOD_NCID = ?" 
+					Do ..RouteStmt.setLong(1,resultRecord.getString(16))
+					set RouteResult =  ..RouteStmt.executeQuery()
 					
-					if RouteResult.Next()
+					if RouteResult.next()
 					{
-						if RouteResult.GetData(5) = "N"
+						if RouteResult.getString(5) = "N"
 						{
-							set RouteText = "/ Route: "_RouteResult.GetData(2)
+							set RouteText = "/ Route: "_RouteResult.getString(2)
 						}
 					}
-					
-					$$$TRACE(" Value of RouteText : "_RouteText)
-	
+
+					do RouteResult.close() //Closing the ResultSet
 			}
 			
 			
 			//Check the Transalation for Dispensing units 
 			
 			set DispensingText = ""
-			if $L(resultRecord.GetData(22)) '= 0 //Dispensing Units not null 
+			if $L(resultRecord.getString(22)) '= 0 //Dispensing Units not null 
 			{
-					set DispensingQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?" 
-					set DispensingResult = ..ProcessQuery(DispensingQuery,resultRecord.GetData(22))
+					//set DispensingQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?" 
+					Do ..DispensingStmt.setLong(1,resultRecord.getString(22))
+					set DispensingResult = ..DispensingStmt.executeQuery()
 					
-					if DispensingResult.Next()
+					if DispensingResult.next()
 					{
-						if DispensingResult.GetData(5) = "N"
+						if DispensingResult.getString(5) = "N"
 						{
-							set DispensingText = "/ Dispense Units: "_DispensingResult.GetData(2)
+							set DispensingText = "/ Dispense Units: "_DispensingResult.getString(2)
 						}
 					}
-					
-					$$$TRACE(" Value of DispensingText : "_DispensingText)
-	
+
+					do DispensingResult.close() //Closing the ResultSet
 			}
 			
 			
@@ -983,17 +794,8 @@
 			}
 			else
 			{
-				$$$TRACE("  Inside SIGText Else : "_..SIGText)
-				$$$TRACE("  Inside DoseText Else : "_$L(DoseText))
-				$$$TRACE("  Inside RouteText Else : "_$L(RouteText))
-				$$$TRACE("  Inside DispensingText Else : "_$L(DispensingText))
-				$$$TRACE("  Inside FreqText Else : "_$L(FreqText))
 				set ..SIGText ="SIG: "_DoseText_RouteText_DispensingText_FreqText //Creating the Final SIGText	
-			}	
-
-			
-			
-			$$$TRACE("  Final SIGText value : "_..SIGText)
+			}
 ]]></Implementation>
 </Method>
 
@@ -1001,29 +803,17 @@
 <FormalSpec>ncid:%Integer</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("  Inside GetTransalationForNCID method ")
-	#dim pQuerySC As %Status=$$$OK
-	#dim pResult As %Status=$$$OK
-	set tQueryStagingProcessed="select * from "_..DBSchema_".FREQUENCY_CONVERSION where NCID="_ncid
-	$$$TRACE("  SUCCESS GetTransalationForNCID : "_tQueryStagingProcessed)	 	      	
-	    try
-		{	
- 	   		set pQuerySC=..Adapter.ExecuteQuery(.pResult,tQueryStagingProcessed) 	
- 	   		$$$TRACE("  SUCCESS GetTransalationForNCID : "_pQuerySC)		 	   	
-		}
-		CATCH err 
-		{		
-	    	 $$$LOGERROR( "Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	   		 set pQuerySC = $$$ERROR( "SQLError:Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-		}
+	Do ..TranslationStmt.setLong(1,ncid)
+	set pResult = ..TranslationStmt.executeQuery()
 		
-		if pResult.Next()
+		if pResult.next()
 		{
-	      	set TranslatedText = pResult.GetData(2) 
-	      	$$$TRACE("  TranslatedText : "_TranslatedText)
+	      	set TranslatedText = pResult.getString(2) 
+	      	do pResult.close()
 	      	return TranslatedText // Return the Transalted Text
 		}
 		
+		do pResult.close()
 		return ""
 ]]></Implementation>
 </Method>
@@ -1032,107 +822,226 @@
 <FormalSpec>EventID:%Integer</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("  Inside GetTransalationForNCID method ")
-	#dim pRowQuerySC As %Status=$$$OK
-	#dim pRowResult As %Status=$$$OK
-	set tQueryStagingProcessed="select count(*) from "_..DBSchema_".FREQUENCY_ABSTRACT where EVENT_ID="_EventID
-		 	      	
-	    try
-		{	
- 	   		set pRowQuerySC=..Adapter.ExecuteQuery(.pRowResult,tQueryStagingProcessed) 	
- 	   		$$$TRACE("  SUCCESS GetFrequencyTableRowCount : "_pRowQuerySC)		 	   	
-		}
-		CATCH err 
-		{		
-	    	 $$$LOGERROR( "Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	   		 set pRowQuerySC = $$$ERROR( "SQLError:Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
+	Do ..FreqCountStmt.setLong(1,EventID)
+	set pRowResult =  ..FreqCountStmt.executeQuery()
+	 			
+		if pRowResult.next()
+		{
+	      	set RowCount = pRowResult.getString(1) 	      	
+	      	do pRowResult.close() //Closing ResultSet
+	      	return RowCount // Return the rowcount
 		}
 		
-		if pRowResult.Next()
+		do pRowResult.close() //Closing ResultSet
+		return 0
+]]></Implementation>
+</Method>
+
+<Method name="UpdatePreviousProcessed">
+<FormalSpec>status:%String,eventID:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 	
+		Do ..UpdateProcStatusStmt.setString(1,status)
+		Do ..UpdateProcStatusStmt.setLong(2,eventID)
+		set NoOfRowsUpdated =  ..UpdateProcStatusStmt.executeUpdate()
+		$$$TRACE(" UpdateProcessStatus NoOfRowsUpdated  : "_NoOfRowsUpdated)
+		return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="FilterMessages">
+<FormalSpec>resultRecord:java.sql.ResultSet</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	
+	// Filtering logic Starts
+		
+		//Check if Order Date less than 01/01/2012 then filter it and Set processed as Y
+		Set extractSQLDate = $EXTRACT(resultRecord.getString(4),0,10)
+		set DiffADate =  $System.SQL.DATEDIFF("d","01/01/2012",extractSQLDate)
+		if DiffADate <= 0
 		{
-	      	set RowCount = pRowResult.GetData(1) 
-	      	$$$TRACE("  RowCount : "_RowCount)
-	      	return RowCount // Return the rowcount
+		    //Setting Processed Flag as "Y" in Staging
+			//TODO Remove set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.getString(2))
+			return 1	// Record filtered
+		}
+		
+		//Check if it is a Text Order
+		if $L(resultRecord.getString(9)) = 0
+		{
+			//Setting Processed Flag as "Y" in Staging
+			//TODO Remove set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.getString(2))
+			return 1
+		}
+		
+		// Check if Order Status is either Discontinued or Error and If not PrevProcessed 
+		if (resultRecord.getString(6) = 1524) || (resultRecord.getString(6) = 69074) && (..isPreProcessed = 1)
+		{
+			//Setting Processed Flag as "Y" in Staging
+		    set isdiscontinuedOrError = 0 // Setting flag which is used in updating ProcessedOrder Table
+			//TODO Remove set upStatus = ..UpdatePreviousProcessed("Y",resultRecord.getString(2))			
+			return 1	
 		}
 		
 		return 0
 ]]></Implementation>
 </Method>
 
-<Method name="ProcessMainQuery">
-<FormalSpec>Query:%String</FormalSpec>
-<ReturnType>EnsLib.SQL.GatewayResultSet</ReturnType>
+<Method name="UpdateProcessedOrders">
+<FormalSpec>eventID:%Integer,pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("  Inside ProcessMainQuery method ")
-	$$$TRACE("  Query to execute : " _Query)
-	#dim processQuerySC As %Status=$$$OK
-	#dim processQueryResult As %Status=$$$OK
-			 	      	
-	    try
-		{	
- 	   		set processQuerySC=..Adapter.ExecuteQuery(.processQueryResult,Query) 	
- 	   		$$$TRACE("  SUCCESS ProcessMainQuery : "_processQuerySC)		 	   	
-		}
-		CATCH err 
-		{		
-	    	 $$$LOGERROR( "Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	   		 set processQuerySC = $$$ERROR( "SQLError:Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-		}
-		
-		return processQueryResult
+	//Check if it is PreProcessed  orders then update the ProcessedOrders Table
+	if ..isPreProcessed = 0 
+	{
+		set ..editVersion = ..editVersion + 1
+		Do ..UpdateProcessedOrderStmt.setLong(1,..editVersion)
+		Do ..UpdateProcessedOrderStmt.setLong(2,eventID)
+		Do ..UpdateProcessedOrderStmt.executeUpdate()	
+	}
+	else
+	{		 	
+		Do ..InsertProcessedOrderStmt.setLong(1,eventID)
+		Do ..InsertProcessedOrderStmt.setLong(2,pResp.PID02AltPatientID)
+		Do ..InsertProcessedOrderStmt.setLong(3,pResp.RXO0101RequestCode)
+		Do ..InsertProcessedOrderStmt.executeUpdate()	 	 	
+	}
+	      	
+	return $$$OK
 ]]></Implementation>
 </Method>
 
-<Method name="ProcessQuery">
-<FormalSpec>Query:%String,Pharm1:%Integer</FormalSpec>
-<ReturnType>EnsLib.SQL.GatewayResultSet</ReturnType>
+<Method name="ConstructHl7">
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
+<ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("  Inside ProcessQuery method ")
-	$$$TRACE("  Query to execute : " _Query)
-	$$$TRACE("  Query Parameter : " _Pharm1)
-	#dim processQuerySC As %Status=$$$OK
-	#dim processQueryResult As %Status=$$$OK
+	set Hl7 = "MSH|^~\&|"_pResp.MSH03SendingApp_"|"_pResp.MSH04SendingFac_"|"_pResp.MSH05ReceiveApp_"||||"_pResp.MSH0901Type_"^"_pResp.MSH0902Event_"||"_pResp.MSH11ProcessMode_"|"_pResp.MSH12VersionId_"|"_$C(13,10)
+	_"EVN|O01|"_$C(13,10)
+	_"PID|"_pResp.PID01_"|"_pResp.PID02AltPatientID_"|||"_pResp.PID05PatientName_"|"_$C(13,10)
+	_"ORC|"_pResp.ORC01OrderControl_"|"_pResp.ORC0201UniquePlacerNo_"^"_pResp.ORC0202PlacerAppId_"|||"_pResp.ORC05OrderStatus_"||"_pResp.ORC07QuantityTiming_"||"_pResp.ORC09TransactionDate_"|||"_pResp.ORC12OrderingProvider_"|"_$C(13,10)
+	_"RXO|"_pResp.RXO0101RequestCode_"^"_pResp.RXO0102CodeDescription_"^"_pResp.RXO0103CodeMethod_"^|"_pResp.RXO02RequestAmountMinimum_"|"_pResp.RXO03RequestAmountMaximum_"|"_pResp.RXO04RequestGiveUnits_"|||||"_pResp.RXO09AllowSubstitutions_"||"_pResp.RXO11ReqDispenseAmt_"|"_pResp.RXO12ReqDispenseUnits_"|"_pResp.RXO13NoOfRefills_"|"_$C(13,10)
+	_"NTE|"_pResp.NTE01SetID_"|"_pResp.NTE02SourceComment_"|"_pResp.NTE03Comment_"|"
 	
-		 	      	
-	    try
-		{	
- 	   		set processQuerySC=..Adapter.ExecuteQuery(.processQueryResult,Query,Pharm1) 	
- 	   		$$$TRACE("  SUCCESS ProcessQuery : "_processQuerySC)		 	   	
-		}
-		CATCH err 
-		{		
-	    	 $$$LOGERROR( "Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	   		 set processQuerySC = $$$ERROR( "SQLError:Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-		}
-		
-		return processQueryResult
+	if ($L(pResp.RXR01Route) '= 0)
+	{
+		set Hl7 = Hl7_$C(13,10)_"RXR|"_pResp.RXR01Route_"|"
+	}
+	
+	set Hl7 = Hl7_$C(13,10)_"OBR|{"_pResp.EventID
+	
+	return Hl7
 ]]></Implementation>
 </Method>
 
-<Method name="ProcessQueryTwoParam">
-<FormalSpec>Query:%String,Pharm1:%Integer,Pharm2:%Integer</FormalSpec>
-<ReturnType>EnsLib.SQL.GatewayResultSet</ReturnType>
+<Method name="ConnectionAndStatments">
 <Implementation><![CDATA[
-	$$$TRACE("  Inside ProcessQueryTwoParam method ")
-	$$$TRACE("  Query to execute : " _Query)
-	$$$TRACE("  Query Parameter 1: " _Pharm1)
-	$$$TRACE("  Query Parameter 2: " _Pharm2)
-	#dim processQuerySC As %Status=$$$OK
-	#dim processQueryResult As %Status=$$$OK
 	
-		 	      	
-	    try
-		{	
- 	   		set processQuerySC=..Adapter.ExecuteQuery(.processQueryResult,Query,Pharm1,Pharm2) 	
- 	   		$$$TRACE("  SUCCESS ProcessQueryTwoParam : "_processQuerySC)		 	   	
-		}
-		CATCH err 
-		{		
-	    	 $$$LOGERROR( "Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	   		 set processQuerySC = $$$ERROR( "SQLError:Error while calling stored procedure "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
-		}
-		
-		return processQueryResult
+	Set tCredential=##class(Ens.Config.Credentials).%OpenId("TestUser")
+	Set tUsername=tCredential.Username
+	Set tPassword=tCredential.Password
+	
+	Set classPath=##class(%ListOfDataTypes).%New()
+    Do classPath.Insert("/WORK/common/class/ojdbc7.jar")
+    Set ..gateway=##class(%Net.Remote.Gateway).%New()
+    Set status=..gateway.%Connect("127.0.0.1",11902,,,classPath)
+    $$$TRACE(" gateway "_status) 
+    Set status=..gateway.%ClassForName("oracle.jdbc.driver.OracleDriver")
+    Set status=..gateway.%Import("java.sql.DriverManager")
+    Set url="jdbc:oracle:thin:@lpv-datamigdev02:1521:cks",username=tUsername,password=tPassword
+	Set ..connection=##class(java.sql.DriverManager).getConnection(..gateway,url,username,password)
+	$$$TRACE(" connection "_..connection) 
+	
+	
+	
+	//Set MainQuery="select * from "_..DBSchema_".STAGING where EVENT_ID=?"
+	Set MainQuery="select * from "_..DBSchema_".STAGING where Processed=?"
+	Set ..MainQueryStmt = ..connection.prepareStatement(MainQuery)
+	
+	Set ProcessedOrdersQuery="select * from "_..DBSchema_".PROCESSEDORDERS where EVENT_ID=?"
+	Set ..ProcessedOrdersStmt = ..connection.prepareStatement(ProcessedOrdersQuery)
+	
+	Set AListQuery="select * from "_..DBSchema_".A_LIST where EVENT_ID=?"
+	Set ..AListStmt = ..connection.prepareStatement(AListQuery)
+	
+	Set H2TranslatorQuery="select * from "_..DBSchema_".H2TRANSLATOR where NCID=?"
+	Set ..H2TranslatorStmt = ..connection.prepareStatement(H2TranslatorQuery)
+	
+	Set FreqAbstractQuery="select * from "_..DBSchema_".FREQUENCY_ABSTRACT where EVENT_ID=?"
+	Set ..FreqAbstractStmt = ..connection.prepareStatement(FreqAbstractQuery)
+	
+	Set FreqTranslationQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?"
+	Set ..FreqTranslationStmt = ..connection.prepareStatement(FreqTranslationQuery)
+	
+	Set FreqConversionQuery="select * from "_..DBSchema_".FREQUENCY_CONVERSION where TYPE='Timed' AND NCID=? AND LOWVAL=?"
+	Set ..FreqConversionStmt = ..connection.prepareStatement(FreqConversionQuery)
+	
+	Set DoseQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?"
+	Set ..DoseStmt = ..connection.prepareStatement(DoseQuery)
+	
+	Set RouteQuery="select * from "_..DBSchema_".ROUTE_MAP where ROUTE_METHOD_NCID = ?"
+	Set ..RouteStmt = ..connection.prepareStatement(RouteQuery)
+	
+	Set DispensingQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?"
+	Set ..DispensingStmt = ..connection.prepareStatement(DispensingQuery)
+	
+	Set TranslationQuery="select * from "_..DBSchema_".FREQUENCY_CONVERSION where NCID=?"
+	Set ..TranslationStmt = ..connection.prepareStatement(TranslationQuery)
+	
+	Set FreqCountQuery="select count(*) from "_..DBSchema_".FREQUENCY_ABSTRACT where EVENT_ID=?"
+	Set ..FreqCountStmt = ..connection.prepareStatement(FreqCountQuery)
+	
+	
+	Set UpdateProcStatusQuery="update "_..DBSchema_".STAGING set Processed =? where EVENT_ID=?"
+	Set ..UpdateProcStatusStmt = ..connection.prepareStatement(UpdateProcStatusQuery)
+	
+	Set UpdateProcessedOrderQuery="update "_..DBSchema_".PROCESSEDORDERS set Edit_Version=? where EVENT_ID=?"
+	Set ..UpdateProcessedOrderStmt = ..connection.prepareStatement(UpdateProcessedOrderQuery)
+	
+	Set InsertProcessedOrderQuery="insert into "_..DBSchema_".PROCESSEDORDERS values (?,0,?,null,?,'Y',null)"
+	Set ..InsertProcessedOrderStmt = ..connection.prepareStatement(InsertProcessedOrderQuery)
+]]></Implementation>
+</Method>
+
+<Method name="ClearProcessMedOrder">
+<FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set pResp.EventID =  ""
+	set pResp.MSH01FieldSeperator =  ""
+	set pResp.MSH02EncodingChar =  ""
+	set pResp.MSH03SendingApp =  ""
+	set pResp.MSH04SendingFac =  ""
+	set pResp.MSH05ReceiveApp =  ""
+	set pResp.MSH0901Type =  ""
+	set pResp.MSH0902Event =  ""
+	set pResp.MSH11ProcessMode =  ""
+	set pResp.MSH12VersionId =  ""
+	set pResp.PID01 =  ""
+	set pResp.PID02AltPatientID =  ""
+	set pResp.PID05PatientName =  ""
+	set pResp.ORC01OrderControl =  ""
+	set pResp.ORC0201UniquePlacerNo =  ""
+	set pResp.ORC0202PlacerAppId =  ""
+	set pResp.ORC05OrderStatus =  ""
+	set pResp.ORC07QuantityTiming =  ""
+	set pResp.ORC09TransactionDate =  ""
+	set pResp.ORC12OrderingProvider =  ""
+	set pResp.RXO0101RequestCode =  ""
+	set pResp.RXO0102CodeDescription =  ""
+	set pResp.RXO0103CodeMethod =  ""
+	set pResp.RXO02RequestAmountMinimum =  ""
+	set pResp.RXO03RequestAmountMaximum =  ""
+	set pResp.RXO04RequestGiveUnits =  ""
+	set pResp.RXO09AllowSubstitutions =  ""
+	set pResp.RXO11ReqDispenseAmt =  ""
+	set pResp.RXO12ReqDispenseUnits =  ""
+	set pResp.RXO13NoOfRefills =  ""
+	set pResp.NTE01SetID =  ""
+	set pResp.NTE02SourceComment =  ""
+	set pResp.NTE03Comment =  ""
+	set pResp.RXR01Route =  ""
+	return $$$OK
 ]]></Implementation>
 </Method>
 
