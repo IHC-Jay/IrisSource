@@ -53,6 +53,11 @@ BPL Definition</Description>
 <property name='PartnerCode' type='%String' initialexpression='"IMT"'  instantiate='0'>
 </property>
 
+<property name='operationTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 
 </context>
 
@@ -182,6 +187,18 @@ BPL Definition</Description>
 </code>
 
 
+<code name='initOperationTargetConfigName' xpos='200' ypos='550' >
+<![CDATA[ 
+ set context.operationTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","OperationTargetConfigName",.pstatus)
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AlertForMcKessonRetailRx",.configValue) 
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("OperationTargetConfigName: " _ context.operationTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No operationTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
 <code name='initializePortalSettings' xpos='200' ypos='950' >
 <annotation><![CDATA[Check/Initialize for Management Portal Settings]]]]><![CDATA[></annotation>
 <![CDATA[ 
@@ -193,14 +210,6 @@ BPL Definition</Description>
  
  set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: [" _ maxErr+"]")
- 
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = "") ){   
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetConfigNames found")
- }else{
- 	$$$TRACE("TargetConfigNames: " _configValue)
- } 
- 
  
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AlertForMcKessonRetailRx",.configValue) 
  $$$TRACE("Value of AlertForMcKessonRetailRx :["_configValue_"]")
@@ -216,10 +225,6 @@ BPL Definition</Description>
 
 
 
-<code name='getTargetConfigList' xpos='470' ypos='900' >
-<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
- $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
-</code>
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToMcKessonRetailRx' source='request' target='response' xpos='470' ypos='1000' >
 <annotation><![CDATA[translates iCentra Adt Legacy Hl7 to McKessonRetailRx ]]]]><![CDATA[></annotation>
@@ -227,21 +232,19 @@ BPL Definition</Description>
 
 
 <code name='buildHttpsRequest' xpos='470' ypos='900' >
-<![CDATA[     
-  $$$TRACE("httpsRequest..1 " _ context.AuthToken)
+<![CDATA[       
     set context.httpsRequest = ##class(IHC.ITF.ITFCOMMON.Util.BuildHttpsRequest).buildHttpsRequest(response,context.AuthToken,context.PartnerCode)
-   $$$TRACE("httpsRequest..1 " _ context.httpsRequest)]]]]><![CDATA[>
+   $$$TRACE("httpsRequest.. " _ context.httpsRequest)]]]]><![CDATA[>
 </code>
 
- <foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
- <sync calls='CallTargetConfigNames' type='any' xpos='200' ypos='250' />
-<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.httpsRequest" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-</foreach> 
+ <code name='CallMcKessonRetail' xpos='470' ypos='1400' >
+ 
+<![CDATA[ set tStatus=process.SendRequestSync(context.operationTargetConfigName,context.httpsRequest,.retailResponse)
+
+  if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while calling McKessonRetail. "_$SYSTEM.Status.GetOneErrorText(tStatus))     }
+]]]]><![CDATA[>
+</code>
 
 
 <if name='isAlertFlagSet' condition='context.AlertForMcKessonRetailRx = "1"' xpos='470' ypos='1300' xend='470' yend='1750' >
@@ -265,17 +268,16 @@ BPL Definition</Description>
 <code name='buildHttpsRequestForAlertFlagSet' xpos='470' ypos='900' >
 <![CDATA[      
     set context.httpsRequest1 = ##class(IHC.ITF.ITFCOMMON.Util.BuildHttpsRequest).buildHttpsRequest(context.updatedResponse,context.AuthToken,context.PartnerCode)
-   $$$TRACE("httpsRequest..2 " _ context.httpsRequest)]]]]><![CDATA[>
+   $$$TRACE("httpsRequestFor AlertFlag.. " _ context.httpsRequest)]]]]><![CDATA[>
 </code>
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1100' xend='200' yend='350' >
-<sync calls='CallTargetIfAlertFlagSet' type='any' xpos='200' ypos='250' />
-<call name='CallTargetIfAlertFlagSet' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.httpsRequest1" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-</foreach> 
+
+<code name='CallMcKessonRetailForAlert' xpos='470' ypos='1400' >
+<![CDATA[ set tStatus=process.SendRequestSync(context.operationTargetConfigName,context.httpsRequest1,.retailResponseForAlert)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while calling McKessonRetail. "_$SYSTEM.Status.GetOneErrorText(tStatus))     }
+]]]]><![CDATA[>
+</code>
+
 </true> 
 </if>
 
@@ -311,8 +313,13 @@ If Alert is 1 A08s will go out for both keeper and deleter for a merge ,If its 0
 <Parameter name="MAXLEN" value="1"/>
 </Property>
 
+<Property name="OperationTargetConfigName">
+<Type>%String</Type>
+<InitialExpression>"Out-McKessonRetailRx-Adt-Hl7http"</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>PartnerCode:Additional,AlertForMcKessonRetailRx:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>OperationTargetConfigName:Additional,PartnerCode:Additional,AlertForMcKessonRetailRx:Additional,-NextOperation,-TargetConfigMask,-Target Config Names</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -325,6 +332,9 @@ If Alert is 1 A08s will go out for both keeper and deleter for a merge ,If its 0
 </Value>
 <Value name="2">
 <Value>AlertForMcKessonRetailRx</Value>
+</Value>
+<Value name="3">
+<Value>OperationTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
