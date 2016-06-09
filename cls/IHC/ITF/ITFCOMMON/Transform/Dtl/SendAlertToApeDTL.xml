@@ -11,12 +11,68 @@
 <transform sourceClass='Ens.AlertRequest' targetClass='EnsLib.HTTP.GenericMessage' create='new' language='objectscript' >
 <trace value='"IN ALERT DTL"' />
 <code>
-<![CDATA[ // create data stream
-  set stream=##class(%Stream.GlobalBinary).%New()
-  // Create APE object
+<![CDATA[  // Create APE object
    set apeInfo =##class(IHC.ITF.ITFCOMMON.ApeInformation).%New()
    set apeInfo.hostname = $SYSTEM.INetInfo.LocalHostName()
-   set apeInfo.groupname = $NAMESPACE
+   set apeInfo.groupname = $NAMESPACE]]]]><![CDATA[></code>
+<code>
+<![CDATA[  SET sqlStmt = "SELECT MessageBodyId, MessageBodyClassName FROM Ens.MessageHeader " _
+                " where Type = ? and TargetConfigName = ? and sessionId = ? "
+    
+    
+  SET tStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = tStatement.%Prepare(sqlStmt)
+  IF qStatus'=1 { 
+     $$$LOGERROR("Error in preparing SQL: " _ sqlStmt _", error: " _ qStatus) 
+  }
+  else
+  {
+    SET rset = tStatement.%Execute(1, source.SourceConfigName, source.SessionId)
+ 
+ 
+    if (rset.%SQLCODE = 0)
+    {
+  	WHILE rset.%Next() {
+  	$$$LOGINFO( "Data: " _ rset.MessageBodyId _ ", type: " _ rset.MessageBodyClassName)
+     		if ( rset.MessageBodyClassName = "EnsLib.HL7.Message" )
+     		{
+     			set tmpObject = ##class(EnsLib.HL7.Message).%OpenId(rset.MessageBodyId)
+ 			set apeInfo.inputData  = $EXTRACT( tmpObject.OutputToString(), 1, 2000)
+     		}
+     		elseif( rset.MessageBodyClassName = "Ens.StreamContainer" )
+     		{
+     		       set streamObj = ##class(Ens.StreamContainer).%OpenId(rset.MessageBodyId)
+     			set apeInfo.inputData  = "OriginalFilename: " _ streamObj.OriginalFilename
+     		}
+     		elseif ( rset.MessageBodyClassName = "Ens.StringRequest" )
+     		{
+     		        set strReq = ##class(Ens.StringRequest).%OpenId(rset.MessageBodyId)
+     			set apeInfo.inputData  = $EXTRACT(strReq.StringValue, 1, 2000)
+     		}
+     		elseif( rset.MessageBodyClassName = "Ens.StringContainer" )
+     		{
+     		        set strConReq = ##class(Ens.StringContainer).%OpenId(rset.MessageBodyId)
+     			set apeInfo.inputData  = $EXTRACT(strConReq.StringValue, 1, 2000)
+     		}
+     		else
+     		{
+     		   set apeInfo.inputData  = "MessageBodyClassName: " _ rset.MessageBodyClassName _ ", MessageBodyId: " _ rset.MessageBodyId
+     		}
+     	    $$$LOGINFO("Copied Input message: " _ apeInfo.inputData)
+     	    quit
+  	}
+  	Do rset.%Close()
+   }
+   else
+   {
+     $$$LOGERROR("Error in Execute: " _ rset.%SQLCODE)
+     set apeInfo.inputData  = "Could not get input record for session: " _ source.SessionId _ " for component: " _ source.SourceConfigName
+   }
+  }]]]]><![CDATA[></code>
+<code>
+<![CDATA[ // create data stream
+  set stream=##class(%Stream.GlobalBinary).%New()
+ 
    set apeInfo.comment = source.AlertDestination
    set apeInfo.messagedata = source.AlertText
 
@@ -71,11 +127,26 @@
      }
      else
      {
-     set ind = $FIND(source.AlertText, ":")
-     if ind > 0
-     {
-       set apeInfo.issuecode = $EXTRACT(source.AlertText, 0, ind - 2 )
-     }
+     	set intSysErr = "ERROR"
+	set ind = $FIND(source.AlertText, intSysErr )
+     	if ind > 0
+     	{
+      	 set ind2 = $FIND(source.AlertText, ":")
+      	 if ind2 > 0
+     	 {
+      	  set apeInfo.issuecode = $EXTRACT(source.AlertText, ind - $LENGTH(intSysErr), ind2 - 2 )
+     	  set apeInfo.issuecode = $REPLACE(apeInfo.issuecode, $CHAR(92) _ "u003c", "<")
+          set apeInfo.issuecode = $REPLACE(apeInfo.issuecode, $CHAR(92) _"u003e", ">")
+     	 }
+     	 else
+     	 {
+     	   set apeInfo.issuecode = "Unknown"
+     	 }
+     	}
+     	else
+     	{
+     	  set apeInfo.issuecode = "Unknown"
+     	}
 
      }
 
