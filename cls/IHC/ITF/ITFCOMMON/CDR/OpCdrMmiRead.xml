@@ -1,0 +1,365 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.CDR.OpCdrMmiRead">
+<Description>
+Calls Tuxedo service for MMI Read Information using MMIREAD</Description>
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>64075,49609.74147</TimeCreated>
+
+<Property name="JarFile">
+<Description>
+JarFile which has the java code </Description>
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="ApplicationAddress">
+<Description>
+Applicaiton Address to be connected</Description>
+<Type>%String</Type>
+<InitialExpression>"//svtst01:54210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service</Description>
+<Type>%String</Type>
+<InitialExpression>"MMIREAD"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="objCdrTuxService">
+<Type>org.ihc.itf.cdr.CdrMmiEvents</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>JarFile:Additional,ApplicationAddress:Additional,TuxedoService:Additional</Default>
+</Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	do ##super()
+	$$$TRACE("$$$$$ Inside OnInit() method...")	
+	#dim status as %Status
+	set status = $$$OK	
+	$$$TRACE("OnInit..JarFile "_ ..JarFile)
+	do ..JavaGateway.%Import(..JarFile) 	 
+	 
+	 try{
+		set ..objCdrTuxService = ##class("org.ihc.itf.cdr.CdrReadMmi").%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)
+		
+	}catch err{
+		$$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	    
+	}
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StringRequest,*pResponse:IHC.ITF.ITFCOMMON.Response.MmiInfo</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #dim status as %Status
+	 set status = $$$OK
+	 $$$TRACE("$$$$$ Inside OnMessage method <"_pRequest.StringValue_">")	 
+	 try {		 
+		set mmiInfoObj = ..objCdrTuxService.getMMInfo(pRequest.StringValue)
+		if ('$isObject(mmiInfoObj)){
+	   		$$$TRACE(">>>>> MMIInfo is not an object")
+       		set status = $System.Status.Error($$$GeneralError,"ReadMMI returned a null reference")
+       		quit
+		}
+		
+     	set mmiInfo = ##class("IHC.ITF.ITFCOMMON.Response.MmiInfo").%New()	
+     	
+     	set pResponse = ##class("IHC.ITF.ITFCOMMON.Response.MmiInfo").%New()
+     	set dataRecord = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.DataRecord").%New()
+     	set dataRecord.ListOfMMIRecords = ##class(%ListOfObjects).%New()     	
+     	set dataRecord.ListOfMmiMergeRecords = ##class(%ListOfObjects).%New()
+     	     	
+     	set mmiMergeRecord = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.MmiMergeRecord").%New()     	  	
+     	do dataRecord.ListOfMmiMergeRecords.Insert(mmiMergeRecord)
+     	
+     	//Fill MemberInfo     	
+     	$$$TRACE("mmiInfoObj information <"_ mmiInfoObj _">")
+     	if ($isObject(mmiInfoObj)){	     	
+	     	set dataRecordObj = mmiInfoObj.getDataRecord()
+	     	$$$TRACE("dataRecordObj information <"_ dataRecordObj _">")
+	     	if ($isObject(dataRecordObj)){
+			
+				// #1: Populate MmiRecords
+		     	set mmiRecordsObj = dataRecordObj.getMmiRecords()
+		     	$$$TRACE("mmiRecordsObj information <"_ mmiRecordsObj _">")		     	
+		     	if (($isObject(mmiRecordsObj)) && (mmiRecordsObj.Count() > 0)){					
+			     	set mmiRecordIndex = mmiRecordsObj.Next("")			     	
+					while (mmiRecordIndex){
+						set mmiRecordObj = mmiRecordsObj.GetAt(mmiRecordIndex)
+						$$$TRACE("mmiRecordObj information <"_ mmiRecordObj _">")
+						set mmiRecord = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.MmiRecord").%New()
+						if ($isObject(mmiRecordObj)){
+							set memberInfoObj = mmiRecordObj.getMemberInfo()
+							$$$TRACE("memberInfoObj information <"_ memberInfoObj _">")
+							set memberInfo = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.MemberInfo").%New()
+							set memberInfo.ListOfNames = ##class(%ListOfObjects).%New()
+							set memberInfo.ListOfAddresses = ##class(%ListOfObjects).%New()
+							set memberInfo.ListOfFacilities = ##class(%ListOfObjects).%New()
+							if ($isObject(memberInfoObj)){
+								set coded = memberInfoObj.getDateOfBirth()
+								if ($isObject(coded)){									
+									if ($isObject(coded.getBirthDate())){
+										set memberInfo.DateOfBirth = $EXTRACT(..objCdrTuxService.getDateValue(coded.getBirthDate()),1,8)
+										$$$TRACE("memberInfo.DateOfBirth <"_ memberInfo.DateOfBirth _">")
+									}									
+								}								
+								set memberInfo.Sex = memberInfoObj.getSex()
+								$$$TRACE("memberInfo.Sex <"_ memberInfo.Sex _">")
+								set coded = memberInfoObj.getRaceCid()
+								if ($isObject(coded)){
+									set memberInfo.RaceCid = coded.getNcid().toString()
+									$$$TRACE("memberInfo.RaceCid <"_ memberInfo.RaceCid _">")
+								}
+								set memberInfo.Language = memberInfoObj.getPassPort()
+								$$$TRACE("memberInfo.Language <"_ memberInfo.Language _">")
+								set coded = memberInfoObj.getMaritalStatusCid()
+								if ($isObject(coded)){
+									set memberInfo.MaritalStatusCid = coded.getNcid().toString()
+									$$$TRACE("memberInfo.MaritalStatusCid <"_ memberInfo.MaritalStatusCid _">")
+								}
+								set coded = memberInfoObj.getReligionCid()
+								if ($isObject(coded)) {									
+									set memberInfo.ReligionCid = coded.getNcid().toString()
+									$$$TRACE("memberInfo.ReligionCid <"_ memberInfo.ReligionCid _">")
+								}
+								set memberInfo.Ethnicity = memberInfoObj.getGovtHealthNumber()
+								$$$TRACE("memberInfo.Ethnicity <"_ memberInfo.Ethnicity _">")
+								set memberInfo.Ssn = memberInfoObj.getSsn()
+								$$$TRACE("memberInfo.Ssn <"_ memberInfo.Ssn _">")
+								set coded = memberInfoObj.getDateOfDeath()
+								if ($isObject(coded)){																		
+									set memberInfo.DateOfDeath = ..objCdrTuxService.getDateValue(code)
+									$$$TRACE("memberInfo.DateOfDeath <"_ memberInfo.DateOfDeath _">")
+								}								
+								set faciltiesObj = memberInfoObj.getFacilities()
+								$$$TRACE("faciltiesObj information <"_ faciltiesObj _">")
+								if (($isObject(faciltiesObj)) && (faciltiesObj.Count() > 0)){
+									set facInd = faciltiesObj.Next("")						     	
+									while (facInd '= ""){
+										set facilty = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Facility").%New()
+										set facilityObj = faciltiesObj.GetAt(facInd)										
+										set coded = facilityObj.getMmiFacilityCid()
+										if ($isObject(coded)) {									
+											set facilty.MmiFacilityCid = coded.getNcid().toString()											
+										}
+										set facilty.MedRecNumber = facilityObj.getMedRecNumber()
+										set facilty.RadiologyNumber = facilityObj.getRadiologyNumber()
+										//Add Facility to MemberInfo Facilities list
+										do memberInfo.ListOfFacilities.Insert(facilty)
+										set facInd = faciltiesObj.Next(facInd)
+									}
+								}
+								
+								set namesObj = memberInfoObj.getNames()
+								$$$TRACE("namesObj information <"_ namesObj _">")
+								if (($isObject(namesObj)) && (namesObj.Count() > 0)){
+									set nameInd = namesObj.Next("")						     	
+									while (nameInd '= ""){
+										set name = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Name").%New()
+										set nameObj = namesObj.GetAt(nameInd)										
+										set cid = nameObj.getNameTypeCid()
+										if ($isObject(cid)){											
+											set name.NameTypeCid = cid.getNcid().toString()
+										}
+										set name.LastName = nameObj.getLastName()
+										set name.LastName2 = nameObj.getLastName2()
+										set name.FirstName = nameObj.getFirstName()
+										set name.MiddleName = nameObj.getMiddleName()
+										set name.MiddleName2 = nameObj.getMiddleName2()
+										set name.Suffix = nameObj.getSuffix()
+										set name.Title = nameObj.getTitle()
+										set name.Degree = nameObj.getDegree()
+										set name.FirstNameSoundex = nameObj.getFirstNameSoundex()
+										set name.LastNameSoundex = nameObj.getLastNameSoundex()
+										set name.FullName = nameObj.getFullName()
+										set name.NameAudit = nameObj.getNameAudit()
+										//Add Name to MemberInfo Names list
+										do memberInfo.ListOfNames.Insert(name)
+										set nameInd = namesObj.Next(nameInd)
+									}
+								}
+								
+								set phonesObj = memberInfoObj.getPhones()
+								$$$TRACE("phonesObj information <"_ phonesObj _">")
+								if (($isObject(phonesObj)) && (phonesObj.Count() > 0)){
+									set phoneInd = phonesObj.Next("")						     	
+									while (phoneInd '= ""){
+										set phone = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Phone").%New()
+										set phoneObj = phonesObj.GetAt(phoneInd)										
+										set cid = phoneObj.getPhoneTypeCid()
+										if ($isObject(cid)){											
+											set phone.PhoneTypeCid = cid.getNcid().toString()
+										}
+										set phone.CountryCode = phoneObj.getCountryCode()
+										set phone.AreaCode = phoneObj.getAreaCode()
+										set phone.LocalNumber = phoneObj.getLocalNumber()
+										set phone.Extension = phoneObj.getExtension()
+										//Add Name to MemberInfo Phones list
+										do memberInfo.ListOfPhones.Insert(phone)
+										set phoneInd = phonesObj.Next(phoneInd)
+									}
+								}								
+								
+								set addressesObj = memberInfoObj.getAddresses()
+								$$$TRACE("addressesObj information <"_ addressesObj _">")
+								if (($isObject(addressesObj)) && (addressesObj.Count() > 0)){
+									set addressInd = addressesObj.Next("")						     	
+									while (addressInd '= ""){
+										set address = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Address").%New()
+										set addressObj = addressesObj.GetAt(addressInd)
+										set cid = addressObj.getAddressTypeCid()
+										if ($isObject(cid)){											
+											set address.AddressTypeCid = cid.getNcid().toString()
+										}
+										set address.Street1 = addressObj.getStreet1()
+										set address.Street2 = addressObj.getStreet2()
+										set address.City = addressObj.getCity()
+										set address.County = addressObj.getCounty()
+										set address.State = addressObj.getState()
+										set address.PostCode = addressObj.getPostCode()
+										set address.Country = addressObj.getCountry()
+										set address.FullAddress = addressObj.getFullAddress()	
+										set auditInfoObj = addressObj.getAddressAudit()	     	
+										set auditInfo = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.AuditInfo").%New()
+										if ($isObject(auditInfoObj)){
+											if ($isObject(auditInfoObj.getCreateAuditNum())){										
+												set auditInfo.CreateAuditNum = auditInfoObj.getCreateAuditNum().toString()
+											}
+											if ($isObject(auditInfoObj.getRowUpdateAuditNum())){
+												set auditInfo.RowDeleteAuditNum = auditInfoObj.getRowUpdateAuditNum().toString()
+											}
+											if ($isObject(auditInfoObj.getRowDeleteAuditNum())){
+												set auditInfo.RowDeleteAuditNum = auditInfoObj.getRowDeleteAuditNum().toString()																	
+											}
+										}
+										set address.AddressAudit = auditInfo
+										//Add Address to MemberInfo Addresses list
+										do memberInfo.ListOfAddresses.Insert(address)
+										set addressInd = addressesObj.Next(addressInd)
+									}
+								}					     	
+								
+							} 
+							set mmiRecord.MemberInfo = memberInfo
+							
+							set mmiFlagsObj = mmiRecordObj.getMmiFlags()
+							$$$TRACE("mmiFlagsObj information <"_ mmiFlagsObj _">")
+							set mmiFlags = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.MmiFlags").%New()
+							if ($isObject(mmiFlagsObj)) {			     			
+								set mmiFlags.PatientFlag = mmiFlagsObj.getPatientFlag()			     			
+								set mmiFlags.GuarantorFlag = mmiFlagsObj.getGuarantorFlag()			     			
+								set mmiFlags.ExpiredFlag = mmiFlagsObj.getExpiredFlag()			     			
+								set mmiFlags.AdoptionFlag = mmiFlagsObj.getAdoptionFlag()			     			
+								set mmiFlags.UnidentifiedFlag = mmiFlagsObj.getUnidentifiedFlag()			     			
+								set mmiFlags.InstitutionalFlag = mmiFlagsObj.getInstitutionalFlag()			     			
+								set mmiFlags.DeactivateFlag = mmiFlagsObj.getDeactivateFlag()			     			
+								set mmiFlags.PreviousLinkErrorFlag = mmiFlagsObj.getPreviousLinkErrorFlag()			     			
+								set mmiFlags.OrganDonorFlag = mmiFlagsObj.getOrganDonorFlag()			     			
+							}
+							set mmiRecord.MmiFlags = mmiFlags		     			
+							
+							set motherNameObj = mmiRecordObj.getMotherName()
+							$$$TRACE("motherNameObj information <"_ motherNameObj _">")
+							set motherName = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Name").%New()
+							if ($isObject(motherNameObj)) {							
+								set motherName.NameTypeCid = motherNameObj.getNameTypeCid()
+								set motherName.LastName = motherNameObj.getLastName()
+								set motherName.LastName2 = motherNameObj.getLastName2()
+								set motherName.FirstName = motherNameObj.getFirstName()
+								set motherName.MiddleName = motherNameObj.getMiddleName()
+								set motherName.MiddleName2 = motherNameObj.getMiddleName2()
+								set motherName.Suffix = motherNameObj.getSuffix()
+								set motherName.Title = motherNameObj.getTitle()
+								set motherName.Degree = motherNameObj.getDegree()
+								set motherName.FirstNameSoundex = motherNameObj.getFirstNameSoundex()
+								set motherName.LastNameSoundex = motherNameObj.getLastNameSoundex()
+								set motherName.FullName = motherNameObj.getFullName()								
+								set motherName.NameAudit = motherNameObj.getNameAudit()		     			
+							}
+							set mmiRecord.MotherName = motherName
+							
+							set maidenNameObj = mmiRecordObj.getMaidenName()
+							$$$TRACE("maidenNameObj information <"_ maidenNameObj _">")
+							set maidenName = ##class("IHC.ITF.ITFCOMMON.DStruc.CDR.Name").%New()
+							if ($isObject(maidenNameObj)) {							
+								set maidenName.NameTypeCid = maidenNameObj.getNameTypeCid()
+								set maidenName.LastName = maidenNameObj.getLastName()
+								set maidenName.LastName2 = maidenNameObj.getLastName2()
+								set maidenName.FirstName = maidenNameObj.getFirstName()
+								set maidenName.MiddleName = maidenNameObj.getMiddleName()
+								set maidenName.MiddleName2 = maidenNameObj.getMiddleName2()
+								set maidenName.Suffix = maidenNameObj.getSuffix()
+								set maidenName.Title = maidenNameObj.getTitle()
+								set maidenName.Degree = maidenNameObj.getDegree()
+								set maidenName.FirstNameSoundex = maidenNameObj.getFirstNameSoundex()
+								set maidenName.LastNameSoundex = maidenNameObj.getLastNameSoundex()
+								set maidenName.FullName = maidenNameObj.getFullName()								
+								set maidenName.NameAudit = maidenNameObj.getNameAudit()
+							}
+							set mmiRecord.MaidenName = maidenName							
+						}						
+						do dataRecord.ListOfMMIRecords.Insert(mmiRecord)						
+						set mmiRecordIndex = mmiRecordsObj.Next(mmiRecordIndex)												
+					}
+		     	}		     	
+	     	}
+     	}
+		//Populate the DataRecord to response object
+		set pResponse.DataRecord = dataRecord
+	 } catch err {	 
+	 	$$$TRACE("Exception in calling CdrMmiEvents; AsSystemError is: " _err.AsSystemError() _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    
+	    	    
+	    set status = $$$ERROR("Exception in calling CdrReadMmi " _ err.Data)		    	     	 
+		
+	    if errText["CONNECTIONERROR"{		   
+		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    }	    
+	    if errText["RESEND"{
+		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError($CLASSNAME(),errText)
+	    }
+	    if errText["DATAERROR"{
+		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    }
+	    if errText["SHUTDOWN"{
+		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    }
+	 }
+	 return status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE(" $$$$$ Inside OnTearDown() method...")
+	set tSC = $$$OK
+	
+	try {		
+		if $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			do ..objCdrTuxService.shutdownTuxService()			
+			set ..objCdrTuxService = $$$NULLOREF
+		}
+	} catch {
+		set tSC = $$$EnsSystemError
+	}
+	set tSC = ##super()
+	quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
