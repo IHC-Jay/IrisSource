@@ -44,7 +44,7 @@
 </Property>
 
 <Method name="CreateDeploymentFiles">
-<FormalSpec>tItemName:%String,nmSp:%String,userNm:%String,passwd:%String</FormalSpec>
+<FormalSpec><![CDATA[tItemName:%String,nmSp:%String,userNm:%String,passwd:%String,&exclFiles]]></FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status = $$$OK
@@ -97,7 +97,7 @@
  else
  {
  	Set tExportClsFilename = ..DeployDirectory_"Deployment_CLS_"_tItemName_".xml"
- 	set tSC = ..CreateClassFile(tItemName,  tExportClsFilename, nmSp, tProductionName, userNm, passwd) 
+ 	set tSC = ..CreateClassFile(tItemName,  tExportClsFilename, nmSp, tProductionName, userNm, passwd, .exclFiles) 
  }
  if $$$ISERR(tSC)
  {
@@ -129,8 +129,18 @@
  {
 	 Set comment =  ##class(IHC.ITF.ITFCOMMON.Utility).getErrorMsg(tSC, "Could not create files. ")
  }
+ set retStr = commitComment _ comment
+ 
+  Set tItem = $O(exclFiles(""))
+  if (tItem '= ""){
+	 Set retStr = retStr _ "<B><I><BR>WARNING. Following files are excluded from class deployment file: </I></B><BR>"
+  }
+		While (tItem '= ""){
+			Set retStr = retStr _ tItem _ "<BR>"
+			Set tItem = $O(exclFiles(tItem))
+		}
   	
- return commitComment _ comment
+ return retStr
 ]]></Implementation>
 </Method>
 
@@ -192,7 +202,7 @@
 </Method>
 
 <Method name="CreateClassFile">
-<FormalSpec>tItemName:%String,tExportClsFilename:%String,nmSp:%String,tProductionName:%String,userNm:%String,passwd:%String</FormalSpec>
+<FormalSpec><![CDATA[tItemName:%String,tExportClsFilename:%String,nmSp:%String,tProductionName:%String,userNm:%String,passwd:%String,&excludefileList]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
  
@@ -220,6 +230,7 @@
   // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "createStudioProjectFromArray " _ tSC)
  set num =1
  Set k=""  
+ set excludefileList = ""
  For 
   { 
 	   #dim tItem As %Studio.ProjectItem 
@@ -230,38 +241,46 @@
 		{
 		
 			 
-		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( userNm _ " : " _ num _". " _ tItemName _ " = " _  tItem.Type)
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( userNm _ " : " _ num _". " _ tItemName _ " = " _  tItem.Type)
 		     	
-		// Does the Name end with type
-		if $F(tItemName, tItem.Type) >  $L(tItemName)
-		{
-			set item = tItemName
-	 	}
-	 	else
-	 	{
-			set item = tItemName _ "." _ tItem.Type
-	 	}
+			// Does the Name end with type
+			if $F(tItemName, tItem.Type) >  $L(tItemName)
+			{
+				set item = tItemName
+	 		}
+	 		else
+	 		{
+				set item = tItemName _ "." _ tItem.Type
+	 		}
 	 	
-	 	if ((item [ "CLS") || (item [ "HL7"))
-	 	{
+	 		if ((item [ "CLS") || (item [ "HL7"))
+	 		{
 	 		
-	 			set tSC = ..CheckItemWithSrcCtrl(item,  userNm, passwd)
+	 			set tSC = ..CheckItemWithSrcCtrl(item,  userNm, passwd, .excludefileList)
+	 			if (tSC = 999)
+	 			{
+		 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( userNm _ ", Excluded file: " _ item)
+	 			}
+	 			elseif ($$$ISOK(tSC))
+	 			{
+	 				Set tFullList(item)=""
+		
+	   				set num = num + 1
+	 			}	 			
 
-	 			if $$$ISERR(tSC)
+	 			elseif $$$ISERR(tSC)
 	 			{
 		 			Return tSC 
 	 			}
-			
-	 	}
+				
+	 		}
+	 		else
+	 		{
 		 	
-	  	Set tFullList(item)=""
-			 	
-			 
-		// Export each item to file
-		// set fileNm = "/home/lpjnaras/EnsExport/" _ item
-		// Set sc=$$Export^%occXMLExport(fileNm,"-d /diffexport",item)
-		      
-	   	set num = num + 1
+	  			Set tFullList(item)=""
+		
+	   			set num = num + 1
+	 		}
 		}
 	}
 	if (num > 1)
@@ -301,7 +320,7 @@
 <Description>
 Check internal and src control time
 Get information of the last checkin</Description>
-<FormalSpec>itemNm:%String,userNm:%String,passwd:%String</FormalSpec>
+<FormalSpec><![CDATA[itemNm:%String,userNm:%String,passwd:%String,&pExcList]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	#dim tSC As %Status
@@ -343,7 +362,13 @@ Get information of the last checkin</Description>
 		  else
 		  {
 		   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( " !!! File not in source control: " _ extNm)
-		   		set tSC = $$$ERROR($$$EnsErrGeneral, "File not in source control: " _ extNm)
+		   		if ( $F(extNm, "Transform/Dtl") > 0 || $F(extNm,"Process/Bpl") )
+		   		{
+		   		  set tSC = $$$ERROR($$$EnsErrGeneral, "Source File not in source control: " _ extNm)
+		   		  Return tSC
+		   		}
+		   		Set pExcList(extNm)=""
+		   		set tSC = 999
 		  }
 	}
 	Quit tSC
