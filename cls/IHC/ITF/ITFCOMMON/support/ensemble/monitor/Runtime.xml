@@ -1,0 +1,332 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.support.ensemble.monitor.Runtime">
+<IncludeCode>%occInclude,Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>64097,36999.634712</TimeCreated>
+
+<Projection name="monitorruntime">
+<Type>%Projection.Java</Type>
+<Parameter name="ROOTDIR" value="/tmp/ensemble/java/binding"/>
+</Projection>
+
+<Method name="updateComponent">
+<Description>
+This method will enable or disable the production components and will return a status as boolean (1- Success, 0- Failure)
+Parameter - %pNamespace : Required 
+			%pComponent : Required 
+			%pReqSts  : Optional (1 for enable , 0 for disable)</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>%pNamespace:%String,%pComponent:%String,%pReqSts:%Integer=""</FormalSpec>
+<ReturnType>IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.UpdateComponentResponse</ReturnType>
+<SqlProc>1</SqlProc>
+<Implementation><![CDATA[
+	S cur=$Namespace
+	K %pCurrProd
+	S %rObj=##class(IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.UpdateComponentResponse).%New()
+	I $G(%pNamespace)="" S %rObj.Status='$$$OK,%rObj.Description="Required element 'Namespace' missing" Quit %rObj
+	I $G(%pComponent)="" S %rObj.Status='$$$OK,%rObj.Description="Required element 'Component' missing" Quit %rObj
+	I '$D(^%SYS("Ensemble","InstalledNamespace",%pNamespace)) S %rObj.Status='$$$OK,%rObj.Description="Not a valid namespace" Quit %rObj
+	zn %pNamespace
+	S %pCurrProd=$G(^Ens.Runtime("Name")),pSus=$G(^Ens.Suspended)
+	I %pCurrProd="" S %rObj.Status='$$$OK,%rObj.Description="Info: Currently no production running under the Namespace "_pNamespace Quit %rObj
+	I %pCurrProd]""{
+		S tFound=..checkComponent(%pCurrProd,%pComponent)
+		I tFound'=1 S %rObj.Status='$$$OK,%rObj.Description="Item not found in the running production.." Quit %rObj
+		I tFound{
+			S itemSts=##class(Ens.Director).IsItemEnabled(%pComponent)
+			S:%pReqSts="" %pReqSts=$S(itemSts=0:1,1:0)
+			S text=$S(%pReqSts=0:"disabled",1:"enabled")
+			I %pReqSts=itemSts S %rObj.Status=$$$OK,%rObj.Description="The component '"_%pComponent_"' is already "_text Quit %rObj
+			&sql(update Ens_Config.Item Set Enabled=:%pReqSts where Name=:%pComponent and Production=:%pCurrProd)
+			I 'SQLCODE {
+				S pUpdate=##class(Ens.Director).UpdateProduction(,1)
+				I pUpdate=1 {
+					S %rObj.Status=$$$OK,%rObj.Description="The component '"_%pComponent_"' is "_text_" and production has been updated.."
+					}else{
+						S %rObj.Status='$$$OK,%rObj.Description="Production update failed.."
+				}
+			}else {
+				S %rObj.Status='$$$OK,%rObj.Description="SQL excute error with code "_SQLCODE
+			}
+		}
+	}
+	zn cur
+	Quit %rObj
+]]></Implementation>
+</Method>
+
+<Method name="getStatus">
+<Description>
+This method will provide the information about requested component in a production
+	%pNamespace - Required
+	%pComponent - Required
+    Response as object of IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>%pNamespace:%String,%pComponent:%String</FormalSpec>
+<ReturnType>IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse</ReturnType>
+<SqlProc>1</SqlProc>
+<Implementation><![CDATA[
+	S cur=$Namespace
+	S %rObj=##class(IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse).%New()
+	I $G(%pNamespace)="" S %rObj.Status='$$$OK,%rObj.Description="Required element 'Namespace' missing" Quit %rObj
+	I '$D(^%SYS("Ensemble","InstalledNamespace",%pNamespace)) S %rObj.Status='$$$OK,%rObj.Description="Not a valid namespace" Quit %rObj
+	zn %pNamespace
+	I %pComponent]""{
+		S g=$G($$$EnsJobLocal("EnsPortal.StartStopFrame"))
+		S cStatus=$G(^CacheTemp.EnsHostMonitor(%pNamespace,%pComponent,"%Status"))
+		S %itemSts=##class(Ens.Director).IsItemEnabled(%pComponent)
+		I cStatus="Error" {
+			D ..getErrorInfo(%pNamespace,%pComponent,%rObj)
+			D ..getGeneralInfo(%pNamespace,%pComponent,%rObj)
+			D ..getMessageInfo(%pNamespace,%pComponent,%rObj,0)
+		}else{
+		 	S text=$S(%itemSts=0:"disabled",1:"enabled")
+		 	S %rObj.Status=$$$OK
+		 	S %rObj.Description="The Component is "_$G(text)
+		 	S %eTime=$ZDT($ZDTH($ZTS,-3),3,1,3)      ;$ZDT($H,3)
+		 	D ..getGeneralInfo(%pNamespace,%pComponent,%rObj)
+		 	D ..getMessageInfo(%pNamespace,%pComponent,%rObj,1)
+		 	D ..getLastErrorInfo(%pNamespace,%pComponent,%rObj)
+		 }
+	}
+	zn cur
+	zw %rObj
+	Quit %rObj
+]]></Implementation>
+</Method>
+
+<Method name="getGeneralInfo">
+<Description>
+called from getStatus() to get the general information  of the requested component</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pItem:%String,%rObj:IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse</FormalSpec>
+<Implementation><![CDATA[
+	S %vJob="",vStart=""
+	S %rObj.Name=pItem
+	S %rObj.Namespace=pNamespace
+	S vHost=$P($ZU(54,0),".")
+	S %rObj.Host=vHost
+	S %rObj.Env=$S(vHost["prd":"Prod",vHost["uat":"UAT Test",vHost["qa":"QA Test",vHost["dev":"Dev",1:"unknown")
+	S %vJob=$O(^CacheTemp.EnsHostMonitor(pNamespace,pItem,"%Job",%vJob))
+	S %vJob=$P(%vJob,":",2)
+	I %vJob="" &sql(select top 1 Job into :%vJob from Ens_Util.Log where ConfigName=:pItem and TimeLogged<=:%eTime order by ID desc)
+	S %rObj.ProcessID=%vJob
+	s %rObj.State=$S(%itemSts=0:"Down",1:"Up")
+	;S vCompType=$$$ConfigBusinessType($$$DispatchNameToConfigName(pItem))
+	S qMsg=$G(^Ens.Queue(pItem,0,"count"),0)
+	S %rObj.TotalMessageQueued=qMsg
+	S vPID="sys:"_%vJob
+	s vCompType=$$$ConfigBusinessType(pItem)
+	I (vCompType=1)|| (vCompType=3)
+	{
+		S %rObj.ExtState=""
+		I $D(^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Connected")){
+			S cStr=^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Connected")
+			S cSts=$P(cStr,"|")
+			S vConnected=$S(cSts=".":"Up",cSts=1:"Up",cSts=0:"Down",1:"")
+			S rCount=$G(^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Retry"),0)
+			S:rCount>3 vConnected="Down"
+			S %rObj.ExtState=vConnected
+		}
+	}
+	;I $D(^Ens.Queue(pItem,0,"count")) S %rObj.MessageQueued=$G(^Ens.Queue(pItem,0,"count"),0)
+	;I $D(^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Count")) S %rObj.MessageProcessed=$G(^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Count"),0)
+	S %rObj.TotalMessageProcessed=$G(^CacheTemp.EnsJobMonitor(pNamespace,vPID,pItem,"%Count"),0)
+	S %regTime=""
+	I %vJob]""
+	{
+		I $D(^CacheTemp.EnsJobStatus(pNamespace,"sys",%vJob,"%RegTime")){
+			S %regUTCTime=^CacheTemp.EnsJobStatus(pNamespace,"sys",%vJob,"%RegTime")
+			S %rObj.StartUp=..getLocalTime(%regUTCTime)
+			}else{
+			S %rObj.StartUp=""
+		}
+	}else{
+		S %rObj.StartUp=""
+	}
+	/*
+	&sql(select top 1 TimeLogged into :vStart from Ens_Util.Log where ConfigName=:pItem and SourceMethod='Start' and TimeLogged<:%eTime order by ID desc)
+	I 'SQLCODE {
+		S %rObj.StartUp=$g(vStart)
+	}else {
+		S %rObj.StartUp="Unknown"
+	}*/
+]]></Implementation>
+</Method>
+
+<Method name="getLocalTime">
+<Description>
+util to convert UTC time to local zone time</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>%pUTCTime:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	S %regUTCTimeH=$ZDTH(%pUTCTime,3)
+	S %regLocTimeH=$ZDTH(%regUTCTimeH,-3)
+	S %regTime=$ZDT(%regLocTimeH,3)
+	Quit %regTime
+]]></Implementation>
+</Method>
+
+<Method name="getMessageInfo">
+<Description>
+called from getStatus() to get the message information which is processed </Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pItem:%String,%rObj:IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse,Type:%Integer</FormalSpec>
+<Implementation><![CDATA[
+  	S vMsgSts="",vLastUpdated=""
+  	I 'Type {
+			&sql(select top 1 Status,TimeProcessed into :vMsgSts,:vLastUpdated from Ens.MessageHeader where (MessageBodyClassName='EnsLib.HL7.Message' or MessageBodyClassName like 'IHC%') and (SourceConfigName=:pItem or TargetConfigName=:pItem) and TimeProcessed<=:%eTime order by ID desc)
+	}else{
+		&sql(select top 1 Status,TimeProcessed into :vMsgSts,:vLastUpdated from Ens.MessageHeader where (MessageBodyClassName='EnsLib.HL7.Message' or MessageBodyClassName like 'IHC%') and (SourceConfigName=:pItem or TargetConfigName=:pItem) order by ID desc)
+	}
+	S vMsgSts=$S(vMsgSts=1:"Created",vMsgSts=2:"Queued",vMsgSts=3:"Delivered",vMsgSts=4:"Discarded",vMsgSts=5:"Suspended",vMsgSts=6:"Deferred"
+			  ,vMsgSts=7:"Aborted",vMsgSts=8:"Error",vMsgSts=9:"Completed",1:"")
+	I 'SQLCODE{
+		S %rObj.LastMessageStatus=vMsgSts
+		S %rObj.LastUpdated=..getLocalTime(vLastUpdated)
+	}else{
+		S %rObj.LastMessageStatus="Unknown"
+		S %rObj.LastUpdated="Unknown"
+	}
+]]></Implementation>
+</Method>
+
+<Method name="getErrorInfo">
+<Description>
+called from getStatus() to get the Error information of the requested component</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pItem:%String,%rObj:IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse</FormalSpec>
+<Implementation><![CDATA[
+	;Quit '$D(pItem)
+	&sql(select top 1 Text,TimeLogged into :errText,:%eTime from Ens_Util.Log where ConfigName=:pItem and Type=2 order by TimeLogged desc)
+	I 'SQLCODE {
+		S %rObj.Status=$$$OK
+		S %rObj.Description=$G(errText)
+		S %rObj.LastErrorLoggedTime=$G(%eTime)
+		}else {
+		S %rObj.Status='$$$OK
+		S %rObj.Description="SQL excute error with error code "_SQLCODE
+	}
+]]></Implementation>
+</Method>
+
+<Method name="getLastErrorInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pItem:%String,%rObj:IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.GetStatusResponse</FormalSpec>
+<Implementation><![CDATA[
+	;Quit '$D(pItem)
+	&sql(select top 1 Text,TimeLogged into :errText,:%eTime from Ens_Util.Log where ConfigName=:pItem and Type=2 order by TimeLogged desc)
+	I 'SQLCODE {
+		S %rObj.LastErrorLoggedTime=$G(%eTime)
+		}else {
+		S %rObj.LastErrorLoggedTime=""
+	}
+]]></Implementation>
+</Method>
+
+<Method name="checkComponent">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pProdName:%String,pItem:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	S itmFound=0
+	S pObj=##class(Ens.Config.Production).%OpenId(pProdName,,.tSC)
+	I '$IsObject(pObj)||$$$ERROR(tSC) S %tSC="Production is not registered.." Quit %tSC
+	F i=1:1:pObj.Items.Count(){
+		S pCompName=pObj.Items.GetAt(i).Name
+		S pCompSts=pObj.Items.GetAt(i).Enabled
+		S:pCompName]"" pComp(pCompName)=pCompSts 
+		If pCompName=pItem S itmFound=1 Quit
+	}
+	Quit itmFound
+]]></Implementation>
+</Method>
+
+<Method name="deleteQueuedMessages">
+<Description>
+This method will dequeue the message if the component is disbaled due to the error 
+	%pNamespace - Required
+	%pComponent - Required
+    Response as object of IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.DeleteQueuedMessagesResponse</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>%pNamespace:%String,%pComponent:%String</FormalSpec>
+<ReturnType>IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.DeleteQueuedMessagesResponse</ReturnType>
+<SqlProc>1</SqlProc>
+<Implementation><![CDATA[
+	S cur=$Namespace
+	S %rObj=##class(IHC.ITF.ITFCOMMON.support.ensemble.monitor.data.DeleteQueuedMessagesResponse).%New()
+	I $G(%pNamespace)="" S %rObj.Status='$$$OK,%rObj.Description="Required element 'Namespace' missing" Quit %rObj
+	I '$D(^%SYS("Ensemble","InstalledNamespace",%pNamespace)) S %rObj.Status='$$$OK,%rObj.Description="Not a valid namespace" Quit %rObj
+	zn %pNamespace
+	S mId=""
+	I %pComponent]""{
+		s vCompType=$$$ConfigBusinessType(%pComponent)
+		S %itemSts=##class(Ens.Director).IsItemEnabled(%pComponent)
+		S qCount=$G(^Ens.Queue(%pComponent,0,"count"),0)
+		I '%itemSts {
+			I qCount>0{
+				S queueId=$O(^Ens.Queue(%pComponent,6,mId),1,%msgId)
+				S:$G(%msgId)]"" dObj=##class(Ens.MessageHeader).%OpenId(%msgId)
+				I $IsObject(dObj){
+					S dObj.Status=7
+					S %sessionId=dObj.SessionId
+					S res=dObj.%Save()
+					I res {
+						K ^Ens.Queue(%pComponent,6,queueId)
+						S ^Ens.Queue(%pComponent,0,"count")=qCount-1
+						;S %rObj.SessionId=$G(%sessionId)
+						;S %rObj.QueueId=$G(queueId)
+						D ..getMessageBySessionId(%sessionId)
+						S %rObj.MessageId=%msgBodyId
+						S %rObj.RawMessage=%streamObj
+						S %rObj.Status=1
+						S %rObj.Description="Reacord with message id '"_%msgBodyId_"' removed from queue , please update the component"
+					}else{
+						S %rObj.Status=0
+						S %rObj.Description="Error during abort message :"_$G(res)
+					}
+				}
+			}
+		}else {
+			I ((vCompType=1)||(vCompType=3)){
+				S %rObj.Status=1
+				I qCount>0{
+					S %rObj.Description="Messages are queueing up, External may down please status the component "
+				}else{
+					S %rObj.Description="Component is up and running"
+				}
+			}
+		}
+	}
+	zn cur
+	Quit %rObj
+]]></Implementation>
+</Method>
+
+<Method name="getMessageBySessionId">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>%pSessionId:%Integer,%pMsgId:%Integer=""</FormalSpec>
+<Implementation><![CDATA[
+	S %msgBodyId=""
+	I %pSessionId]""{
+		&sql(select top 1 MessageBodyClassName,MessageBodyId into :%msgClsName,:%msgBodyId from Ens.MessageHeader
+		where SessionId=:%pSessionId and SourceBusinessType=1 group by MessageBodyId)
+		S %streamObj=##class(%GlobalBinaryStream).%New()
+		Quit:$P(%msgClsName,".")'="EnsLib"
+		I (%msgClsName]"")&&(%msgBodyId]""){
+			;S ^%rmsg(%msgBodyId)=$ClassMethod(%msgClsName,"getSegsAsString",%msgBodyId)
+			S %rMsg=$ClassMethod(%msgClsName,"getSegsAsString",%msgBodyId)
+			S %msgLen=$L(%rMsg,$C(13))
+			F seg=1:1:%msgLen {
+				S %writeLine=%streamObj.Write($P(%rMsg,$C(13),seg))
+				S %nLine=%streamObj.Write($C(13,10))
+			}
+			S %saveObj=%streamObj.%Save()
+		}
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
