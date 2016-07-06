@@ -28,6 +28,10 @@ BPL Definition</Description>
 <property name='SqlSnapShot' type='EnsLib.SQL.Snapshot' instantiate='0' >
 </property>
 
+<property name='CurSnapShot' type='EnsLib.SQL.Snapshot' instantiate='0' >
+</property>
+
+
 <property name='CernerTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -38,6 +42,14 @@ BPL Definition</Description>
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
+</property>
+
+
+<property name='UpdateQuery' type='IHC.ITF.Request.TacticalDbResultsUpdateQuery' instantiate='1' >
+</property>
+
+
+<property name='SelectQuery' type='IHC.ITF.Request.TacticalDbResultsSelectQuery' instantiate='1' >
 </property>
 
 
@@ -101,51 +113,67 @@ BPL Definition</Description>
 </code>
 
 
-<code name='Call Database Operation' xpos='200' ypos='750' >
+<code name='Call Database Read Operation' xpos='200' ypos='750' >
 <![CDATA[  
   $$$TRACE("Before Calling Database Operation")
-  set tStatus=process.SendRequestSync(process.TargetConfigNames,request,.SqlResponse)
+  set context.SelectQuery.date= ##class(IHC.ITF.ITFCOMMON.Utility).getDtTmyyyyMMddHHmmss()
+  set tStatus=process.SendRequestSync(process.TargetConfigNames,context.SelectQuery,.SqlResponse)
+  
  if ($$$ISOK(tStatus)){
    set context.SqlSnapShot = SqlResponse
    set rowCount = context.SqlSnapShot.RowCount
-   $$$TRACE(" Row Count: "_rowCount)   
+   $$$TRACE(" Row Count: "_rowCount)     
  }
+ 
  $$$TRACE("After Calling Database Operation.."_tStatus)
  ]]]]><![CDATA[>
 </code>
 
+
 <while name='Loop through the Row' condition='context.SqlSnapShot.%Next()' xpos='200' ypos='950' xend='200' yend='950' >
   <trace name='AcctNum' value='context.SqlSnapShot.Get("ACCT_NO")' xpos='200' ypos='250' />  
-  <trace name='empiNumber' value='request.Get("EMPI")' xpos='200' ypos='250' />
-  <trace name='accessionNo' value='request.Get("ACCESSION_NO")' xpos='200' ypos='250' />
- <trace name='cardioResultId' value='request.Get("CARDIO_RESULT_ID")' xpos='200' ypos='250' />
-
-  <code name='ValidateEmpiNUmber' xpos='200' ypos='750' >
-<![CDATA[  
-       	if (empiNumber = ""){
-	       	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "EmpiNumber is empty. Skipping the record. CardioResultId: ["_cardioResultId_"] AccessionNumber: ["_accessionNo_"]")  	
-       	}
- ]]]]><![CDATA[>
-</code>
+  <trace name='empiNumber' value='context.SqlSnapShot.Get("EMPI")' xpos='200' ypos='250' />
+  <trace name='accessionNo' value='context.SqlSnapShot.Get("ACCESSION_NO")' xpos='200' ypos='250' />
+ <trace name='cardioResultId' value='context.SqlSnapShot.Get("CARDIO_RESULT_ID")' xpos='200' ypos='250' />
   
   <if name='AccountNumber' condition='$LENGTH(context.SqlSnapShot.Get("ACCT_NO")) &gt; "9"' xpos='200' ypos='1450' xend='200' yend='2250' >
 <true>  
-  <call name='CallTargetConfigNames' target='@context.CernerTargetConfigName' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.SqlSnapShot" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
+<code name='sendToCernerTarget' xpos='200' ypos='750' >
+<![CDATA[  
+      $$$TRACE("Sending to Cerner Process..")
+      set tStatus=process.SendRequestSync(context.CernerTargetConfigName,context.SqlSnapShot,.ensCernResponse)
+ ]]]]><![CDATA[>
+</code> 
 </true>
 <false>
-     <call name='CallTargetConfigNames' target='@context.GeRisTargetConfigName' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.SqlSnapShot" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
+    <code name='sendToGeRisTarget' xpos='200' ypos='750' >
+<![CDATA[  
+      $$$TRACE("Sending to GeRis Process..")
+      set tStatus=process.SendRequestSync(context.GeRisTargetConfigName,context.SqlSnapShot,.ensGeRisResponse)
+ ]]]]><![CDATA[>
+</code> 
 </false>
 </if>
+  
+    <code name='CallUpdateQuery' xpos='200' ypos='750' >
+<![CDATA[  
+       $$$TRACE("Before Calling Database Update Operation")
+       
+       set context.UpdateQuery.cardioResultId=context.SqlSnapShot.Get("CARDIO_RESULT_ID")
+       set context.UpdateQuery.empiNumber=context.SqlSnapShot.Get("EMPI")
+       set context.UpdateQuery.accessionNumber=context.SqlSnapShot.Get("ACCESSION_NO")
+       set context.UpdateQuery.date= $ZD($H,8)
+              
+  set tStatus=process.SendRequestSync(process.TargetConfigNames,context.UpdateQuery,.SqlUpdResponse)
+ if ($$$ISOK(tStatus)){   
+   $$$TRACE(" Update Successful: ")   
+   
+ }
+ $$$TRACE("After Calling Database Update Operation.."_tStatus)
+ 
+ ]]]]><![CDATA[>
+</code>
+
 
 </while>
 
