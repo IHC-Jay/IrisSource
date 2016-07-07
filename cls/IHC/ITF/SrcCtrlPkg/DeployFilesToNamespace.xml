@@ -21,12 +21,13 @@
 </Property>
 
 <Method name="DeployFiles">
-<FormalSpec>compNm:%String,deployType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String</FormalSpec>
+<FormalSpec>compNm:%String,deployType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String,depCls:%Boolean,depConf:%Boolean</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status 
  set tSC = $$$OK
  Set comment = ""
+ set clsDeployCmt = ""
  set compNm = $ZSTRIP(compNm,"*W")
   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFiles, deploy " _compNm _ " type: " _  deployType)
  
@@ -64,23 +65,34 @@
  }
  set deployType = $ZSTRIP($ZCVT(deployType, "U"), "<>W")
    
-
- Set fileName = ..DeployDirectory_"Deployment_CLS_" _compNm_".xml"
- set tSC = ..CheckoutFile(fileName, usrNm, passwd, rev )
- set clsDeployCmt = ""
+ if ( (deployType = "NEW") || (deployType = "UPDATE" && depCls = 1))
+ {
+ 	Set fileName = ..DeployDirectory_"Deployment_CLS_" _compNm_".xml"
+ 	set tSC = ..CheckoutFile(fileName, usrNm, passwd, rev )
+ 	
+ }
  
  if $$$ISERR(tSC)
  {
-	 	Set comment =  ##class(IHC.ITF.ITFCOMMON.Utility).getErrorMsg(tSC, "Class file not found. " _ fileName _ " ") _ " <BR>"
-	 	if (deployType = "NEW") 
+	 // Class file not found
+   		if (deployType = "NEW" )
    		{
 	   		// Deploy config file
 	 		set tSC = $$$OK
-	 		set clsDeployCmt = ";Class file not found: " _ fileName
+	   		// Information to indicate for NEW deployment
+		 	Set clsDeployCmt =  " Class file not found for the component. " _ fileName _ " <BR>"
+
+   		}
+   		elseif (deployType = "UPDATE" && depCls = 1) 
+   		{
+	   		// Information to indicate for NEW deployment
+	 		Set comment = "Class file not found for the component: " _ fileName
    		}
  }
  else
  {
+    if ( (deployType = "NEW") || (deployType = "UPDATE" && depCls = 1))
+ 	{
  		try {
 	   		set tSC = ..DeployClassFiles(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env)
  		} catch err
@@ -94,16 +106,17 @@
  		}
  		else
  		{
-	 		set comment = "Successfully deployed the classes. "
+	 		set clsDeployCmt = " Successfully deployed the classes. "
  		}
  		Set comment = comment _ "; View LOG and ROLLBACK files  for " _ compNm _ " in " _ ..DeployLogDirectory _ "<BR>"
-
+ 	}
  }
  
-
+ // Deploy component - after class file is done
  if $$$ISOK(tSC)
  {
-   if (deployType = "NEW") 
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Deploy Config file")
+   if (deployType = "NEW" || (deployType = "UPDATE" && depConf = 1)) 
    {
 	 Set fileName = ..DeployDirectory_"Deployment_CONFIG_" _compNm_".xml"
  
@@ -115,7 +128,7 @@
 	 	return comment
  	 }
  	 try {
-	   set tSC = ..DeployComponent(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env)
+	   set tSC = ..DeployComponent(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env, deployType)
  	 } catch err
  	 {
 	 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exception in DeployComponent")
@@ -132,7 +145,7 @@
 		 {
 			 Set comment = ""
 		 }
-		Set comment = comment _ "; Successfully deployed the new component."
+		Set comment = comment _ "Successfully deployed " _ compNm _ "<BR>"
 		Set comment = comment _ "; View LOG and ROLLBACK files  for " _ compNm _ " in " _ ..DeployLogDirectory  _ "<BR>"
 		if (clsDeployCmt '= "")
 		 {
@@ -149,7 +162,7 @@
 </Method>
 
 <Method name="DeployComponent">
-<FormalSpec>compNm:%String,fileName:%String,rev:%String,nmSp:%String,tProductionName:%String,usrNm:%String,passwd:%String,env:%String</FormalSpec>
+<FormalSpec>compNm:%String,fileName:%String,rev:%String,nmSp:%String,tProductionName:%String,usrNm:%String,passwd:%String,env:%String,deployType:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status = $$$OK
@@ -165,7 +178,12 @@
  Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(ItemByConfigName)
  If $IsObject(tItem)
  {
-		Quit $$$ERROR($$$GeneralError, ItemByConfigName _ " already exists")
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, ItemByConfigName _ " already exists") 
+
+	 if (deployType = "NEW")
+	 {
+		 Quit $$$ERROR($$$GeneralError, ItemByConfigName _ " already exists")
+	 }
  }
 	
  set parseFl = ##class(IHC.ITF.SrcCtrlPkg.parseXmlFile).%New()
@@ -395,8 +413,8 @@
 			    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Checked out " _ fileNm _ ", version: " _ rev)
 		    }
 		    else {
-  			   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Could not find file " _ fileNm)
-  			   set tSC = $$$ERROR($$$GeneralError, "Could not find file " _ fileNm)
+  			   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Could not checkout file " _ fileNm)
+  			   set tSC = $$$ERROR($$$GeneralError, "Could not checkout file " _ fileNm)
 		    }
  		}
 	}
