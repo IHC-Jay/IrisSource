@@ -85,9 +85,16 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='targetNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' initialexpression='1' instantiate='0' >
+</property>
 </context>
-<sequence xend='200' yend='2000' >
-<scope xpos='200' ypos='250' xend='200' yend='1900' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -100,15 +107,62 @@ BPL Definition</Description>
  }
  	  ]]]]><![CDATA[>
 </code>
-<code name='Get MaxError and Custom Property' xpos='200' ypos='550' >
+<code name='validate the message' xpos='200' ypos='550' >
+<![CDATA[ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ValidationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)
+	if (pStatus'=$$$OK) {
+	    $$$TRACE("Message validation failed against schema")
+	    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Validation against data structure is failed. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")
+	}
+ }]]]]><![CDATA[>
+</code>
+<code name='Get MaxError and Custom Property' xpos='200' ypos='650' >
 <annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)
  
 ]]]]><![CDATA[>
 </code>
-<trace name='Ncid HDD Lookup' value='"Call HDD operation to get NCID for rep "' xpos='200' ypos='650' />
-<code name='CreateHddRepObject' xpos='200' ypos='750' >
+<code name='check required fields' xpos='200' ypos='750' >
+<![CDATA[ set docType= request.GetValueAt("TXA:2") 
+ $$$TRACE("TXA-2: "_docType)
+ if (docType="") {
+   // Skip message if TXA-2 is empty or invalid ncid
+   set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-2 - Document type id is missing. Skip the record.")	 
+ }
+ 
+ set addignDocAuthNcid= request.GetValueAt("TXA:10.1") 
+ $$$TRACE("TXA-10.1: "_addignDocAuthNcid)
+ if (addignDocAuthNcid="" || $ISVALIDNUM(addignDocAuthNcid)'= "1") {
+   // Skip message if TXA-10.1 is empty or invalid ncid
+   set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-10.1 - AssignedDocAuth id ncid is missing or invalid. Skip the record.")	 
+ }
+ 
+
+ set originIdNcid= request.GetValueAt("TXA:9.1") 
+ $$$TRACE("TXA-9.1: "_originIdNcid)
+ if (originIdNcid'= "" || $ISVALIDNUM(originIdNcid)'= "1") {
+     // Skip message if TXA-9.1 is empty or invalid ncid
+     set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-    9.1 - Originator id ncid is missing or invalid. Skip the record.")	 
+ }]]]]><![CDATA[>
+</code>
+<code name='Get Configuraed target' xpos='200' ypos='850' >
+<![CDATA[ set context.targetNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.targetNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ context.targetNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+<trace name='Ncid HDD Lookup' value='"Call HDD operation to get NCID for rep "' xpos='200' ypos='950' />
+<code name='CreateHddRepObject' xpos='200' ypos='1050' >
 <![CDATA[ $$$TRACE("Create rep to ncid request Object...")
  set context.hddNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()  
  set facId = request.GetValueAt("MSH:4.1") 
@@ -129,15 +183,7 @@ BPL Definition</Description>
     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, pClass, context.IhcPClassDomain,"6490387", "PV12:PClass")   
  }
  
- set docType= request.GetValueAt("TXA:2") 
- $$$TRACE("TXA-2: "_docType)
- if (docType'="") {
-    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, docType, context.ReportTypeDomain,context.VarianRadOncContext, "TXA2:RptType")   
- }
- else {
-     // Skip message if TXA-2 is empty or invalid ncid
-     set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-2 - Document type id is missing. Skip the record.")	 
- }
+ Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, docType, context.ReportTypeDomain,context.VarianRadOncContext, "TXA2:RptType")   
  
  set docCompStatus= request.GetValueAt("TXA:17") 
  $$$TRACE("TXA-17: "_docCompStatus)
@@ -156,7 +202,7 @@ BPL Definition</Description>
   }
  ]]]]><![CDATA[>
 </code>
-<code name='Call HDD' xpos='200' ypos='850' >
+<code name='Call HDD' xpos='200' ypos='1150' >
 <![CDATA[  $$$TRACE("Call HDD look up ")
  set tStatus=process.SendRequestSync(process.TargetConfigNameHddWebService,context.hddNcidRequest,.hddNcidResponse)
  if ('tStatus) {
@@ -166,30 +212,16 @@ BPL Definition</Description>
    set context.hddNcidResponse= hddNcidResponse
  }]]]]><![CDATA[>
 </code>
-<trace name='Count of HDD' value='"Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='950' />
-<trace name='Rep HDD lookup' value='"Get Rep from NCID via HDD lookup"' xpos='200' ypos='1050' />
-<code name='Create Hdd request' xpos='200' ypos='1150' >
+<trace name='Count of HDD' value='"Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1250' />
+<trace name='Rep HDD lookup' value='"Get Rep from NCID via HDD lookup"' xpos='200' ypos='1350' />
+<code name='Create Hdd request' xpos='200' ypos='1450' >
 <![CDATA[ $$$TRACE("Create ncid to rep request Object...")
  set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()  
- set addignDocAuthNcid= request.GetValueAt("TXA:10.1") 
- $$$TRACE("TXA-10.1: "_addignDocAuthNcid)
- if (addignDocAuthNcid'="" && $ISVALIDNUM(addignDocAuthNcid)= "1") {
-     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , addignDocAuthNcid, context.VarianRadOncContext, "TXA10:AssignDocAuth")
- } else {
-     // Skip message if TXA-10.1 is empty or invalid ncid
-     set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-10.1 - AssignedDocAuth id ncid is missing or invalid. Skip the record.")	 
- }
- 
- set originIdNcid= request.GetValueAt("TXA:9.1") 
- $$$TRACE("TXA-9.1: "_originIdNcid)
- if (originIdNcid'= "" && $ISVALIDNUM(originIdNcid)= "1") {
-     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , originIdNcid, context.ihcInterfaceContext, "TXA9:OriginatorId")
- } else {
-     // Skip message if TXA-9.1 is empty or invalid ncid
-     set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "TXA-9.1 - Originator id ncid is missing or invalid. Skip the record.")	 
- }]]]]><![CDATA[>
+ Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , addignDocAuthNcid, context.VarianRadOncContext, "TXA10:AssignDocAuth")
+ Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , originIdNcid, context.ihcInterfaceContext, "TXA9:OriginatorId")
+ ]]]]><![CDATA[>
 </code>
-<code name='HDD lookup Call' xpos='200' ypos='1250' >
+<code name='HDD lookup Call' xpos='200' ypos='1550' >
 <![CDATA[ set tStatus=process.SendRequestSync(process.TargetConfigNameHddWebService,context.hddRepRequest,.hddRepResponse)
  if ('tStatus) {
      set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText("Ncid to rep HDD call failed.")) }
@@ -197,47 +229,19 @@ BPL Definition</Description>
    set context.hddRepResponse= hddRepResponse
  }]]]]><![CDATA[>
 </code>
-<transform name='Translate VarianRadOnc Hl7 MDM to Cerner Hl7' class='IHC.ITF.Transform.Dtl.VarianRadOncResultsHl7ToCern' source='request' target='response' xpos='200' ypos='1350' />
-<code name='GetTargetConfigList' xpos='200' ypos='1450' >
-<![CDATA[ ///   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
- ///$$$TRACE("Count: " _ context.targetList.Count())
-  set facId = "CERN-"_##class(Ens.Util.FunctionSet).ToUpper(request.GetValueAt("MSH:4"))
-  $$$TRACE("Sending facility: " _ facId ) 
-  
-  
-  set targetConfigNames = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("TargetConfigNames: " _ targetConfigNames)
- }else{
-	 Set status = $$$ERROR("Initialization error, Target Config Names is not set.")
- } 
-   
-   SET countdown=$LENGTH(targetConfigNames,",")
-   SET countup=1
-   FOR reps=countdown:-1:1 {
-      SET extract=$PIECE(targetConfigNames,",",countup)
-      $$$TRACE(countup_" "_extract)
-      set tfac = ##class(Ens.Util.FunctionSet).ToUpper(extract)
-      if ((##class(Ens.Util.FunctionSet).Contains(tfac, "OUT")) || (##class(Ens.Util.FunctionSet).Contains(tfac, facId))) {
-        set st = context.targetList.Insert(extract)
-        $$$TRACE("Added target: "_extract)
-      }
-      SET countup=countup+1
-   }
-   $$$TRACE("Final Target Count: " _ context.targetList.Count())]]]]><![CDATA[>
-</code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1550' xend='200' yend='350' >
-<call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
+<transform name='Translate VarianRadOnc Hl7 MDM to Cerner Hl7' class='IHC.ITF.Transform.Dtl.VarianRadOncResultsHl7ToCern' source='request' target='response' xpos='200' ypos='1650' />
+<foreach name='send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1850' xend='200' yend='350' >
+<call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='Reset Error count' xpos='200' ypos='1650' >
+<code name='Reset Error count' xpos='200' ypos='1950' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1750' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -255,7 +259,6 @@ BPL Definition</Description>
 <Description>
 Hdd Lookup Operation name</Description>
 <Type>%String</Type>
-<InitialExpression>"HddInterfaceWebserviceOperation"</InitialExpression>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
@@ -267,7 +270,6 @@ Hdd Lookup Operation name</Description>
 <Type>%Library.CacheStorage</Type>
 <DefaultData>VarianRadOncResultsHl7ToCernDefaultData</DefaultData>
 <Data name="VarianRadOncResultsHl7ToCernDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"VarianRadOncResultsHl7ToCern"</Subscript>
 <Value name="1">
 <Value>TargetConfigNameHddWebService</Value>
