@@ -11,7 +11,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2550' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3050' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
 </property>
@@ -51,9 +51,23 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddContext' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' >
+</property>
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' >
+</property>
 </context>
-<sequence xend='200' yend='2300' >
-<scope xpos='200' ypos='250' xend='200' yend='2200' >
+<sequence xend='200' yend='2800' >
+<scope xpos='200' ypos='250' xend='200' yend='2700' >
 <trace name='InSideBP' value='"Inside "_process.%ConfigName' xpos='200' ypos='350' />
 <assign name="SetConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
 <code name='Validate Message' xpos='200' ypos='550' >
@@ -96,26 +110,87 @@ BPL Definition</Description>
  
   ]]]]><![CDATA[>
 </code>
-<if name='process Record' condition='context.ProcessRecord = 1' xpos='200' ypos='750' xend='200' yend='1950' >
+<if name='process Record' condition='context.ProcessRecord = 1' xpos='200' ypos='750' xend='200' yend='2450' >
 <true>
 <trace name='trace' value='" Process the record "' xpos='470' ypos='900' />
 <assign name="RetrieveMessageType" property="context.msgType" value="request.GetValueAt(&quot;MSH:9.2&quot;)" action="set" xpos='470' ypos='1000' />
 <trace name='trace' value='" Message Type " _context.msgType' xpos='470' ypos='1100' />
-<if name='IsORU' condition='(context.msgType="R01")' xpos='470' ypos='1200' xend='470' yend='1850' >
+<if name='IsORU' condition='(context.msgType="R01")' xpos='470' ypos='1200' xend='470' yend='2350' >
 <annotation><![CDATA[IF the Message passed all the filtering criteria]]]]><![CDATA[></annotation>
 <true>
 <trace name='trace' value='"This is an ORU message"' xpos='740' ypos='1350' />
-<transform name='DTL-Transformation' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToOttrLabMicroBB' source='request' target='context.hl7' xpos='740' ypos='1450' />
-<code name='ResetErrorCode' xpos='740' ypos='1550' >
+<code name='Initialize HDD' xpos='740' ypos='1450' >
+<![CDATA[ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+ Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ }
+]]]]><![CDATA[>
+</code>
+<code name='get Context' xpos='740' ypos='1550' >
+<![CDATA[ set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernResultsHl7ToOttrLabMicroBB.Lookup.Hdd", "CERNER_CONTEXT", .retVal )
+	set context.hddContext= retVal 		
+	$$$TRACE("Hdd Context CERNER_CONTEXT: " _ context.hddContext)
+	
+]]]]><![CDATA[>
+</code>
+<code name='add to target' xpos='740' ypos='1650' >
+<![CDATA[        $$$TRACE(" GetRepfromNcid Hdd Requests..")
+  	set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+  	
+  	
+    set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("PIDgrpgrp(1).ORCgrp()",k1,.tSCTrans) Quit:k1=""          
+     set obr25 = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:ResultStatus")
+     $$$TRACE("OBR-25["_k1_"] is " _ obr25) 
+     if (obr25 '= "" && $ISVALIDNUM(obr25)= "1"){
+       Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , obr25, context.hddContext, "OBR25"_k1) 
+       $$$TRACE("NCID at OBR25 is " _ obr25) 
+ } 
+    set k2="", tScc = 1
+      For{
+	Set k2=request.GetNextIndex("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp()",k2,.tSccTrans) Quit:k2=""          
+     set obx11 = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationResultStatus")     
+     set obx3 =  request.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.identifier")
+     $$$TRACE("Value at OBX-11 ["_k1_"] ["_k2_"] is "_obx11)
+     $$$TRACE("Value at OBX-3 ["_k1_"] ["_k2_"] is "_obx3)  
+     if (obx11 '= "" && $ISVALIDNUM(obx11)= "1"){
+       Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , obx11, context.hddContext, "OBX11"_k1_k2) 
+       $$$TRACE("NCID at OBX11 is " _ obx11) 
+ } 
+ }
+	
+  }
+  
+  
+
+]]]]><![CDATA[>
+</code>
+<code name='call operation' xpos='740' ypos='1750' >
+<![CDATA[ // Call HDD Operation
+ set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.hddRepRequest,.hddResponse)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+ }
+ else { 
+   set context.hddRepResponse = hddResponse 
+ }
+]]]]><![CDATA[>
+</code>
+<trace name='trace' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='740' ypos='1850' />
+<transform name='DTL-Transformation' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToOttrLabMicroBB' source='request' target='context.hl7' xpos='740' ypos='1950' />
+<code name='ResetErrorCode' xpos='740' ypos='2050' >
 <annotation><![CDATA[Reset The Error Code]]]]><![CDATA[></annotation>
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='740' ypos='1650' >
+<code name='GetTargetConfigList' xpos='740' ypos='2150' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
 ]]]]><![CDATA[>
 </code>
-<foreach name='LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1750' xend='200' yend='350' >
+<foreach name='LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='2250' xend='200' yend='350' >
 <call name='Call Target' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.hl7" action="set" />
@@ -144,7 +219,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2050' xend='200' yend='350' >
+<catchall xpos='200' ypos='2550' xend='200' yend='350' >
 <code xpos='200' ypos='250' >
 <annotation><![CDATA[CatchUnhandledException]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("In catchall")
@@ -164,8 +239,20 @@ BPL Definition</Description>
 <Type>%Boolean</Type>
 </Property>
 
+<UDLText name="T">
+<Content><![CDATA[
+// HDD Operation: The target name used for HDD calls
+
+]]></Content>
+</UDLText>
+
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>FilterTransaction</Default>
+<Default>FilterTransaction,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -175,6 +262,9 @@ BPL Definition</Description>
 <Subscript>"CernResultsHl7ToOttrLabMicroBB"</Subscript>
 <Value name="1">
 <Value>FilterTransaction</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
