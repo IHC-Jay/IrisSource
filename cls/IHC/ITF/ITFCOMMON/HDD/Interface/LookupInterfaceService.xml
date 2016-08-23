@@ -331,6 +331,95 @@ is returned as blank..</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="isRODSAppointmentInclusionExist">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.IsRodsApptLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Interface.HddObject
+	set listInd = pRequest.listOfHddNcidObj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	set ncid = ""
+	$$$TRACE("Enter method GetImageExamDescription...")
+
+	while ( listInd '= "")
+	{
+		set resp = ""
+	  	set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
+	  	Do ..GetIsRodsAppt(reqObj.FacNcid, reqObj.ApptNcid, .resp)
+	  	
+	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	  set hddObj.Comment = "Get isRodsAppt for Facility ncid and Appointment ncid Response"
+	  
+	  set hddObj.Rep = resp
+	  set hddObj.Index = reqObj.Index
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHddNcidObj.Next(listInd)
+	}
+	
+	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+	
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetIsRodsAppt">
+<FormalSpec><![CDATA[facNcid:%String,apptNcid:%String,&resp:%String]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  try 
+  {
+ 	Set resp = ""
+ 	set resp = ..GetIsRodsApptFromHddCache(facNcid,apptNcid)
+ 	
+ 	 
+ 	if (resp '= "")
+	{
+	  	return
+	}	
+	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
+	set servicePort.Location = ..Location
+	
+	Set code = servicePort.isRODSAppointmentInclusionExist(facNcid_"|"_apptNcid)	
+	 	
+		  if $GET(code)
+		  {
+		  	Set resp = code
+		  	
+		  	$$$LOGERROR($ZERROR)  	
+		  	Do ..InsertValuesToHddIsRodsApptCache(resp, facNcid, apptNcid)
+		  	Quit
+		  }
+		  else
+		  {
+			  Set resp = "0" 
+		  }
+ }  
+ CATCH exceptionvar
+ {
+     Set rep = "ERROR"  
+	  If $ZERROR["<ZSOAP>" {
+	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+	     Set repNcid = errTxt
+         $$$LOGERROR("Exception in GetIsRodsAppt facility Ncid: " _facNcid _", appointment Ncid: "_apptNcid_ " " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$LOGERROR($ZERROR)
+         If errTxt["TerminologyWebServiceException"{	         
+             If errTxt["ERROR #6248:"{	
+                If errTxt["2 -"{	
+                   throw exceptionvar
+                }
+             }
+	         Set rep = ""
+	     }
+	  }
+	  else
+	  {
+		  throw exceptionvar
+	  }
+  }
+]]></Implementation>
+</Method>
+
 <Method name="GetUniqueChildForNcid">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
@@ -1028,6 +1117,12 @@ is returned as blank..</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="InsertValuesToHddIsRodsApptCache">
+<FormalSpec>valStr:%String,facNcid:%String,apptNcid:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddIsRodsApptCache(Representation, FacNcid, ApptNcid ) values(:valStr, :facNcid, :apptNcid))
+]]></Implementation>
+</Method>
+
 <Method name="GetComputritionFromHddRepCache">
 <FormalSpec>objLocationNcid:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -1047,6 +1142,17 @@ is returned as blank..</Description>
 	set objRep = "" 
 	Do ..ClearHddTables()
 	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddIsMemberCache where domainNcid = :objDomainNcid and memberNcid = :objMemberNcid)
+	return objRep
+]]></Implementation>
+</Method>
+
+<Method name="GetIsRodsApptFromHddCache">
+<FormalSpec>facnNcid:%String,apptNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set objRep = "" 
+	Do ..ClearHddTables()
+	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddIsRodsApptCache where FacNcid = :facNcid and ApptNcid = :apptNcid)
 	return objRep
 ]]></Implementation>
 </Method>
@@ -1175,6 +1281,7 @@ is returned as blank..</Description>
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddImageExamDescriptionCache)	
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache)	
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddIsMemberCache)	
+	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddIsRodsApptCache)	
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddGetComputritionCache)
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddMultiNcidsCache)
 	 	 
@@ -1247,6 +1354,9 @@ is returned as blank..</Description>
 	</MapItem>
 	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.IsMemberLookupRequest"> 	
 		<Method>IsMemberLookupForNcid</Method>
+	</MapItem>	
+		<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.IsRodsApptLookupRequest"> 	
+		<Method>isRODSAppointmentInclusionExist</Method>
 	</MapItem>	
 	</MapItems>
 ]]></Data>
