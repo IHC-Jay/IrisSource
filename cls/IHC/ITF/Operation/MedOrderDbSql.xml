@@ -19,11 +19,6 @@
 <InitialExpression>1</InitialExpression>
 </Property>
 
-<Property name="editVersion">
-<Type>%Integer</Type>
-<InitialExpression>0</InitialExpression>
-</Property>
-
 <Property name="HddTargetConfigName">
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="50"/>
@@ -35,6 +30,16 @@
 
 <Property name="DBSchema">
 <Type>%String</Type>
+</Property>
+
+<Property name="isDoseNotTranslated">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="isRouteNotTranslated">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
 </Property>
 
 <Property name="MainQueryStmt">
@@ -145,7 +150,7 @@
 	
 	Do ..ConnectionAndStatments() // Creates a connection and creates one statment for each different queries 
 	
-	//Do ..MainQueryStmt.setLong(1,3886325474)
+	//Do ..MainQueryStmt.setLong(1,3909844298)
 	Do ..MainQueryStmt.setString(1,"P")
 	set tResult = ..MainQueryStmt.executeQuery()
 	
@@ -162,7 +167,6 @@
 			
 		$$$TRACE("  Processing Event_ID : "_tResult.getString(2))
 		set ..isPreProcessed = 1 // Resetting the Flag value for the next record
-	    set ..editVersion = 0 // Resetting the  value for the next record
 	    set ..SIGText=""  // Resetting the  value for the next record 
 	
 	//Check record with Processed Orders
@@ -173,14 +177,12 @@
 		if tResultProcessedOrd.next() 
 		{
 			set ..isPreProcessed = 0 //0 means true - This is a flag to identify if the record is pre processed. this will be used below in ORC segment
-		    set ..editVersion = tResultProcessedOrd.getString(2) // Setting this value to use in method to update ProcessedOrder table if necessary 
-		    
 		    //Check If the EditVersion in Staging is less than or equal to the EditVersion of ProcessedOrders, then row is already processed
 		    if tResult.getString(3) <= tResultProcessedOrd.getString(2)
 		    {
 		    //Setting Processed Flag as "Y" in Staging
 		    $$$TRACE(" Filtering because - EditVersion in Staging is less than or equal to the EditVersion of ProcessedOrders")
-			//TODO Remove Comment// set upStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.getString(1))
+			//TODO Remove Comment//set upStatus = ..UpdatePreviousProcessed("Y",tResultProcessedOrd.getString(1))
 		    set FilteredCount = FilteredCount+1
 		    CONTINUE
 		    }
@@ -223,7 +225,7 @@
 		
 		
 		//Update ProcessedOrders Table
-		//TODO Remove Comment//set upStatusFinal2 = ..UpdateProcessedOrders(tResult.getString(2),pResp)
+		set upStatusFinal2 = ..UpdateProcessedOrders(tResult.getString(2),tResult.getString(3),pResp)
 		
 		
         // Final update of Processed Flag as "Y
@@ -231,7 +233,7 @@
 	   
 	 	
 		set ..isPreProcessed = 1 // Resetting the Flag value for the next record
-		set ..editVersion = 0 // Resetting the value for the next record
+
 		
 		set Hl7String = ..ConstructHl7(pResp)
 		Set hl7Message = ##class(EnsLib.HL7.Message).ImportFromString(Hl7String)
@@ -460,7 +462,7 @@
 	}
 	
 	//Set ORM1.3
-	if $L(pResp.RXO0103CodeMethod) = 0
+	if ($L(pResp.RXO0103CodeMethod) = 0) && ($L(pResp.RXO0101RequestCode) '= 0) // RXO0103 is not needed until RXO0101 has some value
 	{
 		set pResp.RXO0103CodeMethod = "M"
 	}
@@ -481,6 +483,10 @@
 	if ($L(resultRecord.getString(13)) '= 0) && ($L(resultRecord.getString(14)) '= 0) && ($L(resultRecord.getString(15)) = 0)
 	{
 		set pResp.RXO04RequestGiveUnits = "91717"	
+	}
+	elseif ..isDoseNotTranslated = 1   // If the NCID of the Dose Units will not translate in Cerner then set 91717
+	{
+		set pResp.RXO04RequestGiveUnits = "91717"
 	}
 	else
 	{
@@ -510,6 +516,7 @@
 <FormalSpec>pResp:IHC.ITF.Response.ProcessMedOrder,resultRecord:java.sql.ResultSet</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	
 	set pResp.NTE01SetID = "1"
 	set pResp.NTE02SourceComment = "O"
 
@@ -591,164 +598,170 @@
 	{
 		set isConvertToText = 0
 		set pResp.ORC07QuantityTiming = "" //Scenario 1 - No Frequency_Abstract rows. The case is simple; Timing/Quantity is Null in the ORC segment.
-		return $$$OK
 	}
-	
-	// Check if only one 1 row exists in FREQUENCY_ABSTRACT table 
-	if FreqAbstOrderCount > 1    
-	{
-		set isConvertToText = 0
-	}
-	elseif $L(FreqAbstResult.getString(4)) = 0 // Check if Named frequencey is empty 
-	{
-		set isConvertToText = 0
-	} 
 	else
 	{
-		// Check if Named Frequency NCID can be translated to Cerner Code
-		//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?" 
-		Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
-		set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
+	
+		// Check if only one 1 row exists in FREQUENCY_ABSTRACT table 
+		if FreqAbstOrderCount > 1    
+		{
+			set isConvertToText = 0
+		}
+		elseif $L(FreqAbstResult.getString(4)) = 0 // Check if Named frequencey is empty 
+		{
+			set isConvertToText = 0
+		} 
+		else
+		{
+			// Check if Named Frequency NCID can be translated to Cerner Code
+			//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?" 
+			Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
+			set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
 	
 			
-		if FreqTranstResult.next()
-		{
-			if FreqTranstResult.getString(5) = "0"
+			if FreqTranstResult.next()
 			{
-				set isConvertToText = 0
-			}
-		}
-	
-	do FreqTranstResult.close() //Closing the ResultSet
-		
-	}
-	
-	set NamedFrequencyNCIDValue = FreqAbstResult.getString(4) // This variable is needed as we need to manipulate it in CoversionRules logic below and use in Scenario 2.1
-	
-	//Do Conversion Rules - Start
-	if (isConvertToText = 0) && (FreqAbstOrderCount = 1) //if need to convert to text and only one Frequency_Abstract row
-	{	
-		if FreqAbstResult.getString(12) = "67655" // How_Often_Day_Week_ncid = 67655 (“every”), then copy value of Day_Of_Week_ncid into Named_Frequency_ncid value.
-		{
-			set NamedFrequencyNCIDValue = FreqAbstResult.getString(10)
-			set isConverstionRuleApplied = 1
-		}
-		
-		if ($L(FreqAbstResult.getString(5)) '= 0) && ($L(FreqAbstResult.getString(6)) '= 0)
-		{
-			// Get value from ORDERS2.FREQUENCY_CONVERSION
-			Do ..FreqConversionStmt.setLong(1,FreqAbstResult.getString(5))
-			Do ..FreqConversionStmt.setLong(2,FreqAbstResult.getString(6))
-			set FreqConversionResult = ..FreqConversionStmt.executeQuery()
-	
-			// Set ConvertTo value from ORDERS2.FREQUENCY_CONVERSION into Named_Frequency_ncid
-			if FreqConversionResult.next()
-			{
-				if '""=FreqConversionResult.getString(8)
+				if FreqTranstResult.getString(5) = "0"
 				{
-					set NamedFrequencyNCIDValue = FreqConversionResult.getString(8)
-					set isConverstionRuleApplied = 1
+					set isConvertToText = 0
 				}
 			}
-			
-			do FreqConversionResult.close() //Closing the ResultSet
-		}
+	
+		do FreqTranstResult.close() //Closing the ResultSet
 		
-	}
-	
-	//Do Conversion Rules - END
-	
-	if (isConvertToText = 1) || (isConverstionRuleApplied = 1) //Scenario 2.1 - One Frequency_Abstract row and has a Named_Frequency_ncid value and can be translated in Cerner
-	{
-		// Check For PRN Flag with the current namedfrequencyNCID ( it might be changed if conversionrule is applied else it remains same)
-		//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?"
-		Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
-		set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
-	
-		if FreqTranstResult.next()
-		{
-			set PrnFlag = FreqTranstResult.getString(4)
 		}
+	
+		set NamedFrequencyNCIDValue = FreqAbstResult.getString(4) // This variable is needed as we need to manipulate it in CoversionRules logic below and use in Scenario 2.1
+	
+		//Do Conversion Rules - Start
+		if (isConvertToText = 0) && (FreqAbstOrderCount = 1) //if need to convert to text and only one Frequency_Abstract row
+		{	
+			if FreqAbstResult.getString(12) = "67655" // How_Often_Day_Week_ncid = 67655 (“every”), then copy value of Day_Of_Week_ncid into Named_Frequency_ncid value.
+			{
+				set NamedFrequencyNCIDValue = FreqAbstResult.getString(10)
+				set isConverstionRuleApplied = 1
+			}
+		
+			if ($L(FreqAbstResult.getString(5)) '= 0) && ($L(FreqAbstResult.getString(6)) '= 0)
+			{
+				// Get value from ORDERS2.FREQUENCY_CONVERSION
+				Do ..FreqConversionStmt.setLong(1,FreqAbstResult.getString(5))
+				Do ..FreqConversionStmt.setLong(2,FreqAbstResult.getString(6))
+				set FreqConversionResult = ..FreqConversionStmt.executeQuery()
+	
+				// Set ConvertTo value from ORDERS2.FREQUENCY_CONVERSION into Named_Frequency_ncid
+				if FreqConversionResult.next()
+				{
+					if '""=FreqConversionResult.getString(8)
+					{
+						set NamedFrequencyNCIDValue = FreqConversionResult.getString(8)
+						set isConverstionRuleApplied = 1
+					}
+				}
+			
+				do FreqConversionResult.close() //Closing the ResultSet
+			}
+		
+		}
+	
+		//Do Conversion Rules - END
+	
+		if (isConvertToText = 1) || (isConverstionRuleApplied = 1) //Scenario 2.1 - One Frequency_Abstract row and has a Named_Frequency_ncid value and can be translated in Cerner
+		{
+			// Check For PRN Flag with the current namedfrequencyNCID ( it might be changed if conversionrule is applied else it remains same)
+			//set FreqTranstQuery="select * from "_..DBSchema_".FREQUENCY_TRANSLATION where NCID=?"
+			Do ..FreqTranslationStmt.setLong(1,FreqAbstResult.getString(4))
+			set FreqTranstResult = ..FreqTranslationStmt.executeQuery()
+	
+			if FreqTranstResult.next()
+			{
+				set PrnFlag = FreqTranstResult.getString(4)
+			}
 				
-			//Check if PRN flag rules apply
-			if PrnFlag = "1" // Checking if PRN flag in FREQUENCY_TRANSLATION table is "Y"
-			{
-				set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue_"^^^^PRN" //Create Timing quatity as ‘^’ + Named_Frequency_ncid value + ‘^^^^PRN’
-			}
-			else // PRN flag is "0"
-			{
-				set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue  //Create Timing quatity as ‘^’ + Named_Frequency_ncid value
-			}
+				//Check if PRN flag rules apply
+				if PrnFlag = "1" // Checking if PRN flag in FREQUENCY_TRANSLATION table is "Y"
+				{
+					set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue_"^^^^PRN" //Create Timing quatity as ‘^’ + Named_Frequency_ncid value + ‘^^^^PRN’
+				}
+				else // PRN flag is "0"
+				{
+					set pResp.ORC07QuantityTiming = "^"_NamedFrequencyNCIDValue  //Create Timing quatity as ‘^’ + Named_Frequency_ncid value
+				}
 			
-			//If Named NCID value itself is PRN(1534)
-			if FreqAbstResult.getString(4) = "1534"  //If the Named Frequency is equal to ‘PRN’ (ncid=1534), then change the Named_Frequency_ncid to value 156950 (‘As Directed’) and set the PRN Flag to true.
-			{
-				set pResp.ORC07QuantityTiming = "^156950^^^^PRN"
-			}
-			
-			do FreqTranstResult.close() //Closing the ResultSet
+				//If Named NCID value itself is PRN(1534)
+				if FreqAbstResult.getString(4) = "1534"  //If the Named Frequency is equal to ‘PRN’ (ncid=1534), then change the Named_Frequency_ncid to value 156950 (‘As Directed’) and set the PRN Flag to true.
+				{
+					set pResp.ORC07QuantityTiming = "^156950^^^^PRN"
+				}
+				
+				do FreqTranstResult.close() //Closing the ResultSet
 			
 		
-	}
-	else //Scenario 2.2 - One/Many Frequency_Abstract row and cannot be translated in Cerner
-	{
-
-		set pResp.ORC07QuantityTiming = ""   //The Timing / Quantity field in the ORC segment is left Null.
-		
-		if (FreqAbstOrderCount > 1) || (FreqAbstOrderCount = 1)
-		{
-			set counter = 1
-			while ((counter < (FreqAbstOrderCount + 1)) && (FreqAbstOrderCount '= 0))
-			{
-				//if FreqAbstResult.getString(4)> 0 // If Named Frequency not null
-				if $L(FreqAbstResult.getString(4)) '= 0
-				{
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(4))_", " //Concat SIGText and add a space in the end.
-				}
-				if ($L(FreqAbstResult.getString(13)) '= 0) && ($L(FreqAbstResult.getString(14)) '= 0) // If How_often_Day_Month_ncid and Day_Of_Month_Value are both not Null
-				{
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(14))_", "_FreqAbstResult.getString(13)_" day of the month"_", "
-				}
-				if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(10)) '= 0) && ($L(FreqAbstResult.getString(12))'= 0) //If Named_Frequency_ncid is null and (Day_of_Week_ncid and How_Often_Day_Week_ncid are not Null)
-				{
-					set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(12))_" "_..GetTransalationForNCID(FreqAbstResult.getString(10))_", "
-				}
-				if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(5))'= 0) //If Timed_Frequency_ncid is Not Null and Named_Frequency_ncid is Null
-				{
-					set FreqText = FreqText_"Every "_FreqAbstResult.getString(6)_" "_..GetTransalationForNCID(FreqAbstResult.getString(5))_", "
-				}
-				if $L(FreqAbstResult.getString(7)) '= 0 //If Range_Frequency_ncid is Not Null
-				{
-					set FreqText = FreqText_"Every "_FreqAbstResult.getString(8)_" to "_FreqAbstResult.getString(9)_" "_..GetTransalationForNCID(FreqAbstResult.getString(7))_", "
-				}
-				if $L(FreqAbstResult.getString(15)) '= 0 //If Text Frequency is Not Null
-				{
-					set FreqText = FreqText_" "_FreqAbstResult.getString(15)_", "
-				}
-        
-                // Increment counter
-                set counter = counter + 1
-                
-                //Move cursor to next row
-               	do FreqAbstResult.next()
-			}
-			
-			//After while loop If Freqtext is generated then add "/ Freq: to the Freqtext
-			if $L(FreqText) '= 0
-			{
-				Set FreqText = $EXTRACT(FreqText,0,$L(FreqText)-2) // Removing the extra ","
-				set FreqText = "/ Freq: "_FreqText
-			}
-
 		}
+		else //Scenario 2.2 - One/Many Frequency_Abstract row and cannot be translated in Cerner
+		{
+
+			set pResp.ORC07QuantityTiming = ""   //The Timing / Quantity field in the ORC segment is left Null.
 		
-	}
+			if (FreqAbstOrderCount > 1) || (FreqAbstOrderCount = 1)
+			{
+				set counter = 1
+				while ((counter < (FreqAbstOrderCount + 1)) && (FreqAbstOrderCount '= 0))
+				{
+					//if FreqAbstResult.getString(4)> 0 // If Named Frequency not null
+					if $L(FreqAbstResult.getString(4)) '= 0
+					{
+						set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(4))_", " //Concat SIGText and add a space in the end.
+					}
+					if ($L(FreqAbstResult.getString(13)) '= 0) && ($L(FreqAbstResult.getString(14)) '= 0) // If How_often_Day_Month_ncid and Day_Of_Month_Value are both not Null
+					{
+						set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(14))_", "_FreqAbstResult.getString(13)_" day of the month"_", "
+					}
+					if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(10)) '= 0) && ($L(FreqAbstResult.getString(12))'= 0) //If Named_Frequency_ncid is null and (Day_of_Week_ncid and How_Often_Day_Week_ncid are not Null)
+					{
+						set FreqText = FreqText_..GetTransalationForNCID(FreqAbstResult.getString(12))_" "_..GetTransalationForNCID(FreqAbstResult.getString(10))_", "
+					}
+					if ($L(FreqAbstResult.getString(4)) = 0) && ($L(FreqAbstResult.getString(5))'= 0) //If Timed_Frequency_ncid is Not Null and Named_Frequency_ncid is Null
+					{
+						set FreqText = FreqText_"Every "_FreqAbstResult.getString(6)_" "_..GetTransalationForNCID(FreqAbstResult.getString(5))_", "
+					}
+					if $L(FreqAbstResult.getString(7)) '= 0 //If Range_Frequency_ncid is Not Null
+					{
+						set FreqText = FreqText_"Every "_FreqAbstResult.getString(8)_" to "_FreqAbstResult.getString(9)_" "_..GetTransalationForNCID(FreqAbstResult.getString(7))_", "
+					}
+					if $L(FreqAbstResult.getString(15)) '= 0 //If Text Frequency is Not Null
+					{
+						set FreqText = FreqText_" "_FreqAbstResult.getString(15)_", "
+					}
+        
+            	    // Increment counter
+            	    set counter = counter + 1
+                
+            	    //Move cursor to next row
+           	    	do FreqAbstResult.next()
+				}
+			
+				//After while loop If Freqtext is generated then add "/ Freq: to the Freqtext
+				if $L(FreqText) '= 0
+				{
+					Set FreqText = $EXTRACT(FreqText,0,$L(FreqText)-2) // Removing the extra ","
+					set FreqText = "/ Freq: "_FreqText
+				}
+
+			}
+		
+		}
 	
-	do FreqAbstResult.close()
+		do FreqAbstResult.close()
+	
+	}
 	
 			//Check the Transalation for Dose units
 			
 			set DoseText = ""
+			set LowNo=""
+			set HighNo=""
+			set ..isDoseNotTranslated = 0 //Reset the value to False for each run
 			if $L(resultRecord.getString(15)) '= 0 //Dose Units not null 
 			{
 					//set DoseQuery="select * from "_..DBSchema_".UNITS_MAP where DOSE_UNITS_NCID =?" 
@@ -759,7 +772,48 @@
 					{
 						if DoseResult.getString(5) = "N"
 						{
-							set DoseText = "Dose units: "_DoseResult.getString(2)
+							set ..isDoseNotTranslated = 1
+							
+							if ($L(resultRecord.getString(13)) '= 0) && ($L(resultRecord.getString(14)) '= 0)
+							{
+								//Need to append 0 if the value less than 1. ex if .4 then it should be 0.4
+								if resultRecord.getString(13) < 1
+								{
+								  	set LowNo="0"_resultRecord.getString(13)
+								}
+								else
+								{
+									set LowNo=resultRecord.getString(13)
+								}
+								
+								//Need to append 0 if the value less than 1. ex if .4 then it should be 0.4
+								if resultRecord.getString(14) < 1
+								{
+								  	set HighNo="0"_resultRecord.getString(14)
+								}
+								else
+								{
+									set HighNo=resultRecord.getString(14)
+								}
+								
+								
+								set DoseText = "Dose: "_LowNo_" to "_HighNo_" "_DoseResult.getString(2)
+							}
+							else
+							{
+								//Need to append 0 if the value less than 1. ex if .4 then it should be 0.4
+								if resultRecord.getString(13) < 1
+								{
+								  	set LowNo="0"_resultRecord.getString(13)
+								}
+								else
+								{
+									set LowNo=resultRecord.getString(13)
+								}
+								
+								set DoseText = "Dose: "_LowNo_" "_DoseResult.getString(2)
+							}
+							
 						}
 					}
 					
@@ -770,6 +824,8 @@
 			//Check the Transalation for Route 
 			
 			set RouteText = ""
+			
+			set ..isRouteNotTranslated = 0 //Reset the value to False for each run
 			if $L(resultRecord.getString(16)) '= 0 //Route not null 
 			{
 					//set RouteQuery="select * from "_..DBSchema_".ROUTE_MAP where ROUTE_METHOD_NCID = ?" 
@@ -780,6 +836,7 @@
 					{
 						if RouteResult.getString(5) = "N"
 						{
+							set ..isRouteNotTranslated = 1
 							set RouteText = "/ Route: "_RouteResult.getString(2)
 						}
 					}
@@ -922,22 +979,22 @@
 </Method>
 
 <Method name="UpdateProcessedOrders">
-<FormalSpec>eventID:%Integer,pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
+<FormalSpec>eventID:%Integer,editVersion:%Integer,pResp:IHC.ITF.Response.ProcessMedOrder</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	//Check if it is PreProcessed  orders then update the ProcessedOrders Table
 	if ..isPreProcessed = 0 
 	{
-		set ..editVersion = ..editVersion + 1
-		Do ..UpdateProcessedOrderStmt.setLong(1,..editVersion)
+		Do ..UpdateProcessedOrderStmt.setLong(1,editVersion)
 		Do ..UpdateProcessedOrderStmt.setLong(2,eventID)
 		Do ..UpdateProcessedOrderStmt.executeUpdate()	
 	}
 	else
 	{		 	
 		Do ..InsertProcessedOrderStmt.setLong(1,eventID)
-		Do ..InsertProcessedOrderStmt.setLong(2,pResp.PID02AltPatientID)
-		Do ..InsertProcessedOrderStmt.setLong(3,pResp.RXO0101RequestCode)
+		Do ..InsertProcessedOrderStmt.setLong(2,editVersion)
+		Do ..InsertProcessedOrderStmt.setLong(3,pResp.PID02AltPatientID)
+		Do ..InsertProcessedOrderStmt.setLong(4,pResp.RXO0101RequestCode)
 		Do ..InsertProcessedOrderStmt.executeUpdate()	 	 	
 	}
 	      	
@@ -956,7 +1013,7 @@
 	_"RXO|"_pResp.RXO0101RequestCode_"^"_pResp.RXO0102CodeDescription_"^"_pResp.RXO0103CodeMethod_"^|"_pResp.RXO02RequestAmountMinimum_"|"_pResp.RXO03RequestAmountMaximum_"|"_pResp.RXO04RequestGiveUnits_"|||||"_pResp.RXO09AllowSubstitutions_"||"_pResp.RXO11ReqDispenseAmt_"|"_pResp.RXO12ReqDispenseUnits_"|"_pResp.RXO13NoOfRefills_"|"_$C(13,10)
 	_"NTE|"_pResp.NTE01SetID_"|"_pResp.NTE02SourceComment_"|"_pResp.NTE03Comment_"|"
 	
-	if ($L(pResp.RXR01Route) '= 0)
+	if ($L(pResp.RXR01Route) '= 0) && (..isRouteNotTranslated =0)
 	{
 		set Hl7 = Hl7_$C(13,10)_"RXR|"_pResp.RXR01Route_"|"
 	}
@@ -1035,7 +1092,7 @@
 	Set UpdateProcessedOrderQuery="update "_..DBSchema_".PROCESSEDORDERS set Edit_Version=? where EVENT_ID=?"
 	Set ..UpdateProcessedOrderStmt = ..connection.prepareStatement(UpdateProcessedOrderQuery)
 	
-	Set InsertProcessedOrderQuery="insert into "_..DBSchema_".PROCESSEDORDERS values (?,0,?,null,?,'Y',null)"
+	Set InsertProcessedOrderQuery="insert into "_..DBSchema_".PROCESSEDORDERS values (?,?,?,null,?,'1',null)"
 	Set ..InsertProcessedOrderStmt = ..connection.prepareStatement(InsertProcessedOrderQuery)
 ]]></Implementation>
 </Method>
