@@ -88,12 +88,16 @@ Method OnTearDown() As %Status
 	 Do ..JavaGateway.%Import(..JarFile) 
 	 
 	
-		set objCdrTuxService = ##class(org.ihc.itf.cdr.CdrHl7AddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
+	try{
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrHl7AddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
+	}catch err{
+	   $$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    	 
+	   set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	    
+	}	
 	
 		
 	 try{
-		 
-		   
 		 		$$$TRACE(" Calling MMIAdd .."_pRequest.hl7Msg.RawContent) 				 		
 		 		set mshData = pRequest.hl7Msg.GetValueAt("MSH","",status)			 		
 	            set evnData = pRequest.hl7Msg.GetValueAt("EVN","",status)	
@@ -101,8 +105,8 @@ Method OnTearDown() As %Status
 		 		set hl7Data = mshData_$CHAR(13)_evnData_$CHAR(13)_pidData_$CHAR(13)		 		
 		 		$$$TRACE("Hl7 Data: "_hl7Data)
 		 		set pResponse=##class(Ens.StringResponse).%New()
-		 		$$$TRACE("$IsObject : "_$IsObject(objCdrTuxService))		 		
-		 		Set pResponse.StringValue = objCdrTuxService.callAddUpdate(hl7Data)
+		 		$$$TRACE("$IsObject : "_$IsObject(..objCdrTuxService))		 		
+		 		Set pResponse.StringValue = ..objCdrTuxService.callAddUpdate(hl7Data)
 		 		Set respData = pResponse.StringValue		 		
 		 		$$$TRACE(" Call after the MMIAddUpdate .."_respData)		 				 		
 		 
@@ -122,14 +126,29 @@ Method OnTearDown() As %Status
 	    }Else{
 		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
 	    }
-	    
+	  
+	  if (errText'["DATAERROR"){
+		    Try {
+		    	do ..OnTearDown()
+	    	}catch{}
+                 Set tSC = ..GetConnection(.tGateway, ..ConnectTimeout+10)
+			If $$$ISERR(tSC) {
+				set errText = $SYSTEM.Status.GetOneErrorText(tSC)
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+			}Else {
+				// Open the connection
+	    		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrHl7AddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
+			}
+}
+
+  
 	  }
 	  
 	  Try {		
-		If $IsObject(objCdrTuxService) {
+		If $IsObject(..objCdrTuxService) {
 			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			Do objCdrTuxService.shutdownTuxService()			
-			Set objCdrTuxService = $$$NULLOREF
+			Do ..objCdrTuxService.shutdownTuxService()			
+			Set ..objCdrTuxService = $$$NULLOREF
 		}
 	}
 	Catch {
