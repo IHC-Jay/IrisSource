@@ -24,6 +24,23 @@ BPL Definition</Description>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
 </property>
+
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' >
+</property>
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' >
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddContextHelp' type='%String' initialexpression='"6490387"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
@@ -74,9 +91,82 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
+
+
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+
+
+<code name='validateMsgType' xpos='200' ypos='650' >
+<![CDATA[ 
+ set msgType=request.GetValueAt("MSH:MessageType.messagetype")
+ $$$TRACE("MessageType: " _ msgType) 
+ if (msgType '="ORU"){	  	  
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Message type in MSH-9.1 is not allowed in Lumedex. Skipping the record." )
+ }
+]]]]><![CDATA[>
+  </code>
+
+<code name='initializeHddTarget' xpos='200' ypos='550' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ 	if ($LENGTH(context.hddTargetConfigName)= 0){	
+	 	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ 	}
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='CheckForLookupTables' xpos='200' ypos='850' >
+<annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
+<![CDATA[
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernResultsHl7ToLumedexLabMicroBb.Lookup.CernToLumedexProperties")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.CernResultsHl7ToLumedexLabMicroBb.Lookup.CernToLumedexProperties not exists")  
+  }
+  ]]]]><![CDATA[>
+</code>
+
+<code name='intializeProperties' xpos='740' ypos='2100' >
+<![CDATA[
+     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernResultsHl7ToLumedexLabMicroBb.Lookup.CernToLumedexProperties", "HddContext.Help", .retVal )
+	 set context.hddContextHelp = retVal 		
+	 $$$TRACE("Hdd Context Help: " _ context.hddContextHelp)
+	
+]]]]><![CDATA[>
+</code>
+
+
+<code name='createHddRequests GetRepFromNcid' xpos='740' ypos='2300' >
+<![CDATA[
+  	$$$TRACE(" GetRepfromNcid Hdd Requests..")
+  	
+  	set pid8GenderNcid = request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:Sex") 
+  	$$$TRACE("PID;8 is " _ pid8GenderNcid)		  	
+  	if (pid8GenderNcid '= "" && $ISVALIDNUM(pid8GenderNcid)= "1"){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , pid8GenderNcid,  context.hddContextHelp, "PID8:Gender")  	  	
+		$$$TRACE("Hdd Request PID;8 is " _ pid8GenderNcid)		
+	}
+]]]]><![CDATA[>
+</code>
+
+<code name='GetHddRepFromNcid' xpos='470' ypos='1400' >
+<![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
+ if ('tStatus) {     
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+ }
+ else { 
+   set context.hddRepResponse= hddRepResponse
+ }
+]]]]><![CDATA[>
+</code>
+
+
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToLumedexLabMicroBb' source='request' target='response' xpos='470' ypos='1000' >
 <annotation><![CDATA[Transforms iCentra results into Lumedex Gen Lab, Micro, and Blood bank results]]]]><![CDATA[></annotation>
@@ -119,8 +209,26 @@ BPL Definition</Description>
 ]]></Data>
 </XData>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
+<DefaultData>CernResultsHl7ToLumedexLabMicroBbDefaultData</DefaultData>
+<Data name="CernResultsHl7ToLumedexLabMicroBbDefaultData">
+<Subscript>"CernResultsHl7ToLumedexLabMicroBb"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
 </Storage>
 </Class>
 </Export>
