@@ -100,8 +100,8 @@ BPL Definition</Description>
 <property name='hddResponse' type='IHC.ITF.ITFCOMMON.HDD.LookupResponse' instantiate='0' >
 </property>
 </context>
-<sequence xend='200' yend='2200' >
-<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -133,7 +133,7 @@ BPL Definition</Description>
      Set errorMessage = "MaxSeqQuery:>>" _MaxSeqQuery_"Is not Configured in IHC.ITF.Process.Bpl.Oax.OaxLdapQueryDetails LookupTable"
    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, errorMessage)
   } else {
-    set tStatus=process.SendRequestSync(process.TargetConfigNames,obj,.SqlResponse)
+    set tStatus=process.SendRequestSync(process.TargetConfigNames,obj,.SqlResponse,process.MaxSeqQueryTimeOut)
     if ($$$ISOK(tStatus)){
         set context.tempId= SqlResponse.StringValue
     }
@@ -166,7 +166,7 @@ BPL Definition</Description>
       If $$$ISOK(sc){
 	       $$$TRACE("MSPR Output parsed successfully.")
          // check if the the request was successfuly posted to MSPR
-         set status=##class(IHC.ITF.Process.Bpl.ProviderXmltoOracleLdapFromOracleHrCactusCorpprv).ValidateMSPRResponse(CiwsInfo,process.%ConfigName)
+         set status=##class(IHC.ITF.Process.Bpl.ProviderXmltoOracleLdapFromOracleHr).ValidateMSPRResponse(CiwsInfo,process.%ConfigName)
          
          If $$$ISOK(status){
 	        $$$TRACE("Message parsed successfuly to MSPR") 
@@ -242,7 +242,14 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <transform name='Call OracleHr Transform' class='IHC.ITF.Transform.Dtl.ProviderXmltoOracleLdapFromOracleHr' source='context.OracleHr' target='context.QueryDetails' xpos='200' ypos='1550' />
-<code name='Get MSPR Info Details' xpos='200' ypos='1650' >
+<code name='Check Error' xpos='200' ypos='1650' >
+<![CDATA[ set errorMsg=""
+ if context.unitNumber=""{
+    set errorMsg="Cannot insert a null into MSPR Unit Number."
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,errorMsg)	
+ }]]]]><![CDATA[>
+</code>
+<code name='Get MSPR Info Details' xpos='200' ypos='1750' >
 <![CDATA[  set TableName=""
   set columnName=""
   set WhereClause=""
@@ -271,7 +278,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Get MSPR Affl Details' xpos='200' ypos='1750' >
+<code name='Get MSPR Affl Details' xpos='200' ypos='1850' >
 <![CDATA[  set TableName=""
   set columnName=""
    set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Oax.OaxLdapQueryDetails","MsprAffTableName",.tTableName)
@@ -293,17 +300,20 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Call Database operation' xpos='200' ypos='1850' >
+<code name='Call Database operation' xpos='200' ypos='1950' >
 <![CDATA[   $$$TRACE("Before Calling Database Operation")
-  set tStatus=process.SendRequestSync(process.TargetConfigNames,context.QueryDetails,.SqlResponse)
+  set tStatus=process.SendRequestSync(process.TargetConfigNames,context.QueryDetails,.SqlResponse,process.InsertQueryTimeOut)
  if ($$$ISOK(tStatus)){
-   set context.SqlSnapShot = SqlResponse
+   $$$TRACE("Successfully Stored to database")
+ }else{
+    Set errorMessage = "Error While Storing Record to Database check Operation"
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, errorMessage)
  }
- $$$TRACE("After Calling Database Operation")
+
  ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -325,18 +335,80 @@ Hdd Lookup Operation name</Description>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
+<Property name="MaxSeqQueryTimeOut">
+<Type>%String</Type>
+<InitialExpression>"120"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="InsertQueryTimeOut">
+<Type>%String</Type>
+<InitialExpression>"180"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default><![CDATA[-NextOperation,TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+<Default><![CDATA[-NextOperation,TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},InsertQueryTimeOut:Additional,MaxSeqQueryTimeOut:Additional]]></Default>
 </Parameter>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Validate MSPR Response 
+
+]]></Content>
+</UDLText>
+
+<Method name="ValidateMSPRResponse">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pMsprResponse:IHC.ITF.DStruc.Schema.XMLPROXYMSPRRESPONSE.CiwsInfo,pConfigName:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC AS %Status=$$$OK
+	if (($ZSTRIP((pMsprResponse.ServiceMessage.MsprInfo.hemsInfo.context.completionCode.GetAt(1).sType.content),"<>W")="INF")&&
+	   ($ZSTRIP((pMsprResponse.ServiceMessage.MsprInfo.hemsInfo.context.completionCode.GetAt(1).iNumber.content),"<>W")="0") && 
+	   ($ZSTRIP((pMsprResponse.ServiceMessage.MsprInfo.hemsInfo.context.completionCode.GetAt(1).sImess.Item.GetAt(1).sMess.content),"<>W")="Successful MSPR Transaction")){
+		   set tSC=$$$OK
+	   }else {
+		   If (($ZSTRIP((pMsprResponse.ServiceMessage.MsprInfo.hemsInfo.context.completionCode.GetAt(1).sSystemMessage.content),"<>W")["truncated")){
+			   set tSC=$$$OK
+		   }Else {
+			   set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(pConfigName,"MSPR not successful - Invalid completion code received from MSPR")
+		   }
+	   }
+	   quit tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Dummy class to add the classes to the Export
+
+]]></Content>
+</UDLText>
+
+<Method name="AddMasterMSPR">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pMspr:IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC AS %Status=$$$OK
+	   quit tSC
+]]></Implementation>
+</Method>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
 <DefaultData>ProviderXmltoOracleLdapFromOracleHrDefaultData</DefaultData>
 <Data name="ProviderXmltoOracleLdapFromOracleHrDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"ProviderXmltoOracleLdapFromOracleHr"</Subscript>
 <Value name="1">
 <Value>TargetConfigNameHddWebService</Value>
+</Value>
+<Value name="2">
+<Value>MaxSeqQueryTimeOut</Value>
+</Value>
+<Value name="3">
+<Value>InsertQueryTimeOut</Value>
 </Value>
 </Data>
 </Storage>
