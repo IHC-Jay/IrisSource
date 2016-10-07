@@ -31,24 +31,9 @@ BPL Definition</Description>
 </property>
 <property name='empiNumber' type='%String' instantiate='0' >
 </property>
-<property name='eventType' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='skipMessage' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
-</parameters>
-</property>
-<property name='PatTypeList' type='%String' collection='list' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
-<property name='EventList' type='%String' collection='list' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
 <property name='globalErrorMsg' type='%String' instantiate='0' >
@@ -59,11 +44,6 @@ BPL Definition</Description>
 <property name='globalSkipMsg' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
-</parameters>
-</property>
-<property name='billingType' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
 <property name='OutboundOperation' type='%String' instantiate='0' >
@@ -107,48 +87,7 @@ BPL Definition</Description>
  }
  
  
- set AcceptedEvents=""
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEventTypes",.AcceptedEvents) 
- $$$TRACE("Value of Accepted Events="_AcceptedEvents)
- if ($$$ISOK(pstatus)&&(AcceptedEvents'=""))
- {
-    
-    For iTarget=1:1:$L(AcceptedEvents, ",") 
-        { 
-            Set tOneTarget=$ZStrip($P(AcceptedEvents,",",iTarget),"<>W")  
-            Continue:""=tOneTarget
-            
-            set stat = context.EventList.Insert(tOneTarget)
-            
-         }
-          $$$TRACE("EventList count " _ context.EventList.Count())
- }else{
-	 $$$TRACE("Config setting for AcceptedEvents not Available")
-	 Set pstatus = $$$ERROR("Initialization error, No configuration for AllowedEventTypes found")
-	 
-	 }
-	 
-	 
-	 set AcceptedTypes=""
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedPatientTypes",.AcceptedTypes) 
- $$$TRACE("Value of Accepted Events="_AcceptedTypes)
- if ($$$ISOK(pstatus)&&(AcceptedTypes'=""))
- {
-    
-    For iTarget=1:1:$L(AcceptedTypes, ",") 
-        { 
-            Set tOneTarget=$ZStrip($P(AcceptedTypes,",",iTarget),"<>W")  
-            Continue:""=tOneTarget
-            
-            set stat = context.PatTypeList.Insert(tOneTarget)
-            
-         }
-          $$$TRACE("PatTypeList count " _ context.PatTypeList.Count())
- }else{
-	 $$$TRACE("Config setting for AcceptedTypes not Available")
-	 Set pstatus = $$$ERROR("Initialization error, No configuration for AllowedPatientTypes found")
-	 
-	 }]]]]><![CDATA[>
+]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='650' >
 <![CDATA[ set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList().ID")
@@ -162,6 +101,7 @@ BPL Definition</Description>
  
  set context.facilityId=request.GetValueAt("MSH:SendingFacility.namespaceID")
  $$$TRACE("Facility ID: " _ context.facilityId)  
+ $$$TRACE(" Length of facility Id :" _$LENGTH(context.facilityId) )
  
  $$$TRACE("Is a Number(FacilityID) : " _ $ISVALIDNUM(context.facilityId)) 
  if ($ISVALIDNUM(context.facilityId)'="1"){
@@ -170,18 +110,9 @@ BPL Definition</Description>
 	  set context.globalSkipMsg = " ERROR - FacilityId is NOT a number "
 	 
  }
- 
-  
 
- set context.billingType = request.GetValueAt("PV1:PatientClass")
-  $$$TRACE(" Billing Type : " _ context.billingType )
-  if ( context.billingType = ""){
-  $$$TRACE(" Billing Type is NOT present , SKIPPING RECORD ")
-   set context.globalSkipMsg = context.globalSkipMsg _" ERROR- Billing Type not present "
-  set context.isValidationPassed=0
-		  
- }
   
+ if ( context.isValidationPassed = 1){
   set obxIndex="",tSC=1
     for { 
        Set obxIndex=request.GetNextIndex("OBX()",obxIndex,.tSCTrans)  Quit:obxIndex=""          
@@ -189,48 +120,26 @@ BPL Definition</Description>
        set transplantType = request.GetValueAt("OBX("_(obxIndex)_"):5(1)")
        if (((transplantCode ="CPA_OR_CPM") && (transplantType ="CPA"))) {
           $$$TRACE("SKIPPING RECORD, This is a CPA record")
-           set context.globalSkipMsg = context.globalSkipMsg _" SKIP- This is a CPA record "
+           set context.globalSkipMsg = context.globalSkipMsg _" SKIP RECORD - This is a CPA record "
            set context.isValidationPassed=0
        }
     } 
-  
+ }
+ 
    if ( context.isValidationPassed = 1)
    {
-   set retVal = ""
-    set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPl.CernAdtToNdme.Lookup.FilterOutFacID", context.facilityId , .retVal )                                                              
-   if ( retVal = "Unknown") {
-  
- 	$$$TRACE("Facility ID  not found in the Filter Out list ")
- 	 	
-	}
-	else
-	{
-	$$$TRACE(" SKIP Record , Value found in the filter out facility ID list , Facility ID  : " _retVal )
-	set context.isValidationPassed = 0
-	set context.globalSkipMsg = "  SKIP RECORD . The facility < "_context.facilityId_" > is in the FILTER OUT list "
+      $$$TRACE(" This is a CPM record ")
+      if (  ($LENGTH(context.facilityId) > 5) || ($LENGTH(context.facilityId) < 3) ){
+          set context.isValidationPassed=0	  
+	  $$$TRACE("FacilityId is a number of unexpected length, SKIPPING RECORD ")
+	  set context.globalSkipMsg = " SKIP RECORD - FacilityId is a number of unexpected length >5 or <3 "	
+	  } 
 	 
-	}
-   
-   set retValBill = ""
-   set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.BPl.CernAdtToNdme.Lookup.FilterOutBillingType", context.billingType , .retVal )                                                              
-   if ( retVal = "Unknown") {
+    }  
   
- 	$$$TRACE("Billing Type not found in the Filter Out list ")
- 	 	
-	}
-	else
-	{
-	$$$TRACE(" SKIP Record , Value found in the filter out Billing Type list , Billing Type  : " _retVal )
-	set context.isValidationPassed = 0
-	set context.globalSkipMsg = context.globalSkipMsg _"  SKIP RECORD . The billing Type < "_context.billingType_" > is in the FILTER OUT list "
-	 
-	}
-   
-   
-   }
     else
   {
-   set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, context.globalSkipMsg _ "Hl7 Msg:" _ request.RawContent)	  
+    $$$TRACE(" SKIPPING RECORD "_context.globalSkipMsg _ "  Hl7 Msg:" _ request.RawContent)	  
   
   }]]]]><![CDATA[>
 </code>
@@ -247,13 +156,13 @@ BPL Definition</Description>
 <response type='Ens.Response' />
 </call>
 </foreach>
-<code name='RESET ERROR' xpos='470' ypos='1300' >
+<code name='Reset Error' xpos='470' ypos='1300' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
 <false>
 <code name='Skip message' xpos='200' ypos='900' >
-<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " message validation failed. "_context.globalSkipMsg _" Skipping the record.")
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, context.globalSkipMsg )
 ]]]]><![CDATA[>
 </code>
 </false>
@@ -272,20 +181,6 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Property name="AllowedEventTypes">
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
-<Property name="AllowedPatientTypes">
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
-<Parameter name="SETTINGS">
-<Default>AllowedEventTypes,AllowedPatientTypes:Additional</Default>
-</Parameter>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
