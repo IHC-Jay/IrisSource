@@ -110,10 +110,25 @@ BPL Definition</Description>
 </property>
 <property name='hl7Response' type='EnsLib.HL7.Message' initialexpression='""' instantiate='1' >
 </property>
+<property name='currNameNcid' type='%String' initialexpression='"187"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pdfStrRequest' type='Ens.StringContainer' instantiate='0' >
+</property>
+<property name='strResponse' type='Ens.StringContainer' instantiate='0' >
+</property>
+
+<property name='base64Strs' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
 </context>
 <sequence xend='200' yend='2550' >
 <scope xpos='200' ypos='250' xend='200' yend='2450' >
-<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
 </trace>
@@ -128,6 +143,7 @@ BPL Definition</Description>
     $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
  }]]]]><![CDATA[>
 </code>
+
 <code name='Check TargetConfigNames' xpos='200' ypos='650' >
 <annotation><![CDATA[Get TargetConfigNames from settings]]]]><![CDATA[></annotation>
 <![CDATA[ 
@@ -141,6 +157,62 @@ BPL Definition</Description>
     $$$TRACE("TargetListCount: " _ context.targetList.Count())   
  }]]]]><![CDATA[>
 </code>
+
+<code name='Setup PDF String request' xpos='200' ypos='1050' >
+<![CDATA[ $$$TRACE(" Create String Request...")
+ set context.pdfStrRequest  = ##class(Ens.StringRequest).%New()
+ set context.pdfStrRequest.StringValue = request.GetValueAt("OBXgrp(1).OBX:ObservationValue(1)") 
+ set pdfSize=##Class(Ens.Util.FunctionSet).Length(context.pdfStrRequest.StringValue)
+ $$$TRACE("pdf Size: "_pdfSize)	
+ if (pdfSize<1) {
+    $$$TRACE("Encoded pdf data is empty or invalid length.")
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "UUEncoded pdf data is empty or invalid length. Skipping the record.")
+ }]]]]><![CDATA[>
+</code>
+
+
+
+<code name='Set Base64 pdf list' xpos='200' ypos='1250' >
+<![CDATA[   $$$TRACE("Set up Base64 String list... ")
+   set pdfStr=context.pdfStrRequest.StringValue
+   $$$TRACE("PDF String length: "_$Length(pdfStr))
+   set base64Str=$system.Encryption.Base64Encode(pdfStr)
+   $$$TRACE("Base64 String length: "_$Length(base64Str))
+   set bStr=##Class(Ens.Util.FunctionSet).ReplaceStr(base64Str,$Char(13,10),"")
+   SET bStrLen=$Length(bStr)
+   $$$TRACE("Base64 String length(without \r\n): "_bStrLen)
+   SET countup=1
+   set cnt=1
+   set ep=72
+   do {
+      SET extract=##Class(Ens.Util.FunctionSet).SubString(bStr,countup,ep)
+      $$$TRACE(cnt_" "_extract)
+      set st = context.base64Strs.Insert(extract)
+      SET countup=ep+1
+      set ep=countup+71
+      set cnt=cnt+1
+   } while (countup < bStrLen)
+   $$$TRACE("Count: " _ context.base64Strs.Count())]]]]><![CDATA[>
+</code>
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.LumedxResultsHl7ToCernCardialogyPdf' source='request' target='response' xpos='335' ypos='1600' />
+
+<code name='GetTargetConfigList' xpos='200' ypos='1450' >
+<![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1550' xend='200' yend='350' >
+<call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='reset error count' xpos='200' ypos='1650' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+
+
 
 <faulthandlers>
 <catchall xpos='200' ypos='2300' xend='200' yend='350' >
