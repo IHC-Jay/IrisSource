@@ -180,6 +180,17 @@
 <Type>java.sql.ResultSet</Type>
 </Property>
 
+<UDLText name="T">
+<Content><![CDATA[
+// To Store the Temp Id
+
+]]></Content>
+</UDLText>
+
+<Property name="tempId">
+<Type>%Decimal</Type>
+</Property>
+
 <Parameter name="SETTINGS">
 <Type>%String</Type>
 <Default>credentials,jdbcUrl,jdbcJar,gateWayHostname,gateWayPortNumber,jdbcDriver,jdbcDriverManager:Additional</Default>
@@ -205,6 +216,21 @@
 	Set ..connection=##class(java.sql.DriverManager).getConnection(..gateway,url,username,password)
 	//do ..gateway.%Disconnect()	
 	$$$TRACE(" connection "_..connection)
+]]></Implementation>
+</Method>
+
+<Method name="getMaxQueryFromLookUpTable">
+<Implementation><![CDATA[
+ set obj = ##class(Ens.StringRequest).%New()
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Oax.OaxLdapQueryDetails","MaxSeqQuery",.tQuery)
+ if ($$$ISOK(tStatus)){  
+  set obj.StringValue=tQuery
+ }
+ if obj.StringValue=""{
+     Set errorMessage = "MaxSeqQuery:>>" _MaxSeqQuery_"Is not Configured in IHC.ITF.Process.Bpl.Oax.OaxLdapQueryDetails LookupTable"
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, errorMessage)
+  } 
+  quit obj
 ]]></Implementation>
 </Method>
 
@@ -248,17 +274,29 @@
 <Implementation><![CDATA[
 	try{
      set sourceSystem=pRequest.SourceSystem
+     //Get the MaxSeq Query
+	Set query = ..getMaxQueryFromLookUpTable()
+	$$$TRACE("Query:"_query)
+	Set response = ..getMaxSeqNum(query)
+	$$$TRACE("response Max Seq:>>>"_response.StringValue)
+	set ..tempId = response.StringValue
 	//Get the connection
 	do ..getConnection()
 	//set the commit false
 	$$$TRACE("AutoCommit:"_..connection.getAutoCommit())
-	do ..connection.setAutoCommit(0)
+	do ..connection.setAutoCommit(0)	
     //Move the cursor    
     if sourceSystem="OR"{
       do ..insertOracleHrToLdapTable(pRequest)
     }elseif (sourceSystem="CO") || (sourceSystem="CA") {
       do ..insertCactusOrCorpprvToLdapTable(pRequest)
     }
+  /*  set tExp = ##class(%Exception.StatusException).%New()
+	 set tExp.Name = "Setup error: does not exists"
+	 set tExp.Code=1111
+	 set tExp.Location = "IHC.ITF.ITFCOMMON.Utility.ItfLookup"
+	 set tExp.Data = "Import data file "
+	 Throw tExp*/
       //comiit the transaction
       do ..connection.close()
 	  //Close the gateway
@@ -446,24 +484,24 @@
 	 $$$TRACE("Inside Statement Creation")
 	 set sourceSystem=pRequest.SourceSystem
 	 Set msprSpecialTyQuery=""
-	 $$$TRACE("Source System:"_sourceSystem)
+	 $$$TRACE("Source System11:"_sourceSystem)
 	 
 	 Set msprInfoQuery="select "_pRequest.MsprInfoColumnName_" from "_pRequest.MsprInfoTableName_" where "_pRequest.MsprInfoWhereClause	 	 
 	 $$$TRACE("Query:"_msprInfoQuery)
 	 
 	 Set ..msprInfoStmt = ..connection.prepareStatement(msprInfoQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))
-	 if (sourceSystem="OR") || (sourceSystem="CO") || (sourceSystem="CA"){
-	      Set msprAffliationQuery="select "_pRequest.MsprAffColumnName_"  from "_pRequest.MsprAffTableName
-	      Set msprSpecialTyQuery="select "_pRequest.MsprSpecialTyColumnName_"  from "_pRequest.MsprSpecialTyTableName_" where "_pRequest.MsprSpecialTyWhereClause
-	      Set ..msprSpecialTystmt = ..connection.prepareStatement(msprSpecialTyQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))
-	 }else{
-		  Set msprAffliationQuery="select "_pRequest.MsprAffColumnName_" from "_pRequest.MsprAffTableName_" where "_pRequest.MsprAffWhereClause
+	 $$$TRACE("After MSPRINF Sts")
+	 if (sourceSystem="OR"){
+	      Set msprAffliationQuery="select "_pRequest.MsprAffColumnName_"  from "_pRequest.MsprAffTableName	     
+	      Set ..msprProviderAfflicationStmt = ..connection.prepareStatement(msprAffliationQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))
+	 }elseif (sourceSystem="CO") || (sourceSystem="CA"){
+		 Set msprAffliationQuery="select "_pRequest.MsprAffColumnName_"  from "_pRequest.MsprAffTableName
+		 Set ..msprProviderAfflicationStmt = ..connection.prepareStatement(msprAffliationQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))
+	     Set msprSpecialTyQuery="select "_pRequest.MsprSpecialTyColumnName_"  from "_pRequest.MsprSpecialTyTableName_" where "_pRequest.MsprSpecialTyWhereClause
+	     Set ..msprSpecialTystmt = ..connection.prepareStatement(msprSpecialTyQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))		  
 	 }
 	 $$$TRACE("Query2:"_msprAffliationQuery)
 	 $$$TRACE("msprSpecialTyQuery:"_msprSpecialTyQuery)
-	 Set ..msprProviderAfflicationStmt = ..connection.prepareStatement(msprAffliationQuery,$PARAMETER("java.sql.ResultSet","TYPEuSCROLLuSENSITIVE"),$PARAMETER("java.sql.ResultSet","CONCURuUPDATABLE"))
-	 
-	 $$$TRACE("After Statement Creation1")
 ]]></Implementation>
 </Method>
 
@@ -472,7 +510,7 @@
 <Implementation><![CDATA[
 
    $$$TRACE("Start of Setting Affliation values") 
-   do ..msprAffRs.updateInt("TRANSACTION_SEQ_NUM",pRequest.TRANSACTIONSEQNUM)	
+   do ..msprAffRs.updateInt("TRANSACTION_SEQ_NUM",..tempId)	
    do ..msprAffRs.updateString("TRANSACTION_TIME",pRequest.TRANSACTIONTIME)
    do ..msprAffRs.updateString("TRANSACTION_STATUS",pRequest.TRANSACTIONSTATUS)
    do ..msprAffRs.updateString("SOURCE_SYSTEM",pRequest.SOURCESYSTEM)
@@ -523,7 +561,7 @@
 <Implementation><![CDATA[
 
    $$$TRACE("Start of Setting Speciality values") 
-   do ..msprSpecialTyRs.updateInt("TRANSACTION_SEQ_NUM",pRequest.TRANSACTIONSEQNUM)	
+   do ..msprSpecialTyRs.updateInt("TRANSACTION_SEQ_NUM",..tempId)	
    do ..msprSpecialTyRs.updateString("TRANSACTION_TIME",pRequest.TRANSACTIONTIME)
    do ..msprSpecialTyRs.updateString("TRANSACTION_STATUS",pRequest.TRANSACTIONSTATUS)
    do ..msprSpecialTyRs.updateString("SOURCE_SYSTEM",pRequest.SOURCESYSTEM)
@@ -541,7 +579,7 @@
 <Implementation><![CDATA[
 
    $$$TRACE("Inside Storing Info Values")
-   do ..msprInfoRs.updateInt("TRANSACTION_SEQ_NUM",pRequest.TRANSACTIONSEQNUM)	
+   do ..msprInfoRs.updateInt("TRANSACTION_SEQ_NUM",..tempId)	
    do ..msprInfoRs.updateString("TRANSACTION_TIME",pRequest.TRANSACTIONTIME)
    do ..msprInfoRs.updateString("TRANSACTION_STATUS",pRequest.TRANSACTIONSTATUS)
    do ..msprInfoRs.updateString("SOURCE_SYSTEM",pRequest.SOURCESYSTEM)
