@@ -51,6 +51,92 @@ is returned as blank..</Description>
 <InitialExpression>"1259,2000,367"</InitialExpression>
 </Property>
 
+<Method name="GetUniqueParentRepByChildRep">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Interface.HddObject
+	
+	set listInd = pRequest.listOfHddNcidObj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	while ( listInd '= "")
+	{
+		set text = ""
+		set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
+	  Do ..GetUniqueParentRepByChildRepCall(reqObj.ChildRep, reqObj.ChildDomainNcid, reqObj.ChildRepContextNcid,reqObj.ChildDomainRelationship,reqObj.RelationshipTypeNcid,reqObj.ParentRepContextNcid,.text)
+	 
+	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	  set hddObj.Comment = "Gets UniqueParentRepByChildRep"
+	  //set hddObj.ChildRep = reqObj.ChildRep
+	  //set hddObj.ChildDomainNcid = reqObj.ChildDomainNcid
+	  //set hddObj.ChildRepContextNcid = reqObj.ChildRepContextNcid
+	  //set hddObj.ChildDomainRelationship = reqObj.ChildDomainRelationship
+	  //set hddObj.RelationshipTypeNcid = reqObj.RelationshipTypeNcid
+	  //set hddObj.ParentRepContextNcid = reqObj.ParentRepContextNcid
+	  set hddObj.Rep = text	  
+	  set hddObj.Index = reqObj.Index
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHddNcidObj.Next(listInd)
+	}
+	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+		
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueParentRepByChildRepCall">
+<FormalSpec><![CDATA[childRep:%String,childDomainNcid:%String,childRepContextNcid:%String,childDomainRelationship:%String,relationshipTypeNcid:%String,parentRepContextNcid:%String,&rep:%String]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+  try 
+  {
+ 	Set resp = ""
+ 	set resp = ..GetUniqueParentRepByChildRepFromCache(childRep, childDomainNcid, childRepContextNcid, childDomainRelationship, relationshipTypeNcid, parentRepContextNcid)
+ 	$$$TRACE(" From Cache GetUniqueParentRepByChildRepFromCache .."_resp)
+ 	
+ 	 
+ 	if (resp '= ""){
+	 	Set rep = resp
+	  	return
+	}	
+	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
+	set servicePort.Location = ..Location
+	
+	Set code = servicePort.getUniqueParentRepByChildRep(childRep, childDomainNcid, childRepContextNcid, childDomainRelationship, relationshipTypeNcid, parentRepContextNcid, ..dbEnv, 0)
+	if $GET(code){
+		Set rep = code.text	
+		Do ..InsertValuesToHddUniqueParentRepByChildRepCache(childRep, childDomainNcid, childRepContextNcid, childDomainRelationship, relationshipTypeNcid, parentRepContextNcid,rep)
+		$$$TRACE(" GOT the Resp .."_rep)	
+		Quit
+	}
+ }  
+ CATCH exceptionvar
+ {
+     Set rep = "ERROR"  
+	  If $ZERROR["<ZSOAP>" {
+	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+	     Set repNcid = errTxt
+         $$$LOGERROR("Exception in GetUniqueParentRepByChildRepCall: ChildRep ["_childRep_ "] " _ errTxt _ ", Excp:" _ exceptionvar.Name _ " " _ exceptionvar.Code _ " " _ exceptionvar.Location)
+         $$$LOGERROR($ZERROR)
+         If errTxt["TerminologyWebServiceException"{	         
+             If errTxt["ERROR #6248:"{	
+                If errTxt["2 -"{	
+                   throw exceptionvar
+                }
+             }
+	         Set rep = ""
+	     }         
+	  }
+	  else
+	  {
+		  throw exceptionvar
+	  }
+  }
+]]></Implementation>
+</Method>
+
 <Method name="GetMultiNcidsFromRep">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.MultiNcidsLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
@@ -1113,6 +1199,22 @@ is returned as blank..</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="InsertValuesToHddUniqueParentRepByChildRepCache">
+<FormalSpec>childRep:%String,childDomainNcid:%String,childRepContextNcid:%String,childDomainRelationship:%String,relationshipTypeNcid:%String,parentRepContextNcid:%String,Text:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentRepByChildRepCache(childRep, childDomainNcid, childRepContextNcid, childDomainRelationship, relationshipTypeNcid, parentRepContextNcid, Text ) values(:childRep, :childDomainNcid, :childRepContextNcid,:childDomainRelationship,:relationshipTypeNcid,:parentRepContextNcid, :Text))
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueParentRepByChildRepFromCache">
+<FormalSpec>childRep:%String,childDomainNcid:%String,childRepContextNcid:%String,childDomainRelationship:%String,relationshipTypeNcid:%String,parentRepContextNcid:%String</FormalSpec>
+<Implementation><![CDATA[
+	set retText = "" 
+	Do ..ClearHddTables()
+	&sql(select Text into :retText from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentRepByChildRepCache where ChildRep = :childRep and ChildDomainNcid = :childDomainNcid and ChildRepContextNcid = :childRepContextNcid and ChildDomainRelationship = :childDomainRelationship and  RelationshipTypeNcid = :relationshipTypeNcid and  ParentRepContextNcid=:parentRepContextNcid )
+	return retText
+]]></Implementation>
+</Method>
+
 <Method name="GetComputritionFromHddRepCache">
 <FormalSpec>objLocationNcid:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -1350,6 +1452,10 @@ is returned as blank..</Description>
 		<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.IsRodsApptLookupRequest"> 	
 		<Method>isRODSAppointmentInclusionExist</Method>
 	</MapItem>	
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest"> 	
+		<Method>GetUniqueParentRepByChildRep</Method>
+	</MapItem>	
+	
 	</MapItems>
 ]]></Data>
 </XData>
