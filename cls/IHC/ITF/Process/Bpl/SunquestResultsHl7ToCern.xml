@@ -247,6 +247,13 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='2500' />
 </parameters>
 </property>
+<property name='SpecimenMap' type='%String' collection='array' instantiate='0' >
+</property>
+<property name='MicroFilterDomain' type='%String' initialexpression='520183217' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='3800' >
 <scope xpos='200' ypos='250' xend='200' yend='3700' >
@@ -543,6 +550,7 @@ BPL Definition</Description>
                 Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.NcidLookupRequest, obx5Code, context.SusceptibilityDomain, context.MicroLabContext, "OBX-5["_orcIndex_"]["_obxIndex_"]Susceptibility")
                 Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.NcidLookupRequest, obx5Code, context.MicroCodedDomain, context.MicroLabContext, "OBX-5["_orcIndex_"]["_obxIndex_"]MicroCoded")
                 Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.NcidLookupRequest, obx5Code, context.SlideDomain, context.MicroLabContext, "OBX-5["_orcIndex_"]["_obxIndex_"]SlideObservation")
+                Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.NcidLookupRequest, obx5Code, context.MicroFilterDomain, context.MicroLabContext, "OBX-5["_orcIndex_"]["_obxIndex_"]OBX5Filter")
              } else {
                 set errMsg=" Unable to map OBX-5["_orcIndex_"]["_obxIndex_"] to ncid because the field is blank. Skipping record."
                 throw errMsg
@@ -771,6 +779,8 @@ BPL Definition</Description>
     set siteModifier =""
     set siteModifierNote =""
     #Dim isTranslated as Array of %String =""
+    #Dim isCodedRepeat as Array of %Boolean=""
+    #Dim isSpm14Repeat as Array of %Boolean=""
     #Dim isSpm14Used as Array of %String =""
     #Dim isCodedSpmUsed as Array of %String =""
     set isSpm4Used =0
@@ -1165,6 +1175,16 @@ BPL Definition</Description>
           for {
              Set spm14Index6=context.NewRequest.GetNextIndex("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:14()",spm14Index6,.tSCTrans6)  Quit:spm14Index6=""
              $$$TRACE("In spm14 translated or not check")
+             set spm14 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:14("_spm14Index6_")")
+             if (spm14=specimen){
+                set isSpm14Repeat(spm14Index6) =1
+             }elseif (spm14=site){
+                set isSpm14Repeat(spm14Index6) =1
+             }elseif (spm14=siteModifier){
+                set isSpm14Repeat(spm14Index6) =1
+             }else {
+                set isSpm14Repeat(spm14Index6) =0
+             }
              set isTranslatedValue =""
              if (($DATA(isTranslated(spm14Index6))) && (isTranslated(spm14Index6) '="")) {
                 set isTranslatedValue =isTranslated(spm14Index6)
@@ -1173,7 +1193,7 @@ BPL Definition</Description>
              if (($DATA(isSpm14Used(spm14Index6))) && (isSpm14Used(spm14Index6) '="")) {
                 set isSpm14UsedValue = isSpm14Used(spm14Index6)
              }
-             if ((isTranslatedValue '="Y") && (isSpm14UsedValue '="Y")) {
+             if ((isTranslatedValue '="Y") && (isSpm14UsedValue '="Y") && ('isSpm14Repeat(spm14Index6))) {
                 $$$TRACE("spm14["_spm14Index6_"] not translated")
                 set isSpm14Used(spm14Index6) ="Y"
                 set spm14 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:14("_spm14Index6_")")
@@ -1203,7 +1223,6 @@ BPL Definition</Description>
                 set specimenNote = spm42
              }
           }
-          set isCodedRepeat =0
           set isCodedSpmUsedValue =""
           set isTranslatedValue =""
           if (context.codedSpm '="") {
@@ -1212,11 +1231,13 @@ BPL Definition</Description>
              set codedSpmList =$LISTFROMSTRING(context.codedSpm)
              while $LISTNEXT(codedSpmList, pointer, spmPiece) {
                 if (spmPiece=specimen) {
-                   set isCodedRepeat =1
+                   set isCodedRepeat(pointer) =1
                 }elseif (spmPiece=site) {
-                   set isCodedRepeat =1
+                   set isCodedRepeat(pointer) =1
                 }elseif (spmPiece=siteModifier) {
-                   set isCodedRepeat =1                
+                   set isCodedRepeat(pointer) =1                
+                }else {
+                   set isCodedRepeat(pointer) =0
                 }
                 $$$TRACE("Is value translated? "_isTranslated(pointer)_". Value: "_spmPiece)
                 set isTranslatedValue =""
@@ -1228,7 +1249,7 @@ BPL Definition</Description>
                    set isCodedSpmUsedValue = isCodedSpmUsed(pointer)
                 }
                 $$$TRACE("1. Is coded SPM used: "_isCodedSpmUsedValue)
-                if ((isTranslatedValue '="Y") && (isCodedSpmUsedValue '="Y") && ('isCodedRepeat)) {
+                if ((isTranslatedValue '="Y") && (isCodedSpmUsedValue '="Y") && ('isCodedRepeat(pointer))) {
                    $$$TRACE("Coded spm["_pointer_"] not translated")
                    set isCodedSpmUsed(pointer) ="Y"
                    if (specimenNote '="") {
@@ -1250,7 +1271,7 @@ BPL Definition</Description>
                 set isUsed =isSpm14Used(spm14Index4)
              }
              $$$TRACE("Is spm14 used: "_isUsed_" Index: "_spm14Index4)
-             if (isUsed '="Y") {
+             if ((isUsed '="Y") && ('isSpm14Repeat(spm14Index4))) {
                 if (newSpm14Note '="") {
                    set newSpm14Note = newSpm14Note_" "_spm14
                 }else {
@@ -1265,12 +1286,12 @@ BPL Definition</Description>
              set codedSpmList =$LISTFROMSTRING(context.codedSpm)
              while $LISTNEXT(codedSpmList, pointer, spmPiece) {
                 set isCodedUsed =""
-                $$$TRACE("Looping through coded obx specimens, Index: "_pointer_". Is there Data: "_$DATA(isCodedSpmUsed(pointer)))
+                $$$TRACE("Looping through coded obx specimens, Index: "_pointer_". Is there Data: "_$DATA(isCodedSpmUsed(pointer))_". Is it a repeat: "_isCodedRepeat(pointer))
                 if (($DATA(isCodedSpmUsed(pointer))) && (isCodedSpmUsed(pointer) '="")) {
                    set isCodedUsed = isCodedSpmUsed(pointer)
                 }
                 $$$TRACE("Is Coded Spm used: "_isCodedUsed_" Index: "_pointer)
-                if ((isCodedUsed '="Y")  && ('isCodedRepeat)) {
+                if ((isCodedUsed '="Y")  && ('isCodedRepeat(pointer))) {
                    $$$TRACE("Coded obx not already used, adding. Index: "_pointer_". Value: "_spmPiece)
                    if (newSpm14Note '=""){
                       set newSpm14Note =newSpm14Note_" "_spmPiece
@@ -1603,13 +1624,32 @@ BPL Definition</Description>
                             do context.Spm4.SetAt(context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5.2"),orcIndex_"-1-5")
                             do context.Spm4.SetAt(context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5.3"),orcIndex_"-1-6")
                          }
+                         set obx3 =""
+                         set obx33 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.3") 
+                         if (obx33="L") {
+                            set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.1")
+                         }else {
+                            set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.4")
+                         }
+                         $$$TRACE("Setting OBX to specimen map: "_obx3_"-"_context.Spm4.GetAt(orcIndex_"-1-2"))
+                         do context.SpecimenMap.SetAt(context.Spm4.GetAt(orcIndex_"-1-2"),obx3)
                       }elseif (obx4 ="1.1") {
+                         set specimen =$ZSTRIP(context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5.1"), "<>W")
+                         set obx3 =""
+                         set obx33 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.3") 
+                         if (obx33="L") {
+                            set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.1")
+                         }else {
+                            set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.4")
+                         }
+                         $$$TRACE("Setting OBX to specimen map: "_obx3_"-"_specimen)
+                         do context.SpecimenMap.SetAt(specimen,obx3)
                          set NTESeg = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&NTE||||"))
                          do context.NewRequest.InsertSegmentAt(NTESeg,"PIDgrpgrp(1).ORCgrp("_orcIndex_")")
                          do context.NewRequest.%Save()
                          set noteCount = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE(*)")
-                         do context.NewRequest.SetValueAt(noteCount +1, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_noteCount_"):1")
-                         do context.NewRequest.SetValueAt("Specimen: "_context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5.1"), "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_noteCount_"):3(1)")
+                         do context.NewRequest.SetValueAt(noteCount +1, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(noteCount+1)_"):1")
+                         do context.NewRequest.SetValueAt("Specimen: "_specimen, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(noteCount+1)_"):3(1)")
                       }
                    }
                 }
@@ -1707,6 +1747,13 @@ BPL Definition</Description>
     for {
        Set obxIndex=context.NewRequest.GetNextIndex("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp()",obxIndex,.tSCTrans2)  Quit:obxIndex=""          
        set obx4 = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:4")
+       set obx33 = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.3")
+       set obx3 =""
+       if (obx33 ="L") {
+          set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.1")
+       }else {
+          set obx3 =context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:3.4")
+       }
        if (obx4 ="1.1") {
           if (context.ObxSpecimenToProcess) {
              set obxIsSpecimen = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse , "OBX-3["_orcIndex_"]["_obxIndex_"]")
@@ -1714,32 +1761,24 @@ BPL Definition</Description>
                 if (obxIsSpecimen.Rep '="") {
                    if (obxIsSpecimen.Rep) {
                       set obx2 = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:2")
-                      if ((obx2 ="CWE") || (obx2 ="CE")) {
-                         $$$TRACE("Specimen set at: "_specimen)
-                         if (specimen ="") {
-                            set specimen= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).2")
-                            $$$TRACE("1. Found specimen for NTE: "_specimen)
-                         }else {
+                      set specimen =context.SpecimenMap.GetAt(obx3)
+                      if (specimen '="") {
+                         if ((obx2 ="CE") || (obx2 ="CWE")) {
                             set specimenNote= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).2")
-                            $$$TRACE("1. Found specimenNote for NTE: "_specimenNote)                         
-                         }
-                      }else{
-                         if (specimen ="") {
-                            set specimen= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).1")
-                            $$$TRACE("2. Found specimen for NTE: "_specimen)
                          }else {
                             set specimenNote= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).1")
-                            $$$TRACE("2. Found specimenNote for NTE: "_specimenNote)                         
                          }
+                         $$$TRACE("1. Found specimenNote for NTE: "_specimenNote)                         
                       }
-                      if (specimen'=specimenNote) {
+                      set trimmedSpecimenNote =$ZSTRIP(specimenNote, "<>W")
+                      if (specimen'=trimmedSpecimenNote) {
                          if ((specimen '="") && (specimenNote '="")) {
-                            $$$TRACE("Setting up Specimen NTE")
+                            $$$TRACE("1. Setting up Specimen NTE")
                             set NTESeg = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&NTE||||"))
                             do context.NewRequest.InsertSegmentAt(NTESeg,"PIDgrpgrp(1).ORCgrp("_orcIndex_")")
                             do context.NewRequest.%Save()
                             set obrCommentCount = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE(*)")
-                            do context.NewRequest.SetValueAt(obrCommentCount +1, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):1")
+                            do context.NewRequest.SetValueAt((obrCommentCount+1), "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):1")
                             do context.NewRequest.SetValueAt(specimen_" specimen comment: "_specimenNote, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):3(1)")
                             set specimenNote ="" 
                          }
@@ -1764,28 +1803,33 @@ BPL Definition</Description>
              if (obxIsSpecimen '="") {
                 if (obxIsSpecimen.Rep '="") {
                    if (obxIsSpecimen.Rep) {
+                      $$$TRACE("1. Obx is specimen. OBX-3: "_obx3)
                       set obx2 = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:2")
-                      if ((obx2 ="CWE") || (obx2 ="CE")) {
-                         if (specimen ="") {
-                            set specimen= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).2")
-                            $$$TRACE("3. Found specimen for NTE: "_specimen)
-                         }else {
+                      set specimen =context.SpecimenMap.GetAt(obx3)
+                      if (specimen '="") {
+                         $$$TRACE("2. Obx is specimen")
+                         if ((obx2 ="CE") || (obx2 ="CWE")) {
+                            $$$TRACE("3. Obx is specimen")
                             set specimenNote= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).2")
-                            $$$TRACE("3. Found specimenNote for NTE: "_specimenNote)                         
+                         }else {
+                            $$$TRACE("4. Obx is specimen")
+                            set specimenNote= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).1")
                          }
-                      }else{
-                         set specimenNote= context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:5(1).1")
-                         $$$TRACE("4. Found specimenNote for NTE: "_specimenNote_". Specimen: "_specimen)
+                         $$$TRACE("4. Found specimenNote for NTE: "_specimenNote) 
                       }
-                      if ((specimen '="") && (specimenNote '="")) {
-                         $$$TRACE("Setting up Specimen NTE")
-                         set NTESeg = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&NTE||||"))
-                         do context.NewRequest.InsertSegmentAt(NTESeg,"PIDgrpgrp(1).ORCgrp("_orcIndex_")")
-                         do context.NewRequest.%Save()
-                         set obrCommentCount = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE(*)")
-                         do context.NewRequest.SetValueAt(obrCommentCount +1, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):1")
-                         do context.NewRequest.SetValueAt(specimen_" specimen comment: "_specimenNote, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):3(1)")
-                         set specimenNote ="" 
+                      set trimmedSpecimenNote =$ZSTRIP(specimenNote, "<>W")
+                      if (specimen'=trimmedSpecimenNote) {
+                         if ((specimen '="") && (specimenNote '="")) {
+                            $$$TRACE("2. Setting up Specimen NTE")
+                            set NTESeg = ##class(EnsLib.HL7.Segment).%New($LB(,0,,"|^~\&NTE||||"))
+                            do context.NewRequest.InsertSegmentAt(NTESeg,"PIDgrpgrp(1).ORCgrp("_orcIndex_")")
+                            do context.NewRequest.%Save()
+                            set obrCommentCount = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE(*)")
+                            $$$TRACE("Note Count: "_obrCommentCount)
+                            do context.NewRequest.SetValueAt((obrCommentCount+1), "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):1")
+                            do context.NewRequest.SetValueAt(specimen_" specimen comment: "_specimenNote, "PIDgrpgrp(1).ORCgrp("_orcIndex_").NTE("_(obrCommentCount+1)_"):3(1)")
+                            set specimenNote =""
+                         } 
                       }
                    }else {
                       set obx2 = context.NewRequest.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:2")
