@@ -2,7 +2,9 @@
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.ITFCOMMON.Operation.LdapSearchOperation">
 <Description>
-This class is used to search LDAP API. This operation will return the unknown the ihc4Medica attribute for the provider</Description>
+This class is used to search LDAP API. This Operation accepts three different types of requests. 
+Ens.StringRequest and Ens.StreamContainer - When this two request are used it uses DN, LdapSearchScome and LdapAttributes from the Operation settings to perform the search call
+.IHC.ITF.ITFCOMMON.DStruc.LdapSearchRequest - When it receives this request type it retrieves DN, LdapSearchScome and LdapAttributes from the request to perform the search.</Description>
 <Super>Ens.BusinessOperation</Super>
 <TimeCreated>63459,50388.534767</TimeCreated>
 
@@ -109,5 +111,164 @@ pScope: 0=search base, 1=search one level,  2=search subtree</Description>
 	quit tSC
 ]]></Implementation>
 </Method>
+
+<Method name="getValuesUsingSearchRequest">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.DStruc.LdapSearchRequest,*pResponse:IHC.ITF.ITFCOMMON.DStruc.LdapSearchResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+	#dim pAttr As %String=""
+	
+	// Parameter to be passed to Ldap Search API
+	#dim pFilterString As %String=pRequest.searchString
+	
+	#dim keyEntries,keyEntry,keyValueList As %String=""
+	#dim pSearchLevel As %String=""
+	#dim pDN As %String=""
+	 
+		
+	If (pRequest.attrList'=""){
+		set pAttr=pRequest.attrList
+	}elseif (..LdapAttributes'=""){
+		set pAttr=..LdapAttributes
+	}
+	
+	If (pRequest.searchScope'=""){
+		set pSearchLevel=pRequest.searchScope
+	} 
+	
+	set pDN=pRequest.DN
+	
+	set tSC=..ldapSearch(pAttr,pFilterString,pSearchLevel,pDN,.pResponse)
+	 
+	
+	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="getValuesUsingStringContainer">
+<FormalSpec>pRequest:Ens.StringContainer,*pResponse:IHC.ITF.ITFCOMMON.DStruc.LdapSearchResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+	#dim pAttr As %String=""
+	
+	// Parameter to be passed to Ldap Search API
+	#dim pFilterString As %String=pRequest.StringValue
+	#dim pSearchLevel As %String=""
+	
+	if (..LdapAttributes'=""){
+		set pAttr=..LdapAttributes
+	}
+		 
+	set tSC=..ldapSearch(pAttr,pFilterString,pSearchLevel,,.pResponse)
+	 
+	
+	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ldapSearch">
+<FormalSpec>pAttrList:%String="",pSearchString:%String="",pSearchScope:%String="",pDN:%String="",*pResponse:IHC.ITF.ITFCOMMON.DStruc.LdapSearchResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+	#dim pSearchLevel=1	
+	#dim pAttr As %String=""
+	//Ldap search return is of type %Net.LDAP.Client.Entries
+	#dim pEntries As %Net.LDAP.Client.Entries
+	#dim ldapEntry As %Net.LDAP.Client.Entry
+	#dim valueList As %Net.LDAP.Client.ValueList
+	// Parameter to be passed to Ldap Search API
+	#dim pFilterString As %String=pSearchString
+	
+	#dim keyEntries,keyEntry,keyValueList As %String=""
+	#dim attrValue As %String=""
+	
+	if (pSearchScope'=""){
+		set pSearchLevel=pSearchScope
+	}elseIf(..LdapSearchScope'=""){
+		set pSearchLevel=pSearchScope
+	}
+	 
+	if (pAttrList'=""){
+		set pAttr= pAttrList
+	} else{  set pAttr=..LdapAttributes}
+	
+	
+	set pResponse=##class(IHC.ITF.ITFCOMMON.DStruc.LdapSearchResponse).%New()
+	
+	
+	$$$TRACE(" Filter "_pFilterString_" pSearchlevel "_pSearchLevel_" ATTR "_pAttr)
+	
+	// Call LDAP search
+	If (pDN=""){
+		set tSC=..Adapter.Search(.pEntries,pSearchLevel,pFilterString,pAttr)
+	}
+	Else { 
+		set tSC=..Adapter.Search(.pEntries,pSearchLevel,pFilterString,pAttr,,pDN)
+	}
+	
+	$$$TRACE(" Returned Status "_tSC)
+	
+	
+	if (tSC){
+		
+		$$$TRACE(" PENTRIES *"_$G(pEntries,"Default")_"*")
+		
+		set keyEntries="" 
+		 do {
+			 set ldapEntry=pEntries.GetNext(.keyEntries)
+		  	 $$$TRACE(" Got LDAP Entry "_ldapEntry_" keyEntries `"_keyEntries)
+		  	 quit:keyEntries=""
+		  	 set keyEntry=""
+		 	 do  {
+			 	 set valueList=ldapEntry.GetNext(.keyEntry)
+			 	 quit:keyEntry=""
+			 	 set strValue=""
+				 $$$TRACE(" ValueList "_valueList_" for key "_keyEntry)
+				 set keyValueList=""
+				 //set pResponse.StringValue="Key Value= "_keyEntry_" Value : "
+				 do {
+					set attrValue=valueList.GetNext(.keyValueList)
+			       	quit:keyValueList=""
+			       	$$$TRACE(" VALUE "_attrValue)
+			       	
+			       	if (strValue="") {
+				        s strValue=attrValue
+			        }
+			        else {
+				        s strValue=strValue_","_attrValue
+			        }
+			  	}while (keyValueList'="")
+				if (strValue'=""){
+					do pResponse.ldapReturnValues.SetAt(strValue,keyEntry)
+				}
+		 	 }while (keyEntry'="")
+			 
+		 }while (keyEntries'="")
+	}
+	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+<MapItem MessageType="Ens.StringRequest">
+	<Method>OnMessage</Method>
+</MapItem>
+<MapItem MessageType="IHC.ITF.ITFCOMMON.DStruc.LdapSearchRequest">
+	<Method>getValuesUsingSearchRequest</Method>
+</MapItem>
+<MapItem MessageType="Ens.StringContainer">
+	<Method>getValuesUsingStringContainer</Method>
+</MapItem>
+</MapItems>
+]]></Data>
+</XData>
 </Class>
 </Export>
