@@ -67,8 +67,8 @@
 <Implementation><![CDATA[
 	
 	$$$TRACE("JMSinboundAdapter OnInit "  _ ..JmsUrl)
-	$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway))
-	$$$TRACE("ActMqObj:" _$IsObject(..ActMqObj))
+	$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway) _ ", ActMqObj:" _$IsObject(..ActMqObj))
+	$$$TRACE("Is connected: " _ ..connected _ ", Attept # " _ ..RetryCnt _ ", Max: " _  ..NumberOfRetries)
 	
 	Set tStat = $$$OK
 	
@@ -78,16 +78,23 @@
 
 	// get an instance of JMSGateway and connect to JMSGateway Super Server
 	try {
-		if ((..connected = 0) && (..RetryCnt < ..NumberOfRetries))
+		if ((..connected = 0) && (..RetryCnt <= ..NumberOfRetries))
 		{
 			set ..RetryCnt = ..RetryCnt + 1
+			if ($L(..JMSJarPath) = 0)
+			{
+			   	SET mygenex = ##class(%Exception.General).%New("JMSJarPath does not have class path for jar files ")
+	    		throw mygenex
+
+			}
 			Set ..JmsGateway=##class(EnsLib.JavaGateway.JavaGateway).%New()
 			Set classPath=##class(%ListOfDataTypes).%New()
-			$$$TRACE("Trying to connect: " _ ..JavaGateWayHost _ ":" _ ..JavaGateWayPort _ ", attempt #: " _ ..RetryCnt)
 	
 			Do classPath.Insert(..JMSJarPath)
 			$$$TRACE("JMS Call Path added: " _ ..JMSJarPath)
-				
+			
+			$$$TRACE("Trying to connect: " _ ..JavaGateWayHost _ ":" _ ..JavaGateWayPort _ ", attempt #: " _ ..RetryCnt)
+	
 			Set tStat=..JmsGateway.%Connect(..JavaGateWayHost,..JavaGateWayPort,$NAMESPACE,5,classPath) 
 			If 'tStat 
 			{
@@ -99,12 +106,31 @@
 				Throw exp  
 			}
 			$$$TRACE("Connected to Java Gateway")
+			Set listArray = ##class(%ListOfDataTypes).%New()
+			Set p=1
+			For {
+				Set piece=$P(..JMSJarPath,":",p)
+				Quit:piece=""
+				do listArray.Insert(piece)
+				set p = p+1
+				$$$TRACE("Jar file: " _ piece)
+			}
 
+			Set status=..JmsGateway.%Import("IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass", .classes, listArray) 
+			If 'tStat 
+			{
+				set tStat = $$$ISERR(tStat)
+				set exp = ##class(%Exception.General).%New()
+				set exp.Code = tStat.Name
+				set exp.Data = tStat.Data
+				set exp.Name = "Java Gateway import error: " _ ..JavaGateWayHost _ ", " _ ..JavaGateWayPort
+				Throw exp
+			}
+			$$$TRACE("Imported Jar, creating class to connect to " _ ..QueueName)
 			set ..ActMqObj = ##class(IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass).%New(..JmsGateway, ..JmsUrl, ..QueueName)
 			
 			$$$TRACE("Created class IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass: " _ ..JmsUrl _ ", " _ ..QueueName)
-			$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway))
-			$$$TRACE("ActMqObj:" _$IsObject(..ActMqObj))
+			$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway) _ ", ActMqObj:" _$IsObject(..ActMqObj))
 
 			Do ..ActMqObj.CreateConsumer()
 			Set ..connected = 1
@@ -125,6 +151,8 @@
 	    {
 		    set errMsg = "No objlasterror"
 	    }
+   	    Set tSC=$$$ERROR($$$GeneralError, "OnInit : " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+
 	    if (..RetryCnt >=  ..NumberOfRetries)
 	    {
 	    	set alert = ##class(Ens.AlertRequest).%New()
@@ -135,7 +163,6 @@
 	    	SET mygenex = ##class(%Exception.General).%New("Tried to connect for " _ ..NumberOfRetries _ " times to Gateway: "_ ..JavaGateWayHost _", " _ ..JavaGateWayPort _ ", JMS:" _ ..JmsUrl)
 	    	throw mygenex
 	     }
-	    Set tSC=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
 	    
 	    if ((..connected = 1) && ($IsObject(..ActMqObj)) )
 		{
@@ -164,11 +191,11 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
 
 	if ( ..connected = 0)
 	{
-		Do ..OnInit()
+		set tStat = ..OnInit()
 	}
 	if ( ..connected = 0 )
 	{
-		Set tStat = $$$ERROR($$$GeneralError, "Can not connect to JMS server")
+		Set tStat = $$$ERROR($$$GeneralError, "Can not connect to JMS server: " _ tStat)
 	}
 	else
 	{
