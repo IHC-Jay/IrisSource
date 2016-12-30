@@ -1,0 +1,416 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.LDAP.OutboundAdapter">
+<IncludeCode>%syLDAPFunc</IncludeCode>
+<Super>EnsLib.LDAP.OutboundAdapter</Super>
+<TimeCreated>64215,15410.761948</TimeCreated>
+
+<Property name="LdapAttributes">
+<Description>
+comma-separated list of attributes to return per found entry.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Property name="LdapSearchScope">
+<Description>
+pScope: 0=search base, 1=search one level,  2=search subtree</Description>
+<Type>%Net.LDAP.Client.Search.Scope</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>LdapAttributes:Additional,LdapSearchScope:Additional</Default>
+</Parameter>
+
+<UDLText name="T">
+<Content><![CDATA[
+/*
+ DN - String that contains the distinguished name of the entry to add. 
+
+ ATTR - $list formatted with attributes to add to the new entry.
+ Each element in the list is a separate attribute to be added to the new entry.
+ Attribute=$lb(op,type,vals)
+ op - For create, set to 0. However, if the vals parameter is to be treated as binary, then pass in 128 for this parameter.
+ type - Name of the attribute. Example="Telephone". 
+ vals - $list of the values to assign to the attribute. If this is a single entry attribute, then $lb(Value), Example=$lb("617-621-0600"). If a multi-value entry, then $lb(Value1,Value2,...,Valuen). If the data is to be treated as binary (e.g. jpeg file), then make sure that 128 is passed for the op.
+
+ ServerControls - Ignored, pass as "".
+
+ ClientControls - Ignored, pass as "".
+
+ Return Values:
+
+ If the function succeeds, $$$LDAPSUCCESS is returned.
+ If the function fails, an error code is returned.
+
+ Examples:
+
+ s Attr1=$lb(0,"displayName",$lb(Jim Nilson))
+ s Attr2=$lb(0,"telephoneNumber",$lb("617-621-0600")
+ s Attr3=$lb(0,"objectClass",$lb("top","person","organizationalPerson","user")
+ s Attr4=$lb(128,"Picture",$lb(Jpegbitstring))
+ s Attributes=$lb(Attr1,Attr2,Attr3,Attr4)
+ ; Note the special character identifier "\" which is needed before the "," in the name
+ s DN="CN=Nilson\, Jim,OU=Users,OU=England,DC=iscinternal,DC=com"
+ */
+]]></Content>
+</UDLText>
+
+<Method name="AddNewAttribute">
+<FormalSpec>DN:%String,ATTR:%List</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	Set Sts = ..getLD(.LD)
+	If $$$ISERR(Sts) Quit Sts
+	Set Status=##Class(%SYS.LDAP).AddExts(LD,DN,ATTR)
+ 	If Status'=$$$LDAPSUCCESS {
+ 		$$$LOGERROR("AddExts error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status) )
+ 	}
+ 	Quit Status
+]]></Implementation>
+</Method>
+
+<Method name="getLD">
+<FormalSpec>*LD:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set Sts = $$$OK
+	Set LD = ##Class(%SYS.LDAP).Init(..LDAPServer,..LDAPPort)
+	If LD=0 {		
+		Set Sts=##Class(%SYS.LDAP).GetLastError()
+		$$$LOGERROR("getLD error: "_Sts_" - "_##Class(%SYS.LDAP).Err2String(Sts))
+	}
+	Quit Sts
+]]></Implementation>
+</Method>
+
+<Method name="AddModifyAttributes">
+<FormalSpec>AttrName:%String,AttrVal:%String,pAction:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ #define UnixFilter "cn"
+
+ Set ..DN = "o=ihc"
+
+	if (..LdapSearchScope'=""){
+		set pSearchLevel=..LdapSearchScope
+	}
+	
+	If (..LdapAttributes'=""){
+		set pAttr=..LdapAttributes
+	}
+ 
+ s a =..%CredentialsObj.Password
+ // s $zt="Error"
+ $$$TRACE("Initializing LDAP connection to "_..LDAPServer)
+ s LD=##Class(%SYS.LDAP).Init(..LDAPServer)
+ i LD=0 s Status=##Class(%SYS.LDAP).GetLastError() w !,"Init error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status) q
+ /*
+ #;We are allowed to connect and search the root DSE without binding. Get all the 
+ #;attributes.
+ $$$TRACE("Searching Root DSE"
+ s Filter="(objectclass=*)"
+ #;Get all attributes
+ s Attributes=""
+ s Status=##Class(%SYS.LDAP).SearchExts(LD,"",pSearchLevel,Filter,pAttr,0,"","",10,1,.SearchResult)
+ i Status'=$$$LDAPSUCCESS w !,"SearchExts error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status) g LDAPError
+ #;Set the pointer to the first (and only) entry
+ s CurrentEntry=##Class(%SYS.LDAP).FirstEntry(LD,SearchResult)
+ i CurrentEntry=0 s Status=##Class(%SYS.LDAP).GetError(LD) w !,"FirstEntry error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status) g LDAPError
+ #;Now loop through all the entries of the Root DSE and display them
+ w !,"Displaying Root DSE info:"
+ d ..DisplayAttributes(LD,CurrentEntry)*/
+ s Status=##class(%SYS.LDAP).SimpleBinds(LD,..%CredentialsObj.Username,..%CredentialsObj.Password)
+ i Status'=$$$LDAPSUCCESS w !,"SimpleBinds error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status) 
+
+
+ If pAction=1
+ {
+ 	s Attr1=$lb(0,AttrName,$lb(AttrVal))
+ 	s Attributes=$lb(Attr1)
+ 	s Status=##Class(%SYS.LDAP).ModifyExts(LD,DN,Attributes,"","")
+ }
+ ElseIf pAction=2
+ {
+	s Attr1=$lb(0,AttrName,$lb(AttrVal))
+ 	s Attributes=$lb(Attr1)
+	s Status=##Class(%SYS.LDAP).ModifyExts(LD,DN,Attributes,"","")
+ }
+ i Status'=$$$LDAPSUCCESS $$$TRACE("AddModifyExts error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status))
+]]></Implementation>
+</Method>
+
+<Method name="DisplayAttributes">
+<FormalSpec>LD:%Integer,CurrentEntry:%Integer</FormalSpec>
+<Implementation><![CDATA[
+	s Attribute=##Class(%SYS.LDAP).FirstAttribute(LD,CurrentEntry,.Ptr)
+ 	while (Attribute'="") {
+ 	s Values=##Class(%SYS.LDAP).GetValues(LD,CurrentEntry,Attribute)
+ 	w !,Attribute_": "
+ 	s String=""
+ 	f i=1:1:$ll(Values) s String=$g(String)_$li(Values,i)_";"
+	w String
+	s Attribute=##Class(%SYS.LDAP).NextAttribute(LD,CurrentEntry,.Ptr)
+    }
+]]></Implementation>
+</Method>
+
+<Method name="AddModifyExts">
+<FormalSpec>pFilter:%String,BaseDN:%String="ou=consumers,o=ihc",AttrName:%String,AttrVal:%String,pAction:%Integer=1</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#;We need to trap all errors so we can close the LDAP channel, otherwise a memory
+	#;leak can occur.
+	s $zt="Error"
+	
+	#;No error initially
+ 	s Status=0
+
+	s AdminDN= ..%CredentialsObj.Username   // "uid=admin,ou=system"
+	s AdminPW=	..%CredentialsObj.Password //"secret"
+	;s BaseDN= "ou=consumers,o=ihc" //"ou=people,dc=example,dc=com"
+
+	//s LD=##Class(%SYS.LDAP).Init("127.0.0.1",10389)
+	s LD=##Class(%SYS.LDAP).Init(..LDAPServer,..LDAPPort)
+	
+	$$$TRACE("LD"_LD)
+	
+	$$$TRACE("..%CredentialsObj.Username "_..%CredentialsObj.Username )
+	$$$TRACE("..%CredentialsObj.Password "_..%CredentialsObj.Password )
+
+	#;Ok, now we bind (authenticate) to the server using the DN of the LDAP administrator who has
+	#;read access to the entire LDAP database. We need to do this first so we have 
+	#;privileges to search for the user we want to authenticate.
+	s Status=##Class(%SYS.LDAP).SimpleBinds(LD,AdminDN,AdminPW)
+	i Status'=$zhex(00) {
+		s Status=Status_",ldap_Simple_Bind(AdminDN) - "_##Class(%SYS.LDAP).Err2String(Status)
+		$$$TRACE("SimpleBinds Status inside error if :"_Status)
+		q
+ 	}
+	$$$TRACE("SimpleBinds status : "_Status)	
+	#;Now that we have read access to the LDAP server, we need to search the LDAP
+	#;database for the user we want to authenticate in order to get their DN.
+	
+	s Filter=	pFilter //"telephoneNumber=123456789"
+
+	s AttributeList=$LB("cn")
+
+	#;$$$LDAPSCOPESUBTREE means to search the entire tree beneath the BaseDN used.
+	s SearchScope=	$zhex(02)
+
+	#;Max length of time the search can last.
+	s Timeout=10
+
+	#;Return just the first thing we find.
+	s SizeLimit=1
+	s Status=##Class(%SYS.LDAP).SearchExts(LD,BaseDN,SearchScope,Filter,AttributeList,0,"","",Timeout,SizeLimit,.SearchResult)
+	i Status'=$zhex(00) {
+		$$$TRACE("SearchExts Status:"_Status)
+		q Status
+ 	}
+
+	#;See how many entries were returned by the search.
+	s NumEntries=##Class(%SYS.LDAP).CountEntries(LD,SearchResult)
+	i NumEntries=-1 {
+	 s Status=##Class(%SYS.LDAP).GetError(LD)
+	 s Status=Status_",ldap_Count_Entries - "_##Class(%SYS.LDAP).Err2String(Status)
+	 $$$TRACE(Status)
+	 q Status
+	}
+
+
+	#;If NumEntries=0, then either there is no LDAP user for the username 
+	#;in the database, or the BaseDN parameter needs to be set higher in the tree.
+	i NumEntries=0 {
+		s Status="NumEntries=0 , 1,User "_pFilter_" does not exist"
+		$$$TRACE(Status)
+	 	q Status
+	}
+
+	#;If the search returned too many items, then the Filter is probably wrong. 
+	i NumEntries>1 {
+		s Status="NumEntries>1 1,LDAP Filter is not unique"
+		$$$TRACE(Status)
+	 	q Status
+	}
+	
+	#;Now get the pointer to the first (and only) entry in the returned search list.
+	s CurrentEntry=##Class(%SYS.LDAP).FirstEntry(LD,SearchResult)
+	i CurrentEntry=0 {
+		s Status=##Class(%SYS.LDAP).GetError(LD) 
+		s Status=Status_",ldap_FirstEntry from SearchResult - "_##Class(%SYS.LDAP).Err2String(Status)
+		$$$TRACE(Status)
+		q Status
+	}
+
+	#;Retrieve all the user's attributes we asked for. Note that we are still in the context of the
+	#;Admin user who has privileges to search the LDAP database.
+
+	s Attribute=##Class(%SYS.LDAP).FirstAttribute(LD,CurrentEntry,.Ptr)
+	while (Attribute'="") {
+		s Values=##Class(%SYS.LDAP).GetValues(LD,CurrentEntry,Attribute)
+		w "Attribute: "_Attribute,"	Values:",$LISTTOSTRING(Values),!
+		s Attribute=##Class(%SYS.LDAP).NextAttribute(LD,CurrentEntry,.Ptr)
+	}
+
+	
+	s UserDN=##Class(%SYS.LDAP).GetDN(LD,CurrentEntry)
+	;w "UserDN:",UserDN,!
+	$$$TRACE("UserDN : "_UserDN)
+
+	/*// Note that "2" indicates replace. See the class doc for ModifyExts for explanation of: 0,1,2
+	s Attr1=$lb(2,AttrName,$lb(AttrVal))
+	s Attributes=$lb(Attr1)*/
+	
+	If pAction=1
+ 	{
+	 	s Attr1=$lb(0,AttrName,$lb(AttrVal))
+	 	s Attributes=$lb(Attr1)
+	 	s Status=##Class(%SYS.LDAP).ModifyExts(LD,UserDN,Attributes,"","")
+	 	$$$TRACE(pAction_"ModifyExts status "_Status)
+ 	}
+ 	ElseIf pAction=2
+ 	{
+		s Attr1=$lb(2,AttrName,$lb(AttrVal))
+	 	s Attributes=$lb(Attr1)
+		s Status=##Class(%SYS.LDAP).ModifyExts(LD,UserDN,Attributes,"","")
+		$$$TRACE(pAction_"ModifyExts status "_Status)
+ 	}
+	
+	
+	i Status'=$zhex(00) 
+	{
+		$$$TRACE("ModifyExts error: "_Status_" - "_##Class(%SYS.LDAP).Err2String(Status)) 
+		q Status
+	}
+
+
+	// Important: we need to clean up to avoid memory leaks. We should do this after errors/failures also.
+	// This is only sample code: there might be other things that need to be cleaned up
+	i $d(SearchResult) d ##Class(%SYS.LDAP).MsgFree(SearchResult)
+	i $d(Page) d ##Class(%SYS.LDAP).SearchAbandonPage(LD,Page)
+	i $d(LD) s Status=##Class(%SYS.LDAP).UnBinds(LD)  
+	$$$TRACE("UnBinds Status"_Status)
+	I Status=$$$LDAPSUCCESS 
+	{ 
+	 Quit $$$OK
+	}
+	Else
+	{
+		Quit ##Class(%SYS.LDAP).Err2String(Status)
+	}
+
+	
+	q
+
+
+
+Error s $zt=""
+ s Status="1,Cache error: "_$ze
+ q Status
+]]></Implementation>
+</Method>
+
+<Method name="isSearchExtsExists">
+<FormalSpec>pFilter:%String,SearchDN:%String,*RetVal:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#;We need to trap all errors so we can close the LDAP channel, otherwise a memory
+	#;leak can occur.
+	s $zt="Error"
+	
+	#;No error initially
+ 	s Status=0
+ 	Set RetVal = 0
+
+	s AdminDN= ..%CredentialsObj.Username   // "uid=admin,ou=system"
+	s AdminPW=	..%CredentialsObj.Password //"secret"
+	s BaseDN=  SearchDN // "ou=consumers,o=ihc" //"ou=people,dc=example,dc=com"
+
+	//s LD=##Class(%SYS.LDAP).Init("127.0.0.1",10389)
+	s LD=##Class(%SYS.LDAP).Init(..LDAPServer,..LDAPPort)
+	
+	$$$TRACE("LD"_LD)
+	
+	$$$TRACE("..%CredentialsObj.Username "_..%CredentialsObj.Username )
+	$$$TRACE("..%CredentialsObj.Password "_..%CredentialsObj.Password )
+
+	#;Ok, now we bind (authenticate) to the server using the DN of the LDAP administrator who has
+	#;read access to the entire LDAP database. We need to do this first so we have 
+	#;privileges to search for the user we want to authenticate.
+	s Status=##Class(%SYS.LDAP).SimpleBinds(LD,AdminDN,AdminPW)
+	i Status'=$zhex(00) {
+		s Status=Status_",ldap_Simple_Bind(AdminDN) - "_##Class(%SYS.LDAP).Err2String(Status)
+		$$$TRACE("SimpleBinds Status inside error if :"_Status)
+		q
+ 	}
+	$$$TRACE("SimpleBinds status : "_Status)	
+	#;Now that we have read access to the LDAP server, we need to search the LDAP
+	#;database for the user we want to authenticate in order to get their DN.
+	
+	s Filter=	pFilter //"telephoneNumber=123456789"
+
+	s AttributeList=$LB("cn")
+
+	#;$$$LDAPSCOPESUBTREE means to search the entire tree beneath the BaseDN used.
+	s SearchScope=	$zhex(02)
+
+	#;Max length of time the search can last.
+	s Timeout=10
+
+	#;Return just the first thing we find.
+	s SizeLimit=1
+	s Status=##Class(%SYS.LDAP).SearchExts(LD,BaseDN,SearchScope,Filter,AttributeList,0,"","",Timeout,SizeLimit,.SearchResult)
+	i Status'=$zhex(00) {
+		$$$TRACE("SearchExts Status:"_Status)
+		q Status
+ 	}
+
+	#;See how many entries were returned by the search.
+	s NumEntries=##Class(%SYS.LDAP).CountEntries(LD,SearchResult)
+	i NumEntries=-1 {
+	 s Status=##Class(%SYS.LDAP).GetError(LD)
+	 s Status=Status_",ldap_Count_Entries - "_##Class(%SYS.LDAP).Err2String(Status)
+	 $$$TRACE(Status)
+	 q Status
+	}
+
+
+	#;If NumEntries=0, then either there is no LDAP user for the username 
+	#;in the database, or the BaseDN parameter needs to be set higher in the tree.
+	i NumEntries>=1 {
+		s Status="Found entries for the SearchDN and filter "
+		$$$TRACE(Status)
+		Set RetVal = NumEntries
+	 	q $$$OK
+	}
+	
+	
+	// Important: we need to clean up to avoid memory leaks. We should do this after errors/failures also.
+	// This is only sample code: there might be other things that need to be cleaned up
+	i $d(SearchResult) d ##Class(%SYS.LDAP).MsgFree(SearchResult)
+	i $d(Page) d ##Class(%SYS.LDAP).SearchAbandonPage(LD,Page)
+	i $d(LD) s Status=##Class(%SYS.LDAP).UnBinds(LD)  
+	$$$TRACE("UnBinds Status"_Status)
+	I Status=$$$LDAPSUCCESS 
+	{ 
+	 Quit $$$OK
+	}
+	Else
+	{
+		Quit ##Class(%SYS.LDAP).Err2String(Status)
+	}
+
+	
+	q
+
+
+
+Error s $zt=""
+ s Status="1,Cache error: "_$ze
+ q Status
+]]></Implementation>
+</Method>
+</Class>
+</Export>
