@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToCdrRouter">
+<Description>
+routes cerner adt hl7 to N different instances for load balancing</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64309,5027.967712</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='empiNumber' type='%String' instantiate='0' >
+</property>
+<property name='NumOfCdrInstances' type='%String' instantiate='0' >
+</property>
+<property name='cdrTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1450' >
+<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+
+<code name='Get Number of CDR Instances' xpos='470' ypos='1700' >
+<![CDATA[
+ set context.NumOfCdrInstances=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","NumberOfCdrInstances",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("NumberOfCdrInstances " _ context.NumOfCdrInstances)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No NumberOfCdrInstances found in the Settings.")
+ } 
+ 	  ]]]]><![CDATA[>
+</code>
+
+
+<code name='validateEmpiNumber' xpos='200' ypos='650' >
+<annotation><![CDATA[Get EMPI(CMRN)]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
+  set context.empiNumber=""
+  set k1="",tSC=1 
+ For { 
+     Set k1=request.GetNextIndex("PID:3()",k1,.tSCTrans)  Quit:k1=""          
+     If (request.GetValueAt("PID:3("_(k1)_").4.1")="EMPI") {
+         Set context.empiNumber=request.GetValueAt("PID:3("_(k1)_").1.1")         
+         quit
+     }
+ }
+ $$$TRACE("EMPI: " _ context.empiNumber) 
+ if ($ISVALIDNUM(context.empiNumber)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }
+ ]]]]><![CDATA[>
+</code>
+
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0
+    
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<code name='EmpiModulus' xpos='200' ypos='650' >
+<![CDATA[
+      Set empiMod = context.empiNumber # context.NumOfCdrInstances
+      $$$TRACE("Empi# Modulus: "_empiMod)
+      set context.cdrTargetConfigName = "Cern-Adt-Hl7_CDR-Cff-"_empiMod
+      $$$TRACE("Target Process name : "_context.cdrTargetConfigName)
+ ]]]]><![CDATA[>
+</code>
+
+<call name='Send to TargetConfigNames' target='@context.cdrTargetConfigName' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="request" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+
+</true>
+<false>
+
+<code name='Msg Validation Failed' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Property name="NumberOfCdrInstances">
+<Description>
+HDD Operation: Number of Cdr</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="5"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>NumberOfCdrInstances:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToCdrRouterDefaultData</DefaultData>
+<Data name="CernAdtHl7ToCdrRouterDefaultData">
+<Subscript>"CernAdtHl7ToCdrRouter"</Subscript>
+<Value name="1">
+<Value>NumberOfCdrInstances</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
