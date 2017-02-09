@@ -13,7 +13,6 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
 <context>
-<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
 <parameters>
@@ -28,11 +27,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='empiNumber' type='%String' instantiate='0' />
+<property name='uofuMrnNumber' type='%String' instantiate='0' />
+
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
-<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
-<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
 <code name='Check ReplyCodeActions' xpos='200' ypos='450' >
 <annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
@@ -86,27 +88,74 @@ BPL Definition</Description>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
  set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
  if (tempStatus'=$$$OK){
-    set context.ValidationPassed=0
-    set context.errorStatus=tempStatus
+    set context.ValidationPassed=0    
     }]]]]><![CDATA[>
 </code>
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 
+<code name='validateEmpiNumber' xpos='200' ypos='650' >
+<annotation><![CDATA[Get EMPI(CMRN)]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
+  set context.empiNumber=""
+  set k1="",tSC=1 
+ For { 
+     Set k1=request.GetNextIndex("PID:3()",k1,.tSCTrans)  Quit:k1=""          
+     If (request.GetValueAt("PID:3("_(k1)_").4.1")="EMPI") {
+         Set context.empiNumber=request.GetValueAt("PID:3("_(k1)_").1.1")              
+     }
+     If (request.GetValueAt("PID:3("_(k1)_").4.1")="520912268") {
+         Set context.uofuMrnNumber=request.GetValueAt("PID:3("_(k1)_").1.1")              
+     }     
+ }
+ $$$TRACE("Cerner MRN " _ context.empiNumber) 
+ $$$TRACE("UofU MRN " _ context.uofuMrnNumber) 
+ if ($ISVALIDNUM(context.empiNumber)'="1"){	  
+	  $$$TRACE("Cerner MRN# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record.")
+ }
+ if ($L(context.uofuMrnNumber)>"0" && $ISVALIDNUM(context.uofuMrnNumber)'="1"){	  
+	  $$$TRACE("UofU MRN# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi number: ["_context.uofuMrnNumber_"]. Skipping the record." )
+ }
+ ]]]]><![CDATA[>
+</code>
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToGenericRouter' source='request' target='response' xpos='605' ypos='2550' >
 <annotation><![CDATA[Routes Cerner Hl7 to all scheduling downstream interfaces. Routes to UofU only if the record has UofU MRN#]]]]><![CDATA[></annotation>
 </transform>
 
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+
+<if name='hasUofUMrn' condition='$LENGTH(context.uofuMrnNumber) &gt; "0"' xpos='200' ypos='1450' xend='200' yend='2250' >
+<true>
+<call name='Send to UofUTarget' target='@context.UofUTargetConfigName' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
+</true>
+<false>
+   <code name='UpdateRecordForNonUofUTargets' xpos='200' ypos='350' >
+<![CDATA[ 
+       set context.updatedResponse = response.%ConstructClone(1)
+     do context.updatedResponse.SetValueAt("EMPI", "PID:3(1).4.1")
+     do context.updatedResponse.SetValueAt(context.empiNumber, "PID:3(1).1.1")
+     do context.updatedResponse.SetValueAt("", "PID:3(2).4.1")
+     do context.updatedResponse.SetValueAt("", "PID:3(2).1.1")
+]]]]><![CDATA[>
+</code>
+   <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.updatedResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
 </foreach>
+</false>
+</if>
 </true>
 <false>
 <trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' >
