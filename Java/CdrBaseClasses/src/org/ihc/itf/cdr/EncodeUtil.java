@@ -31,6 +31,7 @@ public class EncodeUtil {
 		return encodedASN1Request;
 	}
 
+	
 	public static MmiInfo decode(byte[] serializedASN1Response) throws Exception{
 		MmiInfo mmiInfo = null;
 

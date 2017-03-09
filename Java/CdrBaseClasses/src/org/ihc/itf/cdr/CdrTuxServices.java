@@ -19,6 +19,7 @@ public class CdrTuxServices {
 		static String STRING_FIELD_NAME	= "STRING";
 		static String CARRAY_FIELD_NAME	= "CARRAY";
 	
+		
 	// Constructor
 	protected  CdrTuxServices(String applicationAddress, String serviceName) throws Exception
 	{
