@@ -33,7 +33,7 @@ public class CheckMmi extends CdrTuxServices {
 	
 	public boolean checkMmi(String unitNum) throws Exception {			
 		
-		log.debug("Begin :: checkMmi");
+		log.debug("Begin :: checkMmi for " + unitNum);
 		
 		boolean retVal = false;
 		

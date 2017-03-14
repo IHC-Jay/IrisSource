@@ -19,6 +19,7 @@ public class LockCdrService extends CdrTuxServices {
 		super(applicationAddress, serviceName);
 		m_serviceName = serviceName;
 		log = ItfLogger.getInstance();
+		log.debug("LockCdrService done");
 	}
 	
 	public MmiRecord[] callLockCdrService(MmiInfo m_MmiInfo, int maxRetries, int retryTimeoutSeconds) throws Exception{

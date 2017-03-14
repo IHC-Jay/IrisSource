@@ -17,7 +17,7 @@ public class TestCheckMmi {
 	public static void main(String[] args) throws Exception {
 		// Testing check MMI
 		System.out.println("CheckMmi!");
-		CheckMmi objMmi = new CheckMmi(ApplicationAddress, "DSQL");
+		CheckMmi objMmi = new CheckMmi(ApplicationAddress, "DSQL", "c:\\Temp\\TestCheckMmi.txt", 1);
 		
 		//Step1: Check MMI
 		System.out.println("12345690: CheckMmi Reply: " + objMmi.checkMmi("12345690"));

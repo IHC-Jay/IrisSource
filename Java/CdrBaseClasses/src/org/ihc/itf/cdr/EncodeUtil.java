@@ -4,6 +4,8 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 
+import org.ihc.itf.util.ItfLogger;
+
 import cdr.asn1.BaseDecoder;
 import cdr.asn1.BaseEncoder;
 import cdr.asn1.DecodingException;
@@ -61,6 +63,7 @@ public class EncodeUtil {
 		
 		DSqlArguments argumentList = new DSqlArguments();
 		for (int i = 0; i < args.length; i++){
+			ItfLogger.getInstance().debug("argumentList: " + args[i]);
 			argumentList.add(i, new VisibleString(args[i]));			
 	    }
 		m_requestDSqlTable.setArgumentsList(argumentList);

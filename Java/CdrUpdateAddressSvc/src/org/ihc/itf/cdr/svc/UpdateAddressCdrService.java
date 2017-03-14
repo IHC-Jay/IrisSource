@@ -76,9 +76,11 @@ public class UpdateAddressCdrService {
 		log.debug("In  UpdateAddressCdrService constructor");
 	
 		lckService = new LockCdrService(applicationAddress, lockServiceName);
+		log.debug("Created LockCdrService");
 		uncService = new UnlockCdrService(applicationAddress, unlockServiceName);
+		log.debug("Created UnlockCdrService");
 		updService = new UpdateCdrService(applicationAddress, updServiceName);
-		
+		log.debug("Created UpdateCdrService");
 	}
 	
 	public void shutdownTuxService() throws Exception
@@ -94,37 +96,41 @@ public class UpdateAddressCdrService {
 
 		boolean lockedFlg = false;
 		String returnValue = "0";
-	
-		MemberInfo m_memberInfo = new MemberInfo();
-		DataRecord m_DataRecord = new DataRecord();
-		MmiRecord m_mmiRec = new MmiRecord();
-		MmiRecord m_mmiRecs[] = new MmiRecord[1];
-
-		DataRecord dataRecord = new DataRecord();
-		MmiInfo m_MmiInfo = new MmiInfo();
-		MmiRecord mmiRecs[] = new MmiRecord[1];
-		HapiContext hapiContext = new DefaultHapiContext();
 		
-		try {
-			log.debug("Start addressUpdateMMI");
+		
+			MemberInfo m_memberInfo = new MemberInfo();
+			DataRecord m_DataRecord = new DataRecord();
+			MmiRecord m_mmiRec = new MmiRecord();
+			MmiRecord m_mmiRecs[] = new MmiRecord[1];
+	
+			DataRecord dataRecord = new DataRecord();
+			MmiInfo m_MmiInfo = new MmiInfo();
+			MmiRecord mmiRecs[] = new MmiRecord[1];
+			HapiContext hapiContext = new DefaultHapiContext();
 			
+			try {
+					
+
+			log.debug("Start addressUpdateMMI");
+								
 			hapiContext.setValidationContext(new NoValidation());
 			PipeParser pipeParser = hapiContext.getPipeParser();
 			
-			log.debug("pipeParser created");
+			// log.debug("pipeParser created");
 			Message message = pipeParser.parse(hl7Msg);
 			
 			// GenericParser parser = context.getGenericParser();
 			// Message message = parser.parse(hl7Msg);
 			ADT_A01 msg = (ADT_A01) message;
-			log.debug("Message:" + msg);
+			// log.debug("Message:" + msg);
 			// ***** Populate messages from Hl7 record ************************
 			// Unit Number
-			log.debug("Unit #: " + msg.getPID().getPatientIDInternalID(0).getID());
+			// log.debug("Unit #: " + msg.getPID().getPatientIDInternalID(0).getID());
 			if(msg.getPID().getPatientIDInternalID(0).getID() == null)
 			{
 				throw new Exception("HL7 data does not have an unit number");
 			}
+		
 			m_mmiRec.setUnitNumber(new BigInteger(msg.getPID()
 					.getPatientIDInternalID(0).getID().getValue()));
 
@@ -293,21 +299,17 @@ public class UpdateAddressCdrService {
 			throw ex;
 			// return exceptionToString(ex);
 		} finally {
+			
 			 hapiContext = null;
 			 log.debug("call UnlockCdrService based on condition from callUpdateCdrService: lockedFlg && returnValue " + lockedFlg + ", " + returnValue);
 			if (lockedFlg && !returnValue.equals("1")) {
 				log.debug("callUnlockCdrService");
 				uncService.callUnlockCdrService(mmiRecs);
 			}
+			
 		}
+		
 
-	}
-
-	private String exceptionToString(Exception e) {
-		StringWriter sw = new StringWriter();
-		PrintWriter pw = new PrintWriter(sw);
-		e.printStackTrace(pw);
-		return sw.toString();
 	}
 
 	private boolean isNOE(String stringValue) {

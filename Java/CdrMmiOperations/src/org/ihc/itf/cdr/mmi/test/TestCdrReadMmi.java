@@ -26,7 +26,7 @@ public class TestCdrReadMmi {
 		CdrReadMmi objMmi = new CdrReadMmi(ApplicationAddress, "MMIREAD", "c:\\Temp\\MMIREAD", 1);
 		//Step1: Do readMMI
 		System.out.println("\n");
-		cdr.asn1.hems.MmiInfo mmiInfo = objMmi.getMMInfo("980015386");
+		cdr.asn1.hems.MmiInfo mmiInfo = objMmi.getMMInfo("268679741");
 		cdr.asn1.hems.DataRecord dataRecord = mmiInfo.getDataRecord(); 
 		cdr.asn1.hems.MmiRecord mmiRecord = dataRecord.getMmiRecords()[0];
 		cdr.asn1.hems.MemberInfo memberInfo = dataRecord.getMmiRecords()[0].getMemberInfo();
@@ -35,7 +35,7 @@ public class TestCdrReadMmi {
 		System.out.println("dataRecord accessed");
 		
 		System.out.println("DateOfBirth : " + memberInfo.getDateOfBirth().getBirthDate().toString());
-		
+		System.out.println("DateOfBirth : " + new SimpleDateFormat("yyyyMMdd").format(memberInfo.getDateOfBirth().getBirthDate()));
 //		String bDate = convertToGMT(memberInfo.getDateOfBirth().getBirthDate().toString());
 	//	System.out.println("DateOfBirth after : " + bDate);
 		/*

@@ -24,6 +24,7 @@ public class CdrTuxServices {
 	protected  CdrTuxServices(String applicationAddress, String serviceName) throws Exception
 	{
 		createTuxService(applicationAddress, serviceName) ;
+		log.debug("CdrTuxServices"); ;
 	}
 	
 	protected void setLogger()
@@ -47,6 +48,8 @@ public class CdrTuxServices {
 		try{
 			m_joltService = new JoltRemoteService(serviceName,m_joltSession);
 		}catch(ServiceException serEx){
+			m_joltSession.endSession();
+			m_joltSession = null;
 			throw new Exception("ServiceException while calling Jolt Remote Service.. "+serEx.getMessage(), serEx);	
 		}
 	}
@@ -83,7 +86,7 @@ public class CdrTuxServices {
 			}
 		} catch (ApplicationException appEx) {
 			// Catch this guy and re-throw it so it gets passed the "catch Exception" at the bottom
-			log.error("Application exception caught, re-throwing" + appEx );
+			log.error("Application exception caught, re-throwing: " + appEx );
 			throw appEx;
 		} catch (JoltException joltEx) {
 			Object[] msgArray = {
@@ -92,7 +95,7 @@ public class CdrTuxServices {
 					">:",
 					joltEx	
 				};
-			log.debug(msgArray);
+			log.error("JoltException: " + msgArray.toString());
 			switch ( joltEx.getErrno() ) {
 				case JoltException.TPETIME:
 					throw new Exception("RESEND A time out occurred. "+joltEx.getMessage()+ m_joltService.getName(), joltEx);
@@ -111,18 +114,17 @@ public class CdrTuxServices {
 
 			}
 
-		} catch (Exception Ex) {
+		}	 catch (Exception Ex) {
 			log.error("Unknown Exception caught from service call <" + this.m_joltService.getName() + ">: " + Ex);
 			throw new Exception("CONNECTIONERROR Jolt Exception caught from service call "+Ex.getMessage()+ m_joltService.getName(), Ex);
 		}
-
-		
 
 		return;
 	}
 	
 	protected void setRequestBytes( byte[] requestBytes )
 	{
+		log.debug("setRequestBytes: " + requestBytes.length);
 		this.m_joltService.setBytes(CARRAY_FIELD_NAME, requestBytes, requestBytes.length);
 		
 		return;
