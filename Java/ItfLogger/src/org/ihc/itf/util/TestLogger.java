@@ -19,12 +19,13 @@ public static void callIntLogger(String fileName, int debug)
 		char CR = 0x0D;
 		String hl7Msg = 
 				"MSH|^~\\&|PCSAddrUpd|211|ENGINE|IMTN|02282017175222||ADT^A01|Q295826994T380033832X109004||2.3||||||8859"+CR+"EVN|A08||02282017175222||100"+CR+"PID||269757715^^^EMPI^MRN|269757715^^^^EMPI|269757715^0^^EMPI^Account Number|LEFEVRE^BLAINE-TEST^F^^^^187||19800216000000||LEFEVRE^BLAINE-TEST^187|187|WRONG341 E 100 S^^HYRUM^UT^84319-1339^USA^199|||(801)777-7777|42|183||7380621249^^^FIN^FIN NBR|464848484|||14783480|||0"; 
-
+		for(int i=0; i< 3; i++)
+		{
 		try {
 			//String log4jConfPath = "c:\\Temp\\log4j.properties";
 			//PropertyConfigurator.configure(log4jConfPath);
 			
-			logger = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+			logger = ItfLoggerHash.setLoggerProperties("TestLogger", fileName, (debug == 1) ? true : false) ;
 			
 			 
 		
@@ -39,8 +40,7 @@ public static void callIntLogger(String fileName, int debug)
 			System.out.println("level: " + logger.getLevel());
 			logger.info("level: " + logger.getLevel());
 			
-			//logs a debug message
-			for (int i = 0 ; i < 100; i++)
+
 		      logger.debug("This is debug 2 : " + hl7Msg);
 			
 
@@ -65,7 +65,7 @@ public static void callIntLogger(String fileName, int debug)
 			logger.info("This is info 3");
 			
 			logger.setLevel(Level.ERROR);
-			System.out.println("level: " + logger.getLevel());
+			System.out.println("level: " + logger.getLevel() + ", " + i);
 			
 			//logs a debug message
 			
@@ -81,6 +81,7 @@ public static void callIntLogger(String fileName, int debug)
 	
 		} catch (Exception ex) {
 			System.err.println(ex);
+		}
 		}
 	}
 

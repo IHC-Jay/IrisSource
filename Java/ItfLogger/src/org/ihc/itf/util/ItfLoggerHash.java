@@ -14,7 +14,7 @@ public class ItfLoggerHash {
 		
 	private ItfLoggerHash()
 	{
-		
+		;
 	}
 	
 	public static Logger getInstance(String name) {
@@ -30,7 +30,6 @@ public class ItfLoggerHash {
 	      }
 		return log;
 	      
-
 	}
 	
 	public static Logger setLoggerProperties(String className, String fileName, boolean debug) throws IOException
@@ -38,8 +37,14 @@ public class ItfLoggerHash {
 		return setLoggerProperties(className, fileName,  debug, 1024 * 1024, 10) ;
 	}
 	
-	public static Logger setLoggerProperties(String className, String fileName, boolean debug, int fileSize, int numFiles) throws IOException {
-			Logger log = Logger.getLogger(className);
+	public static Logger setLoggerProperties(String className, String fileName, boolean debug, int fileSize, int numFiles) throws IOException
+	{
+			Logger log = itfLoggerTable.get(className);
+			if(log != null){
+				return log;
+			}
+		
+			log = Logger.getLogger(className);
 		
 			String PATTERN = "[%d,%p] [%c{1}.%M:%L] %m%n"; //$NON-NLS-1$
 			PatternLayout patternLayout = new PatternLayout(PATTERN);

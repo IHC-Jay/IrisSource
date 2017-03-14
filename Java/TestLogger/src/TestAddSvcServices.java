@@ -3,7 +3,6 @@
 import java.sql.Timestamp;
 
 import org.apache.log4j.Logger;
-import org.ihc.itf.cdr.mmi.CdrReadMmi;
 import org.ihc.itf.cdr.svc.UpdateAddressCdrService;
 
 
@@ -12,8 +11,7 @@ public class TestAddSvcServices {
 	
 	static Logger log = null;
 	String logFile = "c:\\Temp\\TestAddSvcServices.log";
-	private CdrReadMmi objMmi=null ;
-
+	
 	UpdateAddressCdrService hw;
 	
 	public TestAddSvcServices(String ApplicationAddress) throws Exception
