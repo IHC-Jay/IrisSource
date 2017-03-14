@@ -10,6 +10,7 @@ import org.apache.log4j.Logger;
 import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.cdr.EncodeUtil;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import ca.uhn.hl7v2.DefaultHapiContext;
 import ca.uhn.hl7v2.HapiContext;
@@ -44,7 +45,7 @@ public class CdrMmiAdd extends CdrTuxServices {
 	
 	public CdrMmiAdd(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
-		log = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+		log = ItfLoggerHash.setLoggerProperties("CdrMmiAdd", fileName, (debug == 1) ? true : false) ;
 		dateFormat.setTimeZone(new SimpleTimeZone(0, "UTC"));
 		super.setLogger();
 	}
@@ -52,7 +53,7 @@ public class CdrMmiAdd extends CdrTuxServices {
 	public CdrMmiAdd(String applicationAddress, String serviceName) throws Exception	{
 		super(applicationAddress, serviceName);
 		dateFormat.setTimeZone(new SimpleTimeZone(0, "UTC"));
-		log = ItfLogger.getInstance();
+		log = ItfLoggerHash.getInstance("CdrMmiAdd");
 		BasicConfigurator.configure();
 		log.setLevel(Level.ERROR);
 	}

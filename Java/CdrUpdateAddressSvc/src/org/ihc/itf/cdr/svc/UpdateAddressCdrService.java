@@ -8,6 +8,7 @@ import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import ca.uhn.hl7v2.DefaultHapiContext;
 import ca.uhn.hl7v2.HapiContext;
@@ -42,7 +43,7 @@ public class UpdateAddressCdrService {
 			String updServiceName, String lockServiceName,
 			String unlockServiceName, int maxRetries, int retryTimeoutSeconds, String fileName, int debug) throws Exception {
 		
-		log = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+		log = ItfLoggerHash.setLoggerProperties("UpdateAddressCdrService", fileName, (debug == 1) ? true : false) ;
 
 		createUpdateAddressCdrService( applicationAddress,
 				 updServiceName,  lockServiceName,
@@ -53,7 +54,7 @@ public class UpdateAddressCdrService {
 			String updServiceName, String lockServiceName,
 			String unlockServiceName, int maxRetries, int retryTimeoutSeconds) throws Exception {
 		
-		log = Logger.getLogger(UpdateAddressCdrService.class);
+		log = ItfLoggerHash.getInstance("UpdateAddressCdrService");
 		BasicConfigurator.configure();
 		log.setLevel(Level.ERROR);
 		createUpdateAddressCdrService( applicationAddress,

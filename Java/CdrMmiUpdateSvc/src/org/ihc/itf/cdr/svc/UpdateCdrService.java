@@ -4,6 +4,7 @@ import org.apache.log4j.Logger;
 import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.cdr.EncodeUtil;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import cdr.asn1.hems.MmiInfo;
 
@@ -16,7 +17,7 @@ public class UpdateCdrService extends CdrTuxServices {
 			throws Exception {
 		
 		super(applicationAddress, serviceName);
-		log = ItfLogger.getInstance();
+		log = ItfLoggerHash.getInstance("UpdateCdrService");
 		m_serviceName = serviceName;
 		log.debug("In UpdateCdrService");
 	}

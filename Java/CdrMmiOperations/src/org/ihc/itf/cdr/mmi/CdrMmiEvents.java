@@ -6,6 +6,7 @@ import org.apache.log4j.Logger;
 import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.cdr.EncodeUtil;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import cdr.asn1.dsql.DSqlColumn;
 import cdr.asn1.dsql.DSqlColumns;
@@ -24,13 +25,13 @@ public class CdrMmiEvents extends CdrTuxServices {
 		
 	public CdrMmiEvents(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
-		log = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+		log = ItfLoggerHash.setLoggerProperties("CdrMmiEvents", fileName, (debug == 1) ? true : false) ;
 		super.setLogger();
 	}	
 	
 	public CdrMmiEvents(String applicationAddress, String serviceName) throws Exception	{
 		super(applicationAddress, serviceName);
-		log = ItfLogger.getInstance();
+		log = ItfLoggerHash.getInstance("CdrMmiEvents");
 		BasicConfigurator.configure();
 		log.setLevel(Level.ERROR);
 	}

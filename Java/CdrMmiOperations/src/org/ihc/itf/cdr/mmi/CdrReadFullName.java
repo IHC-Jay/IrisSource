@@ -6,6 +6,7 @@ import org.apache.log4j.Logger;
 import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.cdr.EncodeUtil;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import cdr.asn1.dsql.DSqlColumn;
 import cdr.asn1.dsql.DSqlColumns;
@@ -27,14 +28,14 @@ public class CdrReadFullName extends CdrTuxServices {
 	public CdrReadFullName(String applicationAddress, String serviceName) throws Exception
 	{
 		super(applicationAddress, serviceName);
-		log = ItfLogger.getInstance();
+		log = ItfLoggerHash.getInstance("CdrReadFullName");
 		BasicConfigurator.configure();
 		log.setLevel(Level.ERROR);
 	}
 
 	public CdrReadFullName(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
-		log = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+		log = ItfLoggerHash.setLoggerProperties("CdrReadFullName", fileName, (debug == 1) ? true : false) ;
 		super.setLogger();
 	}
 	

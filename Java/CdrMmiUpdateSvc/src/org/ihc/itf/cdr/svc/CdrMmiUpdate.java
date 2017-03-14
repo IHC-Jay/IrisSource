@@ -9,6 +9,7 @@ import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import ca.uhn.hl7v2.DefaultHapiContext;
 import ca.uhn.hl7v2.HapiContext;
@@ -49,7 +50,7 @@ public class CdrMmiUpdate {
 	private UpdateCdrService updateService = null;
 	
 	public CdrMmiUpdate(String applicationAddress, String serviceName, String lockServiceName, String unlockServiceName, int maxRetries, int retryTimeoutSeconds, String fileName, int debug) throws Exception	{
-		log = ItfLogger.setLoggerProperties(fileName, (debug == 1) ? true : false) ;
+		log = ItfLoggerHash.setLoggerProperties("CdrMmiUpdate", fileName, (debug == 1) ? true : false) ;
 		cdrMmiUpdate(applicationAddress, serviceName, lockServiceName, unlockServiceName, maxRetries, retryTimeoutSeconds);
 	}
 	
@@ -61,7 +62,7 @@ public class CdrMmiUpdate {
 	}
 	
 	private void cdrMmiUpdate(String applicationAddress, String serviceName, String lockServiceName, String unlockServiceName, int maxRetries, int retryTimeoutSeconds) throws Exception {
-		log = ItfLogger.getInstance();
+		log = ItfLoggerHash.getInstance("CdrMmiUpdate");
 
 		this.UnlockServiceName = unlockServiceName;		
 		this.maxRetries = maxRetries;
