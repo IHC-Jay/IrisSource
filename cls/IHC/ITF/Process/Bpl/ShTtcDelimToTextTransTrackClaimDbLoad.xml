@@ -15,8 +15,23 @@ Use this template to start your BPL</Description>
 ]]></Implementation>
 </Method>
 
+<Property name="TimeOutForSPCall">
+<Type>%Integer</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>TimeOutForSPCall:Additional</Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
+<DefaultData>ShTtcDelimToTextTransTrackClaimDbLoadDefaultData</DefaultData>
+<Data name="ShTtcDelimToTextTransTrackClaimDbLoadDefaultData">
+<Subscript>"ShTtcDelimToTextTransTrackClaimDbLoad"</Subscript>
+<Value name="1">
+<Value>TimeOutForSPCall</Value>
+</Value>
+</Data>
 </Storage>
 
 <XData name="BPL">
@@ -67,6 +82,7 @@ BPL Definition</Description>
 <property name='arr6' type='IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKTRANSLUPDATE' instantiate='0' />
 <property name='arr1' type='IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKTRANINSERT' instantiate='0' />
 <property name='arr10' type='IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKLINECASINSERT' instantiate='0' />
+<property name='TimeOutForSPCall' type='%Integer' instantiate='0' />
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -109,36 +125,17 @@ BPL Definition</Description>
 
  	  ]]]]><![CDATA[>
 </code>
-<trace name='Filename' value='"requestDotOriginalFilename:"_request.OriginalFilename' xpos='200' ypos='650' />
-<code name='reading file values' xpos='200' ypos='750' >
-<![CDATA[   set fn=request.OriginalFilename
-  $$$TRACE("file name in FN:"_fn)
-  set context.FilePath=request.OriginalFilename
-  $$$TRACE("FilePath:"_context.FilePath)
-  //set context.FilePath=##class(Ens.Util.File).fixPath(context.FilePath)
-  //set status=##class(IHC.ITF.ITFCOMMON.Utility).CreateDirectory(context.FilePath)
-  
-  
-
- 
-    
-  $$$TRACE("Incoming request obj "_request)
-  
-  Set Cfffilename=$PIECE(fn,"/",*)
-         $$$TRACE("filename:"_Cfffilename)
-
-	$$$TRACE("CfffileLocation"_fn)
-	
-        Set file=##Class(%File).%New(fn)
-        if file.Exists(fn)
-        {
-	Do file.Open("RS")
-	while 'file.AtEnd
-	{
-	S line= file.ReadLine()
-	$$$TRACE("TEST"_line)
+<trace name='stream read' value='"stream:Test Read:"' xpos='200' ypos='650' />
+<trace name='Filename' value='"requestDotOriginalFilename:"_request.OriginalFilename' xpos='200' ypos='750' />
+<code name='reading file values' xpos='200' ypos='850' >
+<![CDATA[ 
+ $$$TRACE("inside code block")
+ Set line=request.Stream.Read()
+ $$$TRACE("line:"_line)
+ 	
 	Set Event=$PIECE(line,"|@@|",1)
 	$$$TRACE("Event:"_Event)
+	Quit:Event=""
 	Set TimestampCK=$PIECE(line,"|@@|",2)
 	$$$TRACE("Timestamp:"_TimestampCK)
 	
@@ -275,8 +272,11 @@ BPL Definition</Description>
  $$$TRACE("ServiceLinePaidAmount:"_ServiceLinePaidAmount)
  Set ServiceAdjudicationOrPaymentDate=$PIECE(line,"|@@|",68)
  $$$TRACE("ServiceAdjudicationOrPaymentDate:"_ServiceAdjudicationOrPaymentDate)
+ 
+ //$$$TRACE("context.TimeOutForSPCall:"_context.TimeOutForSPCall)
+ set context.TimeOutForSPCall=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutForSPCall",.pstatus)
+  $$$TRACE("timeout:"_context.TimeOutForSPCall)
  set response=##class(Ens.StringContainer).%New()
-
  if Event="IHCSP_EDITRK_TRANX_INSERT"
  {
  $$$TRACE("Event value before calling SP for Claim Insert:"_Event)
@@ -293,20 +293,28 @@ BPL Definition</Description>
 		set context.arr1.ReferenceID=ReferenceID
 		$$$TRACE("arr val:"_context.arr)
 	
-        set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr1,.response,1800)
+        set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr1,.response,context.TimeOutForSPCall)
         $$$TRACE("RESP"_response)
      if ('tStatus) 
      {
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      //Quit
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
+
+     
+     //set Errorcode=response.StringValue
+     //$$$TRACE("Errorcode:"_Errorcode)
      if Errorcode="0"
      {
      
@@ -316,11 +324,9 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table","--- Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table"_"Exception Message=The IHCSP_EDITRK_TRANX_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"TranType="_context.arr1.TranType_"|"_"InterfaceReceivedDateAndTime="_context.arr1.InterfaceReceivedDateAndTime_"|"_"Origin="_context.arr1.Origin_"|"_"SenderID="_context.arr1.SenderID_"|"_"InterchangeDate="_context.arr1.InterchangeDate_"|"_"InterchangeTime="_context.arr1.InterchangeTime_"|"_"InterchangeControlNumber="_context.arr1.InterchangeControlNumber_"|"_"GroupControlNumber="_context.arr1.GroupControlNumber_"|"_"TransSetControlNumber="_context.arr1.TransSetControlNumber_"|"_"ReferenceID="_context.arr1.ReferenceID)
-     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
+     do ..%Process.ItfSendEmailOnError("Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table","--- Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table"_"Exception Message=The IHCSP_EDITRK_TRANX_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TranType=<"_context.arr1.TranType_">|"_"InterfaceReceivedDateAndTime=<"_context.arr1.InterfaceReceivedDateAndTime_">|"_"Origin=<"_context.arr1.Origin_">|"_"SenderID=<"_context.arr1.SenderID_">|"_"InterchangeDate=<"_context.arr1.InterchangeDate_">|"_"InterchangeTime=<"_context.arr1.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr1.InterchangeControlNumber_">|"_"GroupControlNumber=<"_context.arr1.GroupControlNumber_">|"_"TransSetControlNumber=<"_context.arr1.TransSetControlNumber_">|"_"ReferenceID=<"_context.arr1.ReferenceID_">|")     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table")
-     Quit
-     }
+          }
 
 
                  }
@@ -331,7 +337,7 @@ BPL Definition</Description>
   elseif Event="IHCSP_EDITRK_CLAIM_INSERT"
 	{
 	$$$TRACE("Event value before calling SP for Claim Insert:"_Event)
-	 Set context.arr=##Class(IHC.ITF.Request.Test.Sample).%New()
+	 Set context.arr=##Class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.SP1IHCSPEDITRKCLAIMINSERT).%New()
 		set context.arr.TranType=TranType
 		set context.arr.InterfaceReceivedDateAndTime=InterfaceReceivedDateAndTime
 				set context.arr.Origin=Origin
@@ -353,20 +359,24 @@ BPL Definition</Description>
   		
  $$$TRACE("arr val:"_context.arr)
 	
-        set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr,.response,1800)
+        set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr,.response,context.TimeOutForSPCall)
      if ('tStatus) 
      {
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
-            }
+                  }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)     
+ if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -375,11 +385,9 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table"_"--- Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table"_"The get IHCSP_EDITRK_CLAIM_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"TranType="_context.arr1.TranType_"|"_"InterfaceReceivedDateAndTime="_context.arr1.InterfaceReceivedDateAndTime_"|"_"Origin="_context.arr1.Origin_"|"_"SenderID="_context.arr1.SenderID_"|"_"InterchangeDate="_context.arr1.InterchangeDate_"|"_"InterchangeTime="_context.arr1.InterchangeTime_"|"_"InterchangeControlNumber="_context.arr1.InterchangeControlNumber_"|"_"GroupControlNumber="_context.arr1.GroupControlNumber_"|"_"TransSetControlNumber="_context.arr1.TransSetControlNumber_"|"_"ReferenceID="_context.arr1.ReferenceID_"|"_"AccountNumber="_context.arr.AccountNumber_"|"_"EarliestServiceDate="_context.arr.EarliestServiceDate_"|"_"TotalCharges="_context.arr.TotalCharges_"|"_"TimestampCK="_context.arr.TimestampCK_"|")
-     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
+     do ..%Process.ItfSendEmailOnError("Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table","--- Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table"_"The get IHCSP_EDITRK_CLAIM_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TranType=<"_context.arr1.TranType_">|"_"InterfaceReceivedDateAndTime=<"_context.arr1.InterfaceReceivedDateAndTime_">|"_"Origin=<"_context.arr1.Origin_">|"_"SenderID=<"_context.arr1.SenderID_">|"_"InterchangeDate=<"_context.arr1.InterchangeDate_">|"_"InterchangeTime=<"_context.arr1.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr1.InterchangeControlNumber_">|"_"GroupControlNumber=<"_context.arr1.GroupControlNumber_">|"_"TransSetControlNumber=<"_context.arr1.TransSetControlNumber_">|"_"ReferenceID=<"_context.arr1.ReferenceID_">|"_"AccountNumber=<"_context.arr.AccountNumber_">|"_"EarliestServiceDate=<"_context.arr.EarliestServiceDate_">|"_"TotalCharges=<"_context.arr.TotalCharges_">|"_"TimestampCK=<"_context.arr.TimestampCK_">|")     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table")
-     Quit
-     }
+         }
 
 
                  }
@@ -415,23 +423,28 @@ BPL Definition</Description>
  $$$TRACE("context.arr2 value:"_context.arr2)
  $$$TRACE("context.targetConfigNames value:"_context.targetConfigNames)
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr2,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr2,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr2 value:"_context.arr2)
 	
  if ('tStatus) 
      {
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
+      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)     
+ if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -440,16 +453,16 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
+     
+     do ..%Process.ItfSendEmailOnError("Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables"," --- Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables"_"The get IHC_EDITRK_TRANSX_BATCH call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"SenderID=<"_context.arr2.SenderID_">|"_"InterchangeDate=<"_context.arr2.InterchangeDate_">|"_"InterchangeTime=<"_context.arr2.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr2.InterchangeControlNumber_">|"_"GroupControlNumber=<"_context.arr2.GroupControlNumber_">|"_"TransSetControlNumber=<"_context.arr2.TransSetControlNumber_">|"_"ReferenceID=<"_context.arr2.ReferenceID_">|"_"BatchSpltrDTM=<"_context.arr2.BatchSpltrDTM_">|"_"AccountNumber=<"_context.arr2.AccountNumber_">|"_"EarliestServiceDate=<"_context.arr2.EarliestServiceDate_">|"_"TotalCharges=<"_context.arr2.TotalCharges_">|"_"ClaimSplitterStatus=<"_context.arr2.ClaimSplitterStatus_">|")  
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables")
-     Quit
-     }
+          }
 
 
                  }
 	}
-   elseif Event="IHCSP_EDITRK_999_INSERT"
+   elseif Event="OUTGOING_999"
 	{
 	$$$TRACE("3rd SP values:")
 	
@@ -463,7 +476,7 @@ BPL Definition</Description>
  Set context.arr3.GroupAckCode=GroupAckCode
  Set context.arr3.TransSetAckCode=TransSetAckCode
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr3,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr3,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr3 value:"_context.arr3)
 	
@@ -471,15 +484,19 @@ BPL Definition</Description>
      {
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
-      do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
-            }
+      //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
+                  }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)     
+ if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -488,11 +505,9 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
+     do ..%Process.ItfSendEmailOnError("Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table","--- Unable to insert new CLAIM  record into IHC_EDITRK_CLAIM table"_"The get IHCSP_EDITRK_CLAIM_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"SenderID=<"_context.arr3.SenderID_">|"_"GroupControlNumber=<"_context.arr3.GroupControlNumber_">|"_"TransSetControlNumber=<"_context.arr3.TransSetControlNumber_">|"_"GroupAckCode=<"_context.arr3.GroupAckCode_">|"_"TransSetAckCode=<"_context.arr3.TransSetAckCode_">|")      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables")
-     Quit
-     }
+          }
 
 
                  }
@@ -512,7 +527,7 @@ BPL Definition</Description>
  Set context.arr4.InterchangeControlNumber=InterchangeControlNumber
 
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr4,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr4,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr4 value:"_context.arr4)
 	
@@ -521,14 +536,18 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to TA1  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
-            }
+                  }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)     
+ if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -537,11 +556,12 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
+     
+     
+     do ..%Process.ItfSendEmailOnError("Unable to TA1  record into IHCSP_EDITRK_TRANX_INSERT table","--- Unable to TA1  record into IHCSP_EDITRK_TRANX_INSERT table"_"The get IHCSP_EDITRK_TRANX_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"SenderID=<"_context.arr4.SenderID_">|"_"InterchangeDate=<"_context.arr4.InterchangeDate_">|"_"InterchangeTime=<"_context.arr4.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr4.InterchangeControlNumber_">|")
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to TA1  record into IHCSP_EDITRK_TRANX_INSERT table")
-     Quit
-     }
+          }
 
 
                  
@@ -551,7 +571,7 @@ BPL Definition</Description>
 	{
 	$$$TRACE("5th SP values:")
 	$$$TRACE("context.arr5:"_context.arr5)
-	Set context.arr5=##class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.SP5IHCSPEDITRKTPNOTFNDUPD).New()
+	Set context.arr5=##class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.SP5IHCSPEDITRKTPNOTFNDUPD).%New()
  Set context.arr5.SenderID=SenderID
 
  Set context.arr5.InterchangeDate=InterchangeDate
@@ -560,7 +580,7 @@ BPL Definition</Description>
 
  Set context.arr5.InterchangeControlNumber=InterchangeControlNumber
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr5,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr5,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr5 value:"_context.arr5)
 	
@@ -569,13 +589,17 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to TP NOT FOUND  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
-            }
+                  }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
      if Errorcode="0"
      {
      
@@ -585,11 +609,10 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Unable to update TP Not Found field in IHC_EDITRK_TRANSX_BATCH table"_"--- Unable to update TP Not Found field in IHC_EDITRK_TRANSX_BATCH table","--- Unable to insert new claim BATCH header record into IHC_EDITRK_TRANX_BATCH table"_"Exception Message=The IHCSP_EDITRK_TRANX_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"SenderID="_context.arr5.SenderID_"|"_"InterchangeDate="_context.arr5.InterchangeDate_"|"_"InterchangeTime="_context.arr5.InterchangeTime_"|"_"InterchangeControlNumber="_context.arr5.InterchangeControlNumber_"|")
-     //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
+     do ..%Process.ItfSendEmailOnError("Unable to TP NOT FOUND  record into IHCSP_EDITRK_TRANX_INSERT table","--- Unable to TP NOT FOUND  record into IHCSP_EDITRK_TRANX_INSERT table"_"Exception Message=The IHCSP_EDITRK_TRANX_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call=<"_"SenderID="_context.arr5.SenderID_">|"_"InterchangeDate=<"_context.arr5.InterchangeDate_">|"_"InterchangeTime=<"_context.arr5.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr5.InterchangeControlNumber_">|")
+          //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to update TP Not Found field in IHC_EDITRK_TRANSX_BATCH table")
-     Quit
-     }
+          }
  }
 	}
  elseif Event="837_OUTGOING_CLAIMS"
@@ -618,7 +641,7 @@ BPL Definition</Description>
  Set context.arr6.KeywordFileName=KeywordFileName
  Set context.arr6.KeywordFileSent=DateRecordWritten_"."_TimeRecordWritten
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr6,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr6,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr6 value:"_context.arr6)
 	
@@ -627,13 +650,18 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
      if Errorcode="0"
      {
      
@@ -643,11 +671,10 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Unable to update translation file name and translation date/time  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables"_"--- Unable to update translation file name and translation date/time  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables"_"The get getIHCSP_EDITRK_TRANSL_UPDATE() call returned an error code of"_Errorcode_"Parameter in SP call="_"TranType="_context.arr6.TranType_"|"_"InterfaceReceivedDateAndTime="_context.arr6.InterfaceReceivedDateAndTime_"|"_"Origin="_context.arr6.Origin_"|"_"SenderID="_context.arr6.SenderID_"|"_"InterchangeDate="_context.arr6.InterchangeDate_"|"_"InterchangeTime="_context.arr6.InterchangeTime_"|"_"InterchangeControlNumber="_context.arr6.InterchangeControlNumber_"|"_"GroupControlNumber="_context.arr6.GroupControlNumber_"|"_"TransSetControlNumber="_context.arr6.TransSetControlNumber_"|"_"ReferenceID="_context.arr6.ReferenceID_"|"_"AccountNumber="_context.arr6.AccountNumber_"|"_"EarliestServiceDate="_context.arr6.EarliestServiceDate_"|"_"TotalCharges="_context.arr6.TotalCharges_"|"_"KeywordFileName="_context.arr6.KeywordFileName_"|"_"KeywordFileSent="_context.arr6.KeywordFileSent_"|")
+     do ..%Process.ItfSendEmailOnError("Unable to update translation file name and translation date/time  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables","--- Unable to update translation file name and translation date/time  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables"_"The get getIHCSP_EDITRK_TRANSL_UPDATE() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"SenderID=<"_context.arr6.SenderID_">|"_"InterchangeDate=<"_context.arr6.InterchangeDate_">|"_"InterchangeTime=<"_context.arr6.InterchangeTime_">|"_"InterchangeControlNumber=<"_context.arr6.InterchangeControlNumber_">|"_"GroupControlNumber=<"_context.arr6.GroupControlNumber_">|"_"TransSetControlNumber=<"_context.arr6.TransSetControlNumber_">|"_"ReferenceID=<"_context.arr6.ReferenceID_">|"_"AccountNumber=<"_context.arr6.AccountNumber_">|"_"EarliestServiceDate=<"_context.arr6.EarliestServiceDate_">|"_"TotalCharges=<"_context.arr6.TotalCharges_">|"_"KeywordFileName=<"_context.arr6.KeywordFileName_">|"_"KeywordFileSent=<"_context.arr6.KeywordFileSent_">|")
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
-     Quit
-     }
+          }
 
 
                  }
@@ -704,20 +731,25 @@ BPL Definition</Description>
 
  Set context.arr7.AdjudicationOrPaymentPaidDate=AdjudicationOrPaymentPaidDate
  
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr7,.response,1800)
+ set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr7,.response,context.TimeOutForSPCall)
      if ('tStatus) 
      {
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      //Quit
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
+      if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -726,11 +758,10 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError("Unable to insert new COB CLAIM  record into IHC_EDITRK_COB_CLAIM table"_"--- Unable to insert new COB CLAIM  record into IHC_EDITRK_COB_CLAIM table"_"The IHCSP_EDITRK_COB_CLAIM_INSERT call returned an error code of"_Errorcode_"Parameter in SP call="_"TimestampCK="_context.arr7.TimestampCK_"|"_"PayerResponsibilitySequenceNumberCode2000B="_context.arr7.PayerResponsibilitySequenceNumberCode2000B_"|"_"CoordinationOfBenefitsCode="_context.arr7.CoordinationOfBenefitsCode_"|"_"TotalClaimChargeAmount="_context.arr7.TotalClaimChargeAmount_"|"_"PayerResponsibilitySequenceNumberCode2320="_context.arr7.PayerResponsibilitySequenceNumberCode2320_"|"_"OtherInsuredGroupPolicyOrPlanName="_context.arr7.OtherInsuredGroupPolicyOrPlanName_"|"_"OtherPayerPaidAmount="_context.arr7.OtherPayerPaidAmount_"|"_"AllowedAmount="_context.arr7.AllowedAmount_"|"_"COBTotalSubmittedChargeAmount="_context.arr7.COBTotalSubmittedChargeAmount_"|"_"NonCoveredChargeAmount="_context.arr7.NonCoveredChargeAmount_"|"_"ClaimTotalDeniedChargeAmount="_context.arr7.ClaimTotalDeniedChargeAmount_"|"_"TotalMedicarePaidAmount="_context.arr7.TotalMedicarePaidAmount_"|"_"PayerPaidAmount="_context.arr7.PayerPaidAmount_"|"_"ApprovedAmount="_context.arr7.ApprovedAmount_"|"_"OtherPayerPatientResponsibilityAmount="_context.arr7.OtherPayerPatientResponsibilityAmount_"|"_"OtherPayerDiscountAmount="_context.arr7.OtherPayerDiscountAmount_"|"_"PatientPaidAmount="_context.arr7.PatientPaidAmount_"|"_"OtherPayerPretaxClaimAmount="_context.arr7.OtherPayerPretaxClaimAmount_"|"_"OtherInsuredLastName="_context.arr7.OtherInsuredLastName_"|"_"OtherInsuredFirstName="_context.arr7.OtherInsuredFirstName_"OtherPayerLastNameOrOrganizationName="_context.arr7.OtherPayerLastNameOrOrganizationName_"|"_"AdjudicationOrPaymentPaidDate="_context.arr7.AdjudicationOrPaymentPaidDate_"|")
+     do ..%Process.ItfSendEmailOnError("Unable to insert new COB CLAIM  record into IHC_EDITRK_COB_CLAIM table","--- Unable to insert new COB CLAIM  record into IHC_EDITRK_COB_CLAIM table"_"The IHCSP_EDITRK_COB_CLAIM_INSERT call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TimestampCK=<"_context.arr7.TimestampCK_">|"_"PayerResponsibilitySequenceNumberCode2000B=<"_context.arr7.PayerResponsibilitySequenceNumberCode2000B_">|"_"CoordinationOfBenefitsCode=<"_context.arr7.CoordinationOfBenefitsCode_">|"_"TotalClaimChargeAmount=<"_context.arr7.TotalClaimChargeAmount_">|"_"PayerResponsibilitySequenceNumberCode2320=<"_context.arr7.PayerResponsibilitySequenceNumberCode2320_">|"_"OtherInsuredGroupPolicyOrPlanName=<"_context.arr7.OtherInsuredGroupPolicyOrPlanName_">|"_"OtherPayerPaidAmount=<"_context.arr7.OtherPayerPaidAmount_">|"_"AllowedAmount=<"_context.arr7.AllowedAmount_">|"_"COBTotalSubmittedChargeAmount=<"_context.arr7.COBTotalSubmittedChargeAmount_">|"_"NonCoveredChargeAmount=<"_context.arr7.NonCoveredChargeAmount_">|"_"ClaimTotalDeniedChargeAmount=<"_context.arr7.ClaimTotalDeniedChargeAmount_">|"_"TotalMedicarePaidAmount=<"_context.arr7.TotalMedicarePaidAmount_">|"_"PayerPaidAmount=<"_context.arr7.PayerPaidAmount_">|"_"ApprovedAmount=<"_context.arr7.ApprovedAmount_">|"_"OtherPayerPatientResponsibilityAmount=<"_context.arr7.OtherPayerPatientResponsibilityAmount_">|"_"OtherPayerDiscountAmount=<"_context.arr7.OtherPayerDiscountAmount_">|"_"PatientPaidAmount=<"_context.arr7.PatientPaidAmount_">|"_"OtherPayerPretaxClaimAmount=<"_context.arr7.OtherPayerPretaxClaimAmount_">|"_"OtherInsuredLastName=<"_context.arr7.OtherInsuredLastName_">|"_"OtherInsuredFirstName=<"_context.arr7.OtherInsuredFirstName_">|"_"OtherPayerLastNameOrOrganizationName=<"_context.arr7.OtherPayerLastNameOrOrganizationName_">|"_"AdjudicationOrPaymentPaidDate=<"_context.arr7.AdjudicationOrPaymentPaidDate_">|")
      //Set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB CLAIM  record into IHC_EDITRK_COB_CLAIM table")
-     Quit
-     }
+          }
 
 
                  }
@@ -783,7 +814,7 @@ BPL Definition</Description>
  $$$TRACE("Event value before calling SP for trkclaimcasinsert:"_Event)
  
    
-   set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr8,.response,1800)
+   set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr8,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr8 value:"_context.arr8)
 	
@@ -792,14 +823,19 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      //Quit
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)     
+ if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -808,10 +844,11 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB CLAIM  CAS record into IHC_EDITRK_COB_CLAIM_CAS table"_"--- Unable to insert new COB CLAIM  CAS record into IHC_EDITRK_COB_CLAIM_CAS table"_"The get IHCSP_EDITRK_CLAIM_CAS_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"TimestampCK="_context.arr8.TimestampCK_"|"_"ClaimAdjustmentCode="_context.arr8.ClaimAdjustmentCode_"|"_"AdjustmentReasonCodeCAS02="_context.arr8.AdjustmentReasonCodeCAS02_"|"_"AdjustmentAmountCAS03="_context.arr8.AdjustmentAmountCAS03_"|"_"AdjustmentQuantityCAS04="_context.arr8.AdjustmentQuantityCAS04_"|"_"AdjustmentReasonCodeCAS05="_context.arr8.AdjustmentReasonCodeCAS05_"|"_"AdjustmentAmountCAS06="_context.arr8.AdjustmentAmountCAS06_"|"_"AdjustmentQuantityCAS07="_context.arr8.AdjustmentQuantityCAS07_"|"_"AdjustmentReasonCodeCAS08="_context.arr8.AdjustmentReasonCodeCAS08_"|"_"AdjustmentAmountCAS09="_context.arr8.AdjustmentAmountCAS09_"|"_"AdjustmentQuantityCAS10="_context.arr8.AdjustmentQuantityCAS10_"|"_"AdjustmentReasonCodeCAS11="_context.arr8.AdjustmentReasonCodeCAS11_"|"_"AdjustmentAmountCAS12="_context.arr8.AdjustmentAmountCAS12_"|"_"AdjustmentQuantityCAS13="_context.arr8.AdjustmentQuantityCAS13_"|"_"AdjustmentReasonCodeCAS14="_context.arr8.AdjustmentReasonCodeCAS14_"|"_"AdjustmentAmountCAS15="_context.arr8.AdjustmentAmountCAS15_"|"_"AdjustmentQuantityCAS16="_context.arr8.AdjustmentQuantityCAS16_"|"_"AdjustmentReasonCodeCAS17="_context.arr8.AdjustmentReasonCodeCAS17_"|"_"AdjustmentAmountCAS18="_context.arr8.AdjustmentAmountCAS18_"|"_"AdjustmentQuantityCAS19="_context.arr8.AdjustmentQuantityCAS19_"|")
+     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB CLAIM  CAS record into IHC_EDITRK_COB_CLAIM_CAS table","--- Unable to insert new COB CLAIM  CAS record into IHC_EDITRK_COB_CLAIM_CAS table"_"The get IHCSP_EDITRK_CLAIM_CAS_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TimestampCK=<"_context.arr8.TimestampCK_">|"_"ClaimAdjustmentCode=<"_context.arr8.ClaimAdjustmentCode_">|"_"AdjustmentReasonCodeCAS02=<"_context.arr8.AdjustmentReasonCodeCAS02_">|"_"AdjustmentAmountCAS03=<"_context.arr8.AdjustmentAmountCAS03_">|"_"AdjustmentQuantityCAS04=<"_context.arr8.AdjustmentQuantityCAS04_">|"_"AdjustmentReasonCodeCAS05=<"_context.arr8.AdjustmentReasonCodeCAS05_">|"_"AdjustmentAmountCAS06=<"_context.arr8.AdjustmentAmountCAS06_">|"_"AdjustmentQuantityCAS07=<"_context.arr8.AdjustmentQuantityCAS07_">|"_"AdjustmentReasonCodeCAS08=<"_context.arr8.AdjustmentReasonCodeCAS08_">|"_"AdjustmentAmountCAS09=<"_context.arr8.AdjustmentAmountCAS09_">|"_"AdjustmentQuantityCAS10=<"_context.arr8.AdjustmentQuantityCAS10_">|"_"AdjustmentReasonCodeCAS11=<"_context.arr8.AdjustmentReasonCodeCAS11_">|"_"AdjustmentAmountCAS12=<"_context.arr8.AdjustmentAmountCAS12_">|"_"AdjustmentQuantityCAS13=<"_context.arr8.AdjustmentQuantityCAS13_">|"_"AdjustmentReasonCodeCAS14=<"_context.arr8.AdjustmentReasonCodeCAS14_">|"_"AdjustmentAmountCAS15=<"_context.arr8.AdjustmentAmountCAS15_">|"_"AdjustmentQuantityCAS16=<"_context.arr8.AdjustmentQuantityCAS16_">|"_"AdjustmentReasonCodeCAS17=<"_context.arr8.AdjustmentReasonCodeCAS17_">|"_"AdjustmentAmountCAS18=<"_context.arr8.AdjustmentAmountCAS18_">|"_"AdjustmentQuantityCAS19=<"_context.arr8.AdjustmentQuantityCAS19_">|")
+
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB CLAIM  CAS record into IHC_EDITRK_COB_CLAIM_CAS table")
-     Quit
+     
      }
 
 
@@ -839,7 +876,7 @@ BPL Definition</Description>
  Set context.arr9.ServiceLinePaidAmount=ServiceLinePaidAmount
 
   Set context.arr9.ServiceAdjudicationOrPaymentDate=ServiceAdjudicationOrPaymentDate
-  set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr9,.response,1800)
+  set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr9,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr9 value:"_context.arr9)
 	
@@ -848,14 +885,19 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
-     if Errorcode="0"
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
+      if Errorcode="0"
      {
      
      $$$TRACE("Success response from operation")
@@ -864,11 +906,10 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table"_"--- Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table"_"The get IHCSP_EDITRK_COB_LINE_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"TimestampCK="_context.arr9.TimestampCK_"|"_"ServiceLineNumber="_context.arr9.ServiceLineNumber_"|"_"ProfessionalServiceLineItemChargeAmount="_context.arr9.ProfessionalServiceLineItemChargeAmount_"|"_"InstitutionalServiceLineItemChargeAmount="_context.arr9.InstitutionalServiceLineItemChargeAmount_"|"_"DentalServiceLineItemChargeAmount="_context.arr9.DentalServiceLineItemChargeAmount_"|"_"ApprovedAmount="_context.arr9.ApprovedAmount_"|"_"OtherPayerPrimaryIdentifier="_context.arr9.OtherPayerPrimaryIdentifier_"|"_"ServiceLinePaidAmount="_context.arr9.ServiceLinePaidAmount_"|"_"ServiceAdjudicationOrPaymentDate="_context.arr9.ServiceAdjudicationOrPaymentDate_"|")
+     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table","--- Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table"_"The get IHCSP_EDITRK_COB_LINE_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TimestampCK=<"_context.arr9.TimestampCK_">|"_"ServiceLineNumber=<"_context.arr9.ServiceLineNumber_">|"_"ProfessionalServiceLineItemChargeAmount=<"_context.arr9.ProfessionalServiceLineItemChargeAmount_">|"_"InstitutionalServiceLineItemChargeAmount=<"_context.arr9.InstitutionalServiceLineItemChargeAmount_">|"_"DentalServiceLineItemChargeAmount=<"_context.arr9.DentalServiceLineItemChargeAmount_">|"_"ApprovedAmount=<"_context.arr9.ApprovedAmount_">|"_"OtherPayerPrimaryIdentifier=<"_context.arr9.OtherPayerPrimaryIdentifier_">|"_"ServiceLinePaidAmount=<"_context.arr9.ServiceLinePaidAmount_">|"_"ServiceAdjudicationOrPaymentDate=<"_context.arr9.ServiceAdjudicationOrPaymentDate_">|")
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table")
-     Quit
-     }
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB LINE record into IHC_EDITRK_COB_LINE table")
+          }
 
 
                  }
@@ -921,7 +962,7 @@ BPL Definition</Description>
  $$$TRACE("Event value before calling SP for trkclaimcasinsert:"_Event)
  
    
-   set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr10,.response,1800)
+   set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr10,.response,context.TimeOutForSPCall)
 
 	$$$TRACE("context.arr10 value:"_context.arr10)
 	
@@ -930,13 +971,18 @@ BPL Definition</Description>
            //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
       Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
       //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      Quit
+      //Quit
             }
      else { 
       $$$TRACE("Success")
      $$$TRACE("response.StringValue:"_response.StringValue)
-     set Errorcode=response.StringValue
-     $$$TRACE("Errorcode:"_Errorcode)
+     $$$TRACE("response.StringValue:"_response.StringValue)
+     Set Errorcode=$PIECE(response.StringValue,"|",1)
+     //$$$TRACE("response.StringValue:"_response.StringValue)
+     Set ErrorDesc=$PIECE(response.StringValue,"|",2)
+
+ $$$TRACE("Errorcode:"_Errorcode)
+ $$$TRACE("ErrorDesc:"_ErrorDesc)
      if Errorcode="0"
      {
      
@@ -946,10 +992,10 @@ BPL Definition</Description>
      }
      else
      {
-     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table"_"--- Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table"_"The get IHCSP_EDITRK_LINE_CAS_INSERT() call returned an error code of"_Errorcode_"Parameter in SP call="_"TimestampCK="_context.arr10.TimestampCK_"|"_"ClaimAdjustmentCode="_context.arr10.ClaimAdjustmentCode_"|"_"AdjustmentReasonCodeCAS02="_context.arr10.AdjustmentReasonCodeCAS02_"|"_"AdjustmentAmountCAS03="_context.arr10.AdjustmentAmountCAS03_"|"_"AdjustmentQuantityCAS04="_context.arr10.AdjustmentQuantityCAS04_"|"_"AdjustmentReasonCodeCAS05="_context.arr10.AdjustmentReasonCodeCAS05_"|"_"AdjustmentAmountCAS06="_context.arr10.AdjustmentAmountCAS06_"|"_"AdjustmentQuantityCAS07="_context.arr10.AdjustmentQuantityCAS07_"|"_"AdjustmentReasonCodeCAS08="_context.arr10.AdjustmentReasonCodeCAS08_"|"_"AdjustmentAmountCAS09="_context.arr10.AdjustmentAmountCAS09_"|"_"AdjustmentQuantityCAS10="_context.arr10.AdjustmentQuantityCAS10_"|"_"AdjustmentReasonCodeCAS11="_context.arr10.AdjustmentReasonCodeCAS11_"|"_"AdjustmentAmountCAS12="_context.arr10.AdjustmentAmountCAS12_"|"_"AdjustmentQuantityCAS13="_context.arr10.AdjustmentQuantityCAS13_"|"_"AdjustmentReasonCodeCAS14="_context.arr10.AdjustmentReasonCodeCAS14_"|"_"AdjustmentAmountCAS15="_context.arr10.AdjustmentAmountCAS15_"|"_"AdjustmentQuantityCAS16="_context.arr10.AdjustmentQuantityCAS16_"|"_"AdjustmentReasonCodeCAS17="_context.arr10.AdjustmentReasonCodeCAS17_"|"_"AdjustmentAmountCAS18="_context.arr10.AdjustmentAmountCAS18_"|"_"AdjustmentQuantityCAS19="_context.arr10.AdjustmentQuantityCAS19_"|")
+     do ..%Process.ItfSendEmailOnError(" Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table","--- Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table"_"The get IHCSP_EDITRK_LINE_CAS_INSERT() call returned an error code of"_Errorcode_"("_ErrorDesc_")"_"Parameter in SP call="_"TimestampCK=<"_context.arr10.TimestampCK_">|"_"ClaimAdjustmentCode=<"_context.arr10.ClaimAdjustmentCode_">|"_"AdjustmentReasonCodeCAS02=<"_context.arr10.AdjustmentReasonCodeCAS02_">|"_"AdjustmentAmountCAS03=<"_context.arr10.AdjustmentAmountCAS03_">|"_"AdjustmentQuantityCAS04=<"_context.arr10.AdjustmentQuantityCAS04_">|"_"AdjustmentReasonCodeCAS05=<"_context.arr10.AdjustmentReasonCodeCAS05_">|"_"AdjustmentAmountCAS06=<"_context.arr10.AdjustmentAmountCAS06_">|"_"AdjustmentQuantityCAS07=<"_context.arr10.AdjustmentQuantityCAS07_">|"_"AdjustmentReasonCodeCAS08=<"_context.arr10.AdjustmentReasonCodeCAS08_">|"_"AdjustmentAmountCAS09=<"_context.arr10.AdjustmentAmountCAS09_">|"_"AdjustmentQuantityCAS10=<"_context.arr10.AdjustmentQuantityCAS10_">|"_"AdjustmentReasonCodeCAS11=<"_context.arr10.AdjustmentReasonCodeCAS11_">|"_"AdjustmentAmountCAS12=<"_context.arr10.AdjustmentAmountCAS12_">|"_"AdjustmentQuantityCAS13=<"_context.arr10.AdjustmentQuantityCAS13_">|"_"AdjustmentReasonCodeCAS14=<"_context.arr10.AdjustmentReasonCodeCAS14_">|"_"AdjustmentAmountCAS15=<"_context.arr10.AdjustmentAmountCAS15_">|"_"AdjustmentQuantityCAS16=<"_context.arr10.AdjustmentQuantityCAS16_">|"_"AdjustmentReasonCodeCAS17=<"_context.arr10.AdjustmentReasonCodeCAS17_">|"_"AdjustmentAmountCAS18=<"_context.arr10.AdjustmentAmountCAS18_">|"_"AdjustmentQuantityCAS19=<"_context.arr10.AdjustmentQuantityCAS19_">|")
      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table")
-     Quit
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert new COB LINE CAS record into IHC_EDITRK_COB_LINE_CAS table")
+     
      }
 
 
@@ -962,18 +1008,10 @@ BPL Definition</Description>
    {
    $$$TRACE("No match found")
        }
-   }
-   }
+   
+   
    ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='850' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="request" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-</foreach>
 <faulthandlers>
 <catchall xpos='200' ypos='950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
