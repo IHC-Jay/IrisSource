@@ -5,7 +5,6 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.cdr.EncodeUtil;
-import org.ihc.itf.util.ItfLogger;
 import org.ihc.itf.util.ItfLoggerHash;
 
 import cdr.asn1.dsql.DSqlColumn;
