@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.RtPowerScribeOrdHl7TEMP">
+<Description>
+Routes Cerner Radiology orders between PowerScribe versions 1.5 and 3.5</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64351,35400.206969</TimeCreated>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='sendingFacility' type='%String' initialexpression='"pending"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='validationSettingValue' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetOperation' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<trace name='Incoming Message' value=' "Incoming Message:: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Validate Message Structure' xpos='200' ypos='450' >
+<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  } 
+  
+ $$$TRACE("Validate Message Begins...") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue)
+ if (tStatus'=$$$OK){  	
+    $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
+    // Skip the record.
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }else{
+	  $$$TRACE("Passed Validation Settings: " _ context.validationSettingValue) 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Initialize Portal Settings ' xpos='200' ypos='550' >
+<annotation><![CDATA[Check/Initialize for Management Portal Settings]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Initializing Portal Settings...")
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if (($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	$$$TRACE("Initialization error, No ReplyCodeActions found.")
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ } 
+ $$$TRACE("Initialization complete.")
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: [" _ maxErr_"]")
+  
+]]]]><![CDATA[>
+</code>
+<code name='Get Sending Facility' xpos='200' ypos='650' >
+<annotation><![CDATA[Sending Facility is MSH4.1]]]]><![CDATA[></annotation>
+<![CDATA[ Set context.sendingFacility=request.GetValueAt("MSH:SendingFacility.namespaceID")
+ $$$TRACE("Sending Facility is "_context.sendingFacility)]]]]><![CDATA[>
+</code>
+<code name='Lookup Target Operation' xpos='200' ypos='750' >
+<![CDATA[   set context.targetOperation="Out-PowerScribe-AdtAndOrd-Hl7tcp-TEMP"
+
+   //Check to see if MSH4.1 exists in the lookup table
+   set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.RtPowerScribeOldHl7TEMP.Lookup.POWERSCRIBE_UPDATE", context.sendingFacility, .retVal)
+   if ($$$ISERR(retStat)) { 
+      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Error reading lookup file [IHC.ITF.Process.Bpl.RtPowerScribeOldHl7TEMP.Lookup.POWERSCRIBE_UPDATE]. Disabling." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
+   }
+   //If the lookup table contains the MSH4.1, use the returned value
+   if (retVal'="Unknown"){
+      set context.targetOperation = "Out-PowerScribe-AdtAndOrd-Hl7tcp"
+   }
+
+   //If the lookup table contains the value XXX, then all facilities have been switched over and we can send ALL data to the new process
+   set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.RtPowerScribeOldHl7TEMP.Lookup.POWERSCRIBE_UPDATE", "XXX", .retVal)
+   if (retVal'="Unknown"){
+      set context.targetOperation="Out-PowerScribe-AdtAndOrd-Hl7tcp"
+   }
+     
+ $$$TRACE("Target Operation is "_context.targetOperation)
+]]]]><![CDATA[>
+</code>
+<call name='Call Target Config Names' target='@context.targetOperation' async='1' xpos='200' ypos='850' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<code name='Reset Error Count' xpos='200' ypos='950' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1050' xend='200' yend='250' />
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
