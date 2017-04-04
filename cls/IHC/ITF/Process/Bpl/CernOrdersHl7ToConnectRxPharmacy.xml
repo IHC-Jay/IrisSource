@@ -13,7 +13,7 @@ Pharmacy Orders to ConnectRx BPL</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>LocationOperationsTable:Additional</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -106,15 +106,14 @@ Pharmacy Orders to ConnectRx BPL</Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3750' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='10000' width='4000' >
 <context>
-<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='empiNumber' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='MSH92' type='%String' instantiate='0' >
+<property name='MSH9MsgType' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -223,6 +222,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='PharmOrderPlacerNumber' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='OrcStatusCompleteNcid' type='%String' initialexpression='163001' instantiate='0' >
 <annotation><![CDATA[NCID for Complete Status]]]]><![CDATA[></annotation>
 <parameters>
@@ -292,9 +296,20 @@ BPL Definition</Description>
 </property>
 <property name='RXEGroupCount' type='%Integer' instantiate='0' />
 <property name='RXCCount' type='%Integer' instantiate='0' />
+<property name='NewResponseClone' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='doModifiedDC' type='%Boolean' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[Do we create DC messages for modified orders? A value of "1" is yes we are doing modified orders]]]]><![CDATA[></annotation>
+</property>
+<property name='haveModOrder' type='%Boolean' instantiate='0' >
+<annotation><![CDATA[Order is of type "XO" or "SC"]]]]><![CDATA[></annotation>
+</property>
 </context>
-<sequence xend='200' yend='3500' >
-<scope xpos='200' ypos='250' xend='200' yend='3400' >
+<sequence xend='200' yend='4350' >
+<scope xpos='200' ypos='250' xend='200' yend='4250' >
 <annotation><![CDATA[Translation from Cerner Pharm Orders to the Pharmacy System  - ConnectRx ORDERS]]]]><![CDATA[></annotation>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
@@ -304,7 +319,7 @@ BPL Definition</Description>
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
  {
- 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No ReplyCodeActions found!")
  }]]]]><![CDATA[>
 </code>
 <code name='Get MaxError' xpos='200' ypos='550' >
@@ -320,7 +335,7 @@ BPL Definition</Description>
     set context.TargetOperationTable = configValue
     $$$TRACE("TargetOperationTable: " _context.TargetOperationTable)
  }else{
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get TargetOperationTable. Table access required for processing Order messages for the Pharmacy Order Data!")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get TargetOperationTable. Table access required for processing Order messages for the Pharmacy Order Data!")
  }
  ]]]]><![CDATA[>
 </code>
@@ -328,7 +343,7 @@ BPL Definition</Description>
 <annotation><![CDATA[Verify Lookup Table Exists]]]]><![CDATA[></annotation>
 <![CDATA[ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.TargetOperationTable)
  if (retVal = 0){
-    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table not found. Required for processing data. File: " _context.TargetOperationTable)  
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).ITFCOMMONLookUpNotFoundError(process.%ConfigName,"Lookup table not found. Required for processing data. File: " _context.TargetOperationTable)  
  }]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='850' >
@@ -336,8 +351,7 @@ BPL Definition</Description>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
  set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
  if (tStatus'=$$$OK){
-    set context.errorStatus=tStatus
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, " ***HL7 message did not pass HL7 Validation for ConnectRx for Pharmacy Orders. Error Status: "_ context.errorStatus)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, " ***HL7 message did not pass HL7 Validation for ConnectRx for Pharmacy Orders. Error Status: "_ tStatus)
  }
 ]]]]><![CDATA[>
 </code>
@@ -352,22 +366,34 @@ BPL Definition</Description>
   }
   ]]]]><![CDATA[>
 </code>
-<code name='VerifyOrderType' xpos='200' ypos='1050' >
+<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1050' >
+<annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
+ Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
+ $$$TRACE("PharmOrderPlacerNumber: " _context.PharmOrderPlacerNumber) 
+ if ($ISVALIDNUM(context.PharmOrderPlacerNumber)=0){
+     $$$TRACE("ORC-2 PharmOrderPlacerNumber value is NOT a VALID numeric value. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid ORC-2 PharmOrderPlacerNumber code supplied from Cerner! iCentra Value received is - PHI: ["_context.PharmOrderPlacerNumber_"].  Expecting numeric Values.***")
+  }
+  ]]]]><![CDATA[>
+</code>
+<code name='VerifyOrderType' xpos='200' ypos='1150' >
 <annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
- set msh9MessageType= request.GetValueAt("MSH:MessageType.messagetype")
- $$$TRACE("Here is the Message Type: "_ msh9MessageType)
- set getFirstThreeChar = $Extract(msh9MessageType,1,3)
+ set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
+ $$$TRACE("Here is the Message Type: "_ context.MSH9MsgType)
+ set getFirstThreeChar = $Extract(context.MSH9MsgType,1,3)
  $$$TRACE("Here is the compare string: "_getFirstThreeChar ) 
  if ((getFirstThreeChar="RDE") || (getFirstThreeChar="RDS")){
    $$$TRACE("We have a Pharmacy Order! Order Type is: "_ getFirstThreeChar)
+   
  }else{
- $$$TRACE("We don't have a Pharmacy Order, filtering out and skipping record. Order type: "_ msh9MessageType)
- Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "HL7 message is not an expected RDE or RDS message type.") 
+ $$$TRACE("We don't have a Pharmacy Order, Sending Warning Error and record will be skipped. Order type: "_ context.MSH9MsgType)
+ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "HL7 message is not an expected RDE or RDS message type.") 
  }
  ]]]]><![CDATA[>
 </code>
-<code name='ClinicFiltering' xpos='200' ypos='1150' >
+<code name='ClinicFiltering' xpos='200' ypos='1250' >
 <annotation><![CDATA[Filter Clinic - Checking PV1-18 Patient Type for Clinic and allowed list of clinics against MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Do Clinic check. Only a select few are allowed to go to pharmacy.")
  set context.pv1PatientType = request.GetValueAt("PV1:PatientType")
@@ -390,7 +416,7 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1250' >
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1350' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
  Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
@@ -401,7 +427,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1350' >
+<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1450' >
 <annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
  Set pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
@@ -415,7 +441,7 @@ BPL Definition</Description>
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid Account/Encounter (Cerner FIN) number - PHI: ["_pid18_"]. ***")
  }]]]]><![CDATA[>
 </code>
-<code name='HDD Target Name Setting' xpos='200' ypos='1450' >
+<code name='HDD Target Name Setting' xpos='200' ypos='1550' >
 <annotation><![CDATA[HDD Target Config Name from Global]]]]><![CDATA[></annotation>
 <![CDATA[ if ($GET(^IHC.CernConnectRxPharmacy("HddTargetConfigName"))'=""){
     set context.hddTargetConfigName = $G(^IHC.CernConnectRxPharmacy("HddTargetConfigName"))
@@ -424,7 +450,7 @@ BPL Definition</Description>
     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get HDDTargetConfigName from Global: IHC.CernConnectRxPharmacy  HDD access required for processing Pharmacy messages for the ConnectRx Pharmacy Order Data!")
  }]]]]><![CDATA[>
 </code>
-<code name='WorkPatientClassAndType' xpos='200' ypos='1550' >
+<code name='WorkPatientClassAndType' xpos='200' ypos='1650' >
 <annotation><![CDATA[Setup HDD Get Help1 Billing Data Object
 ]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE(" GetHelp1BillingType Hdd Requests...")
@@ -438,7 +464,7 @@ BPL Definition</Description>
 		$$$TRACE("Hdd Request to GetHelp1BillingType")		
  }  ]]]]><![CDATA[>
 </code>
-<code name='HDDCallGetHelp1BillingData' xpos='200' ypos='1650' >
+<code name='HDDCallGetHelp1BillingData' xpos='200' ypos='1750' >
 <annotation><![CDATA[Use PV1-18 and PV1-10 to get HDD Help1 Billing return values]]]]><![CDATA[></annotation>
 <![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddBillingTypeRequest,.hddHelp1BillingTypeResponse)
 
@@ -465,7 +491,7 @@ BPL Definition</Description>
 
  } ]]]]><![CDATA[>
 </code>
-<code name='workPV1ThreeLocation' xpos='200' ypos='1750' >
+<code name='workPV1ThreeLocation' xpos='200' ypos='1850' >
 <annotation><![CDATA[Get LocationNcidFrom PV1-3 and Set context Values]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have valid PV1-3 locations for Pharmacy.")
   //Check the PV1-3 location values for NCIDS that Cerner used for Pharmacy locations
@@ -497,14 +523,14 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='SetHDDRepRequest' xpos='200' ypos='1850' >
+<code name='SetHDDRepRequest' xpos='200' ypos='1950' >
 <annotation><![CDATA[Set HDD Represntation Request]]]]><![CDATA[></annotation>
 <![CDATA[ //Creating HDD Request Object
  set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
  do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.HddRepRequest, context.locationNcid, $GET(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")), context.LocationInfo)
  $$$TRACE("Created HDD request object for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")))]]]]><![CDATA[>
 </code>
-<code name='Lookup Location in HDD' xpos='200' ypos='1950' >
+<code name='Lookup Location in HDD' xpos='200' ypos='2050' >
 <annotation><![CDATA[Get HDD response from the call to get representation from NCID]]]]><![CDATA[></annotation>
 <![CDATA[ // Call HDD Operation
  $$$TRACE("Actually sending the HDD REQUEST")
@@ -517,7 +543,7 @@ BPL Definition</Description>
    $$$TRACE("Actually received HDD RESPONSE")
  }]]]]><![CDATA[>
 </code>
-<code name='Set Location Variables' xpos='200' ypos='2050' >
+<code name='Set Location Variables' xpos='200' ypos='2150' >
 <annotation><![CDATA[Set Location Variables and do filtering]]]]><![CDATA[></annotation>
 <![CDATA[ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.HddRepResponse, context.LocationInfo)
  if (hddObj '= ""){
@@ -556,13 +582,12 @@ BPL Definition</Description>
    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "****HDD ERRROR****Unexpected response back from HDD. Unable to get required ConnectRx Pharmacy Location representation for setting PV1-3 values for unit, room, and bed. HDD rep returned was - PHI: "_patLoc_"HDD request created for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")) _ "***")
  }]]]]><![CDATA[>
 </code>
-<code name='MSH_4_Facility' xpos='200' ypos='2150' >
+<code name='MSH_4_Facility' xpos='200' ypos='2250' >
 <annotation><![CDATA[Lookup Facility NCID in HDD and get Rep back and set context variable]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working MSH-4 value for the FACILITY")
- set Ncid = context.msh4Facility
- if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-    set context.HL7SpecValue= "MSH:SendingFacility.namespaceID"
-    set context.Ncid = Ncid
+ set context.Ncid = context.msh4Facility
+ set context.HL7SpecValue= "MSH:SendingFacility.namespaceID"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
     set context.hddncidtorepcontext =  $GET(^IHC.CernConnectRxPharmacy("CernerContextForNcidToRep"))
     $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
     // call local HDD class Method
@@ -596,12 +621,11 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderControlID' xpos='200' ypos='2250' >
+<code name='ORCOrderControlID' xpos='200' ypos='2350' >
 <annotation><![CDATA[Lookup ORC-1 OrderControlID NCID in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
-<![CDATA[ set Ncid = request.GetValueAt("ORC:OrderControl")
- if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-    set context.HL7SpecValue= "ORC:OrderControl"
-    set context.Ncid = Ncid
+<![CDATA[ set context.Ncid = request.GetValueAt("ORC:OrderControl")
+ set context.HL7SpecValue= "ORC:OrderControl"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
     set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("OrderControlCodeContext"))
     $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
     
@@ -632,15 +656,14 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderStatus' xpos='200' ypos='2350' >
+<code name='ORCOrderStatus' xpos='200' ypos='2450' >
 <annotation><![CDATA[Lookup ORC-5 OrderStatus in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
-<![CDATA[ set Ncid = request.GetValueAt("ORC:OrderStatus")
- if (Ncid '= "" && Ncid = context.OrcStatusCompleteNcid){
+<![CDATA[ set context.Ncid = request.GetValueAt("ORC:OrderStatus")
+ set context.HL7SpecValue= "ORC:OrderStatus"
+ if (context.Ncid '= "" && context.Ncid = context.OrcStatusCompleteNcid){
       set context.orcOrderStatus="DC"
  }else{
-    if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-        set context.HL7SpecValue= "ORC:OrderStatus"
-        set context.Ncid = Ncid
+    if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
         set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("OrderStatusContext"))
         $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
         
@@ -672,12 +695,11 @@ BPL Definition</Description>
     }
  }]]]]><![CDATA[>
 </code>
-<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2450' >
+<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2550' >
 <annotation><![CDATA[Lookup ORC-7 QuantityTimingIntervalRepeatPattern In HDD and set Rep to context variable]]]]><![CDATA[></annotation>
-<![CDATA[ set Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
- if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-    set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
-    set context.Ncid = Ncid
+<![CDATA[ set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
+ set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
     set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("FrequencyContext"))
     $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
     
@@ -709,16 +731,15 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2550' xend='200' yend='850' >
+<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2650' xend='200' yend='850' >
 <annotation><![CDATA[Do the HDD Work for the RXE Group]]]]><![CDATA[></annotation>
 <trace name='Inside RXE Group' value='"Inside RXE Group"' xpos='200' ypos='250' />
 <code name='Working RXEQTIntervalRepeatPattern' xpos='200' ypos='350' >
 <annotation><![CDATA[Lookup NCID for RXE QuantityTiming interval repeatpattern and get the HDD Rep and combine the two values]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working RXE-1.2 Frequency/Interval QuantityTiming Repeat Pattern")
-  set Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:QuantityTiming.interval.repeatpattern")
- if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-    set context.HL7SpecValue= "RXE:QuantityTiming.interval.repeatpattern"
-    set context.Ncid = Ncid
+ set context.Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:QuantityTiming.interval.repeatpattern")
+ set context.HL7SpecValue= "RXE:QuantityTiming.interval.repeatpattern"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
     set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("FrequencyContext"))
     $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
     
@@ -743,10 +764,10 @@ BPL Definition</Description>
    $$$TRACE("Here is the rxeQTIntervalRepeatPattern that is being set: " _context.rxeQTIntervalRepeatPattern)
 
  }else {
-    if (Ncid = ""){
+    if (context.Ncid = ""){
        $$$TRACE("There is no Frequency/Interval NCID so we are expecting this order to be a continuous order.")
     }
-    if (Ncid '= "" && '$ISVALIDNUM(Ncid)){
+    if (context.Ncid '= "" && '$ISVALIDNUM(context.Ncid)){
        Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
    }
    
@@ -756,11 +777,10 @@ BPL Definition</Description>
 <code name='RXE Give Units' xpos='200' ypos='450' >
 <annotation><![CDATA[Lookup RXE- 5 Give Units ID and get HDD rep, also check to see if there is free text verses NCID]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working RXE-5 Give Units")
-  set Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:GiveUnits.identifier")
- if (Ncid '= "") {
-    if ($ISVALIDNUM(Ncid)){
-        set context.HL7SpecValue= "RXE:GiveUnits.identifier"
-        set context.Ncid = Ncid
+  set context.Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:GiveUnits.identifier")
+  set context.HL7SpecValue= "RXE:GiveUnits.identifier"
+ if (context.Ncid '= "") {
+    if ($ISVALIDNUM(context.Ncid)){
         set context.hddncidtorepcontext = $G( ^IHC.CernConnectRxPharmacy("UnitsContext"))
         $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
         
@@ -803,12 +823,12 @@ BPL Definition</Description>
 <code name='RXE DispenseUnits' xpos='200' ypos='550' >
 <annotation><![CDATA[Lookup RXE-11 Dispense Units ID and get HDD rep, also check to see if there is free text verses NCID]]]]><![CDATA[></annotation>
 <![CDATA[  $$$TRACE("Working RXE-11 Dispense Units")
-  set Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:DispenseUnits.identifier")
-  $$$TRACE("Ncid found for the RXE-11 Dispense Units: "_Ncid)
- if (Ncid '= "") {
-    if ($ISVALIDNUM(Ncid)){
-        set context.HL7SpecValue= "RXE:DispenseUnits.identifier"
-        set context.Ncid = Ncid
+  set context.Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:DispenseUnits.identifier")
+  set context.HL7SpecValue= "RXE:DispenseUnits.identifier"
+  $$$TRACE("Ncid found for the RXE-11 Dispense Units: "_context.Ncid)
+ if (context.Ncid '= "") {
+    if ($ISVALIDNUM(context.Ncid)){
+        
         set context.hddncidtorepcontext = $G( ^IHC.CernConnectRxPharmacy("UnitsContext"))
         $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
     
@@ -855,10 +875,10 @@ BPL Definition</Description>
 <annotation><![CDATA[Lookup RXC-4 ComponentUnitsID and get HDD rep and set to context.rxcComponentUnitsTxtArr array]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working RXC-4 Component Units")
  $$$TRACE("RXC Index is: "_context.rxcIndex)
- set Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXC("_context.rxcIndex_"):ComponentUnits.identifier")
- if (Ncid '= "" && $ISVALIDNUM(Ncid) ) {	
-	set context.HL7SpecValue= "RXC:ComponentUnits.identifier"
-	set context.Ncid = Ncid
+ set context.Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXC("_context.rxcIndex_"):ComponentUnits.identifier")
+ set context.HL7SpecValue= "RXC:ComponentUnits.identifier"
+	
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid) ) {	
 	set context.hddncidtorepcontext = $G( ^IHC.CernConnectRxPharmacy("UnitsContext"))
 	$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
 	
@@ -906,10 +926,18 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2650' />
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='2750' />
-<trace name='Back From DTL' value='"Back From DTL"' xpos='200' ypos='2850' />
-<code name='SetTargetFromLookup' xpos='200' ypos='2950' >
+<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2750' />
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='2850' />
+<trace name='Back From DTL' value='"Back From DTL"' xpos='200' ypos='2950' />
+<code name='CheckForModOder' xpos='200' ypos='3050' >
+<![CDATA[ if ((context.orcOrderControlID="XO" ) || (context.orcOrderControlID="SC"))
+ {
+   set context.haveModOrder = 1
+ 
+ }
+]]]]><![CDATA[>
+</code>
+<code name='SetTargetFromLookup' xpos='200' ypos='3150' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
@@ -917,13 +945,13 @@ BPL Definition</Description>
  if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {
     set errMsg = "****ERROR: Unable to get a matching Target from the lookup table. ****ERROR MSH-4 VALUE MAYBE MISSING FROM LOOKUP Table: "_$G(^IHC.CernConnectRxPharmacy("LocationOperationsTable"))      
        $$$TRACE(errMsg)
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, errMsg)
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).ITFCOMMONLookUpDataNotFoundError(process.%ConfigName, errMsg)
  } else {
     $$$TRACE("Target: " _retVal)
     set context.Target = retVal
  }]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3050' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='3250' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -939,22 +967,152 @@ BPL Definition</Description>
         }
           $$$TRACE("targetList count " _ context.TargetList.Count())
  }else{
-	 $$$TRACE(errMsg)
-	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, errMsg)
+	 $$$TRACE(errMsg )
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='3150' xend='200' yend='450' >
+<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3350' xend='200' yend='3800' >
+<true>
+<trace name='Creating DC orders for Modified Orders' value='"Verify if we have DC Order or not"' xpos='335' ypos='3500' />
+<code name='CreateModifiedDC' xpos='335' ypos='3600' >
+<![CDATA[ $$$TRACE("Make a copy clone of the Response.")
+ set context.NewResponseClone = response.%ConstructClone(1) 
+ $$$TRACE("Take cloned message and send out 8 fake DC messages copies")
+ set context.orcOrderControlID = "DC"
+ FOR orderAppendNum =1:1:8
+ {
+    set dcOrderPlacerNum = context.PharmOrderPlacerNumber _"-"_orderAppendNum
+    $$$TRACE("New OrderPlacerOrderNumber: "_dcOrderPlacerNum )
+    do context.NewResponseClone.SetValueAt(dcOrderPlacerNum ,"ORC:PlacerOrderNumber.entityidentifier")
+    do context.NewResponseClone.SetValueAt("DC" ,"ORC:OrderControl")
+    $$$TRACE("Order Append Number: "_orderAppendNum)
+     
+ 
+ }]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='3700' xend='200' yend='450' >
+<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='context.NewResponseClone' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+</true>
+</if>
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3900' xend='200' yend='2300' >
+<trace name='Working Clone' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
+<if name='CheckForRDS' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.RXCCount&lt;1))' xpos='200' ypos='350' xend='200' yend='800' >
+<true>
+<trace name='Send RDS with New Order Num' value='"Changing RDS Order Number"' xpos='335' ypos='500' />
+<code name='CreateModifiedDC' xpos='335' ypos='600' >
+<![CDATA[ $$$TRACE("Make a copy clone of the Response.")
+ set context.NewResponseClone = response.%ConstructClone(1) 
+  FOR orderAppendNum =1:1:context.RXEGroupCount
+ {
+    set dcOrderPlacerNum = context.PharmOrderPlacerNumber _"-"_orderAppendNum
+    $$$TRACE("New OrderPlacerOrderNumber: "_dcOrderPlacerNum )
+    do context.NewResponseClone.SetValueAt(dcOrderPlacerNum ,"ORC:PlacerOrderNumber.entityidentifier")
+    $$$TRACE("Order Append Number: "_orderAppendNum)
+     
+ 
+ }]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='700' xend='200' yend='450' >
+<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='context.NewResponseClone' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+</true>
+</if>
+<if name='CheckRDSTwo' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.orcOrderControlID="DC") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.RXCCount&lt;1))' xpos='200' ypos='900' xend='200' yend='1350' >
+<true>
+<trace name='Send DC RDS ' value='"Sending one DC RDS Original Order Number"' xpos='335' ypos='1050' />
+<code name='CreateModifiedDC' xpos='335' ypos='1150' >
+<![CDATA[ $$$TRACE("Make a copy clone of the Response.")
+ set context.NewResponseClone = response.%ConstructClone(1) 
+ $$$TRACE("Send DC RDS Clone Message with original Order Number!")
+  ]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='1250' xend='200' yend='450' >
+<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='context.NewResponseClone' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+</true>
+</if>
+<code name='Work Clone RXE' xpos='200' ypos='1450' >
+<![CDATA[ $$$TRACE("Make a copy of the Response to break out each of the individual RXCs to their own RXE order message")
+ set context.NewResponseClone = response.%ConstructClone(1)
+ 
+
+]]]]><![CDATA[>
+</code>
+<foreach name='WorkRXERXCgroup' property='response.{RXEgrp(context.RXEIndex).RXC()}' key='context.rxcIndex' xpos='200' ypos='1550' xend='200' yend='650' >
+<code name='RXCcontinue' xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE("Working RXC DTL in RXC for each before calling DTL for copying RXC to RXE")
+ 
+ ]]]]><![CDATA[>
+</code>
+<transform name='DTLworkingRXCtoRXE' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacyTwo' source='response' target='context.NewResponseClone' xpos='200' ypos='350' />
+<code name='BackFromRxcDtl' xpos='200' ypos='450' >
+<![CDATA[ $$$TRACE("BACK FROM RXC DTL - sending current version of the cloned response...")]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='550' xend='200' yend='450' >
+<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='context.NewResponseClone' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+</foreach>
+<if name='CheckRDEandDC' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.orcOrderControlID="DC"))' xpos='200' ypos='1650' xend='200' yend='2100' >
+<true>
+<trace name='Send DC RDE' value='"Sending one DC RDS Original Order Number"' xpos='335' ypos='1800' />
+<code name='CreateModifiedDC' xpos='335' ypos='1900' >
+<![CDATA[ $$$TRACE("Make a copy clone of the Response.")
+ set context.NewResponseClone = response.%ConstructClone(1) 
+ $$$TRACE("Send DC RDS Clone Message with original Order Number!")
+  ]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='2000' xend='200' yend='450' >
+<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='context.NewResponseClone' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+</true>
+</if>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='2200' xend='200' yend='450' >
 <annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
-<response type='Ens.Response' />
 </call>
 <trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
 </foreach>
+</foreach>
+<code name='ResetErrors' xpos='200' ypos='4000' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+ set errMsg = ""]]]]><![CDATA[>
+</code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='3250' xend='200' yend='250' >
+<catchall name='CatchAll' xpos='200' ypos='4100' xend='200' yend='250' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 </catchall>
 </faulthandlers>
