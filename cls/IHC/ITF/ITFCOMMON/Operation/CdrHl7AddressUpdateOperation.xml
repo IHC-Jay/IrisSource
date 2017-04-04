@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.CdrHl7AddressUpdateOperation">
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>64229,45315.929343</TimeCreated>
+
+<Property name="ApplicationAddress">
+<Type>%String</Type>
+<InitialExpression>"//tltst01:41210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="LogDirectory">
+<Description>
+Name of the log directory </Description>
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/test"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="TuxedoService">
+<Type>%String</Type>
+<InitialExpression>"MAIN_ENC"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="numberOfRetries">
+<Type>%Integer</Type>
+<InitialExpression>5</InitialExpression>
+</Property>
+
+<Property name="retryTimeoutSeconds">
+<Type>%Integer</Type>
+<InitialExpression>5</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>ApplicationAddress:Additional,JarFiles:Additional,TuxedoService:Additional,LogDirectory:Additional, numberOfRetries:Additional,retryTimeoutSeconds:Additional</Default>
+</Parameter>
+
+<Property name="JarFiles">
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="32000"/>
+</Property>
+
+<Property name="objCdrTuxService">
+<Type>%RegisteredObject</Type>
+</Property>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #DIM status AS %Status
+	 set status = $$$OK	 
+
+	If $IsObject(..JavaGateway) {
+	
+	 try{
+		 		$$$TRACE(" Calling MMIAddress: " _pRequest.RawContent) 				 				 	
+		 		set pResponse=##class(Ens.StringResponse).%New()
+		 		$$$TRACE("objCdrTuxService Object valid: "_$IsObject(..objCdrTuxService))
+		 		
+		 		if ($IsObject(..objCdrTuxService))
+		 		{	
+		 			$$$TRACE("Call addressUpdateMMI")	 		
+		 			Set pResponse.StringValue = ..objCdrTuxService.addressUpdateMMI(pRequest.RawContent)
+		 			Set respData = pResponse.StringValue	
+		 			set respData = "1"	 		
+		 			$$$TRACE(" Call after the Address Update .."_respData)		 				 		
+		 		}
+		 		else
+		 		{
+		 			Try {
+		    			do ..OnTearDown()
+	    			}catch{}
+		 		}
+		 		
+		 
+	 }catch err{	
+	 	set errText = $SYSTEM.Status.GetOneErrorText(status)
+	    $$$LOGERROR("Exception in calling MmiAdd/Update: " _err.AsSystemError() _ " ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ ", " _ errText)
+	    set status = $$$ERROR("Exception in calling MmiAdd/Update " _ err.Data _", " _  errText)		    	     	 		
+	    
+	    if ((errText["CONNECTIONERROR")){
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }Elseif errText["RESEND"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }Elseif errText["DATAERROR"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,errText)
+	    }Elseif errText["SHUTDOWN"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }Else{
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }
+	  
+	  if (errText'["DATAERROR"){
+		    Try {
+		    	do ..OnTearDown()
+	    	}catch{}
+            Set tSC = ..GetConnection(.tGateway, ..ConnectTimeout+10)
+            $$$LOGINFO("Get new connection: " _ tSC)
+			If $$$ISERR(tSC) {
+				set errText = $SYSTEM.Status.GetOneErrorText(tSC)
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+			}Else {
+				// Open the connection
+				Do ..OnInit()
+			}
+	  }
+
+  	  $$$LOGERROR("return status: " _ status) 
+  	}	 
+  
+  	  
+	}
+	else
+	{
+		do ..OnTearDown()
+		Do ..OnInit()
+		set errText = "Connection to Java Gateway is not valid"
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	}
+	return status
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	do ##super()
+	$$$LOGINFO(" CdrHl7AddressUpdateOperation OnInit() method...")
+	
+	#DIM status AS %Status
+	 set status = $$$OK
+	
+	$$$TRACE($$$JobConfigName _ ": OnInit..Inside  method1 "_ ..JarFiles)
+
+	Set listArray = ##class(%ListOfDataTypes).%New()
+	Set p=1
+	For {
+				Set piece=$P(..JarFiles,":",p)
+				Quit:piece=""
+				do listArray.Insert(piece)
+				set p = p+1
+				set status = ..JavaGateway.%Import(piece)
+				$$$TRACE("Import Jar file: " _ piece _", status: " _ status)
+	} 
+	 
+	 try{
+		$$$TRACE("OnInit..ApplicationAddress "_ ..ApplicationAddress)
+		$$$TRACE("OnInit..TuxedoService "_ ..TuxedoService _ ", MMIREADUPDATE" _ ", MMILOCKREL")
+		// set ..objCdrTuxService = ##class(org.ihc.itf.cdr.svc.UpdateAddressCdrService).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, "MMIREADUPDATE", "MMILOCKREL", ..numberOfRetries, ..retryTimeoutSeconds)
+ 		$$$TRACE("Log file: " _ ..LogDirectory _"/" _$$$JobConfigName _".log" _", DEBUG: " _ $$$ConfigTrace($$$JobConfigName))
+
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.svc.UpdateAddressCdrService).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, "MMIREADUPDATE", "MMILOCKREL", ..numberOfRetries, ..retryTimeoutSeconds, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
+		$$$TRACE("Successfully Initialized. $IsObject : "_$IsObject(..objCdrTuxService))
+		
+	}catch err{
+	    	 $$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+   	 	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+			 $$$LOGERROR("Last error: " _ errTxt)
+			 $$$LOGERROR("ERROR Status="_$$$StatusDisplayString(%objlasterror))
+	    	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"Service Exception while initializing Tuxedo Service. " _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	    	 Do ..JavaGateway.%Disconnect()
+	    	 Do ..JavaGateway.%Shutdown()
+	}
+	Quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	$$$TRACE(" $$$$$$$$$$$$$$$ Inside OnTearDown() method...")
+	
+	Set tSC = $$$OK
+	
+	Try {	 
+		If $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			Set tSC = ..GetConnection(	..JavaGateway)
+			If $$$ISOK(tSC) {				
+				Do ..objCdrTuxService.shutdownTuxService()		
+			}
+			Set ..objCdrTuxService = $$$NULLOREF		
+	   }
+	}
+	Catch {
+		Set tSC = $$$EnsSystemError
+	}
+	Set tSC = ##super()
+	Quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
