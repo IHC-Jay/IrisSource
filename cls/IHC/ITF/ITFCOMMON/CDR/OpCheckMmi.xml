@@ -3,40 +3,26 @@
 <Class name="IHC.ITF.ITFCOMMON.CDR.OpCheckMmi">
 <Description>
 Calls Tuxedo service for CheckMMI Information using DSQL</Description>
-<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
 <TimeCreated>63459,50388.534767</TimeCreated>
 
-<Property name="JarFile">
-<Description>
-JarFile which has the java code </Description>
-<Type>%String</Type>
-<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
-<Parameter name="MAXLEN" value="1000"/>
-</Property>
-
-<Property name="ApplicationAddress">
-<Description>
-Applicaiton Address to be connected</Description>
-<Type>%String</Type>
-<InitialExpression>"//svtst01:54210"</InitialExpression>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
-<Property name="TuxedoService">
-<Description>
-Mode of communication to Tuxedo Service</Description>
-<Type>%String</Type>
-<InitialExpression>"DSQL"</InitialExpression>
-<Parameter name="MAXLEN" value="50"/>
-</Property>
-
-<Property name="objCdrTuxService">
-<Type>org.ihc.itf.cdr.CheckMmi</Type>
-</Property>
-
-<Parameter name="SETTINGS">
-<Default>JarFile:Additional,ApplicationAddress:Additional,TuxedoService:Additional</Default>
-</Parameter>
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	do ##super()
+	
+	 try{
+		$$$TRACE("Connect to " _ ..ApplicationAddress)
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.mmi.CheckMmi).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
+     	set status = ..CheckObject()
+	}catch err{
+		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	}
+	
+	quit status
+]]></Implementation>
+</Method>
 
 <Method name="OnMessage">
 <FormalSpec>pRequest:Ens.StringRequest,*pResponse:Ens.StringResponse</FormalSpec>
@@ -46,115 +32,44 @@ Mode of communication to Tuxedo Service</Description>
 	 set status = $$$OK
 	 $$$TRACE("Inside IHC.ITF.ITFCOMMON.CDR.OpCheckMmi OnMessage method <"_pRequest.StringValue_">")	 
 	 
-	 /* 
-	 do ..JavaGateway.%Import(..JarFile) 	 
 	 
-	 try{
-		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CheckMmi).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
-	 }catch err{
-		$$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
-	    
-	 }
-	  */
 	 try {	
-	 	if $IsObject(..objCdrTuxService) {
-		 	#dim newObj as org.ihc.itf.cdr.CheckMmi;
-				$$$TRACE("Object exists: " _ ..objCdrTuxService)
-				$$$TRACE("Object name: " _ ..objCdrTuxService.%ClassName(1))
-				
-		}	
-		else
-		{
-			$$$TRACE("**** Object does not exists ****")
-		} 
+	 	if (..CheckObject() '= $$$OK) {
+		 	$$$TRACE("**** Object does not exists ****")
+		 	// Try to re intialize
+		 	set result = ..OnInit()
+			if (result '= $$$OK)
+			{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Cdr-CHECKMMI", "CheckMMI failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+				return status
+			}
+	 	}
+
+		$$$TRACE("Object name: " _ ..objCdrTuxService.%ClassName(1))
 		
 		set result = ..objCdrTuxService.checkMmi(pRequest.StringValue)		
 		set pResponse = ##class(Ens.StringResponse).%New()  
- 		set pResponse.StringValue = result 	
- 		 $$$TRACE("Result: " _ 	pRequest.StringValue _ ": " _ result)
-	 } catch err {	 
-	 	$$$TRACE("Exception in calling CheckMmi; AsSystemError is: " _err.AsSystemError() _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    
-	    	    
-	    set status = $$$ERROR("Exception in calling CheckMmi " _ err.Data)		    	     	 
-		set errText = $SYSTEM.Status.GetOneErrorText(status)
-	    if errText["CONNECTIONERROR"{		   
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }	    
-	    if errText["RESEND"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError($CLASSNAME(),errText)
-	    }
-	    if errText["DATAERROR"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }
-	    if errText["SHUTDOWN"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }
-	 }
-	 /* 
-	 try {		
-		if $IsObject(..objCdrTuxService) {
-			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			do ..objCdrTuxService.shutdownTuxService()			
-			set ..objCdrTuxService = $$$NULLOREF
-		}
-	 } catch {
-		set tSC = $$$EnsSystemError
-	 }
-	  */
-	 return status
-]]></Implementation>
-</Method>
+ 		set pResponse.StringValue = result 
+ 		$$$TRACE("**** After CheckMMi Call ****"_pResponse.StringValue)	
+ 		
+ 		if ("1" = result){
+	 		 	$$$TRACE("MMI# exists in CDR: "_pRequest.StringValue)
+ 		}else{ 		
+ 				if ("0" = result){
+	 			 $$$TRACE("MMI# NOT exists in CDR: "_pRequest.StringValue)
+ 				}else{
+	 		     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Cdr-CHECKMMI", "CheckMMI failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+	 			}
+ 		}
+ 		$$$TRACE("Result: " _ 	pRequest.StringValue _ ": " _ result)
 
-<Method name="OnInit">
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	
-	do ##super()
-	$$$TRACE("$$$$$ Inside OnInit() method...")	
-	#dim status as %Status
-	set status = $$$OK	
-	$$$TRACE("OnInit..JarFile "_ ..JarFile)
-	do ..JavaGateway.%Import(..JarFile) 	 
+ 
+	 } catch err {	
+		    Set status = ..ExceptionHandler(err, "OnMessage")
+	 }	    
 	 
-	 try{
-		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CheckMmi).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)
-		 Set tSC = ..GetConnection(..JavaGateway)
-     		If $$$ISOK(tSC)
-     		{
-	    		 $$$TRACE("CONNECTION to " _  ..JavaGateway _ " IS GOOD")
-	     
-     		}
-		if $IsObject(..objCdrTuxService) {
-			
-				$$$TRACE("Created object: " _ ..objCdrTuxService)
-		}
-	}catch err{
-		$$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
-	    
-	}
-	quit status
-]]></Implementation>
-</Method>
-
-<Method name="OnTearDown">
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	$$$TRACE(" $$$$$ Inside OnTearDown() method...")
-	set tSC = $$$OK
-	
-	try {		
-		if $IsObject(..objCdrTuxService) {
-			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			do ..objCdrTuxService.shutdownTuxService()			
-			set ..objCdrTuxService = $$$NULLOREF
-		}
-	} catch {
-		set tSC = $$$EnsSystemError
-	}
-	set tSC = ##super()
-	quit tSC
+	 $$$TRACE("OnMessage status: " _ status)	
+	 return status
 ]]></Implementation>
 </Method>
 </Class>
