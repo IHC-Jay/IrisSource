@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.CDR.BaseOperation">
+<Description>
+Calls Tuxedo service case class</Description>
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>63459,50388.534767</TimeCreated>
+
+<Property name="JarFiles">
+<Description>
+JarFile which has the java code </Description>
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/jolt.jar:/WORK/common/class/log4j-1.2.17.jar:/WORK/common/class/itf-CdrAndAsn1-mod.jar:/WORK/common/class/ItfLogger.jar:/WORK/common/class/IhcItfCdrBaseClasses.jar:/WORK/common/class/IhcItfCdrMmiOperations.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="ApplicationAddress">
+<Description>
+Applicaiton Address to be connected</Description>
+<Type>%String</Type>
+<InitialExpression>"//svtst01:54210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service</Description>
+<Type>%String</Type>
+<InitialExpression>"DSQL"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="objCdrTuxService">
+<Type>%RegisteredObject</Type>
+</Property>
+
+<Property name="LogDirectory">
+<Description>
+Name of the log directory </Description>
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/test"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="MaxRetryCount">
+<Description>
+how many times have we retried?</Description>
+<Type>%Integer</Type>
+<InitialExpression>5</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>JarFiles:Additional,ApplicationAddress:Additional,TuxedoService:Additional,LogDirectory:Additional,MaxRetryCount:Additional</Default>
+</Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	do ##super()
+	$$$TRACE("$$$$$ Inside OnInit() method...")	
+	#dim status as %Status
+	set status = $$$OK	
+	$$$TRACE("OnInit..JarFile "_ ..JarFiles)
+	Set p=1
+	For {
+			Set piece=$P(..JarFiles,":",p)
+			Quit:piece=""
+			set p = p+1
+			Set status= ..JavaGateway.%Import(piece)
+			$$$TRACE("Jar file: " _ piece _ ", status: " _ status)
+	}
+]]></Implementation>
+</Method>
+
+<Method name="ExceptionHandler">
+<FormalSpec>err:%Exception.AbstractException,method:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set sysText = ""
+ 	if (err.%IsA("%Exception.SystemException") )
+ 	{
+	 	set sysText = " Details: " _err.AsSystemError()
+ 	}	 
+ 	  	 $$$LOGERROR("Exception in calling " _ method _ sysText _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    	    	    
+	    
+		 set stat = $$$ERROR("Exception in " _ method _ " OnMessage" _ err.Data _ ", " _ sysText)		    	     	 		
+	     set errText = $SYSTEM.Status.GetOneErrorText(stat)
+	     if ((errText["CONNECTIONERROR")){
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	     }Elseif errText["RESEND"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	     }Elseif errText["DATAERROR"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,errText)
+	     }Elseif errText["SHUTDOWN"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	     }Elseif (errText'["DATAERROR"){
+		    Try {
+		    	do ..OnTearDown()
+	    	}catch{}
+	    	// Connect to Gateway
+            Set tSC = ..GetConnection(.tGateway, ..ConnectTimeout+10)
+			If $$$ISOK(tSC) {
+				set status = ..OnInit()
+				If ( ($$$ISOK(tSC)) && (..RetryCount < ..MaxRetryCount) ) {
+	    			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Re connected to Gateway and Tuxedo")	
+				}
+				else
+				{
+					Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName, "Could not reconnect to Tuxedo service " _ stat)
+				}
+			}
+			Else
+			{		
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName, "Could not reconnect to Gateway: " _ errText)
+			}
+	    }Else{
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }	    
+	 
+	 return status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+	$$$TRACE(" $$$$$ Inside OnTearDown() method...")
+	set tSC = $$$OK
+	
+	try {		
+		if $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			do ..objCdrTuxService.shutdownTuxService()			
+			set ..objCdrTuxService = $$$NULLOREF
+		}
+	} catch {
+		set tSC = $$$EnsSystemError
+	}
+	set tSC = ##super()
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CheckObject">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 
+    If ( ($IsObject(..JavaGateway)) && ($IsObject(..objCdrTuxService)) )
+	{
+			$$$TRACE("Valid Object: " _ ..objCdrTuxService)
+			quit $$$OK
+	}
+    elseif (' $IsObject(..JavaGateway))
+    {
+	    set ..objCdrTuxService = $$$NULLOREF 
+	    quit $$$ERROR("Connection to Gateway is broken. " _ tSC)
+    }
+    else
+    {
+	    set ..objCdrTuxService = $$$NULLOREF 
+	    quit $$$ERROR("Invalid object: objCdrTuxService")
+    }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
