@@ -1,6 +1,8 @@
 package IHC.ITF.ITFCOMMON.JMS.ActiveMQ;
 
 import java.io.UnsupportedEncodingException;
+import java.util.Enumeration;
+import java.util.HashMap;
 
 import javax.jms.BytesMessage;
 import javax.jms.Connection;
@@ -130,18 +132,35 @@ public class ActiveMQClass {
 			throw new JMSException("Re initialize the JMS queue");
 		}
 	}
-
+	
 	public String recvMsg() throws JMSException, UnsupportedEncodingException {
+		HashMap<String, String> hmap = recvMsgWithProperties();
+		return (hmap.get("Message"));
+	}
+
+	public HashMap<String, String> recvMsgWithProperties() throws JMSException, UnsupportedEncodingException {
 
 		Message message = null;
+		HashMap<String, String> hmap = new HashMap<String, String>();
 		String outStr = null;
+
 		log.debug("In recvMsg");
 		if (!session.isRunning()) {
 			CloseActiveMQ();
 			throw new JMSException("Re initialize the JMS queue");
 		}
 		message = consumber.receiveNoWait();
-
+		if(message != null)
+		{
+			// List all properties
+				Enumeration<String> e = (Enumeration<String>) message.getPropertyNames();
+				
+				while (e.hasMoreElements()) {
+				  String name = e.nextElement();
+				  hmap.put(name, message.getStringProperty(name));
+				  log.debug("Property: " + name + ", " + message.getStringProperty(name));
+				}
+		}
 		if (message instanceof TextMessage) {
 			log.debug("TextMessage");
 			outStr = ((TextMessage) message).getText();
@@ -175,7 +194,8 @@ public class ActiveMQClass {
 		}
 
 		log.debug("Message: " + outStr);
-		return outStr;
+		hmap.put("Message", outStr);
+		return hmap;
 	}
 
 	public static void main(String[] args) throws Exception {
