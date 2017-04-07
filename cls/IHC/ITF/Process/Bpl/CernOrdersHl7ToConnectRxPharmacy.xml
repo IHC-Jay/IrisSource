@@ -988,6 +988,7 @@ BPL Definition</Description>
  set context.NewResponseClone = response.%ConstructClone(1) 
  $$$TRACE("Take cloned message and send out 8 fake DC messages copies")
  set context.orcOrderControlID = "DC"
+ //May need a loop here for the RXEGroup too
  FOR orderAppendNum =1:1:8
  {
     set dcOrderPlacerNum = context.PharmOrderPlacerNumber _"-"_orderAppendNum
@@ -1016,7 +1017,7 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3800' xend='200' yend='3000' >
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3800' xend='200' yend='3200' >
 <trace name='Working Clones' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
 <code name='RXCcountForRXEIndex' xpos='200' ypos='350' >
 <![CDATA[ set context.rxeRxcCount = context.RXCCount.GetAt(context.RXEIndex)
@@ -1031,43 +1032,47 @@ BPL Definition</Description>
  
  }]]]]><![CDATA[>
 </code>
-<if name='CheckForRDS' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.rxeRxcCount&lt;1))' xpos='200' ypos='450' xend='200' yend='900' >
+<if name='CheckForRDS' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.rxeRxcCount&lt;1))' xpos='200' ypos='450' xend='200' yend='1000' >
 <true>
 <trace name='Send RDS with New Order Num' value='"Changing RDS Order Number"' xpos='335' ypos='600' />
-<code name='CreateModifiedDC' xpos='335' ypos='700' >
+<code name='TRACE' xpos='335' ypos='700' >
 <![CDATA[ $$$TRACE("Make a copy clone of the Response For RDS message with no RXC segments.")
- set context.NewResponseClone = response.%ConstructClone(1) 
-  FOR orderAppendNum =1:1:context.RXEGroupCount
- {
-    set dcOrderPlacerNum = context.PharmOrderPlacerNumber _"-"_orderAppendNum
-    $$$TRACE("New OrderPlacerOrderNumber: "_dcOrderPlacerNum )
-    do context.NewResponseClone.SetValueAt(dcOrderPlacerNum ,"ORC:PlacerOrderNumber.entityidentifier")
-    $$$TRACE("Order Append Number: "_orderAppendNum)
-     
- 
- }]]]]><![CDATA[>
+ ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='800' xend='200' yend='450' >
-<annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
-<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.NewResponseClone" action="set" />
-</request>
-</call>
-<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
-</foreach>
+<transform name='RDSTransform' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacyRDS' source='response' target='context.NewResponseClone' xpos='335' ypos='800' />
+<code name='RDSCloneWithNewOrdNum' xpos='335' ypos='900' >
+<![CDATA[ set dcOrderPlacerNum = context.PharmOrderPlacerNumber _"-"_orderAppendNum
+ $$$TRACE("New OrderPlacerOrderNumber: "_dcOrderPlacerNum )
+ do context.NewResponseClone.SetValueAt(dcOrderPlacerNum ,"ORC:PlacerOrderNumber.entityidentifier")
+ $$$TRACE("Order Append Number: "_orderAppendNum)
+    
+ FOR callIndex =1:1:context.TargetList.Count() {
+    set targetOperation=context.TargetList.GetAt(callIndex)
+    $$$TRACE("Preparing call to send to: "_targetOperation)
+    set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseClone)
+    if ('tStatus) {
+         set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Call Operation Error <add your custom error info here>") 
+    }
+    else { 
+         $$$TRACE("Successfully send DC Clone. Sent to:-"_targetOperation_"-...")
+             
+    }
+
+ }
+     
+ ]]]]><![CDATA[>
+</code>
 </true>
 </if>
-<if name='CheckRDSTwo' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.orcOrderControlID="DC") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.rxeRxcCount&lt;1))' xpos='200' ypos='1000' xend='200' yend='1450' >
+<if name='CheckRDSTwo' condition='((context.MSH9MsgType="RDS") &amp;&amp; (context.orcOrderControlID="DC") &amp;&amp; (context.RXEGroupCount&gt;=2) &amp;&amp; (context.rxeRxcCount&lt;1))' xpos='200' ypos='1100' xend='200' yend='1650' >
 <true>
-<trace name='Send DC RDS ' value='"Sending one DC RDS Original Order Number"' xpos='335' ypos='1150' />
-<code name='CreateModifiedDC' xpos='335' ypos='1250' >
-<![CDATA[ $$$TRACE("Make a copy clone of the Response for DC RDS message.")
- set context.NewResponseClone = response.%ConstructClone(1) 
- $$$TRACE("Send DC RDS Clone Message with original Order Number!")
+<trace name='DC RDS TRACE' value='"Sending one DC RDS Original Order Number.  *** Make a copy clone of the Response for DC RDS message."' xpos='335' ypos='1250' />
+<transform name='RDSTransform' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacyRDS' source='response' target='context.NewResponseClone' xpos='335' ypos='1350' />
+<code name='RDSDCTRACE' xpos='335' ypos='1450' >
+<![CDATA[ $$$TRACE("Send DC RDS Clone Message with original Order Number!")
   ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='1350' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='1550' xend='200' yend='450' >
 <annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -1078,16 +1083,16 @@ BPL Definition</Description>
 </foreach>
 </true>
 </if>
-<if name='RDEwithRXCs' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.rxeRxcCount &gt;=2) &amp;&amp; (context.rxc2CompCodeIDLength&gt;0))' xpos='200' ypos='1550' xend='200' yend='2450' >
+<if name='RDEwithRXCs' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.rxeRxcCount &gt;=2) &amp;&amp; (context.rxc2CompCodeIDLength&gt;0))' xpos='200' ypos='1750' xend='200' yend='2650' >
 <true>
-<code name='Work Clone RXE' xpos='335' ypos='1700' >
+<code name='Work Clone RXE' xpos='335' ypos='1900' >
 <![CDATA[ $$$TRACE("Make a copy of the Response to break out each of the individual RXCs to their own RXE order message for the RDE Message")
  set context.NewResponseClone = response.%ConstructClone(1)
  
 
 ]]]]><![CDATA[>
 </code>
-<foreach name='WorkRXERXCgroup' property='response.{RXEgrp(context.RXEIndex).RXC()}' key='context.rxcIndex' xpos='335' ypos='1800' xend='200' yend='650' >
+<foreach name='WorkRXERXCgroup' property='response.{RXEgrp(context.RXEIndex).RXC()}' key='context.rxcIndex' xpos='335' ypos='2000' xend='200' yend='650' >
 <code name='RXCcontinue' xpos='200' ypos='250' >
 <![CDATA[ $$$TRACE("Working RDE message - RXC DTL in RXC for each before calling DTL for copying RXC to RXE")
  
@@ -1107,10 +1112,10 @@ BPL Definition</Description>
 <trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
 </foreach>
 </foreach>
-<if name='CheckRDEandDC' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.orcOrderControlID="DC"))' xpos='335' ypos='1900' xend='335' yend='2350' >
+<if name='CheckRDEandDC' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.orcOrderControlID="DC"))' xpos='335' ypos='2100' xend='335' yend='2550' >
 <true>
-<trace name='Send DC RDE' value='"Preparing one DC RDE with Original Order Number"' xpos='470' ypos='2050' />
-<code name='CreateModifiedDC' xpos='470' ypos='2150' >
+<trace name='Send DC RDE' value='"Preparing one DC RDE with Original Order Number"' xpos='470' ypos='2250' />
+<code name='CreateModifiedDC' xpos='470' ypos='2350' >
 <![CDATA[ $$$TRACE("Make a copy clone of the Response fpr RDE DC message.")
  set context.NewResponseClone = response.%ConstructClone(1)
  do context.NewResponseClone.SetValueAt(,"RXEgrp().RXC()","remove")
@@ -1118,7 +1123,7 @@ BPL Definition</Description>
  $$$TRACE("Created DC RDE Clone Message with original Order Number!")
   ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='470' ypos='2250' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='470' ypos='2450' xend='200' yend='450' >
 <annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -1131,9 +1136,9 @@ BPL Definition</Description>
 </if>
 </true>
 </if>
-<if name='RDEorRDSNoRXCs' condition='(((context.MSH9MsgType="RDE" ) &amp;&amp; (context.rxeRxcCount =0)) || ((context.MSH9MsgType="RDS" ) &amp;&amp; (context.rxeRxcCount =0)))' xpos='200' ypos='2550' xend='200' yend='2800' >
+<if name='RDEorRDSNoRXCs' condition='(((context.MSH9MsgType="RDE" ) &amp;&amp; (context.rxeRxcCount =0)) || ((context.MSH9MsgType="RDS" ) &amp;&amp; (context.rxeRxcCount =0)))' xpos='200' ypos='2750' xend='200' yend='3000' >
 <true>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='2700' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='2900' xend='200' yend='450' >
 <annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -1144,7 +1149,7 @@ BPL Definition</Description>
 </foreach>
 </true>
 </if>
-<trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='2900' />
+<trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='3100' />
 </foreach>
 <code name='ResetErrors' xpos='200' ypos='3900' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
