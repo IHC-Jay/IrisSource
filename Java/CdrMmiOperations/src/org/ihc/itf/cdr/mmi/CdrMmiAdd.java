@@ -46,7 +46,7 @@ public class CdrMmiAdd extends CdrTuxServices {
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrMmiAdd", fileName, (debug == 1) ? true : false) ;
 		dateFormat.setTimeZone(new SimpleTimeZone(0, "UTC"));
-		super.setLogger();
+		super.setLogger("CdrMmiAdd");
 	}
 	
 	public CdrMmiAdd(String applicationAddress, String serviceName) throws Exception	{

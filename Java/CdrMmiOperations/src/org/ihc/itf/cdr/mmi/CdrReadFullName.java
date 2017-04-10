@@ -35,7 +35,7 @@ public class CdrReadFullName extends CdrTuxServices {
 	public CdrReadFullName(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrReadFullName", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("CdrReadFullName");
 	}
 	
 	public String GetLastAndFirstName(String mmiNum) throws Exception {

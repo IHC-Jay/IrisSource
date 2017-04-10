@@ -37,7 +37,7 @@ public class CdrReadMmi extends CdrTuxServices {
 	public CdrReadMmi(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrReadMmi", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("CdrReadMmi");
 	}
 	
 	public cdr.asn1.hems.MmiInfo getMMInfo(String unitNum) throws Exception {

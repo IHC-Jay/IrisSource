@@ -28,7 +28,7 @@ public class MmiCheckOptOutStatus extends CdrTuxServices {
 	public MmiCheckOptOutStatus(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("MmiCheckOptOutStatus", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("MmiCheckOptOutStatus");
 	}
 	
 	public boolean checkOptOutStatus(String unitNum) throws Exception {			

@@ -37,7 +37,7 @@ public class CdrReadDOB extends CdrTuxServices {
 	public CdrReadDOB(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrReadDOB", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("CdrReadDOB");
 	}
 	
 	public String GetDOB(String mmiNum) throws Exception {

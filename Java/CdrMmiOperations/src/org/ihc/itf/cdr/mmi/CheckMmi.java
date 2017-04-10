@@ -28,7 +28,7 @@ public class CheckMmi extends CdrTuxServices {
 	public CheckMmi(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CheckMmi", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("CheckMmi");
 	}
 	
 	public boolean checkMmi(String unitNum) throws Exception {			

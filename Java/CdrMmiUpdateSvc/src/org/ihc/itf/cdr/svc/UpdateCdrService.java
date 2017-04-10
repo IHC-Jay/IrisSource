@@ -17,6 +17,7 @@ public class UpdateCdrService extends CdrTuxServices {
 		
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.getInstance("UpdateCdrService");
+		super.setLogger("UpdateCdrService");
 		m_serviceName = serviceName;
 		log.debug("In UpdateCdrService");
 	}

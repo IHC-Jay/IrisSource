@@ -1,7 +1,7 @@
 package org.ihc.itf.cdr;
 
 import org.apache.log4j.Logger;
-import org.ihc.itf.util.ItfLogger;
+import org.ihc.itf.util.ItfLoggerHash;
 
 import bea.jolt.ApplicationException;
 import bea.jolt.JoltException;
@@ -12,7 +12,7 @@ import bea.jolt.ServiceException;
 import bea.jolt.SessionException;
 
 public class CdrTuxServices {
-	private static Logger log = ItfLogger.getInstance() ;
+	private  Logger log = null;
 	// Jolt Objects
 		private JoltSession m_joltSession = null;
 		private JoltRemoteService m_joltService = null;
@@ -24,12 +24,12 @@ public class CdrTuxServices {
 	protected  CdrTuxServices(String applicationAddress, String serviceName) throws Exception
 	{
 		createTuxService(applicationAddress, serviceName) ;
-		log.debug("CdrTuxServices"); ;
 	}
 	
-	protected void setLogger()
+	protected void setLogger(String nm)
 	{
-		log = ItfLogger.getInstance() ;
+		log = ItfLoggerHash.getInstance(nm) ;
+		log.debug("log set");
 	}
 			
 	private void createTuxService(String applicationAddress, String serviceName) throws Exception{	
@@ -56,8 +56,10 @@ public class CdrTuxServices {
 	
 	public void shutdownTuxService() throws Exception
 	{
-		log.debug("CdrTuxServices shutdownTuxService");
-
+		if(log != null)
+		{
+			log.debug("CdrTuxServices shutdownTuxService");
+		}
 		m_joltService = null;
 		if (null != m_joltSession) {
 			m_joltSession.endSession();
@@ -73,11 +75,15 @@ public class CdrTuxServices {
 		try {
 			if(this.m_joltService != null)
 			{
-
-				log.debug("Calling service: <" + this.m_joltService.getName() + ">");
+				if(log != null)
+				{
+					log.debug("Calling service: <" + this.m_joltService.getName() + ">");
+				}
 				this.m_joltService.call(null);
-	
-				log.debug("Reading response bytes as <" + CARRAY_FIELD_NAME + ">");
+				if(log != null)
+				{
+					log.debug("Reading response bytes as <" + CARRAY_FIELD_NAME + ">");
+				}
 			}
 			else
 			{
@@ -124,7 +130,10 @@ public class CdrTuxServices {
 	
 	protected void setRequestBytes( byte[] requestBytes )
 	{
-		log.debug("setRequestBytes: " + requestBytes.length);
+		if(log != null)
+		{
+			log.debug("setRequestBytes: " + requestBytes.length);
+		}
 		this.m_joltService.setBytes(CARRAY_FIELD_NAME, requestBytes, requestBytes.length);
 		
 		return;

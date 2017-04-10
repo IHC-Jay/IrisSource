@@ -25,7 +25,7 @@ public class CdrMmiEvents extends CdrTuxServices {
 	public CdrMmiEvents(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
 		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrMmiEvents", fileName, (debug == 1) ? true : false) ;
-		super.setLogger();
+		super.setLogger("CdrMmiEvents");
 	}	
 	
 	public CdrMmiEvents(String applicationAddress, String serviceName) throws Exception	{
