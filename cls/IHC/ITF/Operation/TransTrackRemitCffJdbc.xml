@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.TransTrackRemitCffJdbc">
+<Description>
+This class has method to call the select heatlh Stored procedures and also generate the EFT file if call is successful</Description>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>63459,50388.534767</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+This class is used to write the EDIFEC data from Oracle server to a file</Description>
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<Description>
+This method calls Select Health Stored procedure DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_SENT to store trans tracking</Description>
+<FormalSpec>pRequest:IHC.ITF.DStruc.Message.ShTransTrackRemitCff,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	#dim tSC As %Status=$$$OK
+	#dim tRTs As %ListOfObjects
+	#dim tResultSet,snap As EnsLib.SQL.Snapshot
+	
+	$$$TRACE("Inside "_..%ConfigName_" Method OnMessage")
+	set ioParms=4
+	// These values are defined for Java. Take look at https://docs.oracle.com/javase/7/docs/api/constant-values.html 
+	//Input
+	set ioParms(1)=pRequest.transactionNumber
+	set ioParms(1,"SqlType")=12 // VARCHAR
+	set ioParms(2)=pRequest.transTrackDateTimeStamp
+	set ioParms(2,"SqlType")=12 // VARCHAR
+	//Output
+	set ioParms(3,"SqlType")=4 // INTEGER
+	set ioParms(4,"SqlType")=12 // VARCHAR
+
+	Set tQuery="{call DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_SENT(?, ?, ?, ?)}"
+	
+	s snap=##class(EnsLib.SQL.Snapshot).%New()
+	s snap.MaxRowsToGet=1
+	set tRTs=##class(%Library.ListOfObjects).%New()
+	d tRTs.Insert(snap)
+  	Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"iioo#",.ioParms)
+  	$$$TRACE("Stored Procedure Call status "_tSC) 
+  	If $ISOBJECT(tOutParms) 
+	{
+  		$$$TRACE(tOutParms.Size_" || Error code: "_tOutParms.GetAt(1)_" || Error desc:  "_tOutParms.GetAt(2) )
+	}
+  	if ($$$ISOK(tSC)){
+	  	Set Errorcode = tOutParms.GetAt(1)
+	  	Set ErrorDesc = tOutParms.GetAt(2)
+	  	set pResponse=##class(Ens.StringContainer).%New()
+	  	// Response code = 0 -- Row successfully updated
+		// Response code = 100 -- Row update failed because we did not find the CheckRef # in the database. We want to continue processing
+		// ###
+	  	if ((Errorcode = 0) || (Errorcode = 100))
+		{
+					$$$TRACE("Successfully inserted into DB")
+					Set pResponse.StringValue=Errorcode_"|"_ErrorDesc
+		        	Do pResponse.%Save()
+				
+		}
+		else {
+					$$$TRACE("Error during the inserting into SHDB")
+					Set pResponse.StringValue=Errorcode_"|"_ErrorDesc
+		        	Do pResponse.%Save()
+		        	$$$TRACE("Response. String Value"_pResponse.StringValue)
+		}
+	}
+  	
+	quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
