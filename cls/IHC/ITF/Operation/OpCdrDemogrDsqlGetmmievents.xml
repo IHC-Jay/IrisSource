@@ -3,38 +3,14 @@
 <Class name="IHC.ITF.Operation.OpCdrDemogrDsqlGetmmievents">
 <Description>
 Calls Tuxedo service for MMI Events retrieval using DSQL</Description>
-<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
 <TimeCreated>64075,38297.767946</TimeCreated>
-
-<Property name="JarFile">
-<Description>
-JarFile which has the java code </Description>
-<Type>%String</Type>
-<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
-<Parameter name="MAXLEN" value="1000"/>
-</Property>
-
-<Property name="ApplicationAddress">
-<Description>
-Applicaiton Address to be connected</Description>
-<Type>%String</Type>
-<InitialExpression>"//svtst01:54210"</InitialExpression>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
-<Property name="TuxedoService">
-<Description>
-Mode of communication to Tuxedo Service</Description>
-<Type>%String</Type>
-<InitialExpression>"DSQL"</InitialExpression>
-<Parameter name="MAXLEN" value="50"/>
-</Property>
 
 <Property name="Events">
 <Description>
 No of events to be loaded at a time</Description>
 <Type>%String</Type>
-<InitialExpression>"526"</InitialExpression>
+<InitialExpression>"10"</InitialExpression>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
@@ -55,53 +31,34 @@ No of events to be loaded at a time</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>JarFile:Additional,ApplicationAddress:Additional,TuxedoService:Additional,Events:Additional</Default>
+<Default>Events:Additional</Default>
 </Parameter>
 
-<UDLText name="T">
-<Content><![CDATA[
-/*
-Method OnInit() As %Status
-{
-	
-	do ##super()
-	$$$TRACE("$$$$$ Inside OnInit() method...")	
-	#dim status as %Status
-	set status = $$$OK	
-	$$$TRACE("OnInit..JarFile "_ ..JarFile)
-	do ..JavaGateway.%Import(..JarFile) 	 
-	 
-	 try{
-		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrMmiEvents).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)
-		
-	}catch err{
-		$$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
-	    
-	}
-	quit status
-}
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service </Description>
+<Type>%String</Type>
+<InitialExpression>"DSQL"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
 
-Method OnTearDown() As %Status
-{
-	$$$TRACE(" $$$$$ Inside OnTearDown() method...")
-	set tSC = $$$OK
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	do ##super()
 	
-	try {		
-		if $IsObject(..objCdrTuxService) {
-			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			do ..objCdrTuxService.shutdownTuxService()			
-			set ..objCdrTuxService = $$$NULLOREF
-		}
-	} catch {
-		set tSC = $$$EnsSystemError
+	 try{
+		$$$TRACE("Connect to " _ ..ApplicationAddress)
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.mmi.CdrMmiEvents).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
+     	set status = ..CheckObject()
+	}catch err{
+		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
 	}
-	set tSC = ##super()
-	quit tSC
-}
-*/
-]]></Content>
-</UDLText>
+	
+	quit status
+]]></Implementation>
+</Method>
 
 <Method name="OnMessage">
 <FormalSpec>pRequest:Ens.StringRequest,*pResponse:IHC.ITF.Response.MmiEventsTable</FormalSpec>
@@ -111,24 +68,36 @@ Method OnTearDown() As %Status
 	 set status = $$$OK
 	 $$$TRACE("Inside OnMessage method<" _ pRequest.StringValue _ ">")
 	 
-	 do ..JavaGateway.%Import(..JarFile) 	 
 	 
-	 try{
-		 set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrMmiEvents).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
-	 }catch err{
-		 $$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	     set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)	    
-	 }
 	 
 	 set tableObj = ##class(IHC.ITF.Response.MmiEventsTable).%New()
 	 set tableObj.ListOfMmiEventsRows = ##class(%ListOfObjects).%New()
 	 set tableObj.DataExists = 0
 	 
+	 $$$TRACE("objCdrTuxService Object valid: "_$IsObject(..objCdrTuxService))
+	 
+	 
 	 try {		 
+	      
+	      if (..CheckObject() '= $$$OK) {
+		 	$$$TRACE("**** Object does not exists ****")
+		 	// Try to re intialize
+		 	set result = ..OnInit()
+			if (result '= $$$OK)
+			{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Cdr-Demogr-Dsql-GETMMIEVENTS", "CdrMmiEvents failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+				return status
+			}
+	 	}
+
+		$$$TRACE("Object name: " _ ..objCdrTuxService.%ClassName(1))
+		
+	 
 		set output = ..objCdrTuxService.loadMmiEvents(..Events)
 		$$$TRACE("Output after invocation of loadMmiEvent Java Method<" _ output _ ">")
 		
 		if ($LENGTH(output)>1){
+		    $$$TRACE( " CDR events loaded and exists")
 			set tableObj.DataExists = 1
 			set tableList = $LISTFROMSTRING(output, ..ROWBREAK) 
 			$$$TRACE("Number of Rows from DSQL returned : " _$LISTLENGTH(tableList))		
@@ -137,6 +106,7 @@ Method OnTearDown() As %Status
 				set rowList = $LISTFROMSTRING(($LIST(tableList,iTarget)), ..COLUMBREAK)
 				set rowObj = ##class(IHC.ITF.Response.MmiEventsRow).%New()
 				set rowObj.UnitNumber = $LIST(rowList,1)
+				$$$TRACE(" Unit Number: " _ rowObj.UnitNumber)
 				set rowObj.AuditNumber = $LIST(rowList,2)
 				set rowObj.TxTypeCid = $LIST(rowList,3)
 				set rowObj.TxTime = $LIST(rowList,4)
@@ -147,74 +117,76 @@ Method OnTearDown() As %Status
 				set rowObj.FacilityCid = $LIST(rowList,9)
 				if (($Length(rowObj.UnitNumber) > 0) && ($Length(rowObj.AuditNumber) > 0)){
 					set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CdrCffDemogrToInitiateXmlSOAP.Lookup.SkipMap", rowObj.Application, .retVal )
+					$$$TRACE("Return Value: "_retVal)
 					if (retVal = "Unknown") {
 						$$$TRACE("Not skip: " _rowObj.AuditNumber)
 						set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CdrCffDemogrToInitiateXmlSOAP.Lookup.DelMap", rowObj.Application, .retVal )
-						//Check if UNIT_NUMBER present in mmi.mmi_site_audit table using unit_number, ROW_DELETE_AUDIT_NUM
-						set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
-						$$$TRACE("checkMmiEvents output is: "_rResponse)
-						if ((retVal = "Unknown") && ('rResponse)) {
-							//If TxTypeCid is '250' then do checkMergeMMI
-							if (rowObj.TxTypeCid = "205") {
-								//Get RESERVE_UNIT_NUMBER from mmi.mmi_merge_log using DROP_UNIT_NUMBER, MERGE_AUDIT_NUMBER
-								set newMMI = ..objCdrTuxService.checkMergeMmi(rowObj.UnitNumber,rowObj.AuditNumber)
-								$$$TRACE("Merge unit number is: "_newMMI)
-								if ($LENGTH(newMMI) > 0){
-									set rowObj.DelUnitNumber = rowObj.UnitNumber
-									set rowObj.UnitNumber = newMMI
-								}							
-							}
-							$$$TRACE("Send event: " _rowObj.AuditNumber)
-							//insert the row into table
-							do tableObj.ListOfMmiEventsRows.Insert(rowObj)																			
-						}	
+						
+						  						    
+						if (retVal = "Unknown") {
+							//Check if UNIT_NUMBER present in mmi.mmi_site_audit table using unit_number, ROW_DELETE_AUDIT_NUM
+						    //set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
+						    //$$$TRACE("checkMmiEvents output is: "_rResponse)
+						     
+						     // If Mmi_Maitena and not in the mmi_site audit table we need to send.
+						     
+						     //if (rResponse){
+							     do tableObj.ListOfMmiEventsRows.Insert(rowObj)	
+								 set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)														
+								 
+								 if (rowObj.TxTypeCid = "205") {
+									//Get RESERVE_UNIT_NUMBER from mmi.mmi_merge_log using DROP_UNIT_NUMBER, MERGE_AUDIT_NUMBER
+									set newMMI = ..objCdrTuxService.checkMergeMmi(rowObj.UnitNumber,rowObj.AuditNumber)
+									$$$TRACE("Merge unit number is: "_newMMI)
+									if ($LENGTH(newMMI) > 0){
+										set rowObj.DelUnitNumber = rowObj.UnitNumber
+										set rowObj.UnitNumber = newMMI
+									}						
+							      }							   												
+						  } else {
+						     $$$TRACE(" Invalid Application (Not exists in DelMap Lookup): "_rowObj.Application _ ". Skip the event.")						    
+						     set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
+						     $$$TRACE("checkMmiEvents output is: "_rResponse)						
+						     if ('rResponse){
+							        do tableObj.ListOfMmiEventsRows.Insert(rowObj)	
+								    set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)																						 
+								 if (rowObj.TxTypeCid = "205") {									
+									set newMMI = ..objCdrTuxService.checkMergeMmi(rowObj.UnitNumber,rowObj.AuditNumber)
+									$$$TRACE("Merge unit number is: "_newMMI)
+									if ($LENGTH(newMMI) > 0){
+										set rowObj.DelUnitNumber = rowObj.UnitNumber
+										set rowObj.UnitNumber = newMMI
+									}						
+							      }       
+							 }							 
+						  }					
 					} else {
 						//filtered the application
-						$$$TRACE("Application filtered: "_rowObj.Application)
+						$$$TRACE(" Invalid Application (Not exists in SkipMap Lookup): "_rowObj.Application _ ". Skip the event.")
 					}
-					//Unload relavant UnitNumber and AuditNumber row from mmi.mmi_itf_event_queue table
-					set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
+				} else{
+				     $$$TRACE(" Unit NUmber: "_ rowObj.UnitNumber _ " Audit Number: "_ rowObj.AuditNumber)
 				}			
 			}
+		}else{
+			     $$$TRACE( " No CDR events exists..")			
+		}
 			//update dataExists variable
 			$$$TRACE("Number of rows in MmiEventsTable " _ tableObj.ListOfMmiEventsRows.Count())
 			if (tableObj.ListOfMmiEventsRows.Count() > 0) {
 				set tableObj.DataExists = 1
 			} else {
 				set tableObj.DataExists = 0
-			}
-		}
-		//set response of method to tableObject
-		set pResponse = tableObj		
-	 } catch err {		 	
-	    $$$TRACE("Exception in calling CdrMmiEvents; AsSystemError is: " _err.AsSystemError() _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    
-	    	    
-	    set status = $$$ERROR("Exception in calling CdrMmiEvents " _ err.Data)		    	     	 
-		set errText = $SYSTEM.Status.GetOneErrorText(status)
-		
-	    if errText["CONNECTIONERROR"{		   
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }	    
-	    if errText["RESEND"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError($CLASSNAME(),errText)
-	    }
-	    if errText["DATAERROR"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }
-	    if errText["SHUTDOWN"{
-		   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
-	    }
-	 }
+			} 
 	 
-	 try {		
-		if $IsObject(..objCdrTuxService) {
-			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			do ..objCdrTuxService.shutdownTuxService()			
-	 		set ..objCdrTuxService = $$$NULLOREF
-	 	}
-	 } catch {
-	 	set status = $$$EnsSystemError
+		//set response of method to tableObject
+		set pResponse = tableObj
+		} catch err {		 	
+	       Set status = ..ExceptionHandler(err, "OnMessage")
 	 }
+
+	 $$$TRACE("OnMessage status: " _ status)	
+	 
 	 return status
 ]]></Implementation>
 </Method>
