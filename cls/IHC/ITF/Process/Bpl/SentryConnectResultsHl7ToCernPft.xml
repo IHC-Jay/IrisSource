@@ -34,6 +34,24 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddDomainSensorMedicsObx3' type='%String' initialexpression='"529318507"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddContextSensorMedicsiCentra' type='%String' initialexpression='"529318508"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
 
 </context>
 <sequence xend='200' yend='1450' >
@@ -76,6 +94,18 @@ BPL Definition</Description>
 
  	  ]]]]><![CDATA[>
 </code>
+
+<code name='CheckForLookupTables' xpos='200' ypos='850' >
+<annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
+<![CDATA[
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.SentryConnectResultsHl7ToCernPft.Lookup.SentryConnectToCernerProperties")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.SentryConnectResultsHl7ToCernPft.Lookup.SentryConnectToCernerProperties not exists")  
+  }
+  ]]]]><![CDATA[>
+</code>
+
+
 <code name='ValidateMessage' xpos='200' ypos='650' >
 <annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
@@ -89,6 +119,54 @@ BPL Definition</Description>
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 
+<code name='initializeHddTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+
+<code name='intializeHddProperties' xpos='470' ypos='1200' >
+<![CDATA[
+     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernResultsHl7ToLumedxLabMicroBb.Lookup.CernToLumedxProperties", "HddDomain.Obx3Filter", .retVal )
+	 set context.hddDomainSensorMedicsObx3 = retVal 		
+	 $$$TRACE("Hdd Domain Lumedx OBX3Flter " _ context.hddDomainLumedxObx3Filter)
+	 
+	 set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernResultsHl7ToLumedxLabMicroBb.Lookup.CernToLumedxProperties", "HddDomain.Obx3Filter", .retVal )
+	 set context.hddContextSensorMedicsiCentra = retVal 		
+	 $$$TRACE("Hdd Context Lumedx OBX3Flter " _ context.hddDomainLumedxObx3Filter)
+
+    ]]]]><![CDATA[>
+</code>
+
+<code name='createHddRequests GetNcidFromRep' xpos='470' ypos='1700' >
+<![CDATA[
+  	$$$TRACE(" GetNcidFromRep Hdd Requests...")
+  	set context.hddNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()  	  	
+  	set obx31Id = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(1).OBX:ObservationIdentifier.identifier")     	
+  	$$$TRACE(" OBX3.1 rep value: " _ obx31Id)	
+  	if (obx31Id '= "" ){
+		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest , obx31Id,  context.hddDomainSensorMedicsObx3, context.hddContextSensorMedicsiCentra, "OBX31:ObservationId")  	  	
+		$$$TRACE("Hdd Request,GetNcidFromRep OBX3;1 is " _ obx31Id)		
+	}
+  	
+]]]]><![CDATA[>
+</code>
+
+<code name='GetNcidFromRep' xpos='470' ypos='1800' >
+<![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddNcidRequest,.hddNcidResponse)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+ }else { 
+   set context.hddNcidResponse= hddNcidResponse
+ }
+]]]]><![CDATA[>
+</code>
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.SentryConnectResultsHl7ToCernPft' source='request' target='response' xpos='335' ypos='1600' />
 
@@ -122,8 +200,26 @@ BPL Definition</Description>
 ]]></Data>
 </XData>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
+<DefaultData>SentryConnectResultsHl7ToCernPftDefaultData</DefaultData>
+<Data name="SentryConnectResultsHl7ToCernPftDefaultData">
+<Subscript>"SentryConnectResultsHl7ToCernPft"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
 </Storage>
 </Class>
 </Export>
