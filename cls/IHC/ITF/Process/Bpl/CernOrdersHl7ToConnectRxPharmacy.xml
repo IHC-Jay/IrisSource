@@ -254,12 +254,12 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='rxeGiveRateUnitsId' type='%String' instantiate='0' >
+<property name='rxe24GiveRateUnitsId' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='rxeGiveRateUnitsText' type='%String' instantiate='0' >
+<property name='rxe24GiveRateUnitsText' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -729,7 +729,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2650' xend='200' yend='850' >
+<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2650' xend='200' yend='950' >
 <annotation><![CDATA[Do the HDD Work for the RXE Group]]]]><![CDATA[></annotation>
 <trace name='Inside RXE Group' value='"Inside RXE Group"' xpos='200' ypos='250' />
 <code name='Working RXEQTIntervalRepeatPattern' xpos='200' ypos='350' >
@@ -868,7 +868,59 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<foreach name='RXC ComponentUnits ID' property='request.{RXEgrp(context.RXEIndex).RXC()}' key='context.rxcIndex' xpos='200' ypos='650' xend='200' yend='550' >
+<code name='RXE Give Rate Units' xpos='200' ypos='650' >
+<annotation><![CDATA[Work the RXE 24.1 NCID and RXE 24.2 TEXT values]]]]><![CDATA[></annotation>
+<![CDATA[   $$$TRACE("Working RXE-24 Give Rate Units")
+  set context.Ncid = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:GiveRateUnits.identifier")
+  set context.HL7SpecValue= "RXE:GiveRateUnits.identifier"
+  $$$TRACE("Ncid found for the RXE-24 Give Rate Units: "_context.Ncid)
+ if (context.Ncid '= "") {
+    if ($ISVALIDNUM(context.Ncid)){
+        
+        set context.hddncidtorepcontext = $G( ^IHC.CernConnectRxPharmacy("UnitsContext"))
+        $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+    
+    
+    Try {
+    	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+    	// work return value
+        if ($LENGTH(context.hddreturnrep)>0){
+	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+        }else{     
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+        }  
+    } Catch eException {
+	 	Set exceptStatus = eException.AsStatus()
+	 	$$$LOGSTATUS(exceptStatus)
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+    }
+    
+    
+       //After HDD call set context specific variable to use in setting DTL
+       set context.rxe24GiveRateUnitsText = context.hddreturnrep
+       set context.rxe24GiveRateUnitsId = context.Ncid
+       
+    }else{
+        //Free text
+        $$$TRACE("RXE-24 Give Rate Units ID is not an NCID, have free text!")
+        set context.rxe24GiveRateUnitsText = context.Ncid
+        set context.rxe24GiveRateUnitsId = ""
+    
+    }
+ }else {
+    //Get source Give Rate Units Text - should be free text
+    set context.rxe24GiveRateUnitsText = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:GiveRateUnits.text")
+    set context.rxe24GiveRateUnitsId = ""
+    $$$TRACE("No NCID found for Give Rate Units RXE-24. Setting RXE-24 Text as it is found: "_context.rxe24GiveRateUnitsText)
+       
+ }
+
+
+
+]]]]><![CDATA[>
+</code>
+<foreach name='RXC ComponentUnits ID' property='request.{RXEgrp(context.RXEIndex).RXC()}' key='context.rxcIndex' xpos='200' ypos='750' xend='200' yend='550' >
 <annotation><![CDATA[do the lookups for the RXC-4 Component Units ID]]]]><![CDATA[></annotation>
 <code name='RXCComponentUnits' xpos='200' ypos='250' >
 <annotation><![CDATA[Lookup RXC-4 ComponentUnitsID and get HDD rep and set to context.rxcComponentUnitsTxtArr array]]]]><![CDATA[></annotation>
@@ -904,9 +956,9 @@ BPL Definition</Description>
 
  }else {
 	//Set Text empty string
-	$$$TRACE("No RXC-4 NCID so no TEXT")
-	set context.rxeGiveRateUnitsText = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXE:GiveRateUnits.text")
-	set context.rxeGiveRateUnitsId = ""
+	$$$TRACE("No RXC-4 NCID so no Rep to lookup, setting any text that exisits from source...")
+	do context.rxcComponentUnitsTxtArr.SetAt((request.GetValueAt("RXEgrp("_context.RXEIndex_").RXC("_context.rxcIndex_"):ComponentUnits.text")),context.rxcIndex)
+	
 
 	
  }
@@ -926,7 +978,7 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 </foreach>
-<code name='SetRXERXCCounts' xpos='200' ypos='750' >
+<code name='SetRXERXCCounts' xpos='200' ypos='850' >
 <annotation><![CDATA[Set the counts for number of RXE Group Count and number of RXC segments]]]]><![CDATA[></annotation>
 <![CDATA[ //Got to get our index for RXE counts and RXC counts right!!!!!!
  set context.RXEGroupCount = context.RXEIndex
