@@ -51,7 +51,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties' response='Ens.Response' height='5150' width='2420' >
+<process language='objectscript' request='IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties' height='5150' width='2420' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='configName' type='%String' initialexpression='""' instantiate='0' >
@@ -71,10 +71,14 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='2500' />
 </parameters>
 </property>
-<property name='transTrackRec' type='IHC.ITF.DStruc.Message.ShTransTrackRemitCff' instantiate='1' />
+<property name='transTrackDateTimeStamp' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1450' >
-<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<sequence xend='200' yend='1350' >
+<scope xpos='200' ypos='250' xend='200' yend='1250' >
 <trace name='InsideBP' value='"Inside configName "_process.%ConfigName' xpos='200' ypos='350' />
 <assign name="setConfigName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
 <code name='RetrieveTargetConfigNames' xpos='200' ypos='550' >
@@ -89,43 +93,88 @@ BPL Definition</Description>
   set context.targetConfigNames=configValue
   ]]]]><![CDATA[>
 </code>
-<code name='Get transaction detail' xpos='200' ypos='650' >
+<code name='Get transaction property' xpos='200' ypos='650' >
 <![CDATA[ $$$TRACE("# of Properties: " _ request.Properties.Count())
- set context.transTrackRec.transTrackDateTimeStamp = request.Properties.GetAt("RemitTransTrackDateTimeStamp")
- set context.transTrackRec.transactionNumber = request.Properties.GetAt("RemitTrnsNumber")
- if ($L(context.transTrackRec.transTrackDateTimeStamp) > 0)
+ set context.transTrackDateTimeStamp = request.Properties.GetAt("RemitTransTrackDateTimeStamp")
+ if ($L(context.transTrackDateTimeStamp) > 0)
  {
      $$$TRACE("Found RemitTransTrackDateTimeStamp")
       
  }
- if ($L(context.transTrackRec.transactionNumber) > 0)
- {
-     
-     set context.transTrackRec.transactionNumber = $EXTRACT(context.transTrackRec.transactionNumber,1,16)
-     $$$TRACE("Found TransactionNumber: " _ context.transTrackRec.transactionNumber)
- }
- else
- {
-   $$$TRACE("RemitTrnsNumber not found")
-
- }]]]]><![CDATA[>
+ set context.transTrackDateTimeStamp = $REPLACE(context.transTrackDateTimeStamp,"]", "")
+ ]]]]><![CDATA[>
 </code>
-<if name='transaction is valid' condition='($L(context.transTrackRec.transTrackDateTimeStamp) &gt; 0)  &amp;&amp; ($L(context.transTrackRec.transactionNumber) &gt; 0)' xpos='200' ypos='750' xend='200' yend='1000' >
+<if name='TrackDateTimeStamp is valid' condition='($L(context.transTrackDateTimeStamp) &gt; 0) ' xpos='200' ypos='750' xend='200' yend='1000' >
+<true>
+<code name='Get TRN 02 and call operation' xpos='470' ypos='900' >
+<![CDATA[ set ediDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Message, .pStat )
+ if (pStat '= $$$OK){  	
+  $$$TRACE("Failed to create X12 message from Stream" _ pStat)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "X12 message validation failed, Skipping the record." _ request.RawContent)
+ }
+ set ediDoc.DocType="HIPAA_5010:Interchange"
+ $$$TRACE("Interchange: # of chidren: " _ ediDoc.ChildCount)
+ // Get GS
+ set groupDoc = ediDoc.NextChild()
+ set groupDoc.DocType="HIPAA_5010:Group"
+  $$$TRACE("Group: # of children:" _ groupDoc.ChildCount )
+ set num =1
+ // Get ST
+ set transactionDoc = ""
+ set transactionDoc = groupDoc.NextChild(transactionDoc)
+ while ((transactionDoc '= "") && (num <= groupDoc.ChildCount))
+ {
+ 	set transactionDoc.DocType="HIPAA_5010:835"
+ 	//Get TRN-02
+  	set trnsNum = transactionDoc.GetValueAt("TRN:RefId", , .pStat)
+  	$$$TRACE(trnsNum _ ", " _ pStat)
+
+  	//TRIM the number
+  	if ($L(trnsNum) > 16)
+  	{
+  	    set trnsNum = $E(trnsNum, 1, 16)
+  	}
+  	if ($L(trnsNum) < 1)
+  	{
+  	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "TRN:RefId in X12 message is not valid, Skipping the record." _ request.RawContent)
+  	}
+  	else
+  	{
+  	    set transTrackRec = ##class(IHC.ITF.DStruc.Message.ShTransTrackRemitCff).%New()
+  	
+            set transTrackRec.transactionNumber =  trnsNum 
+            set transTrackRec.transTrackDateTimeStamp = context.transTrackDateTimeStamp
+
+            $$$TRACE("Targets: " _ context.targetConfigNames)
+            For iTarget=1:1:$L(context.targetConfigNames, ",") 
+            { 
+               Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  
+               Continue:""=tOneTarget
+	       $$$TRACE(" Target Operation: " _ tOneTarget)
+		set tStatus=process.SendRequestAsync(tOneTarget, transTrackRec)
+		if (tStatus '= $$$OK){
+			$$$TRACE("ERROR in calling: " _ tOneTarget)
+			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,"ERROR in calling: " _ tOneTarget _ ", Retry the record." _ request.RawContent)
+		}
+	    }
+	}
+		
+  	set transactionDoc = groupDoc.NextChild(transactionDoc)
+
+  	set num = num + 1
+ }
+]]]]><![CDATA[>
+</code>
+</true>
 <false>
-<code name='Skip record' xpos='335' ypos='900' >
-<![CDATA[ $$$TRACE("transaction number, date not found, so skip the record")
-  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"transaction number and ate not found, so skip the record")]]]]><![CDATA[>
+<code name='Skip record' xpos='200' ypos='900' >
+<![CDATA[ $$$TRACE("transaction date and time not found, so skip the record")
+  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"transaction date and time not found, so skip the record")]]]]><![CDATA[>
 </code>
 </false>
 </if>
-<call name='CallFileOperation' target='@context.targetConfigNames' async='0' xpos='200' ypos='1100' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.transTrackRec" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
 <faulthandlers>
-<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<catchall xpos='200' ypos='1100' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>

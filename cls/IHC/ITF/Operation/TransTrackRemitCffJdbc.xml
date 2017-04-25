@@ -12,6 +12,20 @@ This class is used to write the EDIFEC data from Oracle server to a file</Descri
 <Default>EnsLib.SQL.OutboundAdapter</Default>
 </Parameter>
 
+<Property name="SuccessReturnCodes">
+<Description>
+Values that can be returned by stored procedure. values separated by ,
+Response code = 0 -- Row successfully updated
+Response code = 100 -- Row update failed because we did not find the CheckRef # in the database. We want to continue processing</Description>
+<Type>%String</Type>
+<InitialExpression>"0,100"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>SuccessReturnCodes:Additional</Default>
+</Parameter>
+
 <Method name="OnMessage">
 <Description>
 This method calls Select Health Stored procedure DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_SENT to store trans tracking</Description>
@@ -51,21 +65,23 @@ This method calls Select Health Stored procedure DND.IHCPK_DND_CORE_ERA.IHCSP_DN
 	  	Set Errorcode = tOutParms.GetAt(1)
 	  	Set ErrorDesc = tOutParms.GetAt(2)
 	  	set pResponse=##class(Ens.StringContainer).%New()
-	  	// Response code = 0 -- Row successfully updated
-		// Response code = 100 -- Row update failed because we did not find the CheckRef # in the database. We want to continue processing
 		// ###
-	  	if ((Errorcode = 0) || (Errorcode = 100))
+		set succList =$LISTFROMSTRING(..SuccessReturnCodes, ",")
+		// $$$TRACE("Values in success list: " _ $LISTLENGTH(succList))
+	  	if ($LISTFIND(succList, Errorcode) > 0)
 		{
-					$$$TRACE("Successfully inserted into DB")
-					Set pResponse.StringValue=Errorcode_"|"_ErrorDesc
+					$$$TRACE("Successfully inserted into DB: " _ Errorcode_"|"_ErrorDesc)
+					Set pResponse.StringValue = pRequest.transactionNumber _ "-" _ Errorcode_"|"_ErrorDesc
 		        	Do pResponse.%Save()
 				
 		}
 		else {
-					$$$TRACE("Error during the inserting into SHDB")
-					Set pResponse.StringValue=Errorcode_"|"_ErrorDesc
+					$$$LOGWARNING("Stored Procedure returned differnt code during the insert: " _ Errorcode)
+					Set pResponse.StringValue = pRequest.transactionNumber _ "-" _ Errorcode_"|"_ErrorDesc
 		        	Do pResponse.%Save()
 		        	$$$TRACE("Response. String Value"_pResponse.StringValue)
+       			   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName, pResponse.StringValue)
+
 		}
 	}
   	
