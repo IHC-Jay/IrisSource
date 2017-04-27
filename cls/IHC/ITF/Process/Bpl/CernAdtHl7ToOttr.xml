@@ -14,8 +14,15 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="Transplant Codes To Allow">
+<Description>
+Transplant Codes To Allow: The OBX-3 values that we want to allow through for Ottr, comma delimited.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="25000"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional,Transplant Codes To Allow:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -25,6 +32,9 @@ HDD Operation: The target name used for HDD calls</Description>
 <Subscript>"CernAdtHl7ToOttr"</Subscript>
 <Value name="1">
 <Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>Transplant Codes To Allow</Value>
 </Value>
 </Data>
 </Storage>
@@ -51,11 +61,6 @@ BPL Definition</Description>
 <property name='facilityId' type='%String' instantiate='0' />
 <property name='empiNumber' type='%String' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
-<property name='solidOrganTransplantPatient' type='%String' initialexpression='527931030' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='PhoneIndex' type='%Integer' instantiate='0' />
 <property name='UniqueChildHddRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildLookupRequest' instantiate='1' />
 <property name='UniqueChildHddResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' />
@@ -123,7 +128,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='solidOrganDonorPatient' type='%String' initialexpression='528585536' instantiate='0' >
+<property name='transplantDomain' type='%String' initialexpression='529410970' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -158,7 +163,7 @@ BPL Definition</Description>
  $$$TRACE("After grabbing reply code actions")
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
  {
- 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")
  }
  
  set context.HddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
@@ -236,14 +241,36 @@ BPL Definition</Description>
  if ((eventType ="A34") || (eventType ="A44")) { 
     set context.IsTransplant = "1"
  }else {
+    set transplantCodeList =""
+    set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Transplant Codes To Allow",.configValue)
+    $$$TRACE("After grabbing Transplant Codes To Allow")
+    if ( ($$$ISERR(pstatus)) || (configValue = "")) {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName,"Initialization error, Nothing set for ""Transplant Codes To Allow"" this would cause the interface to skip everything. Shutting down.")
+    }else {
+       set transplantCodeList = $LFS($ZSTRIP(configValue,"<>W"))
+    }
     set obxIndex="",tSC=1
     for { 
        Set obxIndex=request.GetNextIndex("OBX()",obxIndex,.tSCTrans)  Quit:obxIndex=""          
        set transplantCode = request.GetValueAt("OBX("_(obxIndex)_"):3.1")
        set transplantType = request.GetValueAt("OBX("_(obxIndex)_"):5(1)")
-       if (((transplantCode ="TRANSPLANT") && (transplantType =context.solidOrganTransplantPatient))  || ((transplantCode ="LIVING_DONOR") && (transplantType =context.solidOrganDonorPatient))) {
-          $$$TRACE("Record for transplant patient")
-          set context.IsTransplant = "1"
+       if (($LF(transplantCodeList, transplantCode) >0)){
+          $$$TRACE("Record for transplant patient, check if OBX-5 value wanted by path.")
+          set isTransplantRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateIsMemberObject()
+          Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(isTransplantRequest, context.transplantDomain, transplantType, "1")
+          set tStatus=process.SendRequestSync(context.HddTargetConfigName,isTransplantRequest,.hddResponse)
+          if ('tStatus) {
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+          }else {
+             set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, "1")
+             if (hddObj '="") {
+                if (hddObj.Rep '="") {
+                   if ($ZCONVERT(hddObj.Rep,"U") '="ERROR"){
+                      set context.IsTransplant = hddObj.Rep
+                   }
+                }
+             }
+          }
        }
     }
  }]]]]><![CDATA[>
