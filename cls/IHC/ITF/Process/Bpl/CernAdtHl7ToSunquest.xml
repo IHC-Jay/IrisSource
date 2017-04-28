@@ -6,6 +6,15 @@ BPL for ADT Sunquest. It subscribes to Legacy translator and converts it to Sunq
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63902,44371.021393</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[-NextOperation,-TargetConfigNames,-TargetConfigMask,HddTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?HddTargetConfigName=1&productionName=@productionId}]]></Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
 <DefaultData>CernAdtHl7ToSunquestDefaultData</DefaultData>
@@ -74,23 +83,37 @@ BPL Definition</Description>
 </property>
 <property name='targetFacility' type='%String' instantiate='0' />
 <property name='sendingFacility' type='%String' instantiate='0' />
-<property name='broadCastFacilityList' type='%String' collection='list' instantiate='0' />
+<property name='broadCastFacilityList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='300' />
+</parameters>
+</property>
 <property name='bcFacIndex' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='updatedResponse' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='35000' />
 </parameters>
 </property>
-<property name='broadCastFacility' type='%String' instantiate='0' />
+<property name='broadCastFacility' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='bcFacId' type='%Integer' instantiate='0' />
 <property name='newResponse' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='25000' />
 </parameters>
 </property>
+<property name='FacilityContext' type='%String' initialexpression='99999999999' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='HddTargetConfigName' type='%String' instantiate='0' />
 </context>
-<sequence xend='200' yend='1900' >
-<scope xpos='200' ypos='250' xend='200' yend='1800' >
+<sequence xend='200' yend='2100' >
+<scope xpos='200' ypos='250' xend='200' yend='2000' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
 <code name='Initialization &amp; Validation' xpos='200' ypos='550' >
@@ -162,16 +185,63 @@ BPL Definition</Description>
      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-9.2 is A31. Skipping the record.")
  }]]]]><![CDATA[>
 </code>
-<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='650' xend='200' yend='1550' >
+<code name='Setup Hdd Target' xpos='200' ypos='650' >
+<![CDATA[ set hddstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName", .hddConfigValue)
+ if ($$$ISOK(hddstatus)){
+    set context.HddTargetConfigName = hddConfigValue
+    $$$TRACE("HddTargetConfigName: " _ context.HddTargetConfigName)
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "Unable to get HDDTargetConfigName, shutting down.")
+ }]]]]><![CDATA[>
+</code>
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='750' xend='200' yend='1750' >
 <true>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='800' >
+<code name='Facility Lookup' xpos='335' ypos='900' >
+<![CDATA[ try {
+    set errMsg =""
+    $$$TRACE("Looking up facility Rep 1.")
+    set facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
+    set facilityRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+    $$$TRACE("Looking up facility Rep 2.")
+    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(facilityRequest,facility,context.FacilityContext,"1")
+    $$$TRACE("Looking up facility Rep 2.1.")
+    set tStatus=process.SendRequestSync(context.HddTargetConfigName,facilityRequest,.hddResponse)
+    $$$TRACE("Looking up facility Rep 2.2.")
+    if ('tStatus) {
+       $$$TRACE("Looking up facility Rep 3.")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+    }else {
+       $$$TRACE("Looking up facility Rep 4.")
+       set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, "1")
+       if (hddObj '="") {
+          $$$TRACE("Looking up facility Rep 5.")
+          if (hddObj.Rep '="") {
+             if ($ZCONVERT(hddObj.Rep,"U") '="ERROR"){
+                $$$TRACE("Looking up facility Rep 6.")
+                set context.sendingFacility = hddObj.Rep
+             }else {
+                set errMsg = "Error returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Rep: "_facility_", unable to send record without a facility. Skipping message."
+                throw errMsg
+             }
+          }else {
+             set errMsg = "Nothing returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Rep: "_facility_", unable to send record without a facility. Skipping message."
+             throw errMsg       
+          }
+       }
+    }
+ }catch error {
+    if (errMsg '="") {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, errMsg)
+    }
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='1000' >
 <annotation><![CDATA[translate Cerner Legacy ADT to Sunquest ADT format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Output Message' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='900' />
-<code name='getBroadcastFacilities' xpos='335' ypos='1000' >
+<trace name='Output Message' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1100' />
+<code name='getBroadcastFacilities' xpos='335' ypos='1200' >
 <annotation><![CDATA[Facility names from Loopup Table]]]]><![CDATA[></annotation>
 <![CDATA[
- set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID") 
  $$$TRACE("Initial Facility Id: "_context.sendingFacility)
     
  set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer", context.sendingFacility, .retVal )	        
@@ -190,10 +260,10 @@ BPL Definition</Description>
      $$$TRACE("Value of PV1-18.1 "_response.GetValueAt("PV1:18.1") )
  }]]]]><![CDATA[>
 </code>
-<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1100' xend='335' yend='1350' >
+<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1300' xend='335' yend='1550' >
 <annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
 <true>
-<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1250' xend='200' yend='700' >
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1450' xend='200' yend='700' >
 <code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
 <![CDATA[ set context.bcFacId = context.broadCastFacilityList.GetAt(context.bcFacIndex)
  $$$TRACE(" Sending Cerner Facility to targetFacility: "_context.bcFacId )    
@@ -220,14 +290,14 @@ BPL Definition</Description>
 <![CDATA[ set context.newResponse = response.%ConstructClone(1)
  do context.newResponse.SetValueAt("A01", "MSH:9.2")
  do context.newResponse.SetValueAt("A01", "EVN:1")
- do context.newResponse.SetValueAt(,"MRG","remove")]]]]><![CDATA[>
+]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames A01 True Modified Record' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='470' ypos='500' >
+<call name='CallTargetConfigNames A01 2' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.newResponse" action="set" />
 </request>
 </call>
-<call name='CallTargetConfigNames A01 True' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='470' ypos='600' >
+<call name='CallTargetConfigNames 5' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -238,21 +308,21 @@ BPL Definition</Description>
 <![CDATA[ set context.newResponse = response.%ConstructClone(1)
  do context.newResponse.SetValueAt("A04", "MSH:9.2")
  do context.newResponse.SetValueAt("A04", "EVN:1")
- do context.newResponse.SetValueAt(,"MRG","remove")]]]]><![CDATA[>
+]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames A04 True Modified Record' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='740' ypos='500' >
+<call name='CallTargetConfigNames A04 2' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.newResponse" action="set" />
 </request>
 </call>
-<call name='CallTargetConfigNames A04 True' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='740' ypos='600' >
+<call name='CallTargetConfigNames 6' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </case>
 <default>
-<call name='CallTargetConfigNames True' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='400' >
+<call name='CallTargetConfigNames 4' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -265,21 +335,20 @@ BPL Definition</Description>
 </foreach>
 </true>
 <false>
-<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1250' xend='200' yend='800' >
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1450' xend='200' yend='800' >
 <switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
 <case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
 <code name='Send 2 Msgs' xpos='470' ypos='400' >
 <![CDATA[ set context.newResponse = response.%ConstructClone(1)
  do context.newResponse.SetValueAt("A01", "MSH:9.2")
- do context.newResponse.SetValueAt("A01", "EVN:1")
- do context.newResponse.SetValueAt(,"MRG","remove")]]]]><![CDATA[>
+ do context.newResponse.SetValueAt("A01", "EVN:1")]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames A01 False Modified Record' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='470' ypos='500' >
+<call name='CallTargetConfigNames A01 1' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.newResponse" action="set" />
 </request>
 </call>
-<call name='CallTargetConfigNames A01 False' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='470' ypos='600' >
+<call name='CallTargetConfigNames 2' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -289,22 +358,21 @@ BPL Definition</Description>
 <code name='Send 2 Msgs' xpos='740' ypos='400' >
 <![CDATA[ set context.newResponse = response.%ConstructClone(1)
  do context.newResponse.SetValueAt("A04", "MSH:9.2")
- do context.newResponse.SetValueAt("A04", "EVN:1")
- do context.newResponse.SetValueAt(,"MRG","remove")]]]]><![CDATA[>
+ do context.newResponse.SetValueAt("A04", "EVN:1")]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames A04 False Modified Record' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='740' ypos='500' >
+<call name='CallTargetConfigNames A04 1' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.newResponse" action="set" />
 </request>
 </call>
-<call name='CallTargetConfigNames A04 False' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='740' ypos='600' >
+<call name='CallTargetConfigNames 3' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </case>
 <default>
-<call name='CallTargetConfigNames False' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='400' >
+<call name='CallTargetConfigNames 1' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -314,13 +382,13 @@ BPL Definition</Description>
 </foreach>
 </false>
 </if>
-<code name='Reset Error' xpos='335' ypos='1450' >
+<code name='Reset Error' xpos='335' ypos='1650' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1650' xend='200' yend='350' >
+<catchall xpos='200' ypos='1850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
