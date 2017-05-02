@@ -11,7 +11,7 @@ BPL for ADT MidasPlus. It subscribes to Legacy translator and converts it to Mid
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2650' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3150' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
@@ -58,9 +58,31 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='35000' />
 </parameters>
 </property>
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' />
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='iFacMlinkContext' type='%String' initialexpression='"529415645"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='facNcid' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='acuteLocation' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2400' >
-<scope xpos='200' ypos='250' xend='200' yend='2300' >
+<sequence xend='200' yend='2900' >
+<scope xpos='200' ypos='250' xend='200' yend='2800' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
 <code name='Check Max Errors' xpos='200' ypos='550' >
@@ -98,7 +120,16 @@ BPL Definition</Description>
  	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.CernAdtHl7ToMidasPlus.Lookup.FacilityToServer not exists")  
  }]]]]><![CDATA[>
 </code>
-<code name='Validate message structure' xpos='200' ypos='950' >
+<code name='Initialize HDD' xpos='200' ypos='950' >
+<![CDATA[ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+ Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ }
+]]]]><![CDATA[>
+</code>
+<code name='Validate message structure' xpos='200' ypos='1050' >
 <![CDATA[
  //Validate the message against schema
  set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
@@ -114,7 +145,45 @@ BPL Definition</Description>
 	}
  }]]]]><![CDATA[>
 </code>
-<code name='Get BroadCastFacilities' xpos='200' ypos='1050' >
+<code name='chk for acute locations' xpos='200' ypos='1150' >
+<![CDATA[  set context.actueLocation = 0
+   set clinicFlag = request.GetValueAt("ZZZ(2):27UB92Condition")
+ $$$TRACE(" value at ZZZ(2) indicating clinics : "_clinicFlag )
+ 
+ if ( clinicFlag = "" )
+ {
+    $$$TRACE(" This transaction is for an acute location ")
+  set context.actueLocation = 1
+	
+ }]]]]><![CDATA[>
+</code>
+<code name='Add to HDD request' xpos='200' ypos='1250' >
+<![CDATA[ set context.facNcid = request.GetValueAt("ZZZ(2):12VisitRemarks")
+   $$$TRACE(" The facility Ncid :"_context.facNcid )
+ 
+ set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()  
+   if ( context.facNcid '= "" )
+	{
+	Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , context.facNcid,  context.iFacMlinkContext, "FacID_Mlink")  	  	
+		$$$TRACE("Hdd Request for  Facility NCID Original ZZZ(2)-12 : "_context.facNcid)
+	
+	}
+	
+]]]]><![CDATA[>
+</code>
+<code name='Call HDD ' xpos='200' ypos='1350' >
+<![CDATA[ // Call HDD Operation
+ set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.hddRepRequest,.hddResponse)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+ }
+ else { 
+   set context.hddRepResponse = hddResponse 
+ }
+]]]]><![CDATA[>
+</code>
+<trace name='HDD return count' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='200' ypos='1450' />
+<code name='Get BroadCastFacilities' xpos='200' ypos='1550' >
 <![CDATA[
  //Get BroadCastFacilities for 199
  set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToMidasPlus.Lookup.FacilityToServer", "199", .retVal )	        
@@ -129,10 +198,31 @@ BPL Definition</Description>
      $$$TRACE("Value of BroadCastFacilities: "_context.broadCastFacility )
  }]]]]><![CDATA[>
 </code>
-<code name='Filter Message' xpos='200' ypos='1150' >
+<code name='Filter Message' xpos='200' ypos='1650' >
 <![CDATA[
  //Populate local variables
- set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID")
+  set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID")
+ 
+  if ( context.actueLocation )
+  {
+  $$$TRACE(" This is a acute location, get HDD values")
+  set hddResponseObj= ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.hddRepResponse,"FacID_Mlink")
+  if ( hddResponseObj '= "")
+  {
+       $$$TRACE(" value of rep from HDD is : "_hddResponseObj.Rep ) 
+     if ((hddResponseObj.Rep '= "") && ( hddResponseObj.Rep '= "ERROR"))
+     {
+           $$$TRACE(" value of rep from HDD is : "_hddResponseObj.Rep )
+          set context.sendingFacility = hddResponseObj.Rep
+      }
+  }
+ }
+ 
+  
+   $$$TRACE("msh4Facility: " _context.sendingFacility)
+ 
+ 
+ 
  set context.triggerEvent = request.GetValueAt("MSH:MessageType.triggerEvent")
  
  //Filter messages other than '199,120,122,130,132' values 
@@ -145,16 +235,16 @@ BPL Definition</Description>
      set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Its a duplicate LOOP message. MSH-4 SendingFacilty:["_context.sendingFacility_"] & MSH-9.2 triggerEvent:["_context.triggerEvent_"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")          
  }]]]]><![CDATA[>
 </code>
-<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='1250' xend='200' yend='2050' >
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='1750' xend='200' yend='2550' >
 <true>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernerAdtHl7ToMidasPlus' source='request' target='response' xpos='335' ypos='1400' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernerAdtHl7ToMidasPlus' source='request' target='response' xpos='335' ypos='1900' >
 <annotation><![CDATA[Cerner legacy ADT to MidasPlus ADT format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1500' />
-<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1600' xend='335' yend='1850' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='2000' />
+<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='2100' xend='335' yend='2350' >
 <annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
 <true>
-<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1750' xend='200' yend='700' >
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='2250' xend='200' yend='700' >
 <code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
 <![CDATA[ 
  //SendingFacility
@@ -188,7 +278,7 @@ BPL Definition</Description>
 </foreach>
 </true>
 <false>
-<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1750' xend='200' yend='350' >
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='2250' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -197,13 +287,13 @@ BPL Definition</Description>
 </foreach>
 </false>
 </if>
-<code name='Reset Error' xpos='335' ypos='1950' >
+<code name='Reset Error' xpos='335' ypos='2450' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2150' xend='200' yend='350' >
+<catchall xpos='200' ypos='2650' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
