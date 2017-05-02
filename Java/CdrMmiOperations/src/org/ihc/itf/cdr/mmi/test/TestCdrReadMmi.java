@@ -26,7 +26,7 @@ public class TestCdrReadMmi {
 		CdrReadMmi objMmi = new CdrReadMmi(ApplicationAddress, "MMIREAD", "c:\\Temp\\MMIREAD", 1);
 		//Step1: Do readMMI
 		System.out.println("\n");
-		cdr.asn1.hems.MmiInfo mmiInfo = objMmi.getMMInfo("268679741");
+		cdr.asn1.hems.MmiInfo mmiInfo = objMmi.getMMInfo("550046663"); // 403135941"); // "550046663");
 		cdr.asn1.hems.DataRecord dataRecord = mmiInfo.getDataRecord(); 
 		cdr.asn1.hems.MmiRecord mmiRecord = dataRecord.getMmiRecords()[0];
 		cdr.asn1.hems.MemberInfo memberInfo = dataRecord.getMmiRecords()[0].getMemberInfo();

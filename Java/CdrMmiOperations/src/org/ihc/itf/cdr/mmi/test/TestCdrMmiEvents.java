@@ -17,10 +17,12 @@ public class TestCdrMmiEvents {
 	public static void main(String[] args) throws Exception {
 		// Testing check MMI
 		System.out.println("CdrLoadMmiEvents!");
-		CdrMmiEvents objMmi = new CdrMmiEvents(ApplicationAddress, "DSQL");		
+		String logFile = "c:\\Temp\\CdrLoadMmiEvents.log";
+		
+		CdrMmiEvents objMmi = new CdrMmiEvents(ApplicationAddress, "DSQL", logFile, 1);		
 		//Step1: Load MMI Events
 		objMmi.loadMmiEvents("526");
-		
+		objMmi.unloadMmiEvents("980020636", "260134588");
 		//Step2: Check MMI Events
 		System.out.println("\n");
 		//objMmi.checkMmiEvents("269720367", "1542329006");

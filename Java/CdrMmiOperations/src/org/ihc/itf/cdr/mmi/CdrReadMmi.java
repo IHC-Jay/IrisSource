@@ -102,10 +102,11 @@ public class CdrReadMmi extends CdrTuxServices {
 			log.debug("Setting DataRecord...");
 			DataRecord retDataRecord = mmiInfo.getDataRecord();
 			
-			log.debug("Setting MmiRecords...");			
+			log.debug("Setting MmiRecords...");	
+			if(retDataRecord != null) {
 			MmiRecord[] retMmiRecs = retDataRecord.getMmiRecords();
-			
-			log.debug("Setting MmiRecord...");
+			if(retMmiRecs != null) {
+			log.debug("Setting MmiRecord (not null)...");
 			MmiRecord retMmiRec = retMmiRecs[0];	
 			
 			log.debug("Setting MembInfo...");
@@ -244,7 +245,8 @@ public class CdrReadMmi extends CdrTuxServices {
 	
 			    log.debug("Filling dataRecord...");
 			}		    
-            
+			}
+			}
 		} else {
             log.debug("Member info is null");
             mmiInfo = null;

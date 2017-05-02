@@ -93,7 +93,8 @@ public class CdrTuxServices {
 		} catch (ApplicationException appEx) {
 			// Catch this guy and re-throw it so it gets passed the "catch Exception" at the bottom
 			log.error("Application exception caught, re-throwing: " + appEx );
-			throw appEx;
+				  throw new Exception("DATAERROR: TPESVCFAIL ApplicationException Exception Occured. " + appEx.getApplicationCode() + ", " + appEx.getMessage()+ m_joltService.getName(), appEx);				  
+
 		} catch (JoltException joltEx) {
 			Object[] msgArray = {
 					"Jolt Exception caught from service call <",
