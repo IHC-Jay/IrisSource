@@ -6,12 +6,35 @@ BPL for ADT Telcor. It subscribes to Legacy translator and converts it to Telcor
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63902,44371.021393</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToTelcorSCRUBBERDefaultData</DefaultData>
+<Data name="CernAdtHl7ToTelcorSCRUBBERDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"CernAdtHl7ToTelcorSCRUBBER"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2600' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2750' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
@@ -85,9 +108,21 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='25000' />
 </parameters>
 </property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' />
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
+<property name='FacilityContext' type='%String' initialexpression='"529415645"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1900' >
-<scope xpos='200' ypos='250' xend='200' yend='1800' >
+<sequence xend='200' yend='2100' >
+<scope xpos='200' ypos='250' xend='200' yend='2000' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
 <code name='Initialization &amp; Validation' xpos='200' ypos='550' >
@@ -159,17 +194,74 @@ BPL Definition</Description>
      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-9.2 is A31. Skipping the record.")
  }]]]]><![CDATA[>
 </code>
-<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='650' xend='200' yend='1550' >
+<code name='Initialize HDD' xpos='200' ypos='650' >
+<![CDATA[ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+ Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ }
+]]]]><![CDATA[>
+</code>
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='750' xend='200' yend='1750' >
 <true>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorSCRUBBER' source='request' target='response' xpos='335' ypos='800' >
+<code name='Get facility' xpos='335' ypos='900' >
+<![CDATA[ try {
+    set clinicFlag =request.GetValueAt("ZZZ(2):27UB92Condition") 
+    if (clinicFlag ="") {
+       set errMsg =""
+       $$$TRACE("Looking up facility Rep 1.")
+       set facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
+       if (facility '="") {
+          set facilityRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+          $$$TRACE("Looking up facility Rep 2.")
+          Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(facilityRequest,facility,context.FacilityContext,"1")
+          $$$TRACE("Looking up facility Rep 2.1.")
+          set tStatus=process.SendRequestSync(context.HddTargetConfigName,facilityRequest,.hddResponse)
+          $$$TRACE("Looking up facility Rep 2.2.")
+          if ('tStatus) {
+             $$$TRACE("Looking up facility Rep 3.")
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
+          }else {
+             $$$TRACE("Looking up facility Rep 4.")
+             set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, "1")
+             if (hddObj '="") {
+                $$$TRACE("Looking up facility Rep 5.")
+                if (hddObj.Rep '="") {
+                   if ($ZCONVERT(hddObj.Rep,"U") '="ERROR"){
+                      $$$TRACE("Looking up facility Rep 6.")
+                      set context.sendingFacility = hddObj.Rep
+                   }else {
+                      set errMsg = "Error returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Ncid: "_facility_", unable to send record without a facility. Skipping message."
+                      throw errMsg
+                   }
+                }else {
+                   set errMsg = "Nothing returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Ncid: "_facility_", unable to send record without a facility. Skipping message."
+                   throw errMsg       
+                }
+             }
+          }
+       }else {
+          set context.sendingFacility = request.GetValueAt("MSH:4.1")
+       }
+    }else {
+       set context.sendingFacility = request.GetValueAt("MSH:4.1")
+    }
+ }catch error {
+    if (errMsg '="") {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, errMsg)
+    }
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorSCRUBBER' source='request' target='response' xpos='335' ypos='1000' >
 <annotation><![CDATA[translate Cerner Legacy ADT to Telcor ADT format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='900' />
-<code name='getBroadcastFacilities' xpos='335' ypos='1000' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1100' />
+<code name='getBroadcastFacilities' xpos='335' ypos='1200' >
 <annotation><![CDATA[Facility names from Loopup Table]]]]><![CDATA[></annotation>
 <![CDATA[
- set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID") 
- $$$TRACE("Initial Facility Id: "_context.sendingFacility)
+ //set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID") 
+ //$$$TRACE("Initial Facility Id: "_context.sendingFacility)
     
  set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTelcorSCRUBBER.Lookup.FacilityToServer", context.sendingFacility, .retVal )	        
  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
@@ -187,10 +279,10 @@ BPL Definition</Description>
      $$$TRACE("Value of PV1-18.1 "_response.GetValueAt("PV1:18.1") )
  }]]]]><![CDATA[>
 </code>
-<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1100' xend='335' yend='1350' >
+<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1300' xend='335' yend='1550' >
 <annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
 <true>
-<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1250' xend='200' yend='700' >
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1450' xend='200' yend='700' >
 <code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
 <![CDATA[ set context.bcFacId = context.broadCastFacilityList.GetAt(context.bcFacIndex)
  $$$TRACE(" Sending Cerner Facility to targetFacility: "_context.bcFacId )    
@@ -262,7 +354,7 @@ BPL Definition</Description>
 </foreach>
 </true>
 <false>
-<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1250' xend='200' yend='800' >
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1450' xend='200' yend='800' >
 <switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
 <case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
 <code name='Send 2 Msgs' xpos='470' ypos='400' >
@@ -270,7 +362,7 @@ BPL Definition</Description>
  do context.newResponse.SetValueAt("A01", "MSH:9.2")
  do context.newResponse.SetValueAt("A01", "EVN:1")]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames A01 Not Broadcast' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.newResponse" action="set" />
 </request>
@@ -299,7 +391,7 @@ BPL Definition</Description>
 </call>
 </case>
 <default>
-<call name='CallTargetConfigNames Not Broadcast' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
@@ -309,13 +401,13 @@ BPL Definition</Description>
 </foreach>
 </false>
 </if>
-<code name='Reset Error' xpos='335' ypos='1450' >
+<code name='Reset Error' xpos='335' ypos='1650' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1650' xend='200' yend='350' >
+<catchall xpos='200' ypos='1850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -328,9 +420,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
