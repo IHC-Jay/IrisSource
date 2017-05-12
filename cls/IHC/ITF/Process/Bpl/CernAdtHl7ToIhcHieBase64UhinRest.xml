@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToIhcHieBase64UhinRest">
+<Description>
+Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services will be used.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64412,57333.084032</TimeCreated>
+
+<Property name="FilterOutADTEventTypes">
+<Type>%String</Type>
+<InitialExpression>"A20"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="FilterOutLocations">
+<Type>%String</Type>
+<InitialExpression>"199,999"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-TargetConfigNames,-TargetConfigMask,FilterOutADTEventTypes:Additional,FilterOutLocations:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToIhcHieBase64UhinRestDefaultData</DefaultData>
+<Data name="CernAdtHl7ToIhcHieBase64UhinRestDefaultData">
+<Subscript>"CernAdtHl7ToIhcHieBase64UhinRest"</Subscript>
+<Value name="1">
+<Value>LocationOperationsTable</Value>
+</Value>
+<Value name="2">
+<Value>FilterOutADTEventTypes</Value>
+</Value>
+<Value name="3">
+<Value>FilterOutLocations</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2550' width='2000' >
+<context>
+<property name='Target' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='TargetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='TargetIndex' type='%Integer' instantiate='0' />
+<property name='Msh4Facility' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='Msh9MsgEventType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='NewResponseClone' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='ResponseBase65Encoded' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='NewResponseStream' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='doMsh4FacilityFiltering' type='%Boolean' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[Default value is "0" for not doing filter for MSH-4. "1" is for doing the MSH-4 Filter Out!]]]]><![CDATA[></annotation>
+</property>
+<property name='doMsh9EventTypeFiltering' type='%Boolean' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[Default value is "0" for not doing filter for MSH-9.2. "1" is for doing the MSH-9.2 Filter Out!]]]]><![CDATA[></annotation>
+</property>
+<property name='restCallResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
+<trace name='In BPL' value='"Working LegacyPlus ADT from Cerner to send to IHC HIE"' xpos='200' ypos='350' />
+<code name='Check Reply code' xpos='200' ypos='450' >
+<annotation><![CDATA[check Reply code]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No ReplyCodeActions found!")
+ }]]]]><![CDATA[>
+</code>
+<code name='Get MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ ]]]]><![CDATA[>
+</code>
+<code name='SetTargetOps' xpos='200' ypos='650' >
+<annotation><![CDATA[Setting Target Operations]]]]><![CDATA[></annotation>
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"NextOperation", .configValue)
+ if ($$$ISOK(pstatus)){
+    set context.Target = configValue
+    $$$TRACE("Targets for sending to the next Ensemble Operation: " _context.Target)
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get NextOperation from the Process Settings for Cern-Adt-Hl7_IhcHie-Base64-UHINREST. Setting required for processing messages!")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='750' >
+<annotation><![CDATA[Check Message against message DocType CernPharmOrder:PharmOrd and Validation settings from the Process setting tab (dm-z)]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tStatus'=$$$OK){
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, " ***HL7 message did not pass HL7 Validation for HL7 ADT messages. Error Status: "_ tStatus)
+ }
+]]]]><![CDATA[>
+</code>
+<code name='GetMSH4Facility' xpos='200' ypos='850' >
+<annotation><![CDATA[Get MSH-4 value and ensure facility value is valid numeric value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Fetch Msh4Facility(MSH-4)...") 
+ Set context.Msh4Facility=request.GetValueAt("MSH:SendingFacility.namespaceID")
+ $$$TRACE("Msh4Facility: " _context.msh4Facility) 
+ if ($ISVALIDNUM(context.Msh4Facility)=0){
+     $$$TRACE("MSH-4 Facility value is NOT a VALID numeric value. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid Msh4Facility code supplied from Cerner! iCentra Value received is - PHI: ["_context.Msh4Facility_"].***")
+  }
+  ]]]]><![CDATA[>
+</code>
+<code name='GetMSH4FilterList' xpos='200' ypos='950' >
+<![CDATA[ $$$TRACE("Fetch MSH-4 Filter Out list")
+ if (doMsh4FacilityFiltering=1){
+	 set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterOutLocations", .getLocFilterOutStr)
+ if ($$$ISOK(pstatus)){
+	 $$$TRACE("Facilities to Filter Out: " _getLocFilterOutStr)
+     set LocFilterOutList = $LB(getLocFilterOutStr)
+     if ($LISTFIND(LocFilterOutList,context.Msh4Facility)>0){
+	     $$$TRACE("Facility is a MSH-4 Facility to be Filtered Out. Skipping HL7 Message. MSH-4 Facility found: ["_context.Msh4Facility_"]")
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***HL7 message has Msh4Facility code in the FilterOutLocations setting, MSH-4 is: - PHI: ["_context.Msh4Facility_"]. Record will be skipped.***")
+	 }else{
+		 $$$TRACE("MSH-4 Facility is valid to process: ["_context.Msh4Facility_"]")
+	 }
+    
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get FilterOutLocations from the Process Settings for Cern-Adt-Hl7_IhcHie-Base64-UHINREST. Setting required for processing messages!")
+ }
+	 
+}else{
+	$$$TRACE("MSH-4 Facility is valid to process -Not doing MSH-4 filtering.")
+}
+
+]]]]><![CDATA[>
+</code>
+<code name='GetMSH9EventType' xpos='200' ypos='1050' >
+<annotation><![CDATA[Get MSH-9.2 value and it is valid numeric value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Fetch Msh9MsgEventType(MSH-9.2)...") 
+ Set context.Msh9MsgEventType=request.GetValueAt("MSH:MessageType.triggerevent")
+ $$$TRACE("Msh9MsgEventType: " _context.Msh9MsgEventType) 
+ if ($ISVALIDNUM(context.Msh9MsgEventType)=0){
+     $$$TRACE("MSH-9.2 value is NOT a VALID numeric value. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid Msh9MsgEventType code supplied from Cerner! iCentra Value received is - PHI: ["_context.Msh9MsgEventType_"].***")
+  }
+  ]]]]><![CDATA[>
+</code>
+<code name='GetMsh9EventTypeFilterList' xpos='200' ypos='1150' >
+<annotation><![CDATA[MSH-9.2 Filter Out List]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Fetch MSH-9.2 Filter Out List")
+ if (doMsh9EventTypeFiltering=1){
+	 set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterOutADTEventTypes", .getEvnTypeFilterOutStr)
+ if ($$$ISOK(pstatus)){
+	 $$$TRACE("Event Types to Filter Out: " _getEvnTypeFilterOutStr)
+     set EventTypeFilterOutList = $LB(getEvnTypeFilterOutStr)
+     if ($LISTFIND(EventTypeFilterOutList,context.Msh9MsgEventType)>0){
+	     $$$TRACE("Facility is a MSH-9.2 Event Type to be Filtered Out. Skipping HL7 Message. MSH-4 Facility found: ["_context.Msh9MsgEventType_"]")
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***HL7 message has Msh9MsgEventType code in the FilterOutADTEventTypes setting, MSH-9.2 is: - PHI: ["_context.Msh9MsgEventType_"]. Record will be skipped.***")
+	 }else{
+		 $$$TRACE("MSH-9.2 Event Type is valid to process: ["_context.Msh9MsgEventType_"]")
+	 }
+    
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get FilterOutADTEventTypes from the Process Settings for Cern-Adt-Hl7_IhcHie-Base64-UHINREST. Setting required for processing messages!")
+ }
+	 
+}else{
+	$$$TRACE("MSH-9.2 Event Type  is valid to process -Not doing MSH-9.2 filtering.")
+}
+
+
+]]]]><![CDATA[>
+</code>
+<code name='DoPreTranslationWork' xpos='200' ypos='1250' >
+<![CDATA[ $$$TRACE("Do any remaining message work prior to DTL")
+ 
+ 
+ $$$TRACE("DTL removing iCentra Z-segments...")
+
+
+]]]]><![CDATA[>
+</code>
+<transform name='SetHIEHL7Data' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToIhcHieBase64UhinRest' source='request' target='response' xpos='200' ypos='1350' />
+<code name='DoPostTranslationWork' xpos='200' ypos='1450' >
+<![CDATA[ $$$TRACE("Do any remaining message work post DTL-Base64Encoding")
+ $$$TRACE("Cloning Response!")
+ set context.NewResponseClone = response.%ConstructClone(1)
+ $$$TRACE("Response Cloned! Now to Base64Encode Clone!")
+ set context.ResponseBase65Encoded = $SYSTEM.Encryption.Base64Decode(context.NewResponseClone)
+ $$$TRACE("Cloned Response is now Base64 Encoded!")
+
+
+
+]]]]><![CDATA[>
+</code>
+<transform name='SetBase64CloneToRestStream' class='IHC.ITF.Transform.Dtl.CernAdtBase64ToIhcHieRest' source='context.ResponseBase65Encoded' target='context.NewResponseStream' xpos='200' ypos='1550' >
+<annotation><![CDATA[2nd DTL for Cern-Adt-Hl7_IhcHie-Base64-UHINREST]]]]><![CDATA[></annotation>
+</transform>
+<code name='PrepareForSendingStream' xpos='200' ypos='1650' >
+<![CDATA[ $$$TRACE("Returned from DTL: IHC.ITF.Transform.Dtl.CernAdtBase64ToIhcHieRest. ")
+ $$$TRACE("Base64 Encoded Clone set to the stream. ")
+
+
+
+
+]]]]><![CDATA[>
+</code>
+<code name='BuildTargetListFromTarget' xpos='200' ypos='1750' >
+<annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
+<![CDATA[ set length = $L(context.Target, ",")
+ $$$TRACE("Length of Target Locations=" _length)
+ if ((length >=1)&&(context.Target'=""))
+ {
+    For iTarget=1:1:$L(context.Target, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(context.Target,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = context.TargetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+        }
+          $$$TRACE("targetList count " _ context.TargetList.Count())
+ }else{
+	 $$$TRACE(errMsg )
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
+ }]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1850' xend='200' yend='550' >
+<annotation><![CDATA[Sending to IHC HIE target ]]]]><![CDATA[></annotation>
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.NewResponseStream" action="set" />
+</request>
+<response type='Ens.Response' >
+<assign property="callresponse" value="context.restCallResponse" action="set" />
+</response>
+</call>
+<code name='CheckRestCallResponse' xpos='200' ypos='350' >
+<![CDATA[ $$$TRACE("Check For Success or Errors in REST Call Response!")
+ //Determine what success and error response will look like
+ //Parse for success and error]]]]><![CDATA[>
+</code>
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='450' />
+</foreach>
+<code name='ResetErrors' xpos='200' ypos='1950' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+ ]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall name='CatchAll' xpos='200' ypos='2050' xend='200' yend='350' >
+<annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
+<code xpos='200' ypos='250' >
+<![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
