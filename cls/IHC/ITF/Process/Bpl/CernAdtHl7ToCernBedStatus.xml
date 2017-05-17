@@ -17,12 +17,20 @@ HddTargetConfigName: The target name used for HDD calls</Description>
 <Description>
 AllowedADTEventTypes: The target name used for HDD calls</Description>
 <Type>%String</Type>
-<InitialExpression>"A02,A03,A06,A07"</InitialExpression>
+<InitialExpression>"A02,A03,A06,A07,A12"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="PV1SixEventTypes">
+<Description>
+PV1SixEvnTypes The target name used for HDD calls</Description>
+<Type>%String</Type>
+<InitialExpression>"A02,A12"</InitialExpression>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional,AllowedADTEventTypes:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional,AllowedADTEventTypes:Additional,PV1SixEventTypes:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -35,6 +43,9 @@ AllowedADTEventTypes: The target name used for HDD calls</Description>
 </Value>
 <Value name="2">
 <Value>AllowedADTEventTypes</Value>
+</Value>
+<Value name="3">
+<Value>PV1SixEventTypes</Value>
 </Value>
 </Data>
 </Storage>
@@ -63,7 +74,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='PointOfCareUnitNcid' type='%String' instantiate='0' >
+<property name='UnitNcid' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -71,6 +82,19 @@ BPL Definition</Description>
 <property name='isPocUnitMemberResp' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='targetListIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='doPV1SixDtlWork' type='%Boolean' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[0 equals don't do DTL mapping
+1 equals do DTL PV1-6 work]]]]><![CDATA[></annotation>
+</property>
+<property name='doPV1ThreeDtlWork' type='%Boolean' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[0 equals don't do DTL mapping
+1 equals do DTL PV1-3 work]]]]><![CDATA[></annotation>
+</property>
+<property name='PV1SixEvnTypes' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
@@ -90,7 +114,7 @@ BPL Definition</Description>
     $$$TRACE("HddTargetConfigName: " _ context.HddTargetConfigName)
     $$$TRACE("End of get HDD property")
  }else{
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get HDDTargetConfigName, shutting down.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get HDDTargetConfigName, shutting down.")
  }
  
  //Read TargetConfigNames
@@ -99,7 +123,7 @@ BPL Definition</Description>
 
  if ( ($$$ISERR(pstatus)) || (configValue = "") )
  {
-     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Missing TargetConfigNames Values. Required to proces HL7 Messages back to iCentra ADT A20 BED STATUS Messages." )
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Missing TargetConfigNames Values. Required to proces HL7 Messages back to iCentra ADT A20 BED STATUS Messages." )
  }else{
      $$$TRACE("TargetConfigNames: " _configValue )
      set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
@@ -112,6 +136,18 @@ BPL Definition</Description>
 	 }
      
  }
+ 
+ $$$TRACE("Get ADT PV1-6.1 Event Type List")
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"PV1SixEventTypes",.PV1SixEventTypes)
+  $$$TRACE("ADT PV1-6.1 Event Types: "_ PV1SixEventTypes)
+  if ( ($$$ISERR(pstatus)) || (PV1SixEventTypes = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to find ADT PV1-6.1 Event Types list: PV1SixEventTypes in the settings, this is unexpected, shutting down.")
+  }else {
+	  $$$TRACE("Here are the ADT Event Types that use the PV1-6.1 for Bed Status Processing:"_PV1SixEventTypes)
+      set context.PV1SixEvnTypes = $LISTFROMSTRING(PV1SixEventTypes, "\s,\s") 
+  }
+ 
+ 
   
  $$$TRACE("Done gathering settings and properties...")
 
@@ -126,7 +162,7 @@ BPL Definition</Description>
   }else {
     set context.TriggerEvent=request.GetValueAt("MSH:MessageType.triggerevent")
     $$$TRACE("Getting message type: " _context.TriggerEvent)
-    set AllowedADTEventTypes = $LISTFROMSTRING(allowedEventTypeVal, ",")
+    set AllowedADTEventTypes = $LISTFROMSTRING(allowedEventTypeVal, "\s,\s")
     
     $$$TRACE("Checking against allowed events")
     if ($LISTFIND(AllowedADTEventTypes, context.TriggerEvent)=0) {
@@ -141,13 +177,22 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 <code name='WorkHDDLookup' xpos='200' ypos='650' >
-<annotation><![CDATA[See if Unit NCID PV1-3.1 is in the BedStatus Context]]]]><![CDATA[></annotation>
+<annotation><![CDATA[See if Unit NCID PV1-3.1 or PV1-6.1 is in the BedStatus Context]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Creating HDD Object to check the point of care unit NCID is one we want to work to send back to Cerner for a Bed Status A20 update....")
- $$$TRACE(" IsMember Hdd Requests..")    
- set context.PointOfCareUnitNcid = request.GetValueAt("PV1:AssignedPatientLocation.pointofcare")
- $$$TRACE("POC Ncid in PV1-3.1 " _ context.PointOfCareUnitNcid) 
- if (context.PointOfCareUnitNcid '= "" && $ISVALIDNUM(context.PointOfCareUnitNcid)= "1"){
-    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(context.IsMemberRequest, context.hddNcidBedStatInPatUnitInclValSetIsMember, context.PointOfCareUnitNcid, "IsMemberPV1ThreeOne")         
+ $$$TRACE(" IsMember Hdd Requests..")
+ 
+ if ($LISTFIND(context.PV1SixEvnTypes, context.TriggerEvent)=1){
+     set context.UnitNcid = request.GetValueAt("PV1:PriorPatientLocation.pointofcare")
+     $$$TRACE("Unit Ncid in PV1-6.1 " _ context.UnitNcid)
+     set context.doPV1SixDtlWork = 1
+ }else{
+     set context.UnitNcid = request.GetValueAt("PV1:AssignedPatientLocation.pointofcare")
+     $$$TRACE("Unit Ncid in PV1-3.1 " _ context.UnitNcid)
+     set context.doPV1ThreeDtlWork = 1
+ }
+    
+ if (context.UnitNcid '= "" && $ISVALIDNUM(context.UnitNcid)= "1"){
+    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(context.IsMemberRequest, context.hddNcidBedStatInPatUnitInclValSetIsMember, context.UnitNcid, "IsMemberPV1Unit")         
  }
 
 ]]]]><![CDATA[>
@@ -165,16 +210,16 @@ BPL Definition</Description>
 </code>
 <code name='CheckIfFacilityIsMember' xpos='200' ypos='850' >
 <![CDATA[ 
-    set context.isPocUnitMemberResp = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse, "IsMemberPV1ThreeOne")
+    set context.isPocUnitMemberResp = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse, "IsMemberPV1Unit")
     
     $$$TRACE("isPocUnitMemberResp back from HDD is: ["_context.isPocUnitMemberResp.Rep_"]" )    
     if (context.isPocUnitMemberResp.Rep=1) {                      
-       $$$TRACE("POC Unit NCID in PV1-3.1: ["_context.PointOfCareUnitNcid_"] is a member of Bed Status Inpatient Unit Inclusion Value Set Domain: ["_context.hddNcidBedStatInPatUnitInclValSetIsMember_"]") 
-       $$$TRACE("Cerner requires a Bed Status back to iCentra for this POC Unit NCID. Processing Record.")
+       $$$TRACE("Unit NCID in PV1: ["_context.UnitNcid_"] is a member of Bed Status Inpatient Unit Inclusion Value Set Domain: ["_context.hddNcidBedStatInPatUnitInclValSetIsMember_"]") 
+       $$$TRACE("Cerner requires a Bed Status back to iCentra for this Unit NCID. Processing Record.")
     }else{
-	    $$$TRACE("POC Unit NCID in PV1-3.1: ["_context.PointOfCareUnitNcid_"] is NOT a member of Bed Status Inpatient Unit Inclusion Value Set Domain: ["_context.hddNcidBedStatInPatUnitInclValSetIsMember_"]") 
+	    $$$TRACE("Unit NCID in PV1: ["_context.UnitNcid_"] is NOT a member of Bed Status Inpatient Unit Inclusion Value Set Domain: ["_context.hddNcidBedStatInPatUnitInclValSetIsMember_"]") 
 	    $$$TRACE("Message not needed to go back to Cerner. Skipping Record.")
-	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Record does not contain a POC Unit NCID that Cerner requires a Bed Status Update back to iCentra. Skipping message.")
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Record does not contain a Unit NCID that Cerner requires a Bed Status Update back to iCentra. Skipping message.")
 	    
     }
 ]]]]><![CDATA[>
