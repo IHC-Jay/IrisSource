@@ -94,6 +94,11 @@ BPL Definition</Description>
 <annotation><![CDATA[0 equals don't do DTL mapping
 1 equals do DTL PV1-3 work]]]]><![CDATA[></annotation>
 </property>
+<property name='AllowedADTEventTypes' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 <property name='PV1SixEvnTypes' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
@@ -161,39 +166,49 @@ BPL Definition</Description>
       
  }
      
-     
- 
- 
- 
-  
  $$$TRACE("Done gathering settings and properties...")
 
  ]]]]><![CDATA[>
 </code>
 <code name='FilterIn' xpos='200' ypos='550' >
 <![CDATA[ $$$TRACE("Verify the Event Trigger Type and check nurse unit for inclusion")
-  $$$TRACE("Now pulling setting values for: AllowedADTEventTypes")
+  $$$TRACE("Now pulling MSH-9.2 setting values for: AllowedADTEventTypes")
   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedADTEventTypes",.allowedEventTypeVal)
-  $$$TRACE("Allowed Events: "_ allowedEventTypeVal)
+  $$$TRACE("Allowed Events found from process AllowedADTEventTypes setting: ["_ allowedEventTypeVal_"]")
   if ( ($$$ISERR(pstatus)) || (allowedEventTypeVal = "")) {
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to fetch allowed event typess list: AllowedADTEventTypes in the settings, this is unexpected, shutting down.")
   }else {
     set context.TriggerEvent=request.GetValueAt("MSH:MessageType.triggerevent")
     $$$TRACE("Found message type: " _context.TriggerEvent)
     $$$TRACE("***Building AllowedADTEventTypes List*** ")
-    set allowedEventTypeValNoSpace = $ZSTRIP(allowedEventTypeVal,"<>W")
-    set AllowedADTEventTypes = $LISTFROMSTRING(allowedEventTypeValNoSpace, ",")
-    if ((context.AllowedADTEventTypes = "") || (context.AllowedADTEventTypes.Count()<1)){
-	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to process data from setting value for: AllowedADTEventTypes, this is unexpected and needs to be checked out, shutting down!") 
-	     
-	}else {
-		set allowedAdtETList = $LISTFROMSTRING(context.AllowedADTEventTypes,":")
-		$$$TRACE("context.AllowedADTEventTypes: ["_allowedAdtETList_"] ")
-		
+    TRY {
+	      For iTarget=1:1:$L(allowedEventTypeVal,",") 
+          { 
+              Set tOneTarget=$ZStrip($P(allowedEventTypeVal,",",iTarget),"<>W")  
+              Continue:""=tOneTarget
+            
+              set stat = context.AllowedADTEventTypes.Insert(tOneTarget)
+              $$$TRACE("ADT Event Type setting into List context.AllowedADTEventTypes: [" _ tOneTarget _"] List Insert Status (1=successfully inserted): [ " _ stat_"]")
+          }
+          $$$TRACE("context.AllowedADTEventTypes count " _ context.AllowedADTEventTypes.Count())
+          
+	} Catch eException {
+		      Set exceptStatus = "Parsing STRING to LIST for context.AllowedADTEventTypes for ADT MSH9.2 Event Types list: "_eException.AsStatus()
+	          $$$LOGSTATUS(exceptStatus)
+	          set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Could not parse context.AllowedADTEventTypes. Required to proces HL7 Messages back to iCentra ADT A20 BED STATUS Messages. Error caught: "_exceptStatus )
+          		      
 	}
-    
+          
+          
+    if (context.AllowedADTEventTypes.Count()<1) {
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to process data from ADT MSH-9.2 Event Types list settings: AllowedADTEventTypes, this is unexpected and needs to be checked out, shutting down!") 
+	     
+	} else{
+	     $$$TRACE("LIST created from string for context.AllowedADTEventType")
+    }
+
     $$$TRACE("Checking against allowed events")
-    if ($LISTFIND(AllowedADTEventTypes, context.TriggerEvent)=0) {
+    if ($LISTFIND(context.AllowedADTEventTypes, context.TriggerEvent)=0) {
        $$$TRACE("Unable to find Trigger Event in the settings: " _context.TriggerEvent_ ", not an allowed event skipping message.")
        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Record does not contain an allowed Trigger Event from the AllowedADTEventTypes settings, not an event type wanted on this pathway - Event Type found is : " _context.TriggerEvent_ ", Allowed event types are: -"_allowedEventTypeVal_"-, skipping message.")
     }
