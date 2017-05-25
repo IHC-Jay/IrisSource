@@ -26,8 +26,15 @@ Bpl from iCentra Adt to TacticalDb..</Description>
 <InitialExpression>"526760978"</InitialExpression>
 </Property>
 
+<Property name="ExcludedFacilities">
+<Description>
+Comma delimited list of facilities not sent</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>IhAliasPoolNCID:Additional,EmailTypeNCID:Additional,HomeAddressTypeNCID:Additional,MaxRetries:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>IhAliasPoolNCID:Additional,EmailTypeNCID:Additional,HomeAddressTypeNCID:Additional,MaxRetries:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask,ExcludedFacilities:Additional</Default>
 </Parameter>
 
 <Property name="HddTargetConfigName">
@@ -55,6 +62,9 @@ Bpl from iCentra Adt to TacticalDb..</Description>
 <Value name="5">
 <Value>HddTargetConfigName</Value>
 </Value>
+<Value name="6">
+<Value>ExcludedFacilities</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -63,7 +73,7 @@ Bpl from iCentra Adt to TacticalDb..</Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2600' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2700' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='configName' type='%String' initialexpression='""' instantiate='0' >
@@ -146,8 +156,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='2350' >
-<scope xpos='200' ypos='250' xend='200' yend='2250' >
+<sequence xend='200' yend='2450' >
+<scope xpos='200' ypos='250' xend='200' yend='2350' >
 <assign name="getAndSetProcessName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='350' >
 <annotation><![CDATA[Process Configuration Name]]]]><![CDATA[></annotation>
 </assign>
@@ -176,7 +186,71 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<code name='CheckEventType' xpos='200' ypos='650' >
+<code name='Check facility' xpos='200' ypos='650' >
+<annotation><![CDATA[- Get sending facility (MSH.4)
+- See if this facility is one we do not send
+- If not sent, write filter message to log & skip
+]]]]><![CDATA[></annotation>
+<![CDATA[
+ // 
+ // 5/24/2017 
+ // RITM0067153
+ // Add facility filter
+ //
+ 
+ // get MSH.4  (Sending Facility)
+ set Facility = request.GetValueAt("MSH:SendingFacility")
+
+   // Define, initialize 'ExcludedFacilities'
+ set ExcludedFacilities=""
+ 
+ // Initialize 'isExcludedFacility'
+ set isExcludedFacility = 0
+
+ // Retrieve ExcludedFacilities from 'Additional Setting' tab
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ExcludedFacilities",.ExcludedFacilities)
+  
+ // If the 'ExcludedFacilities' setting was not found, signal error and skip record
+ // ELSE if the setting was found, but was empty, signal error and skip record
+ // ELSE check incoming facility
+ if ($$$ISERR(pstatus))
+ {
+    // ExcludedFacilities setting was not found
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Initialization error, No configuration for ExcludedFacilities found. Record skipped")
+ }
+ elseif (ExcludedFacilities = "")
+ {
+    // ExcludedFacilities setting found, but was empty
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Initialization error, ExcludedFacilities configuration is empty. Record skipped")
+ }
+ else
+ {
+    $$$TRACE("ExcludedFacilities : "_ExcludedFacilities) 
+         
+    // Loop thru each allowed facility from the 'AdditionalSettings' tab
+    For iTarget=1:1:$L(ExcludedFacilities, ",") 
+    { 
+        
+        Set tOneTarget=$ZStrip($P(ExcludedFacilities,",",iTarget),"<>W") 
+        Continue:""=tOneTarget
+            
+        // If we found MSH.4 in list of excluded facilities, then bail from loop    
+        if (Facility = tOneTarget)
+        {
+            $$$TRACE("Facility not to be sent")
+	    set isExcludedFacility = 1
+	    QUIT
+        } 
+    }
+ 
+    // If this facility is not sent, write filter message to log & skip
+    if (isExcludedFacility = 1)
+    {
+       Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Facility ["_Facility_"] not sent to TacticalDB. Skipping the record.") 
+    }
+ }  ]]]]><![CDATA[>
+</code>
+<code name='CheckEventType' xpos='200' ypos='750' >
 <annotation><![CDATA[ Check Message Event Type is valid or not ]]]]><![CDATA[></annotation>
 <![CDATA[
  set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")  
@@ -187,7 +261,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='CheckAccountNumber' xpos='200' ypos='750' >
+<code name='CheckAccountNumber' xpos='200' ypos='850' >
 <![CDATA[ 
  set context.accountNumber = request.GetValueAt("PID:PatientAccountNumber.ID") 
  $$$TRACE("context.accountNumber:[" _ context.accountNumber _"]") 
@@ -200,7 +274,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='intializeProperties' xpos='200' ypos='850' >
+<code name='intializeProperties' xpos='200' ypos='950' >
 <annotation><![CDATA[userInitialze()]]]]><![CDATA[></annotation>
 <![CDATA[ 
  
@@ -261,9 +335,9 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<if name='isValidMessage' condition='context.isValidationPassed=1' xpos='200' ypos='950' xend='200' yend='1900' >
+<if name='isValidMessage' condition='context.isValidationPassed=1' xpos='200' ypos='1050' xend='200' yend='2000' >
 <true>
-<code name='initializeHddContexts' xpos='470' ypos='1100' >
+<code name='initializeHddContexts' xpos='470' ypos='1200' >
 <![CDATA[
     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTacticalDbRequest.Lookup.HddContexts", "CONTEXT.IhAliasPool", .retVal )    
 	set context.hddContextIhAliasPool = retVal 		
@@ -279,7 +353,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='getRepFromNcid hdd requests' xpos='470' ypos='1200' >
+<code name='getRepFromNcid hdd requests' xpos='470' ypos='1300' >
 <![CDATA[
   	$$$TRACE(" Get Rep from Ncid Hdd lookup call")  	
   	set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()  	
@@ -336,7 +410,7 @@ BPL Definition</Description>
 		  	
 ]]]]><![CDATA[>
 </code>
-<code name='GetHddRepFromNcid' xpos='470' ypos='1300' >
+<code name='GetHddRepFromNcid' xpos='470' ypos='1400' >
 <![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
  if ('tStatus) { 
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
@@ -345,36 +419,36 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<trace name='number of HDD objects ' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='470' ypos='1400' />
-<code name='getTargetConfigList' xpos='470' ypos='1500' >
+<trace name='number of HDD objects ' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='470' ypos='1500' />
+<code name='getTargetConfigList' xpos='470' ypos='1600' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTacticalDbRequest' source='request' target='context.tacDbRequest' xpos='470' ypos='1600' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTacticalDbRequest' source='request' target='context.tacDbRequest' xpos='470' ypos='1700' >
 <annotation><![CDATA[translates TacticalDb Hl7 to Oracle TacticalDb Request]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1700' xend='200' yend='350' >
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1800' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='IHC.ITF.Request.TacticalDbRequest' >
 <assign property="callrequest" value="context.tacDbRequest" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='1800' >
+<code name='RESETERROR' xpos='470' ypos='1900' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 ]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<code name='Skip message' xpos='200' ypos='1100' >
+<code name='Skip message' xpos='200' ypos='1200' >
 <![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
 ]]]]><![CDATA[>
 </code>
 </false>
 </if>
-<trace name='SuccessTrace' value='" Message sent to Operation!!! "' xpos='200' ypos='2000' />
+<trace name='SuccessTrace' value='" Message sent to Operation!!! "' xpos='200' ypos='2100' />
 <faulthandlers>
-<catchall xpos='200' ypos='2100' xend='200' yend='350' >
+<catchall xpos='200' ypos='2200' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
