@@ -1,0 +1,521 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx">
+<Description>
+Formulary to ConnectRX</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64287,45589.178038</TimeCreated>
+
+<Property name="LocationOperationsTable">
+<Type>%String</Type>
+<InitialExpression>"IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx.Lookup.FacilityToTargetEnsOps"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="HDDTargetConfigOperation">
+<Type>%String</Type>
+<InitialExpression>"HddInterfaceWebserviceOperation"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,HDDTargetConfigOperation:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernMfnHl7ToConnectRxDefaultData</DefaultData>
+<Data name="CernMfnHl7ToConnectRxDefaultData">
+<Subscript>"CernMfnHl7ToConnectRx"</Subscript>
+<Value name="1">
+<Value>LocationOperationsTable</Value>
+</Value>
+<Value name="2">
+<Value>HDDTargetConfigOperation</Value>
+</Value>
+</Data>
+</Storage>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,item:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+   #dim locArray As array Of %String;
+   set tValue=""
+   set tKey=""
+   Set (tValue,tIndex)=""
+   set targetOperationTable=""
+   set hddTargetOperationName=""
+   For {
+	  Set tIndex = item.Settings.Next(tIndex)
+      Quit:tIndex=""
+      Set tSetting = item.Settings.GetAt(tIndex)
+      If (tSetting.Name["LocationOperationsTable")
+      {    
+         if (tSetting.Value '= "")
+         {
+            set targetOperationTable = $ZSTRIP(tSetting.Value,"<>W")
+         }
+      }
+   }
+   for {
+      Set tKey=$O(^Ens.LookupTable(targetOperationTable,tKey))
+      quit:tKey=""
+      set value = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(targetOperationTable, tKey, .retValForLines )
+      if (tValue ="") {
+         set tValue = retValForLines
+      }else {
+         set tValue = tValue_","_retValForLines
+      }
+   }
+   if (tValue =""){
+	   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(item.Name,"HDDTargetConfigOperation",.configValue)
+       if ( ($$$ISERR(pstatus)) || (configValue = ""))
+          {
+ 	          $$$LOGINFO(item.Name_" Initialization error, No Hdd info found")
+          }
+	   set tValue = configValue
+   }else {
+	   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(item.Name,"HDDTargetConfigOperation",.configValue)
+       if ( ($$$ISERR(pstatus)) || (configValue = ""))
+          {
+ 	          $$$LOGINFO(item.Name_" Initialization error, No Hdd info found")
+          }
+	   	   
+	   set tValue = tValue_","_configValue
+   }
+   For i=1:1:$L(tValue,",") {
+      Set tOne=$ZSTRIP($P(tValue,",",i),"<>W")
+      Continue:""=tOne
+      Set pArray(tOne)=""
+   }
+]]></Implementation>
+</Method>
+
+<Method name="hddWork">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>process:IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx,hddTargetConfigName:%String,hddNcid:%String,hddContext:%String,hl7Detail:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    $$$TRACE("HDD work for NCID to REP starting now")
+	set HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+	do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(HddRepRequest, hddNcid, hddContext, hl7Detail)
+	$$$TRACE("Created HDD request object for: " _hl7Detail_ ". For NCID: "_hddNcid _" Using HddTargetConfigName: " _hddTargetConfigName_ " Using HDD Context: " _hddContext)
+	$$$TRACE("Actually sending the HDD REQUEST from local class method...")
+	set tStatus=process.SendRequestSync(hddTargetConfigName,HddRepRequest,.hddResponse)
+	if ('tStatus){
+	    set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure")
+    }else{
+		
+		$$$TRACE("Actually received HDD RESPONSE")
+		set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
+		if (hddObj '= ""){
+				set hddreturnrep = hddObj.Rep
+				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddObj.NCID_ ", HDD Context: " _hddContext )
+				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
+		}else{
+				//throw error
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected Error - no or null value returned from HDD Call!")
+		}	
+	}
+	quit hddreturnrep
+]]></Implementation>
+</Method>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='Target' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='TargetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='TargetIndex' type='%Integer' instantiate='0' />
+<property name='msh4Facility' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddreturnrep' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='hddncidtorepcontext' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='HL7SpecValue' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='Ncid' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='HddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' />
+<property name='HddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='FacilityArr' type='%String' collection='array' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='DosageFormArr' type='%String' collection='array' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='StrengthUnitsArr' type='%String' collection='array' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='VolumeUnitsArr' type='%String' collection='array' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='TherapeuticClassArr' type='%String' collection='array' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='MFEGrpIndex' type='%Integer' instantiate='0' />
+<property name='FacilityContext' type='%String' initialexpression='526003992' instantiate='0' >
+<annotation><![CDATA[CernerContextForNcidToRep Context - changing facilities to their numeric value]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='DosageFormContext' type='%String' initialexpression='2000' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='StrengthUnitContext' type='%String' initialexpression='2000' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='VolumeUnitsContext' type='%String' initialexpression='2000' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='LocationOperationsTable' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1700' >
+<scope xpos='200' ypos='250' xend='200' yend='1600' >
+<annotation><![CDATA[catch scope]]]]><![CDATA[></annotation>
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Reply Action' xpos='200' ypos='450' >
+<annotation><![CDATA[check Reply Action settings - look for reply action code settings]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No ReplyCodeActions found!")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Get MaxError and HDD Target Operation' xpos='200' ypos='550' >
+<annotation><![CDATA[Example to get MaxError and HDD Target Operation]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HDDTargetConfigOperation",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No HDDTargetConfigOperation found!")
+   
+ }
+ else
+ {
+ 	$$$TRACE("HDDTargetConfigOperation found: " _ configValue)
+    set context.hddTargetConfigName = configValue
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Check Location Operations Table' xpos='200' ypos='650' >
+<annotation><![CDATA[Verify we have setting value for the Location Operations Table]]]]><![CDATA[></annotation>
+<![CDATA[    $$$TRACE("Verifying LocationOperationsTable setting. ")
+    set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"LocationOperationsTable",.configValue2)
+    if ( ($$$ISERR(pstatus)) || (configValue2 = "") ){
+            set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get TargetOperationTable. Table access required for processing MFN messages for the Pharmacy Formulary Data!")
+    }else{
+	    
+ 	      $$$TRACE("LocationOperationsTable: " _ configValue2)
+ 	      set context.LocationOperationsTable = configValue2
+ 	
+    }]]]]><![CDATA[>
+</code>
+<code name='VerifyLocationOperationsTable' xpos='200' ypos='750' >
+<annotation><![CDATA[Verify that the table exisits]]]]><![CDATA[></annotation>
+<![CDATA[ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.LocationOperationsTable)
+ if (retVal = 0){
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table not found. Required for processing data. File not found: " _context.LocationOperationsTable)  
+ }]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='850' >
+<annotation><![CDATA[Validate Message Data Structure]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tStatus'=$$$OK){
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, " ***HL7 message did not pass HL7 Validation for MFN for Pharmacy Formulary Data. Error Status: "_ tStatus)
+ }]]]]><![CDATA[>
+</code>
+<foreach name='WorkMFEGroup' property='request.{MFEgrp()}' key='context.MFEGrpIndex' xpos='200' ypos='950' xend='200' yend='850' >
+<annotation><![CDATA[Loop and work MFE Group]]]]><![CDATA[></annotation>
+<trace name='InMFEGroup' value='"Working MFN Details in MFE Group"' xpos='200' ypos='250' />
+<code name='WorkFacilityNCID' xpos='200' ypos='350' >
+<![CDATA[ $$$TRACE("Working ZFM-6.1 value for the FACILITY")
+ set context.Ncid = request.GetValueAt("MFEgrp("_context.MFEGrpIndex_").ZFM:FacilityCode.identifier")
+ set context.HL7SpecValue= "ZFM:FacilityCode.identifier"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
+	set context.hddncidtorepcontext =  context.FacilityContext
+	$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+	// call local HDD class Method
+	$$$TRACE("Calling local HDD class methond.")
+	
+	Try {
+		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+		// work return value
+		if ($LENGTH(context.hddreturnrep)>0){
+			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+		}else{     
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+		}  
+	} Catch eException {
+		Set exceptStatus = eException.AsStatus()
+		$$$LOGSTATUS(exceptStatus)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	}
+	
+	
+
+
+ //After HDD call set context specific variable to use in setting DTL
+	do context.FacilityArr.SetAt(context.hddreturnrep,context.MFEGrpIndex)
+	$$$TRACE("Facility Values set in context.FacilityArr has stored: " _context.FacilityArr.GetAt(context.MFEGrpIndex))
+
+
+
+
+ }else {
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+
+ }]]]]><![CDATA[>
+</code>
+<code name='WorkDosageForm' xpos='200' ypos='450' >
+<![CDATA[ $$$TRACE("Working ZFM-8.1 value for the WorkDosageForm")
+ set context.Ncid = request.GetValueAt("MFEgrp("_context.MFEGrpIndex_").ZFM:DosageForm.identifier")
+ set context.HL7SpecValue= "ZFM:DosageForm.identifier"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
+
+	set context.hddncidtorepcontext =  context.DosageFormContext
+	$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+	// call local HDD class Method
+	$$$TRACE("Calling local HDD class methond.")
+	
+	Try {
+		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+		// work return value
+		if ($LENGTH(context.hddreturnrep)>0){
+			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+		}else{     
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+		}  
+	} Catch eException {
+		Set exceptStatus = eException.AsStatus()
+		$$$LOGSTATUS(exceptStatus)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	}
+	
+	
+
+
+ //After HDD call set context specific variable to use in setting DTL
+	do context.DosageFormArr.SetAt(context.hddreturnrep,context.MFEGrpIndex)
+	$$$TRACE("context.DosageFormArr has stored: " _context.DosageFormArr.GetAt(context.MFEGrpIndex))
+
+
+
+
+ }else {
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+
+ }]]]]><![CDATA[>
+</code>
+<code name='WorkStrengthUnits' xpos='200' ypos='554' >
+<![CDATA[ $$$TRACE("Working ZFM-10.1 value for the WorkStrengthUnits")
+ set context.Ncid = request.GetValueAt("MFEgrp("_context.MFEGrpIndex_").ZFM:StrengthUnits.identifier")
+ set context.HL7SpecValue= "ZFM:StrengthUnits.identifier"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
+	
+	set context.hddncidtorepcontext =  context.StrengthUnitContext
+	$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+	// call local HDD class Method
+	$$$TRACE("Calling local HDD class methond.")
+	
+	Try {
+		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+		// work return value
+		if ($LENGTH(context.hddreturnrep)>0){
+			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+		}else{     
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+		}  
+	} Catch eException {
+		Set exceptStatus = eException.AsStatus()
+		$$$LOGSTATUS(exceptStatus)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	}
+	
+	
+
+
+ //After HDD call set context specific variable to use in setting DTL
+	do context.StrengthUnitsArr.SetAt(context.hddreturnrep,context.MFEGrpIndex)
+	$$$TRACE("context.StrengthUnitsArr has stored: " _context.StrengthUnitsArr.GetAt(context.MFEGrpIndex))
+
+
+
+
+ }else {
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+
+ }]]]]><![CDATA[>
+</code>
+<code name='WorkVolumeUnits' xpos='200' ypos='650' >
+<![CDATA[ $$$TRACE("Working ZFM-12.1 value for the WorkVolumeUnits")
+ set context.Ncid = request.GetValueAt("MFEgrp("_context.MFEGrpIndex_").ZFM:VolumeUnits.identifier")
+ set context.HL7SpecValue= "ZFM:VolumeUnits.identifier"
+ if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
+	
+	set context.hddncidtorepcontext =  context.VolumeUnitsContext
+	$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+	// call local HDD class Method
+	$$$TRACE("Calling local HDD class methond.")
+	
+	Try {
+		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernMfnHl7ToConnectRx).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+		// work return value
+		if ($LENGTH(context.hddreturnrep)>0){
+			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+		}else{     
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+		}  
+	} Catch eException {
+		Set exceptStatus = eException.AsStatus()
+		$$$LOGSTATUS(exceptStatus)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	}
+	
+	
+
+
+ //After HDD call set context specific variable to use in setting DTL
+	do context.VolumeUnitsArr.SetAt(context.hddreturnrep,context.MFEGrpIndex)
+	$$$TRACE("context.VolumeUnitsArr has stored: " _context.VolumeUnitsArr.GetAt(context.MFEGrpIndex))
+
+
+
+
+ }else {
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+
+ }]]]]><![CDATA[>
+</code>
+<code name='WorkTherapeuticClass' xpos='200' ypos='750' >
+<![CDATA[ // set context specific variable to use in setting DTL
+ do context.TherapeuticClassArr.SetAt("NO HDD NCID",context.MFEGrpIndex)]]]]><![CDATA[>
+</code>
+</foreach>
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernMfnHl7ToConnectRx' source='request' target='response' xpos='200' ypos='1050' />
+<code name='SetTargetFromLocationOpsTable' xpos='200' ypos='1150' >
+<annotation><![CDATA[Lookup Facility in the Locations Operations Table and set context.Target from lookup]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Setting target")
+ $$$TRACE("Set Target From Lookup - Facility Value is the KEY and gets Ensemble Operation Name as return value.")
+ set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.LocationOperationsTable, context.FacilityArr.GetAt(1), .retVal )
+ if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {
+    set errMsg = "****ERROR: Unable to get a matching Target from the lookup table. ****ERROR FACILITY VALUE MAYBE MISSING FROM LOOKUP Table: " _context.LocationOperationsTable _" Lookup Target Status   :" _targetStat_" Return Value: "_retVal _" Facility Value: "_context.FacilityArr.GetAt(1)
+       $$$TRACE(errMsg)
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, errMsg)
+ } else {
+    $$$TRACE("Target: " _retVal)
+    set context.Target = retVal
+ }]]]]><![CDATA[>
+</code>
+<code name='get TargetList ' xpos='200' ypos='1250' >
+<![CDATA[ set length = $L(context.Target, ",")
+ $$$TRACE("Length of Target Locations=" _length)
+ $$$TRACE("Target Location set as: "_context.Target)
+ if ((length >=1)&&(context.Target'=""))
+ {
+    For iTarget=1:1:$L(context.Target, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(context.Target,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = context.TargetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+        }
+          $$$TRACE("targetList count " _ context.TargetList.Count())
+ }else{
+	 set errMsg = "Issue with context.Target variable. No value found/set."
+	 $$$TRACE(errMsg)
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, errMsg)
+ }
+]]]]><![CDATA[>
+</code>
+<foreach name='send to targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1350' xend='200' yend='450' >
+<call name='sendToTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='trace' value='"Iteration="_context.TargetIndex_", message sent to target="_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+</foreach>
+<faulthandlers>
+<catchall xpos='200' ypos='1450' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
