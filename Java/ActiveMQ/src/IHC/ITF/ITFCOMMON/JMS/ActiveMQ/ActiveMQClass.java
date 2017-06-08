@@ -3,6 +3,10 @@ package IHC.ITF.ITFCOMMON.JMS.ActiveMQ;
 import java.io.UnsupportedEncodingException;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 import javax.jms.BytesMessage;
 import javax.jms.Connection;
@@ -72,6 +76,22 @@ public class ActiveMQClass {
 			throw ex;
 		}
 
+	}
+	
+	public void sendMsg(byte[] msg, HashMap<String, String> hmap) throws JMSException {
+		BytesMessage message = session.createBytesMessage();
+		message.writeBytes(msg);
+		if(hmap != null)
+		{
+			Set<Entry<String, String>> set = hmap.entrySet();
+			Iterator<Entry<String, String>> iterator = set.iterator();
+			while(iterator.hasNext()) {
+	    	  Map.Entry<String, String> mentry = (Map.Entry<String, String>)iterator.next();
+	    	  message.setStringProperty((String)mentry.getKey(), (String)mentry.getValue());
+			}
+		}
+		producer.send(message);
+		log.debug("Sent Bytes message");
 	}
 
 	public void CloseActiveMQ() throws JMSException
