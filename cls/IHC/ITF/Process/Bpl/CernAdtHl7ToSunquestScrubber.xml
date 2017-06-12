@@ -24,12 +24,23 @@ Dummy Method , just to get the Operation class into the Deployment package </Des
 ]]></Implementation>
 </Method>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToSunquestScrubberDefaultData</DefaultData>
+<Data name="CernAdtHl7ToSunquestScrubberDefaultData">
+<Subscript>"CernAdtHl7ToSunquestScrubber"</Subscript>
+<Value name="1">
+<Value>AllowedPatientClass</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2700' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2950' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -51,9 +62,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='isOutPatient' type='%Boolean' instantiate='0' />
+<property name='FilterInsurance' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='2450' >
-<scope xpos='200' ypos='250' xend='200' yend='2350' >
+<sequence xend='200' yend='2700' >
+<scope xpos='200' ypos='250' xend='200' yend='2600' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -100,11 +112,42 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2100' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2350' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <trace name='Flag Value' value='"OutOfNetworkFlag: "_request.GetValueAt("ZZZ(1):37OutOfNetworkFlag")' xpos='470' ypos='1000' />
-<code name='Check OutPatient' xpos='470' ypos='1100' >
+<code name='Check Insurance' xpos='470' ypos='1100' >
+<![CDATA[ set InsuranceNames=""
+ set In122= request.GetValueAt("IN1grp(1).IN1:InsurancePlanID.text")
+ set In122= $ZCONVERT(In122,"U")
+ $$$TRACE("In122 value ="_In122)
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquestScrubber.Lookup.InsuranceFilter",1,.InsuranceNames)
+ $$$TRACE("Insurance names present ="_InsuranceNames)
+ 
+ if ($$$ISOK(pstatus)&&(InsuranceNames'=""))
+ {
+    set ListIns=$LISTFROMSTRING(InsuranceNames,",")
+   
+    set ptr=0
+   
+    WHILE $LISTNEXT(ListIns,ptr,value) 
+    {
+      set value = $ZCONVERT(value,"U")
+      $$$TRACE("Insurance name ="_value)
+      
+      if ( $FIND(In122,value) > 0 )
+      {
+        Set context.FilterInsurance = 1
+      }
+      
+    }
+   
+ }
+ 
+  $$$TRACE("context.FilterInsurance ="_context.FilterInsurance)]]]]><![CDATA[>
+</code>
+<code name='Check OutPatient' xpos='470' ypos='1200' >
 <![CDATA[ set context.PatientClass=request.GetValueAt("PV1:PatientClass")
 	  $$$TRACE("Geting PatientClass: " _context.PatientClass)
 	  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedPatientClass",.AllowedPatientClass)
@@ -122,12 +165,23 @@ BPL Definition</Description>
 	    set context.isOutPatient = 0  
       }]]]]><![CDATA[>
 </code>
-<if name='isOutPatient' condition='context.isOutPatient = 1' xpos='470' ypos='1200' xend='470' yend='2000' >
+<if name='isOutPatient' condition='context.isOutPatient = 1' xpos='470' ypos='1300' xend='470' yend='2250' >
 <true>
-<trace name='OONF Value' value='"OONF Value : "_request.GetValueAt("ZZZ(1):37OutOfNetworkFlag")' xpos='740' ypos='1350' />
-<if name='isOutOfNetwork' condition='request.GetValueAt("ZZZ(1):37OutOfNetworkFlag") = "1"' xpos='740' ypos='1450' xend='740' yend='1900' >
+<if name='FilterInsurance' condition='context.FilterInsurance = 1' xpos='740' ypos='1450' xend='740' yend='2150' >
 <true>
-<code name='StoreOldLocationToCacheTable' xpos='1010' ypos='1700' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1600' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="request" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+<false>
+<trace name='OONF Value' value='"OONF Value : "_request.GetValueAt("ZZZ(1):37OutOfNetworkFlag")' xpos='1010' ypos='1600' />
+<if name='isOutOfNetwork' condition='request.GetValueAt("ZZZ(1):37OutOfNetworkFlag") = "1"' xpos='1010' ypos='1700' xend='1010' yend='2050' >
+<true>
+<code name='StoreOldLocationToCacheTable' xpos='1280' ypos='1850' >
 <![CDATA[ Set FinNo =  request.GetValueAt("PID:PatientAccountNumber")
  Set OriginalLocation = request.GetValueAt("PV1:AssignedPatientLocation.room")
  Set EmpiNo = request.GetValueAt("PID:PatientIdentifierList(1).ID")
@@ -185,34 +239,33 @@ BPL Definition</Description>
 	
  }]]]]><![CDATA[>
 </code>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='1800' xend='200' yend='350' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='1280' ypos='1950' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.clone" action="set" />
 </request>
-<response type='Ens.Response' />
 </call>
 </foreach>
 </true>
 <false>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1600' xend='200' yend='350' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='1850' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
-<response type='Ens.Response' />
 </call>
 </foreach>
 </false>
 </if>
+</false>
+</if>
 </true>
 <false>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1350' xend='200' yend='350' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1450' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
-<response type='Ens.Response' />
 </call>
 </foreach>
 </false>
@@ -225,7 +278,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2200' xend='200' yend='350' >
+<catchall xpos='200' ypos='2450' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -238,16 +291,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernAdtHl7ToSunquestScrubberDefaultData</DefaultData>
-<Data name="CernAdtHl7ToSunquestScrubberDefaultData">
-<Subscript>"CernAdtHl7ToSunquestScrubber"</Subscript>
-<Value name="1">
-<Value>AllowedPatientClass</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
