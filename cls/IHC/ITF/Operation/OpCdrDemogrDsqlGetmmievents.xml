@@ -27,7 +27,7 @@ No of events to be loaded at a time</Description>
 </Property>
 
 <Property name="objCdrTuxService">
-<Type>org.ihc.itf.cdr.CdrMmiEvents</Type>
+<Type>org.ihc.itf.cdr.mmi.CdrMmiEvents</Type>
 </Property>
 
 <Parameter name="SETTINGS">
@@ -45,15 +45,16 @@ Mode of communication to Tuxedo Service </Description>
 <Method name="OnInit">
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	do ##super()
-	
+		
 	 try{
+		 do ##super()
 		$$$TRACE("Connect to " _ ..ApplicationAddress)
 		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.mmi.CdrMmiEvents).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
      	set status = ..CheckObject()
 	}catch err{
 		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	    //set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName," Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
 	}
 	
 	quit status
@@ -106,12 +107,13 @@ Mode of communication to Tuxedo Service </Description>
 				set rowList = $LISTFROMSTRING(($LIST(tableList,iTarget)), ..COLUMBREAK)
 				set rowObj = ##class(IHC.ITF.Response.MmiEventsRow).%New()
 				set rowObj.UnitNumber = $LIST(rowList,1)
-				$$$TRACE(" Unit Number: " _ rowObj.UnitNumber)
+				$$$TRACE(" Unit Number: [" _ rowObj.UnitNumber_"]")
 				set rowObj.AuditNumber = $LIST(rowList,2)
 				set rowObj.TxTypeCid = $LIST(rowList,3)
 				set rowObj.TxTime = $LIST(rowList,4)
 				set rowObj.Employee = $LIST(rowList,5)
 				set rowObj.Application = $LIST(rowList,6)
+				$$$TRACE(" Application: [" _ rowObj.Application_"]")
 				set rowObj.ApplicationVersion = $LIST(rowList,7)
 				set rowObj.MmiVersion = $LIST(rowList,8)
 				set rowObj.FacilityCid = $LIST(rowList,9)
@@ -121,18 +123,18 @@ Mode of communication to Tuxedo Service </Description>
 					if (retVal = "Unknown") {
 						$$$TRACE("Not skip: " _rowObj.AuditNumber)
 						set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CdrCffDemogrToInitiateXmlSOAP.Lookup.DelMap", rowObj.Application, .retVal )
-						
-						  						    
+												  						    
 						if (retVal = "Unknown") {
 							//Check if UNIT_NUMBER present in mmi.mmi_site_audit table using unit_number, ROW_DELETE_AUDIT_NUM
-						    //set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
-						    //$$$TRACE("checkMmiEvents output is: "_rResponse)
+						    set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
+						    $$$TRACE("checkMmiEvents output is: "_rResponse)
 						     
 						     // If Mmi_Maitena and not in the mmi_site audit table we need to send.
 						     
-						     //if (rResponse){
+						     if ('rResponse){
 							     do tableObj.ListOfMmiEventsRows.Insert(rowObj)	
-								 set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)														
+								 //set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)														
+								 //$$$TRACE("Unload mmi event: "_rowObj.UnitNumber_":"_rowObj.AuditNumber)
 								 
 								 if (rowObj.TxTypeCid = "205") {
 									//Get RESERVE_UNIT_NUMBER from mmi.mmi_merge_log using DROP_UNIT_NUMBER, MERGE_AUDIT_NUMBER
@@ -143,13 +145,15 @@ Mode of communication to Tuxedo Service </Description>
 										set rowObj.UnitNumber = newMMI
 									}						
 							      }							   												
+						     }
 						  } else {
 						     $$$TRACE(" Invalid Application (Not exists in DelMap Lookup): "_rowObj.Application _ ". Skip the event.")						    
 						     set rResponse = ..objCdrTuxService.checkMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)
 						     $$$TRACE("checkMmiEvents output is: "_rResponse)						
 						     if ('rResponse){
 							        do tableObj.ListOfMmiEventsRows.Insert(rowObj)	
-								    set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)																						 
+								   // set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)																						 
+								    //$$$TRACE("Unload mmi event: "_rowObj.UnitNumber_":"_rowObj.AuditNumber)
 								 if (rowObj.TxTypeCid = "205") {									
 									set newMMI = ..objCdrTuxService.checkMergeMmi(rowObj.UnitNumber,rowObj.AuditNumber)
 									$$$TRACE("Merge unit number is: "_newMMI)
@@ -165,8 +169,14 @@ Mode of communication to Tuxedo Service </Description>
 						$$$TRACE(" Invalid Application (Not exists in SkipMap Lookup): "_rowObj.Application _ ". Skip the event.")
 					}
 				} else{
-				     $$$TRACE(" Unit NUmber: "_ rowObj.UnitNumber _ " Audit Number: "_ rowObj.AuditNumber)
+				     $$$TRACE(" Unit NUmber: "_ rowObj.UnitNumber _ " Audit Number: "_ rowObj.AuditNumber)				      
 				}			
+				try{
+					set sResponse = ..objCdrTuxService.unloadMmiEvents(rowObj.UnitNumber,rowObj.AuditNumber)																						 
+		        	$$$TRACE("Unload mmi event Successful: "_rowObj.UnitNumber_":"_rowObj.AuditNumber)
+				}catch(err){
+					$$$TRACE("Unload mmi event Failed: "_rowObj.UnitNumber_":"_rowObj.AuditNumber)
+				}
 			}
 		}else{
 			     $$$TRACE( " No CDR events exists..")			
