@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Util.getSettings">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64363,39062.298473</TimeCreated>
+
+<Method name="GetComponentsForAll">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set SQLCODE = 0
+ 	Set OutFile="/itf-share/itf-tmp/EnsembleComponents-CLIN-"_ $ZDATETIME($h, 8, 1) _ ".TXT"
+ 	Open OutFile:"WNS":10
+ 	If '$Test 
+ 	{
+	 	$$$ThrowOnError( "Output file cannot be opened.") 
+	 	Quit
+ 	}
+ 	Use OutFile
+ 	Set tRS = ##class(%ResultSet).%New("%SYS.Namespace:List")
+ 	Set tSC = tRS.Execute()
+        For {
+            Quit:'tRS.Next()
+            set nmSp = tRS.Get("Nsp")
+            // Write !,  nmSp _ ", " _ tRS.Get("Status")
+            if (tRS.Get("Status") = 1)
+            {
+            	do ##class(IHC.ITF.Util.getSettings).GetComponentsForNamespace(nmSp)
+            	Write !, "---- " _ nmSp _ " ----"
+            }
+        }
+ 	Do tRS.Close()
+ 	
+    quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetComponentsForNamespace">
+<Description><![CDATA[
+Params<br/>
+ pNamespace - ]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		write !, "Namespace: " _ $NAMESPACE
+	
+		// Extract and load ens production setting data into DB tables
+		Set arr = ..ExtractData()
+		write !, "Number of components: " _ arr.Count()
+		Set tKey=""  
+		set num = 1
+		For { Set tKey = arr.Next(tKey)  Quit:tKey=""
+			Set val = arr.GetAt(tKey)
+		 	Write !, num _". " _ tKey _" = " _ val
+		 	set num = num + 1
+		}
+	
+		
+		$$$ThrowOnError(tStatus)
+
+
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="ExtractData">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Library.ArrayOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Set compValues = ##class(%Library.ArrayOfDataTypes).%New()
+
+	Try {
+		// Report-level info
+		Set tCreatedOn = $ZDATETIME($H,3)
+		
+		Set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+   		
+   		Set tProduction = ##class(Ens.Config.Production).%OpenId(tProductionName,,.tStatus)
+   		$$$ThrowOnError(tStatus)
+   		
+   		Set tStatus = ##class(Ens.Director).getProductionItems(tProduction,.tProductionDefinition)
+   		$$$ThrowOnError(tStatus)
+   		If ($DATA(tProductionDefinition) = 10) {
+	   		Set tConfigName = ""
+			For { 
+				Set tConfigName = $ORDER(tProductionDefinition(tConfigName))
+				Quit:(tConfigName = "")
+			
+				Set tConfigBusinessType = tProductionDefinition(tConfigName,"BusinessType")
+				Set tConfigBusinessType = $CASE(tConfigBusinessType,
+              							1:"BusinessService",
+              							2:"BusinessProcess",
+              							3:"BusinessOperation",
+              							:"Unknown")
+	   			
+	   			Set tClassName = tProductionDefinition(tConfigName,"ClassName")
+	   			Set tConfigItemId = tProductionDefinition(tConfigName,"%Id")
+	   			
+				// Analyze static settings for this component/config item
+				Set tConfigItem = ##class(Ens.Config.Item).%OpenId(tConfigItemId,,.tStatus)
+				$$$ThrowOnError(tStatus)
+				
+				// Process static settings
+				Set tStatus = tConfigItem.GetStaticSettings(.tStaticSettings)
+				$$$ThrowOnError(tStatus)
+				
+				If ($DATA(tStaticSettings) = 10) {
+					Set tSettingIndex = ""
+					For {
+						Set tSettingIndex = $ORDER(tStaticSettings(tSettingIndex))
+						Quit:(tSettingIndex = "")
+						
+						Set tSettingList = tStaticSettings(tSettingIndex)
+						Set tSettingName = $LG(tSettingList,2)
+						
+						// Grab the value
+						Set tCurrentValue = $LG(tSettingList,3)
+						
+						// Notes
+						Set tNotes = ""
+						
+						// WRITE !, "StaticSettings: " _ tProductionName _" , " _ tConfigName  _" , " _ tConfigBusinessType,
+						//							tSettingName,tCurrentValue,tNotes,tCreatedOn
+						Do ..UpdateSettings(compValues, tSettingName_": "_tCurrentValue, tProductionName _":" _ tConfigName _ "(" _ tConfigBusinessType _ ")")
+
+						$$$ThrowOnError(tStatus)
+					} // end For
+				} // End if $DATA(tStaticSettings) = 10
+				Kill tStaticSettings
+				
+				// Process host settings
+				Set tStatus = ##class(Ens.Director).GetHostSettings(tConfigName,.tHostSettings)
+				$$$ThrowOnError(tStatus)
+					
+				If ($DATA(tHostSettings) = 10) {
+					Set tSettingName = ""
+					For {
+						Set tSettingName = $ORDER(tHostSettings(tSettingName))
+						Quit:(tSettingName = "")
+
+						Set tCurrentValue = tHostSettings(tSettingName)
+						
+						// Notes
+						Set tNotes = ""
+						
+						//WRITE !, "HostSettings: " _		tProductionName  _" , " _ tConfigName  _" , " _ tConfigBusinessType,
+						//							tSettingName,tCurrentValue,tNotes,tCreatedOn
+						Do ..UpdateSettings(compValues, tSettingName_": "_tCurrentValue, tProductionName _":" _ tConfigName _ "(" _ tConfigBusinessType _ ")")
+
+						$$$ThrowOnError(tStatus)
+					} // End For
+				} // End $DATA(tHostSettings) = 10
+				Kill tHostSettings
+				
+				// Process adapter settings
+				Set tStatus = ##class(Ens.Director).GetAdapterSettings(tConfigName,.tAdapterSettings)
+				$$$ThrowOnError(tStatus)
+					
+				If ($DATA(tAdapterSettings) = 10) {
+					Set tSettingName = ""
+					For {
+						Set tSettingName = $ORDER(tAdapterSettings(tSettingName))
+						Quit:(tSettingName = "")
+
+						Set tCurrentValue = tAdapterSettings(tSettingName)
+						
+						// Notes
+						Set tNotes = ""
+						
+						//WRITE !, "AdapterSettings: " _	tProductionName  _" , " _ tConfigName  _" , " _ tConfigBusinessType,
+						//							tSettingName,tCurrentValue,tNotes,tCreatedOn
+						Do ..UpdateSettings(compValues, tSettingName_": "_tCurrentValue, tProductionName _":" _ tConfigName _ "(" _ tConfigBusinessType _ ")")
+
+						$$$ThrowOnError(tStatus)
+					} // End For
+				} // End $DATA(tAdapterSettings) = 10
+				Kill tAdapterSettings
+				
+			} // End For
+   		} // End $DATA(tProductionDefinition) = 10
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit compValues
+]]></Implementation>
+</Method>
+
+<Method name="UpdateSettings">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>compValues:%Library.ArrayOfDataTypes,val:%String,key:%String</FormalSpec>
+<Implementation><![CDATA[
+	// write !, "UpdateSettings: " _ compValues.Count()
+	if (compValues.Count() = 0)
+	{
+		Do compValues.SetAt(val, key)
+		// Write !, "NEW : " _ key
+		quit
+	}
+	set curVal = compValues.GetAt(key)
+	// write !, "UpdateSettings: " _ curVal _ ":key"
+	if (curVal = "")
+	{
+		Do compValues.SetAt(val, key)
+		// Write !, "NEW : " _ key
+	}
+	else
+	{
+		Do compValues.SetAt(curVal _ "; " _ val, key)
+		// Write !, "UPDATE : " _ key
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
