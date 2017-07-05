@@ -15,50 +15,31 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
 <context>
-<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
-<property name='targetConfigIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
-<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-
-<property name='NumOfInitiateInstances' type='%String' instantiate='0' >
-</property>
-
-<property name='iniTargetConfigName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
-
 <property name='cdrDsqlTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
-
+<property name='cdrEventsFileTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 <property name='cdrDsqlResponse' type='IHC.ITF.Response.MmiEventsTable' instantiate='0' >
 </property>
-
 <property name='mmiRecordIndex' type='%Integer' instantiate='0' >
 </property>
-
 <property name='mmiRow' type='IHC.ITF.Response.MmiEventsRow' instantiate='0' >
 </property>
-
 <property name='mmiEventRespObj' type='IHC.ITF.Response.MmiEventsRow' instantiate='0' >
 </property>
-
-<property name='empiMod' type='%String' instantiate='0' >
-</property>
-
 <property name='mmiEventLog' type='%String' instantiate='0' >
 </property>
-
-
-
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
@@ -78,8 +59,6 @@ BPL Definition</Description>
 <annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)
- 
-
    //Read TargetConfigNames
  set configValue = "" 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
@@ -110,15 +89,16 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 
-<code name='Get Number of Initiate Instances' xpos='470' ypos='1700' >
-<![CDATA[
- set context.NumOfInitiateInstances=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","NumberOfInitiateInstances",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("NumOfInitiateInstances " _ context.NumOfInitiateInstances)
- }else{
-	 Set status = $$$ERROR("Initialization error, No NumOfInitiateInstances found in the Settings.")
- } 
- 	  ]]]]><![CDATA[>
+
+<code name='Check Cdr Events File Target Configuration' xpos='200' ypos='850' >
+<annotation><![CDATA[Get CDR events file target configuration from settings]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set context.cdrEventsFileTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","CdrEventsFileTargetConfigName",.pStatus)
+ if (($$$ISERR(pstatus)) || (context.cdrEventsFileTargetConfigName = "")){
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get cdrEventsFileTargetConfigName, shutting down.")
+ } else {
+    $$$TRACE("CdrEventsFileTargetConfigName: " _ context.cdrEventsFileTargetConfigName)   
+ }]]]]><![CDATA[>
 </code>
 
 
@@ -149,15 +129,6 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 
-<code name='EmpiModulus' xpos='200' ypos='650' >
-<![CDATA[
-      Set context.empiMod = context.mmiRow.UnitNumber # context.NumOfInitiateInstances
-      $$$TRACE("Empi# Modulus: "_context.empiMod)
-      set context.iniTargetConfigName = "Cdr-Demogr-Cff_Initiate-Xml-Soap-"_context.empiMod
-      $$$TRACE("Target Process name : "_context.iniTargetConfigName)
- ]]]]><![CDATA[>
-</code>
-
 
 <code name='buildMmiRow' xpos='200' ypos='650' >
 <![CDATA[
@@ -181,7 +152,6 @@ BPL Definition</Description>
 </code>
 
 
-
 <code name='WriteToTarget' xpos='605' ypos='1500' >
 <![CDATA[ 
 
@@ -189,7 +159,7 @@ BPL Definition</Description>
 	 set tStream = ##class(%Stream.GlobalCharacter).%New("")	 
 	 do tStream.Write(context.mmiEventLog_$CHAR(13)_$CHAR(10))	 
 	 set tRequest.Stream = tStream
- 	 set tStatus = process.SendRequestSync(context.targetList.GetAt(1),tRequest)
+ 	 set tStatus = process.SendRequestSync(context.cdrEventsFileTargetConfigName,tRequest)
  	 if ('tStatus) {
       	 set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while writing the record to a file system. "_$SYSTEM.Status.GetOneErrorText(tStatus))
  	 }
@@ -197,35 +167,14 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
-<!--
-<code name='Call CdrDemogrCffInitiateXmlSoap' xpos='200' ypos='350' >
-<![CDATA[ 
 
-  set tStatus=process.SendRequestSync(context.iniTargetConfigName,context.mmiEventRespObj,.initCffResponse)
-  
-   $$$TRACE(" Status after Calling CdrDemogrCff " _ tStatus)
- if ('tStatus) {
-	 $$$TRACE(" Status ItfGeneralError " _ tStatus)
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," CdrDemogrCff call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))          
- } else { 
-        $$$TRACE(" Status CdrDemogrCff " _ tStatus)
- }  
- ]]]]><![CDATA[>
-</code>
--->
-
-<call name='Send to TargetConfigNames' target='@context.iniTargetConfigName' async='1' xpos='200' ypos='250' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(1)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.mmiEventRespObj" action="set" />
 </request>
 </call>
 
-
-
-
 </foreach>
-
-
 
 </true>
 <false>
@@ -253,11 +202,11 @@ BPL Definition</Description>
 ]]></Data>
 </XData>
 
-<Property name="NumberOfInitiateInstances">
+<Property name="CdrEventsFileTargetConfigName">
 <Description>
- Number of CdrToInitiate process components</Description>
+CdrEventsFileTargetConfigName: Target for storing the cdr events into a file system</Description>
 <Type>%String</Type>
-<Parameter name="MAXLEN" value="5"/>
+<Parameter name="MAXLEN" value="100"/>
 </Property>
 
 <Property name="CdrDsqlTargetConfigName">
@@ -268,7 +217,7 @@ CdrDsqlTargetConfigName:Custom setting to select Configuration item(s) to  reque
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>CdrDsqlTargetConfigName:Additional,NumberOfInitiateInstances:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>CdrDsqlTargetConfigName:Additional,CdrEventsFileTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -277,13 +226,10 @@ CdrDsqlTargetConfigName:Custom setting to select Configuration item(s) to  reque
 <Data name="CdrDemogrCffInitiateXmlRouterDefaultData">
 <Subscript>"CdrDemogrCffInitiateXmlRouter"</Subscript>
 <Value name="1">
-<Value>CdrDsqlTargetConfigName</Value>
+<Value>CdrEventsFileTargetConfigName</Value>
 </Value>
 <Value name="2">
-<Value>NumberOfCdrInstances</Value>
-</Value>
-<Value name="3">
-<Value>NumberOfInitiateInstances</Value>
+<Value>CdrDsqlTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
