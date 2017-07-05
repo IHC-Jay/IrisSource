@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.LdapOracleJdbc">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>64076,40706.242074</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="tempId">
+<Type>%String</Type>
+</Property>
+
+<Method name="getMaxMsprInfoSeqNum">
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Inside Select getMaxMsprInfoSeqNum Method")
+	set maxSegNum=0
+	// So this get all the records
+	set pRes = ##class(EnsLib.SQL.Snapshot).%New()
+	set pRes.MaxRowsToGet = -1
+	set tSQL = "SELECT max(TRANSACTION_SEQ_NUM) FROM ISSALDAP.mspr_info"
+	//set ioParms=0
+	//set ioParms(1)=tPRVDR
+	//set ioParms(1,"SqlType")=3
+	
+ 	set tSC = ..Adapter.ExecuteQueryParmArray(.pRes,tSQL)
+ 	
+ 	 	
+	if tSC = 1
+	{
+		$$$TRACE("Successfully executed Query:"_tSQL)
+		If ($ISOBJECT(pRes)&&(pRes.RowCount>0)){
+			$$$TRACE("Retrieve max seg num from the Response")
+			set rowNum=pRes.Next(.sc)
+			$$$TRACE("Error Status"_sc)
+			if ($$$ISERR(sc)){
+				$$$TRACE("Error Reading result set")
+				set tSC=$$$ERROR("Error Reading Result set")
+			}else{
+				set maxSeqNum=pRes.Get("max(TRANSACTION_SEQ_NUM)")
+				$$$TRACE("rowNum "_rowNum_" TRANSACTION_SEQ_NUM "_maxSeqNum)
+			}
+		}
+
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_tSQL)	
+	}
+	
+	Quit maxSeqNum
+]]></Implementation>
+</Method>
+
+<Method name="saveMsprData">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.ldapOracleMspr,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	$$$TRACE("Inside addMsprData Method")
+	//quit $$$OK
+    $$$TRACE("Retry Interval: "_..RetryInterval)
+	d ..Adapter.SetAutoCommit(0)
+	
+	#dim tSC As %Status=$$$OK
+
+	try{
+     set sourceSystem=pRequest.SourceSystem
+     $$$TRACE("SOURCE SYS:"_sourceSystem)
+      if sourceSystem="OR"{
+	    $$$TRACE("HR insert...")
+        do ..insertOracleHrToLdapTables(pRequest)
+      }elseif (sourceSystem="CO") || (sourceSystem="CA") {
+	    $$$TRACE("CA or CO insert...")	
+        do ..insertCactusOrCorpprvToLdapTables(pRequest)
+      }
+	} 
+	Catch eException {
+       $$$TRACE("Inside Catch111")
+	   //set tsc = $$$ERROR("Error while inserting data to database")	
+ 	   set errTxt = $System.Status.GetErrorText(%objlasterror)
+	   Set repNcid = errTxt
+       $$$LOGERROR("Exception in insert data to ldap Oracle tables: " _errTxt _ ", Excp:" _ eException.Name _ " " _ eException.Code _ " " _ eException.Location)
+       $$$LOGERROR($ZERROR)
+	}
+
+	If $$$ISOK(tSC){
+		d ..Adapter.Commit()  
+	}Else{
+		d ..Adapter.Rollback() 
+	}	
+		
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="insertOracleHrToLdapTables">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.ldapOracleMspr</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+      $$$TRACE("Inside insertOracleHrToLdapTables method")
+      set retryCnt=0
+      do {
+	       set tSc=..addMsprInfo(pRequest.ldapTableValues.MSPRINFO)  
+	       $$$TRACE("SQL Gateway status: "_tSc)
+	       if tSc < 0 {
+		      set retryCnt = retryCnt+1
+		      $$$TRACE("Hang one sencod before re-try..., "_retryCnt_" interval: "_..RetryInterval)
+	          hang ..RetryInterval
+	       }
+       } while (tSc < 0) && (retryCnt<5)
+       $$$TRACE("After Setting value... ")
+       set affiliationList= pRequest.ldapTableValues.MsprAffliationList
+       $$$TRACE("MsprAffliation List count:"_affiliationList.Count())
+       FOR i=1:1:affiliationList.Count(){
+	       $$$TRACE("Inside affiation Loop-"_i)
+	       set affobj = ##class(IHC.ITF.ITFCOMMON.Request.MSPRPRAFFLIATION).%New()
+           set affobj = affiliationList.GetAt(i) 	                         
+          //set the parameter for affliation table
+           set retryCnt=0
+           do {
+	          set tSc=..addMsprAffiliationValues(affobj)
+	          if tSc < 0 {
+		         set retryCnt = retryCnt+1
+		         $$$TRACE("Hang one sencod before re-try..., "_retryCnt_" interval: "_..RetryInterval)
+	             hang ..RetryInterval
+	          }
+           } while (tSc < 0) && (retryCnt<5)
+          $$$TRACE("After Insert close 2")
+       }
+     
+      quit tSc
+]]></Implementation>
+</Method>
+
+<Method name="insertCactusOrCorpprvToLdapTables">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.ldapOracleMspr</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+      $$$TRACE("Inside insertCactusOrCorpprvToLdapTable method")
+      set retryCnt=0
+      do {
+	       set tSc=..addMsprInfo(pRequest.ldapTableValues.MSPRINFO)  
+	       $$$TRACE("SQL Gateway status: "_tSc)
+	       if tSc < 0 {
+		      set retryCnt = retryCnt+1
+		      $$$TRACE("Hang one sencod before re-try..., "_retryCnt_" interval: "_..RetryInterval)
+	          hang ..RetryInterval
+	       }
+       } while (tSc < 0) && (retryCnt<5)
+       $$$TRACE("After Setting value... ")
+       set affiliationList= pRequest.ldapTableValues.MsprAffliationList
+       $$$TRACE("MsprAffliation List count:"_affiliationList.Count())
+       FOR i=1:1:affiliationList.Count(){
+	       $$$TRACE("Inside affiation Loop-"_i)
+	       set affobj = ##class(IHC.ITF.ITFCOMMON.Request.MSPRPRAFFLIATION).%New()
+           set affobj = affiliationList.GetAt(i) 	                         
+          //set the parameter for affliation table
+           set retryCnt=0
+           do {
+	          set tSc=..addMsprAffiliationValues(affobj)
+	          if tSc < 0 {
+		         set retryCnt = retryCnt+1
+		         $$$TRACE("Hang one sencod before re-try..., "_retryCnt_" interval: "_..RetryInterval)
+	             hang ..RetryInterval
+	          }
+           } while (tSc < 0) && (retryCnt<5)
+          $$$TRACE("After Insert close 2")
+       }
+       set specialTyList= pRequest.ldapTableValues.MsprSpecialtyList
+       $$$TRACE("specialTyList count:"_specialTyList.Count())
+       FOR i=1:1:specialTyList.Count(){
+	       $$$TRACE("Inside Specialty Loop-"_i)
+	       set specialTyobj = ##class(IHC.ITF.ITFCOMMON.Request.MSPRSPECIALTY).%New()
+           set specialTyobj = specialTyList.GetAt(i) 	                         
+          //set the parameter for Specialty table
+           set retryCnt=0
+           do {
+	           set tSc = ..addMsprSpecialtyValues(specialTyobj)
+	          if tSc < 0 {
+		         set retryCnt = retryCnt+1
+		         $$$TRACE("Hang one sencod before re-try..., "_retryCnt_" interval: "_..RetryInterval)
+	             hang ..RetryInterval
+	          }
+           } while (tSc < 0) && (retryCnt<5)
+
+          $$$TRACE("After insert Specialty close 3")
+       }
+      
+      quit tSc
+]]></Implementation>
+</Method>
+
+<Method name="addHrMsprInfo">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.MsprInfoValues</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set ..tempId = ..getMaxMsprInfoSeqNum()
+	If ..tempId="" {
+	  	$$$TRACE("Retrieve max seg number failed.")
+	  	quit 0
+	}
+	set ..tempId = ..tempId + 1
+	$$$TRACE("Inside addMsprInfo Method")
+
+   $$$TRACE("New SEQ_NUM for Mspr_Info Values: "_..tempId)
+   $$$TRACE("TRANSACTION_TIME: "_pRequest.TRANSACTIONTIME)
+   $$$TRACE("SOURCE_SYSTEM: "_pRequest.SOURCESYSTEM)
+   $$$TRACE("MSPR_ID_NUM: "_pRequest.MSPRIDNUM)
+   $$$TRACE("USER_NCID: "_pRequest.USERNCID)
+   $$$TRACE("HR EMPLOYEE NUM: "_pRequest.HREMPLOYEENUM)
+   $$$TRACE("PERSON TYPE: "_pRequest.PERSONTYPE)
+   $$$TRACE("SSN: "_pRequest.SSN)
+   $$$TRACE("EMPLOYEE NUM: "_pRequest.EMPLOYEENUM)
+   $$$TRACE("PROVIDER_ID: "_pRequest.HRUSER)
+   $$$TRACE("NATIONAL_PROV_ID: "_pRequest.NATIONALPROVID)
+   $$$TRACE("LAST_NAME: "_pRequest.LASTNAME)
+   $$$TRACE("FIRST_NAME: "_pRequest.FIRSTNAME)
+   $$$TRACE("MIDDLE_NAME: "_pRequest.MIDDLENAME)
+   $$$TRACE("OFFICE_EMAIL_ADDR: "_pRequest.OFFEMAILADDRESS)
+   $$$TRACE("PROVIDER_USER_ROLE: "_pRequest.PROVIDERUSERROLE)
+   $$$TRACE("Hire date: "_pRequest.HIREDATE)
+   $$$TRACE("dob: "_pRequest.DOB)
+   
+   set insertStr= "INSERT INTO ISSALDAP.MSPR_INFO(TRANSACTION_SEQ_NUM,TRANSACTION_TIME,SOURCE_SYSTEM,MSPR_ID_NUM,USER_NCID,HR_EMPLOYEE_NUM,PERSON_TYPE,SSN,EMPLOYEE_NUM,HR_USER,LAST_NAME,FIRST_NAME,MIDDLE_NAME,OTHER_NAME,WORK_PHONE_AREA_CODE,WORK_PHONE_LOCAL_NUM,WORK_PHONE_EXTENSION,HIRE_DATE,MANAGEMENT_COMMITT,PHYS_EXEC_LDT_ELIGIBLE,OFFICE_EMAIL_ADDR,SUPERVISER_FLAG,CURRENT_JOB_TITLE,CURRENT_JOB_CODE,CURRENT_JOB_FACILITY,CURRENT_JOB_LOCATION,CURRENT_JOB_DEPT_NUMBER,CURRENT_JOB_DEPT_NAME,CURRENT_JOB_MGR_ID,CURRENT_FACILIY_ABBREVIATION,CURRENT_EXCEMPT_STATUS,FUTURE_JOB_TITLE,FUTURE_JOB_CODE,FUTURE_JOB_FACILITY,FUTURE_JOB_LOCATION,FUTURE_JOB_DEPT_NUMBER,FUTURE_JOB_DEPT_NAME,FUTURE_JOB_MGR_ID,FUTURE_FACILIY_ABBREVIATION,FUTURE_EXCEMPT_STATUS,FUTURE_JOB_START_DATE,TERMINATION_DATE,TERMINATION_REASON_CD,BUSINESS_UNIT,FUTURE_BUSINESS_UNIT,DOB) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+	
+	// Set Parameter
+	set ioParms(1)=..tempId
+	set ioParms(1,"SqlType")=3
+	set ioParms(2)=pRequest.TRANSACTIONTIME
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=pRequest.SOURCESYSTEM
+	set ioParms(3,"SqlType")=12
+	set ioParms(4)=pRequest.MSPRIDNUM
+	set ioParms(4,"SqlType")=12
+	set ioParms(5)=pRequest.USERNCID
+	set ioParms(5,"SqlType")=12
+	set ioParms(6)=pRequest.HREMPLOYEENUM
+	set ioParms(6,"SqlType")=12
+	set ioParms(7)=pRequest.PERSONTYPE
+	set ioParms(7,"SqlType")=12
+	set ioParms(8)=pRequest.SSN
+	set ioParms(8,"SqlType")=12
+	set ioParms(9)=pRequest.EMPLOYEENUM
+	set ioParms(9,"SqlType")=12
+	set ioParms(10)=pRequest.HRUSER
+	set ioParms(10,"SqlType")=12
+	set ioParms(11)=pRequest.LASTNAME
+	set ioParms(11,"SqlType")=12
+	set ioParms(12)=pRequest.FIRSTNAME
+	set ioParms(12,"SqlType")=12
+	set ioParms(13)=pRequest.MIDDLENAME
+	set ioParms(13,"SqlType")=12
+	set ioParms(14)=pRequest.OTHERNAME
+	set ioParms(14,"SqlType")=12
+	set ioParms(15)=pRequest.WORKPHONEAREACODE
+	set ioParms(15,"SqlType")=12
+	set ioParms(16)=pRequest.WORKPHONELOCALNUMBER
+	set ioParms(16,"SqlType")=12
+	set ioParms(17)=pRequest.WORKPHONEEXT
+	set ioParms(17,"SqlType")=12
+	set ioParms(18)=pRequest.HIREDATE
+	set ioParms(18,"SqlType")=93
+
+	set ioParms(19)=pRequest.MANAGEMENTCOMMITTEE
+	set ioParms(19,"SqlType")=12
+	set ioParms(20)=pRequest.PHYSEXECLTDELIGIBLE
+	set ioParms(20,"SqlType")=12
+	set ioParms(21)=pRequest.OFFEMAILADDRESS
+	set ioParms(21,"SqlType")=12
+	set ioParms(22)=pRequest.SUPERVISORFLAG
+	set ioParms(22,"SqlType")=12
+	set ioParms(23)=pRequest.CURRENTJOBTITLE
+	set ioParms(23,"SqlType")=12
+	set ioParms(24)=pRequest.CURRENTJOBCODE
+	set ioParms(24,"SqlType")=12
+	set ioParms(25)=pRequest.CURRENTJOBFACILITY
+	set ioParms(25,"SqlType")=12
+	set ioParms(26)=pRequest.CURRENTJOBLOCATION
+	set ioParms(26,"SqlType")=12
+	set ioParms(27)=pRequest.CURRENTJOBDEPTNUMBER
+	set ioParms(27,"SqlType")=12
+	set ioParms(28)=pRequest.CURRENTJOBDEPT
+	set ioParms(28,"SqlType")=12
+	set ioParms(29)=pRequest.CURRENTJOBMGRID
+	set ioParms(29,"SqlType")=12
+	set ioParms(30)=pRequest.CURRENTFACABBREVIATION
+	set ioParms(30,"SqlType")=12
+	set ioParms(31)=pRequest.CURRENTEXEMPTSTATUS
+	set ioParms(31,"SqlType")=12
+	set ioParms(32)=pRequest.FUTUREJOBTITLE
+	set ioParms(32,"SqlType")=12
+	set ioParms(33)=pRequest.FUTUREJOBCODE
+	set ioParms(33,"SqlType")=12
+	set ioParms(34)=pRequest.FUTUREJOBFACILITY
+	set ioParms(34,"SqlType")=12
+	set ioParms(35)=pRequest.FUTUREJOBLOCATION
+	set ioParms(35,"SqlType")=12
+	set ioParms(36)=pRequest.FUTUREJOBDEPTNUMBER
+	set ioParms(36,"SqlType")=12
+	set ioParms(37)=pRequest.FUTUREJOBDEPT
+	set ioParms(37,"SqlType")=12
+	set ioParms(38)=pRequest.FUTUREJOBMGRID
+	set ioParms(38,"SqlType")=12
+	set ioParms(39)=pRequest.FUTUREFACABBREVIATION
+	set ioParms(39,"SqlType")=12
+	set ioParms(40)=pRequest.FUTUREEXEMPTSTATUS
+	set ioParms(40,"SqlType")=12
+
+	set ioParms(41)=pRequest.FUTUREJOBSTARTDATE
+	set ioParms(41,"SqlType")=93
+	set ioParms(42)=pRequest.TERMINATIONDATE
+	set ioParms(42,"SqlType")=93
+	set ioParms(43)=pRequest.TERMINATIONREASONCD
+	set ioParms(43,"SqlType")=12
+	set ioParms(44)=pRequest.BUSINESSUNIT
+	set ioParms(44,"SqlType")=12
+	set ioParms(45)=pRequest.FUTUREBUSINESSUNIT
+	set ioParms(45,"SqlType")=12
+	set ioParms(46)=pRequest.DOB
+	set ioParms(46,"SqlType")=93
+
+	set ioParms=46
+	$$$TRACE("Executing Query:"_insertStr)
+			$$$TRACE("Setting Query 3...")
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,insertStr,.ioParms)
+ 		 	
+	if $$$ISOK(tSC)
+	{
+		$$$TRACE("Successfully executed Query:"_insertStr)
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_insertStr)	
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="addHrMsprAffiliationValues">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.MSPRPRAFFLIATION</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+   $$$TRACE("Inside addHrMsprAffiliationValues method")
+   $$$TRACE("New SEQ NUM for Affiliation: "_..tempId) 
+   $$$TRACE("TRANSACTION_TIME: "_pRequest.TRANSACTIONTIME)
+   $$$TRACE("SOURCE_SYSTEM: "_pRequest.SOURCESYSTEM)
+   $$$TRACE("MSPR_ID_NUM: "_pRequest.MSPRIDNUM)
+   $$$TRACE("ENTERPRISE_NCID: "_pRequest.ENTERPRISENCID)
+   $$$TRACE("ENTITY_NCID: "_pRequest.ENTITYNCID)
+                $$$TRACE("START_DATE: "_pRequest.STARTDATE)
+                $$$TRACE("END_DATE: "_pRequest.ENDDATE)
+                $$$TRACE("AFFILIATION_TYPE_NCID: "_pRequest.AFFLIATIONTYPENCID)
+                $$$TRACE("PROVIDER_ROLE_NCID: "_pRequest.PROVIDERROLENCID)
+   set insertStr= "INSERT into ISSALDAP.MSPR_PROVIDER_AFFILIATION (TRANSACTION_SEQ_NUM,TRANSACTION_TIME,SOURCE_SYSTEM,CURRENT_JOB_TITLE,CURRENT_JOB_CODE,CURRENT_JOB_FACILITY,CURRENT_JOB_LOCATION,CURRENT_JOB_DEPT_NUMBER,CURRENT_JOB_DEPT_NAME,CURRENT_JOB_MGR_ID,CURRENT_FACILIY_ABBREVIATION,CURRENT_EXCEMPT_STATUS,CURRENT_JOB_GL_NUM,CURRENT_JOB_FAMILY,FUTURE_JOB_TITLE,FUTURE_JOB_CODE,FUTURE_JOB_FACILITY,FUTURE_JOB_LOCATION,FUTURE_JOB_DEPT_NUMBER,FUTURE_JOB_DEPT_NAME,FUTURE_JOB_MGR_ID,FUTURE_FACILIY_ABBREVIATION,FUTURE_EXCEMPT_STATUS,ASSIGNMENT_TYPE,MSPR_ID_NUM,ENTERPRISE_NCID,AFFILIATION_TYPE_NCID,FUTURE_START_DATE) VALUES (?,?,?,?,?,?,?,?,?,?)"
+
+	set ioParms=26
+	set ioParms(1)=..tempId
+	set ioParms(1,"SqlType")=3
+	set ioParms(2)=pRequest.TRANSACTIONTIME
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=pRequest.SOURCESYSTEM
+	set ioParms(3,"SqlType")=12
+	set ioParms(4)=pRequest.CURRENTJOBTITLE
+	set ioParms(4,"SqlType")=12
+	set ioParms(5)=pRequest.CURRENTJOBCODE
+	set ioParms(5,"SqlType")=12
+	set ioParms(6)=pRequest.CURRENTJOBLOC
+	set ioParms(6,"SqlType")=12
+	set ioParms(7)=pRequest.CURRENTJOBDEPTNUM
+	set ioParms(7,"SqlType")=12
+	set ioParms(8)=pRequest.CURRENTJOBDEPTNAME
+	set ioParms(8,"SqlType")=12
+	set ioParms(9)=pRequest.CURRENTJOBMGRID
+	set ioParms(9,"SqlType")=12
+	set ioParms(10)=pRequest.CURRENTFACABBREVIATION
+	set ioParms(10,"SqlType")=12
+	set ioParms(11)=pRequest.CURRENTEXEMPTSTATUS
+	set ioParms(11,"SqlType")=12
+	set ioParms(12)=pRequest.CURRENTJOBGLNUMBER
+	set ioParms(12,"SqlType")=12
+	set ioParms(13)=pRequest.CURRENTJOBFAMILY
+	set ioParms(13,"SqlType")=12
+	set ioParms(14)=pRequest.FUTUREJOBTITLE
+	set ioParms(14,"SqlType")=12
+	set ioParms(15)=pRequest.FUTUREJOBCODE
+	set ioParms(15,"SqlType")=12
+	set ioParms(16)=pRequest.FUTUREJOBLOC
+	set ioParms(16,"SqlType")=12
+	set ioParms(17)=pRequest.FUTUREJOBDEPTNUM
+	set ioParms(17,"SqlType")=12
+	set ioParms(18)=pRequest.FUTUREJOBDEPTNAME
+	set ioParms(18,"SqlType")=12
+	set ioParms(19)=pRequest.FUTUREJOBMGRID
+	set ioParms(19,"SqlType")=12
+	set ioParms(20)=pRequest.FUTUREFACABBREVIATION
+	set ioParms(20,"SqlType")=12
+	set ioParms(21)=pRequest.FUTUREEXEMPTSTATUS
+	set ioParms(21,"SqlType")=12
+	set ioParms(22)=pRequest.ASSIGNMENTTYPE
+	set ioParms(22,"SqlType")=12
+	set ioParms(23)=pRequest.MSPRIDNUM
+	set ioParms(23,"SqlType")=12
+	set ioParms(24)=pRequest.ENTERPRISENCID
+	set ioParms(24,"SqlType")=12
+	set ioParms(25)=pRequest.AFFLIATIONTYPENCID
+	set ioParms(25,"SqlType")=12
+	set ioParms(26)=pRequest.FUTUREJOBSTARTDATE
+	set ioParms(26,"SqlType")=93
+
+	$$$TRACE("Executing Query:"_insertStr)
+    set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,insertStr,.ioParms) 
+    if $$$ISOK(tSC)
+	{
+		$$$TRACE("Successfully executed Query:"_insertStr)
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_insertStr)	
+	}   
+   $$$TRACE("End of Setting Affliation values")
+   quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="addMsprInfo">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.MsprInfoValues</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set ..tempId = ..getMaxMsprInfoSeqNum()
+	If ..tempId="" {
+	  	$$$TRACE("Retrieve max seg number failed.")
+	  	quit 0
+	}
+	set ..tempId = ..tempId + 1
+	$$$TRACE("Inside addMsprInfo Method")
+
+   $$$TRACE("New SEQ_NUM for Mspr_Info Values: "_..tempId)
+   $$$TRACE("TRANSACTION_TIME: "_pRequest.TRANSACTIONTIME)
+   $$$TRACE("SOURCE_SYSTEM: "_pRequest.SOURCESYSTEM)
+   $$$TRACE("MSPR_ID_NUM: "_pRequest.MSPRIDNUM)
+   $$$TRACE("USER_NCID: "_pRequest.USERNCID)
+   $$$TRACE("PROVIDER_STATUS: "_pRequest.PROVIDERSTATUS)
+   $$$TRACE("SSN: "_pRequest.SSN)
+   $$$TRACE("PROVIDER_ID: "_pRequest.PROVIDERID)
+   $$$TRACE("NATIONAL_PROV_ID: "_pRequest.NATIONALPROVID)
+   $$$TRACE("LAST_NAME: "_pRequest.LASTNAME)
+   $$$TRACE("FIRST_NAME: "_pRequest.FIRSTNAME)
+   $$$TRACE("MIDDLE_NAME: "_pRequest.MIDDLENAME)
+   $$$TRACE("OFFICE_EMAIL_ADDR: "_pRequest.OFFEMAILADDRESS)
+   $$$TRACE("PROVIDER_USER_ROLE: "_pRequest.PROVIDERUSERROLE)
+   $$$TRACE("dob: "_pRequest.DOB)
+   
+   set insertStr= "INSERT INTO ISSALDAP.MSPR_INFO(TRANSACTION_SEQ_NUM,TRANSACTION_TIME,SOURCE_SYSTEM,MSPR_ID_NUM,USER_NCID,PROVIDER_STATUS,SSN,PROVIDER_ID,NATIONAL_PROV_ID,LAST_NAME,FIRST_NAME,MIDDLE_NAME,OFFICE_EMAIL_ADDR,PROVIDER_USER_ROLE,DOB,SUFFIX) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+	
+	// Set Parameter
+	set ioParms(1)=..tempId
+	set ioParms(1,"SqlType")=3
+	set ioParms(2)=pRequest.TRANSACTIONTIME
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=pRequest.SOURCESYSTEM
+	set ioParms(3,"SqlType")=12
+	set ioParms(4)=pRequest.MSPRIDNUM
+	set ioParms(4,"SqlType")=12
+	set ioParms(5)=pRequest.USERNCID
+	set ioParms(5,"SqlType")=12
+	set ioParms(6)=pRequest.PROVIDERSTATUS
+	set ioParms(6,"SqlType")=12
+	set ioParms(7)=pRequest.SSN
+	set ioParms(7,"SqlType")=12
+	set ioParms(8)=pRequest.PROVIDERID
+	set ioParms(8,"SqlType")=12
+	set ioParms(9)=pRequest.NATIONALPROVID
+	set ioParms(9,"SqlType")=12
+	set ioParms(10)=pRequest.LASTNAME
+	set ioParms(10,"SqlType")=12
+	set ioParms(11)=pRequest.FIRSTNAME
+	set ioParms(11,"SqlType")=12
+	set ioParms(12)=pRequest.MIDDLENAME
+	set ioParms(12,"SqlType")=12
+	set ioParms(13)=pRequest.OFFEMAILADDRESS
+	set ioParms(13,"SqlType")=12
+	set ioParms(14)=pRequest.PROVIDERUSERROLE
+	set ioParms(14,"SqlType")=12
+	set ioParms(15)=pRequest.DOB
+	set ioParms(15,"SqlType")=93
+	set ioParms(16)=pRequest.SUFFIX
+	set ioParms(16,"SqlType")=12
+	set ioParms=16
+	$$$TRACE("Executing Query:"_insertStr)
+			$$$TRACE("Setting Query 3...")
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,insertStr,.ioParms)
+ 		 	
+	if $$$ISOK(tSC)
+	{
+		$$$TRACE("Successfully executed Query:"_insertStr)
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_insertStr)	
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="addMsprSpecialtyValues">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.MSPRSPECIALTY</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+
+    $$$TRACE("Inside addMsprSpecialtyValues method") 
+    $$$TRACE("New SEQ NUM for Speciality: "_..tempId) 
+    set insertStr= "INSERT into ISSALDAP.MSPR_SPECIALTY (TRANSACTION_SEQ_NUM,TRANSACTION_TIME,SOURCE_SYSTEM,MSPR_ID_NUM,SPECIALTY,PRIMARY_FLAG,ERROR_CODE,ERROR_MSG) VALUES (?,?,?,?,?,?,?,?)"
+
+	set ioParms=8
+	set ioParms(1)=..tempId
+	set ioParms(1,"SqlType")=3
+	set ioParms(2)=pRequest.TRANSACTIONTIME
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=pRequest.SOURCESYSTEM
+	set ioParms(3,"SqlType")=12
+	set ioParms(4)=pRequest.MSPRIDNUM
+	set ioParms(4,"SqlType")=12
+	set ioParms(5)=pRequest.SPECIALTY
+	set ioParms(5,"SqlType")=12
+	set ioParms(6)=pRequest.PRIMARYFLAG
+	set ioParms(6,"SqlType")=12
+	set ioParms(7)=pRequest.ERRORCODE
+	set ioParms(7,"SqlType")=12
+	set ioParms(8)=pRequest.ERRORMSG
+	set ioParms(8,"SqlType")=12
+	$$$TRACE("Executing Query:"_insertStr)
+	
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,insertStr,.ioParms)
+	if $$$ISOK(tSC)
+	{
+		$$$TRACE("Successfully executed Query:"_insertStr)
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_insertStr)	
+	}
+   $$$TRACE("End of Setting Speciality values")
+   quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="addMsprAffiliationValues">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.MSPRPRAFFLIATION</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC=$$$OK
+   $$$TRACE("Inside addMsprAffiliationValues method")
+   $$$TRACE("New SEQ NUM for Affiliation: "_..tempId) 
+   $$$TRACE("TRANSACTION_TIME: "_pRequest.TRANSACTIONTIME)
+   $$$TRACE("SOURCE_SYSTEM: "_pRequest.SOURCESYSTEM)
+   $$$TRACE("MSPR_ID_NUM: "_pRequest.MSPRIDNUM)
+   $$$TRACE("ENTERPRISE_NCID: "_pRequest.ENTERPRISENCID)
+   $$$TRACE("ENTITY_NCID: "_pRequest.ENTITYNCID)
+                $$$TRACE("START_DATE: "_pRequest.STARTDATE)
+                $$$TRACE("END_DATE: "_pRequest.ENDDATE)
+                $$$TRACE("AFFILIATION_TYPE_NCID: "_pRequest.AFFLIATIONTYPENCID)
+                $$$TRACE("PROVIDER_ROLE_NCID: "_pRequest.PROVIDERROLENCID)
+   set insertStr= "INSERT into ISSALDAP.MSPR_PROVIDER_AFFILIATION (TRANSACTION_SEQ_NUM,TRANSACTION_TIME,SOURCE_SYSTEM,MSPR_ID_NUM,ENTERPRISE_NCID,ENTITY_NCID,START_DATE,END_DATE,AFFILIATION_TYPE_NCID,PROVIDER_ROLE_NCID) VALUES (?,?,?,?,?,?,?,?,?,?)"
+
+	set ioParms=10
+	set ioParms(1)=..tempId
+	set ioParms(1,"SqlType")=3
+	set ioParms(2)=pRequest.TRANSACTIONTIME
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=pRequest.SOURCESYSTEM
+	set ioParms(3,"SqlType")=12
+	set ioParms(4)=pRequest.MSPRIDNUM
+	set ioParms(4,"SqlType")=12
+	set ioParms(5)=pRequest.ENTERPRISENCID
+	set ioParms(5,"SqlType")=12
+	set ioParms(6)=pRequest.ENTITYNCID
+	set ioParms(6,"SqlType")=12
+	set ioParms(7)=pRequest.STARTDATE
+	set ioParms(7,"SqlType")=93
+	set ioParms(8)=pRequest.ENDDATE
+	set ioParms(8,"SqlType")=93
+	set ioParms(9)=pRequest.AFFLIATIONTYPENCID
+	set ioParms(9,"SqlType")=12
+	set ioParms(10)=pRequest.PROVIDERROLENCID
+	set ioParms(10,"SqlType")=12
+	$$$TRACE("Executing Query:"_insertStr)
+    set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,insertStr,.ioParms) 
+    	if $$$ISOK(tSC)
+	{
+		$$$TRACE("Successfully executed Query:"_insertStr)
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_insertStr)	
+	}   
+   $$$TRACE("End of Setting Affliation values")
+   quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.ldapOracleMspr">
+	<Method>saveMsprData</Method>
+</MapItem>
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
