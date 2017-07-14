@@ -3,23 +3,13 @@
 <Class name="IHC.ITF.Operation.OutCdrAdtCffAdd">
 <Description>
 Calls Tuxedo service for MMI Add Information using MMIADDXA</Description>
-<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
 <TimeCreated>64104,38345.364344</TimeCreated>
 
-<Property name="JarFile">
-<Description>
-JarFile which has the java code </Description>
+<Property name="JarFiles">
 <Type>%String</Type>
-<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
+<InitialExpression>"/WORK/common/class/IhcItfCdrMmiOperations.jar"</InitialExpression>
 <Parameter name="MAXLEN" value="1000"/>
-</Property>
-
-<Property name="ApplicationAddress">
-<Description>
-Applicaiton Address to be connected</Description>
-<Type>%String</Type>
-<InitialExpression>"//svtst01:54210"</InitialExpression>
-<Parameter name="MAXLEN" value="200"/>
 </Property>
 
 <Property name="TuxedoService">
@@ -30,13 +20,27 @@ Mode of communication to Tuxedo Service</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
-<Property name="objCdrTuxService">
-<Type>org.ihc.itf.cdr.CdrMmiAdd</Type>
-</Property>
-
 <Parameter name="SETTINGS">
-<Default>JarFile:Additional,ApplicationAddress:Additional,TuxedoService:Additional</Default>
+<Default>TuxedoService:Additional,JarFiles:Additional</Default>
 </Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	 try{
+		 do ##super()
+		$$$TRACE("Connect to " _ ..ApplicationAddress)
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.mmi.CdrMmiAdd).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
+     	set status = ..CheckObject()
+	}catch err{
+		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
+	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName," Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	}
+	
+	quit status
+]]></Implementation>
+</Method>
 
 <Method name="OnMessage">
 <FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.StringResponse</FormalSpec>
@@ -45,41 +49,34 @@ Mode of communication to Tuxedo Service</Description>
 	 #dim status as %Status
 	 set status = $$$OK
 	 $$$TRACE("Inside OnMessage method")	 
-	 
-	 do ..JavaGateway.%Import(..JarFile) 	 
-	 
-	 try{
-		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrMmiAdd).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
-	 }catch err{
-		$$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
-	    set status=$$$ERROR(" Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
-	    
-	 }
-	 
+	 	 
 	 try {		 
+	 
+	    if (..CheckObject() '= $$$OK) {
+		 	$$$TRACE("**** Object does not exists ****")
+		 	// Try to re intialize
+		 	set result = ..OnInit()
+			if (result '= $$$OK)
+			{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Cdr-Adt-Cff-ADD", "AddMMI failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+				return status
+			}
+	 	}
+	 	
 		set result = ..objCdrTuxService.addMMI(pRequest.RawContent)
 		$$$TRACE("Call Response: " _ result)
-		if (pRequest.GetValueAt("PID:PatientIdentifierList(1).ID") '= result){
-			set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Out-Cdr-Adt-Cff_Add", "MMIAdd failed. MMI#: " _ pRequest.GetValueAt("PID:PatientIdentifierList(1).ID") _ " ; Reason: " _ result)			
+		
+		if (pRequest.GetValueAt("PID:PatientIdentifierList(1).ID") = result){
+			$$$TRACE("AddMmi Sucessful!!! MMI#: " _ pRequest.GetValueAt("PID:PatientIdentifierList(1).ID"))
+			set pResponse = ##class(Ens.StringResponse).%New("")
+		    set pResponse.StringValue = result
+		}else{		
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Cdr-Adt-Cff_Add", "MMIAdd failed. MMI#: " _ pRequest.GetValueAt("PID:PatientIdentifierList(1).ID") _ " ; Reason: " _ result)			
 		}
-		set pResponse = ##class(Ens.StringResponse).%New("")
-		set pResponse.StringValue = result
+		
 	 } catch err {	 
-	 	$$$TRACE("Exception in calling CheckMmiUpdate; AsSystemError is: " _err.AsSystemError() _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    
-	 	
-	    set errText = $SYSTEM.Status.GetOneErrorText(status)	    	    
-	    set status = $$$ERROR("Exception in calling updateMMI " _ errText)		    	     	 		
-	 }
-	 
-	 try {		
-		if $IsObject(..objCdrTuxService) {
-			$$$TRACE("Disconnecting from CDR Tuxedo service...")
-			do ..objCdrTuxService.shutdownTuxService()			
-			set ..objCdrTuxService = $$$NULLOREF
-		}
-	 } catch {
-		set tSC = $$$EnsSystemError
-	 }
+	 	 Set status = ..ExceptionHandler(err, "OnMessage")
+	 } 
 	 return status
 ]]></Implementation>
 </Method>
