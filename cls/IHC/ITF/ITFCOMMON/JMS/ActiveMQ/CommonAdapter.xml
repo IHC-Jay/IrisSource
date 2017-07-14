@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.JMS.ActiveMQ.CommonAdapter">
+<Super>Ens.InboundAdapter</Super>
+<TimeCreated>64260,43162.584956</TimeCreated>
+
+<Parameter name="SETTINGS">
+<Default>JavaGateWayHost:Connection,JavaGateWayPort:Connection,JmsUrl:Connection,QueueName:Connection,JMSJarPath:Connection,NumberOfRetries:Connection, LogDirectory:Additional</Default>
+</Parameter>
+
+<Property name="JavaGateWayPort">
+<Description>
+JavaGateway Port</Description>
+<Type>%Integer</Type>
+<InitialExpression>11501</InitialExpression>
+</Property>
+
+<Property name="JavaGateWayHost">
+<Description>
+JavaGateway Host</Description>
+<Type>%String</Type>
+<InitialExpression>"localhost"</InitialExpression>
+</Property>
+
+<Property name="JmsUrl">
+<Description>
+JMS connect URL</Description>
+<Type>%String</Type>
+<InitialExpression>"tcp://webitfmsg-dev.co.ihc.com:61616"</InitialExpression>
+</Property>
+
+<Property name="QueueName">
+<Description>
+JMS queue name</Description>
+<Type>%String</Type>
+<InitialExpression>"EQ_Test"</InitialExpression>
+</Property>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Log directory
+
+]]></Content>
+</UDLText>
+
+<Property name="LogDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/Payer"</InitialExpression>
+</Property>
+
+<Property name="JMSJarPath">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Property name="ActMqObj">
+<Type>%ObjectHandle</Type>
+</Property>
+
+<Property name="JmsGateway">
+<Type>EnsLib.JavaGateway.JavaGateway</Type>
+</Property>
+
+<Property name="connected">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="NumberOfRetries">
+<Type>%Integer</Type>
+<InitialExpression>10</InitialExpression>
+</Property>
+
+<Property name="RetryCnt">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 
+	$$$TRACE("JMSinboundAdapter OnInit: "  _ ..JmsUrl)
+	$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway) _ ", ActMqObj:" _$IsObject(..ActMqObj))
+	$$$TRACE("Is connected: " _ ..connected _ ", Attept # " _ ..RetryCnt _ ", Max: " _  ..NumberOfRetries)
+	
+	Set tStat = $$$OK
+	
+	
+	 SET localhost=$SYSTEM.INetInfo.LocalHostName()            /* get host name */
+     $$$TRACE("Component: " _ ..BusinessHost.%ConfigName _ " in " _$NAMESPACE _", local host name is " _ localhost)
+
+	// get an instance of JMSGateway and connect to JMSGateway Super Server
+	try {
+		if ((..connected = 0) && (..RetryCnt <= ..NumberOfRetries))
+		{
+			set ..RetryCnt = ..RetryCnt + 1
+			if ($L(..JMSJarPath) = 0)
+			{
+			   	SET mygenex = ##class(%Exception.General).%New("JMSJarPath does not have class path for jar files ")
+	    		throw mygenex
+
+			}
+			Set ..JmsGateway=##class(EnsLib.JavaGateway.JavaGateway).%New()
+			Set classPath=##class(%ListOfDataTypes).%New()
+	
+			Do classPath.Insert(..JMSJarPath)
+			$$$TRACE("JMS Call Path added: " _ ..JMSJarPath)
+			
+			$$$TRACE("Trying to connect: " _ ..JavaGateWayHost _ ":" _ ..JavaGateWayPort _ ", attempt #: " _ ..RetryCnt)
+	
+			Set tStat=..JmsGateway.%Connect(..JavaGateWayHost,..JavaGateWayPort,$NAMESPACE,5,classPath) 
+			If 'tStat 
+			{
+				set tStat = $$$ISERR(tStat)
+				set exp = ##class(%Exception.General).%New()
+				set exp.Code = tStat.Name
+				set exp.Data = tStat.Data
+				set exp.Name = "Java Gateway connection error: " _ ..JavaGateWayHost _ ", " _ ..JavaGateWayPort
+				Throw exp  
+			}
+			$$$TRACE("Connected to Java Gateway")
+			Set listArray = ##class(%ListOfDataTypes).%New()
+			Set p=1
+			For {
+				Set piece=$P(..JMSJarPath,":",p)
+				Quit:piece=""
+				do listArray.Insert(piece)
+				set p = p+1
+				Do ..JmsGateway.%Import(piece)
+				$$$TRACE("Import Jar file: " _ piece)
+			}
+
+			
+			$$$TRACE("Imported Jar, creating class to connect to " _ ..QueueName _ ", log file: " _ ..LogDirectory _ "/" _$$$JobConfigName _".log" _ ", trace:" _ $$$ConfigTrace($$$JobConfigName))
+			set ..ActMqObj = ##class(IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass).%New(..JmsGateway, ..JmsUrl, ..QueueName, ..LogDirectory _ "/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName) )
+			
+			$$$TRACE("Created class IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass: " _ ..JmsUrl _ ", " _ ..QueueName)
+			$$$TRACE("JmsGateway: " _ $IsObject(..JmsGateway) _ ", ActMqObj:" _$IsObject(..ActMqObj))
+
+			Do ..ActMqObj.CreateConsumer()
+
+			Set ..connected = 1
+			set ..RetryCnt = 0
+		}
+		else
+		{
+			    Set tSC=$$$ERROR($$$GeneralError, "Failed to connect to JMS server after " _ ..NumberOfRetries _ " tries")
+		}
+	} catch err
+     {
+	     
+	     if $GET(%objlasterror) '= ""
+	    {
+	        set errMsg =  $System.Status.GetErrorText(%objlasterror)
+	    }
+	    else
+	    {
+		    set errMsg = "No objlasterror"
+	    }
+   	    Set tSC=$$$ERROR($$$GeneralError, "OnInit : " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+
+	    if (..RetryCnt >=  ..NumberOfRetries)
+	    {
+	    	set alert = ##class(Ens.AlertRequest).%New()
+	    	set alert.AlertText = "Exception in OnInit: Name: " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " / Details: " _ errMsg
+	    	set alert.SourceConfigName = ..BusinessHost.%ConfigName
+	    	do ..BusinessHost.SendAlert(alert)
+	    	
+	    	SET mygenex = ##class(%Exception.General).%New("Tried to connect for " _ ..NumberOfRetries _ " times to Gateway: "_ ..JavaGateWayHost _", " _ ..JavaGateWayPort _ ", JMS:" _ ..JmsUrl)
+	    	throw mygenex
+	     }
+	    
+	    if ((..connected = 1) && ($IsObject(..ActMqObj)) )
+		{
+				Do ..ActMqObj.CloseActiveMQ()
+				set ..ActMqObj = $$$NULLOREF
+				
+		}
+	    
+	    if ((..connected = 1) &&  ($IsObject(..JmsGateway)) )
+	    {
+		  	    Do ..JmsGateway.%Disconnect()
+		  	    set ..JmsGateway = $$$NULLOREF
+		  	    
+	    }
+	    
+    }		
+
+	Quit tStat
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<Description>
+This user callback method is called just before %OnClose()</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("JMSinboundAdapter OnTearDown")
+	if ((..connected = 1) && ($IsObject(..ActMqObj)) )
+		{
+				Do ..ActMqObj.CloseActiveMQ()
+				set ..ActMqObj = $$$NULLOREF
+				$$$TRACE("CloseActiveMQ")
+		}
+	    
+	if ((..connected = 1) && ($IsObject(..JmsGateway)) )
+	{
+		  	    Do ..JmsGateway.%Disconnect()
+		  	    set ..JmsGateway = $$$NULLOREF
+		  	    $$$TRACE("JmsGateway.%Disconnect")
+	}
+	Set ..connected = 0
+	Quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
