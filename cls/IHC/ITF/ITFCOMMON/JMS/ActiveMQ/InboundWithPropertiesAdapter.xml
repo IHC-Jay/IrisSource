@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.JMS.ActiveMQ.InboundWithPropertiesAdapter">
+<Super>IHC.ITF.ITFCOMMON.JMS.ActiveMQ.CommonAdapter</Super>
+<TimeCreated>64260,43162.584956</TimeCreated>
+
+<Parameter name="CONTAINERCLASS">
+<Description>
+default InboundAdapter behavior: always call ProcessInput on CallInterval</Description>
+<Default>Ens.StreamContainer</Default>
+</Parameter>
+
+<Method name="OnTask">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStat = $$$OK
+
+	if ( ..connected = 0)
+	{
+		set tStat = ..OnInit()
+	}
+ if ( ..connected = 0 )
+	{
+		Set tStat = $$$ERROR($$$GeneralError, "Can not connect to JMS server: " _ tStat)
+	}
+ else
+	{
+		try {
+        	$$$TRACE("OnTask: receive message with properties")
+        	set msgHash = ##class(java.util.HashMap).%New()
+        	set msgHash = ..ActMqObj.recvMsgWithProperties()
+        	do {
+    			set msg = msgHash.get("Message")
+				if ($L(msg) = 0)
+				{
+	    			 $$$TRACE("No message in the queue")
+	    		 	Quit 
+    			}
+ 				else
+				{
+	   				$$$TRACE("Got a Message " )
+	   				set jmsMsgWithProperties = ##class(IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties).%New()
+	   				Do jmsMsgWithProperties.Properties.%New()
+	   				set strData=##class(%Stream.GlobalCharacter).%New()
+	
+					set wStat = strData.Write(msg)
+					$$$TRACE("Write msg to stream: " _ wStat)
+	   				set jmsMsgWithProperties.Message = strData
+	   				
+	   				$$$TRACE("# of properties: " _ msgHash.size())
+	   			    #dim properties As array Of %String;
+	   			    
+					Set it=msgHash.keySet().iterator()
+ 					While (it.hasNext()) {
+     					Set key=it.next()
+				  		set val = msgHash.get(key)
+				  		
+				  		if (key '= "Message")
+				  		{
+					  		If $IsObject(jmsMsgWithProperties.Properties) {
+						  		$$$TRACE("Copy Property: " _ key _ "= " _ val)
+				  				set stat = jmsMsgWithProperties.Properties.SetAt(val, key )
+				  				
+				  				$$$TRACE("Copied a property: " _ stat)	  
+					  		}
+					  		else
+					  		{
+						  		$$$TRACE("Create jmsMsgWithProperties.Properties")
+					  		}
+				  		}
+					}
+	   				
+	   				Set tStat = ..SendMessageToService(jmsMsgWithProperties)	   
+				}
+				$$$TRACE("receive next msg without timeout")
+    			set msgHash = ..ActMqObj.recvMsgWithProperties()
+    			set msg = msgHash.get("Message")
+        	}while ($L(msg) '= 0)
+		
+		 }catch err
+    	 {
+	    	 if $GET(%objlasterror) '= ""
+	    	{
+	        	set errMsg =  $System.Status.GetErrorText(%objlasterror)
+	    	}
+ 			else
+		    {
+			    set errMsg = "No error obj"
+	    	}
+ 			Set tSC=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+	    
+	   		if ((..connected = 1) && ($IsObject(..ActMqObj)) )
+			{
+				Do ..ActMqObj.CloseActiveMQ()
+				set ..ActMqObj = $$$NULLOREF
+				$$$TRACE("CloseActiveMQ")
+			}
+ 			if ((..connected = 1) && ($IsObject(..JmsGateway)) )
+	    	{
+		  		    Do ..JmsGateway.%Disconnect()
+		  		    set ..JmsGateway = $$$NULLOREF
+		  	    	$$$TRACE("JmsGateway.%Disconnect")
+	    	}
+ 			Set ..connected = 0
+    	}
+}
+    
+	Quit tStat
+]]></Implementation>
+</Method>
+
+<Method name="SendMessageToService">
+<FormalSpec>comMsg:IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status
+	Set tSc = $$$OK
+
+	Set tSC=..BusinessHost.ProcessInput(comMsg)  Quit:$$$ISERR(tSC)
+	$$$TRACE("SendMessageToService: ProcessInput " _ tSc)
+	Return tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
