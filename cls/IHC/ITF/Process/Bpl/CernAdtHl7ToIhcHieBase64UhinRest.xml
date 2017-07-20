@@ -82,11 +82,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='25000' />
 </parameters>
 </property>
-<property name='restCallResponse' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='25000' />
-</parameters>
-</property>
+<property name='restCallResponse' type='EnsLib.HTTP.GenericMessage' instantiate='1' />
 </context>
 <sequence xend='200' yend='2200' >
 <scope xpos='200' ypos='250' xend='200' yend='2100' >
@@ -137,6 +133,7 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 <code name='GetMSH4FilterList' xpos='200' ypos='950' >
+<annotation><![CDATA[MSH-4 Filter out list]]]]><![CDATA[></annotation>
 <![CDATA[  $$$TRACE("Fetch MSH-4 Filter Out list")
  
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterOutLocations", .getLocFilterOutStr)
@@ -190,9 +187,9 @@ BPL Definition</Description>
  if ($$$ISOK(pstatus)){
 		$$$TRACE("Event Types to Filter In: " _getEvnTypeFilterInStr)
 		TRY {
-			For iTarget=1:1:$L(_getEvnTypeFilterInStr,",") 
+			For iTarget=1:1:$L(getEvnTypeFilterInStr,",") 
 			{ 
-				Set tOneTarget=$ZStrip($P(_getEvnTypeFilterInStr,",",iTarget),"<>W")  
+				Set tOneTarget=$ZStrip($P(getEvnTypeFilterInStr,",",iTarget),"<>W")  
 				Continue:""=tOneTarget
 				if (context.Msh9MsgEventType = tOneTarget){
 					set filterOutMsh9EventType = 0
@@ -204,13 +201,13 @@ BPL Definition</Description>
 			$$$TRACE("Checking against allowed MSH-9 Event Types...")
 			if (filterOutMsh9EventType=1) {
 				$$$TRACE("Message Event Type is a MSH-9 Message Event Type to be Filtered Out. Skipping HL7 Message. MSH-9 Msg Event Type found: ["_context.Msh9MsgEventType_"]")
-				set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***HL7 message has MSH-9 Message Event Type that is being filtered out: - PHI: ["_context.Msh4Facility_"]. Record will be skipped.***")
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***HL7 message has MSH-9 Message Event Type that is being filtered out: - PHI: ["_context.Msh9MsgEventType _"]. Record will be skipped.***")
 			}
 			else{
 				$$$TRACE("Have a workable MSH-9 Event Type.")
 			}
 		} Catch eException {
-			Set exceptStatus = "Error Parsing STRING: "_getEvnTypeFilterInStr _" - for Filter In MSH-9 Event Types list: "_eException.AsStatus()
+			Set exceptStatus = "Error Parsing STRING: getEvnTypeFilterInStr - for Filter In MSH-9 Event Types list: "_eException.AsStatus()
 			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Could not parse data required to proces HL7 data. Error caught: "_exceptStatus )
 			
 		}   
@@ -241,6 +238,7 @@ BPL Definition</Description>
  set context.ResponseBase65Encoded = $SYSTEM.Encryption.Base64Encode(context.NewResponseClone.OutputToString())
  $$$TRACE("Cloned Response is now Base64 Encoded!")
  $$$TRACE("Here's the Base64 Encoded data: "_context.ResponseBase65Encoded )
+ 
 
 
 
@@ -256,6 +254,11 @@ BPL Definition</Description>
  
  set context.NewResponseStream = ##class(EnsLib.HTTP.GenericMessage).%New()
  do context.NewResponseStream.StreamSet(newStreamContainer)
+ set streamSize = newStreamContainer.SizeGet()
+ $$$TRACE("StreamContainer Size is: "_streamSize)
+ set httpHeaderContentLen = "Content-Length="_streamSize
+ do context.NewResponseStream.SetHTTPHeaders(httpHeaderContentLen)
+ 
  //Get SAML token to assign in HTTP Header
  //Token name: ih-saml20 with the token being the value of ih-saml20 in the HTTP Header
  //do context.NewResponseStream.SetHTTPHeaders()
@@ -283,22 +286,55 @@ BPL Definition</Description>
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1750' xend='200' yend='550' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1750' xend='200' yend='650' >
 <annotation><![CDATA[Sending to IHC HIE target ]]]]><![CDATA[></annotation>
-<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='0' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.NewResponseStream" action="set" />
 </request>
 <response type='Ens.Response' >
-<assign property="callresponse" value="context.restCallResponse" action="set" />
+<assign property="context.restCallResponse" value="callresponse" action="set" />
 </response>
 </call>
-<code name='CheckRestCallResponse' xpos='200' ypos='350' >
+<code name='SendRestRequest' xpos='200' ypos='350' disabled="true" >
+<![CDATA[   // Call REST Operation
+ set tStatus=process.SendRequestSync(context.TargetList.GetAt(context.TargetIndex),context.NewResponseStream,.restResponse)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected REST response returned or call failure") 
+ }
+ else { 
+   set context.restCallResponse = restResponse
+   $$$TRACE("restResponse:"_restResponse)
+   $$$TRACE("context.restCallResponse:"_context.restCallResponse)
+ }
+ 
+ 
+ ]]]]><![CDATA[>
+</code>
+<code name='CheckRestCallResponse' xpos='200' ypos='450' >
 <![CDATA[ $$$TRACE("Check For Success or Errors in REST Call Response!")
  //Determine what success and error response will look like
- //Parse for success and error]]]]><![CDATA[>
+ //Parse for success and error
+ set returnStreamFromResponse = ##class(%GlobalCharacterStream).%New(context.restCallResponse.StreamGet())
+ set returnStringFromStream = ##class(Ens.StringContainer).%New()
+ set returnStreamSize = returnStreamFromResponse.SizeGet()
+ $$$TRACE("Stream Size From the Returned Response: "_returnStreamSize)
+ set text=""
+ set tStatus = returnStreamFromResponse.Rewind()
+ While 'returnStreamFromResponse.AtEnd {
+     Set text = text_returnStreamFromResponse.Read($$$MaxStringLength)
+ }
+ set returnStringFromStream.StringValue = text
+ kill returnStreamFromResponse
+ $$$TRACE("REST Service Response - String Value From Response Stream: "_returnStringFromStream.StringValue)
+ //set returnStatusLineFromResponse = context.restCallResponse.HTTPHeaders(StatusLine)
+ //$$$TRACE("REST Service Response - StatusLine :" _returnStatusLineFromResponse)
+ //set returnResponseData = context.restCallResponse.Data
+ //$$$TRACE("REST Service Response - Data: "_returnResponseData)
+ 
+ ]]]]><![CDATA[>
 </code>
-<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='450' />
+<trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='550' />
 </foreach>
 <code name='ResetErrors' xpos='200' ypos='1850' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
