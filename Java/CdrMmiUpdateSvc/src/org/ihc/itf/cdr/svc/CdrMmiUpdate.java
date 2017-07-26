@@ -8,6 +8,7 @@ import java.util.SimpleTimeZone;
 import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.ihc.itf.cdr.CdrTuxServices;
 import org.ihc.itf.util.ItfLoggerHash;
 
 import ca.uhn.hl7v2.DefaultHapiContext;
@@ -35,7 +36,7 @@ import cdr.asn1.hems.Phones;
 import cdr.asn1.hems.RequesterInfo;
 import cdr.asn1.hems.UserSecurityTicket;
 
-public class CdrMmiUpdate {
+public class CdrMmiUpdate extends CdrTuxServices {
 	/* Get actual class name to be printed on */
 	private static Logger log ;
 	private static String CERNER_FAC_NCID="525935320";
@@ -47,13 +48,16 @@ public class CdrMmiUpdate {
 	private LockCdrService lockService =null;
 	private UnlockCdrService unlockService = null;
 	private UpdateCdrService updateService = null;
+	private HapiContext hapiContext;
 	
 	public CdrMmiUpdate(String applicationAddress, String serviceName, String lockServiceName, String unlockServiceName, int maxRetries, int retryTimeoutSeconds, String fileName, int debug) throws Exception	{
+		super(applicationAddress, serviceName);
 		log = ItfLoggerHash.setLoggerProperties("CdrMmiUpdate", fileName, (debug == 1) ? true : false) ;
 		cdrMmiUpdate(applicationAddress, serviceName, lockServiceName, unlockServiceName, maxRetries, retryTimeoutSeconds);
 	}
 	
 	public CdrMmiUpdate(String applicationAddress, String serviceName, String lockServiceName, String unlockServiceName, int maxRetries, int retryTimeoutSeconds) throws Exception	{
+		super(applicationAddress, serviceName);
 		log = Logger.getLogger(CdrMmiUpdate.class);
 		BasicConfigurator.configure();
 		log.setLevel(Level.ERROR);
@@ -90,9 +94,10 @@ public class CdrMmiUpdate {
 		
 		try {
 			log.debug("Start updateMMI");
-			HapiContext hapiContext = new DefaultHapiContext();
+			hapiContext = new DefaultHapiContext();
 			hapiContext.setValidationContext(new NoValidation());
 			PipeParser pipeParser = hapiContext.getPipeParser();
+			
 			Message message = pipeParser.parse(hl7Msg);
 			//GenericParser parser = context.getGenericParser();
 			//Message message = parser.parse(hl7Msg);
@@ -183,7 +188,8 @@ public class CdrMmiUpdate {
 			// Populate Phones
             int hPhnCnt = msg.getPID().getPhoneNumberHomeReps();
             int wPhnCnt = msg.getPID().getPhoneNumberBusinessReps();
-            int cdrPhnCnt = hPhnCnt + wPhnCnt;
+            
+            
             Phones pPhones = new Phones();
             //PID-13 HomePhone            
             for(int phIndx=0; phIndx<hPhnCnt; phIndx++) {
@@ -208,21 +214,21 @@ public class CdrMmiUpdate {
 	            		phone.setAreaCode(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(0,3));	            		
 	            	}
 	
-	            	// Local Phone Number
-            		if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue())) {
+	            	// Local Phone Number            		
+            		if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue())) {            			
 	            		phone.setLocalNumber(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue());            	
 	            	} else if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue())){	            		
 	            		phone.setLocalNumber(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(3));	            		
 	            	}
 	            	
-	            	// Extension
+            		// Extension
             		if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).getExtension().getValue())) {
 	            		phone.setExtension(msg.getPID().getPhoneNumberHome(phIndx).getExtension().getValue());            	
-	            	}
-            		pPhones.add(phone);
+	            	}            		
+            		pPhones.add(phone);            		
             	}            	
             	
-            }
+            }            
             //PID-14 BusinessPhone
             for(int phIndx=0; phIndx<wPhnCnt; phIndx++) {
             	Phone phone = new Phone();            	
@@ -544,7 +550,7 @@ public class CdrMmiUpdate {
             log.debug("Setting Phones...");
             Phone retPhones[] = memberInfo.getPhones();
             int phCnt = m_DataRecord.getMmiRecords()[0].getMemberInfo().getPhones().length;
-            if(phCnt == 1 && dataRecord.getMmiRecords()[0].getMemberInfo().getPhones() != null && dataRecord.getMmiRecords()[0].getMemberInfo().getPhones()[0].getPhoneTypeCid() == null)
+            if(phCnt == 1 && m_DataRecord.getMmiRecords()[0].getMemberInfo().getPhones() != null && m_DataRecord.getMmiRecords()[0].getMemberInfo().getPhones()[0].getPhoneTypeCid() == null)
             	m_DataRecord.getMmiRecords()[0].getMemberInfo().getPhones()[0].setPhoneTypeCid(new Coded(BigInteger.valueOf(193L)));
             boolean isCurPrefPhFlag = false;
             log.debug("Current Record Phone Count  : " + phCnt);
@@ -639,7 +645,7 @@ public class CdrMmiUpdate {
             }
             DateOfBirth dtb = m_DataRecord.getMmiRecords()[0].getMemberInfo().getDateOfBirth();
             if(dtb != null && dtb.getBirthDate() != null) {                
-                log.debug("Filling Birthday: "+ dateFormat.format(dtb.getBirthDate()));
+                log.debug("Filling Birthday: "+ dateFormat.format(dtb.getBirthDate()));                
                 memberInfo.setDateOfBirth(dtb);
                 memberInfo.setBirthDateResolution(new Coded(BigInteger.valueOf(0x35105L)));
             }
@@ -728,7 +734,7 @@ public class CdrMmiUpdate {
 	
 	private boolean isNumeric(String str){  
 	  try{  
-	    double d = Double.parseDouble(str);  
+		  Double.parseDouble(str);  
 	  }catch(NumberFormatException nfe){  
 	    return false;  
 	  }  
