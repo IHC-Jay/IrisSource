@@ -20,9 +20,32 @@ HddTargetConfigName:Custom setting to select Configuration item(s) to  request t
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="ExcludedFacilities">
+<Type>%String</Type>
+<InitialExpression>"2000000234,2000000218,2000000222,2000000224,2000000217"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedDocIDTypes:Additional</Default>
+<Default>HddTargetConfigName:Additional,AllowedDocIDTypes:Additional,ExcludedFacilities:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernResultsHl7ToCacMDMDefaultData</DefaultData>
+<Data name="CernResultsHl7ToCacMDMDefaultData">
+<Subscript>"CernResultsHl7ToCacMDM"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>AllowedDocIDTypes</Value>
+</Value>
+<Value name="3">
+<Value>ExcludedFacilities</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -147,9 +170,19 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='isAcceptedLocation' type='%String' initialexpression='"0"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='Location' type='%String' initialexpression='"0"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='3100' >
-<scope xpos='200' ypos='250' xend='200' yend='3000' >
+<sequence xend='200' yend='3450' >
+<scope xpos='200' ypos='250' xend='200' yend='3350' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process:: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -194,7 +227,52 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 </sequence>
-<code name='Skip if PatientType is empty' xpos='200' ypos='650' >
+<code name='CheckExcludedFacilities' xpos='200' ypos='650' >
+<![CDATA[ set ExcludedLocations=""
+  set context.Location = request.GetValueAt("MSH:SendingFacility")
+ 
+  set context.isAcceptedLocation = 1
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ExcludedFacilities",.ExcludedLocations) 
+ $$$TRACE("Trigger Location= "_context.Location)
+ if ($$$ISOK(pstatus)&&(ExcludedLocations'=""))
+ {
+    $$$TRACE("ExcludedLocations : "_ExcludedLocations) 
+    $$$TRACE("ExcludedLocations Count: "_$L(ExcludedLocations, ",")) 
+    For iTarget=1:1:$L(ExcludedLocations, ",") 
+        { 
+        
+        //$$$TRACE("For loop index "_iTarget) 
+            Set tOneTarget=$ZStrip($P(ExcludedLocations,",",iTarget),"<>W") 
+            $$$TRACE("tOneTarget.. "_tOneTarget)
+            Continue:""=tOneTarget
+            
+      
+            if (context.Location = tOneTarget)
+            {
+	            $$$TRACE("Location Excluded")
+	            set context.isAcceptedLocation = 0
+	            QUIT
+            } 
+    
+
+         }
+
+ }else{
+	 $$$TRACE("Config setting for ExcludedLocationsLocation not Available")
+	 Set pstatus = $$$ERROR("Initialization error, No configuration for ExcludedLocations ")
+	 
+	 }]]]]><![CDATA[>
+</code>
+<if name='isLocationAccepted' condition='context.isAcceptedLocation=1' xpos='200' ypos='750' xend='200' yend='900' >
+<false>
+<code name='Filter Message' xpos='390' ypos='805' >
+<![CDATA[
+  set PatientID= request.GetValueAt("PID:PatientIdentifierList(1).ID")
+  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Cac", "Filtered Location:["_context.Location_"] EMPI:["_PatientID _"]. Skipping the record." ) ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='Skip if PatientType is empty' xpos='200' ypos='1000' >
 <![CDATA[ set ptype = request.GetValueAt("PV1:PatientType")
  
  $$$TRACE(ptype)
@@ -208,7 +286,7 @@ BPL Definition</Description>
  
   ]]]]><![CDATA[>
 </code>
-<code name='Skip if PatientID is empty' xpos='200' ypos='750' >
+<code name='Skip if PatientID is empty' xpos='200' ypos='1100' >
 <![CDATA[ set PatientID= request.GetValueAt("PID:PatientIdentifierList(1).ID")
  
 
@@ -220,7 +298,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='Create &amp; Build IsMember Request' xpos='200' ypos='850' >
+<code name='Create &amp; Build IsMember Request' xpos='200' ypos='1200' >
 <![CDATA[ //IsMemeber Type request Created
  set context.IsMemberReqObj= ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateIsMemberObject()
  
@@ -234,7 +312,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='HDD for IsMember' xpos='200' ypos='950' >
+<code name='HDD for IsMember' xpos='200' ypos='1300' >
 <![CDATA[ // Call HDD Operation
  set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.IsMemberReqObj,.hddResponse)
  if ('tStatus) {
@@ -245,7 +323,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='Filter By TXA.2' xpos='200' ypos='1050' >
+<code name='Filter By TXA.2' xpos='200' ypos='1400' >
 <![CDATA[ //Fetch the Response
  set context.SinglehddResponseObj= ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse,"TXA.2")
  
@@ -257,7 +335,7 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<code name='Filter by UniqueDocumentNumber' xpos='200' ypos='1150' >
+<code name='Filter by UniqueDocumentNumber' xpos='200' ypos='1500' >
 <![CDATA[ set AllowedDocIDTypes=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedDocIDTypes",.AllowedDocIDTypes) 
  if ($$$ISOK(pstatus)&&(AllowedDocIDTypes'=""))
@@ -285,7 +363,7 @@ BPL Definition</Description>
 	   }
 	 ]]]]><![CDATA[>
 </code>
-<foreach name='For Each OBX segment' property='request.{OBXgrp().OBX}' key='context.OBXKey' xpos='200' ypos='1250' xend='200' yend='450' >
+<foreach name='For Each OBX segment' property='request.{OBXgrp().OBX}' key='context.OBXKey' xpos='200' ypos='1600' xend='200' yend='450' >
 <code name='Filter if OBX2 is RP' xpos='200' ypos='250' >
 <![CDATA[ //OBX2  
  $$$TRACE("Inside the Loop")
@@ -319,14 +397,14 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<code name='Filter if no OBX segment' xpos='200' ypos='1350' >
+<code name='Filter if no OBX segment' xpos='200' ypos='1700' >
 <![CDATA[ if context.OBXKey = 0
  {
      set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Missing required value Value Type in OBX-5. The is no report text in the transaction. " _ "Hl7 Msg:" _ request.RawContent)
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Build HDD Request' xpos='200' ypos='1450' >
+<code name='Build HDD Request' xpos='200' ypos='1800' >
 <![CDATA[ $$$TRACE(" Get Rep from Ncid Hdd lookup call")  	
  set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
  $$$TRACE(" After creating Ncid Hdd lookup request object") 
@@ -407,7 +485,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='HDD Call' xpos='200' ypos='1550' >
+<code name='HDD Call' xpos='200' ypos='1900' >
 <![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
  if ('tStatus) {
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
@@ -416,10 +494,10 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<trace name='# of HDD objects returned' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='200' ypos='1650' >
+<trace name='# of HDD objects returned' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='200' ypos='2000' >
 <annotation><![CDATA[Check out HDD RepFromNcid call return]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Returned HDD Object' property='context.hddRepResponse.listOfHDDobj' key='context.HddObjCounter' xpos='200' ypos='1750' xend='200' yend='350' >
+<foreach name='Returned HDD Object' property='context.hddRepResponse.listOfHDDobj' key='context.HddObjCounter' xpos='200' ypos='2100' xend='200' yend='350' >
 <code name='Check Returned Values for each feild' xpos='200' ypos='250' >
 <![CDATA[ $$$TRACE(context.hddRepResponse.listOfHDDobj.GetAt(context.HddObjCounter).Index)
  set RepValue = context.hddRepResponse.listOfHDDobj.GetAt(context.HddObjCounter).Rep
@@ -444,7 +522,7 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 </foreach>
-<code name='Alert for empty Rep&apos;s' xpos='200' ypos='1850' >
+<code name='Alert for empty Rep&apos;s' xpos='200' ypos='2200' >
 <annotation><![CDATA[Alert for empty Rep's]]]]><![CDATA[></annotation>
 <![CDATA[ if context.BlankRepforNCID '=""
  {
@@ -461,7 +539,7 @@ BPL Definition</Description>
      
 ]]]]><![CDATA[>
 </code>
-<code name='HDD Request BuilderBillingType' xpos='200' ypos='1950' >
+<code name='HDD Request BuilderBillingType' xpos='200' ypos='2300' >
 <![CDATA[  
  //Billing Type request Created
  set context.BillingRequestObj= ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddBillingTypeReqObject()
@@ -489,7 +567,7 @@ BPL Definition</Description>
  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Field PV1.10 not aliased on Cerner. " _ "Hl7 Msg:" _ request.RawContent)
  }]]]]><![CDATA[>
 </code>
-<code name='HDD Op for BillingType' xpos='200' ypos='2050' >
+<code name='HDD Op for BillingType' xpos='200' ypos='2400' >
 <![CDATA[  // Call HDD Operation
  set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.BillingRequestObj,.hddResponse)
  if ('tStatus) {
@@ -499,13 +577,13 @@ BPL Definition</Description>
    set context.BillingResponseObj = hddResponse 
  }]]]]><![CDATA[>
 </code>
-<assign name="Read Source Service" property="context.SourceService" value="process.%PrimaryRequestHeader.SourceConfigName" action="set" xpos='200' ypos='2150' />
-<trace name='Source service' value='"Source Service: "_context.SourceService' xpos='200' ypos='2250' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToCacMDM' source='request' target='response' xpos='200' ypos='2350' />
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='2450' >
+<assign name="Read Source Service" property="context.SourceService" value="process.%PrimaryRequestHeader.SourceConfigName" action="set" xpos='200' ypos='2500' />
+<trace name='Source service' value='"Source Service: "_context.SourceService' xpos='200' ypos='2600' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToCacMDM' source='request' target='response' xpos='200' ypos='2700' />
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='2800' >
 <annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
 </trace>
-<code name='setup target list' xpos='200' ypos='2550' >
+<code name='setup target list' xpos='200' ypos='2900' >
 <![CDATA[   
    
  //TargetConfigNames validation
@@ -520,7 +598,7 @@ BPL Definition</Description>
    $$$TRACE("Count: " _ context.targetList.Count())
  ]]]]><![CDATA[>
 </code>
-<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='2650' xend='200' yend='350' >
+<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='3000' xend='200' yend='350' >
 <annotation><![CDATA[Publish to facility Target based on the lookup table]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -528,13 +606,13 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='2750' >
+<code name='Reset Error' xpos='200' ypos='3100' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2850' xend='200' yend='350' >
+<catchall xpos='200' ypos='3200' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -547,20 +625,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernResultsHl7ToCacMDMDefaultData</DefaultData>
-<Data name="CernResultsHl7ToCacMDMDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"CernResultsHl7ToCacMDM"</Subscript>
-<Value name="1">
-<Value>HddTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>AllowedDocIDTypes</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
