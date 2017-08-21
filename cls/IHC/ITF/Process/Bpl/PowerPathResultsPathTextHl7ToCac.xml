@@ -8,6 +8,27 @@ BPL for PowerPath Pathology Results to Cac.</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63995,54244.353167</TimeCreated>
 
+<Property name="ExcludedFacilities">
+<Type>%String</Type>
+<InitialExpression>"130,132,120,364,122"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>ExcludedFacilities:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>PowerPathResultsPathTextHl7ToCacDefaultData</DefaultData>
+<Data name="PowerPathResultsPathTextHl7ToCacDefaultData">
+<Subscript>"PowerPathResultsPathTextHl7ToCac"</Subscript>
+<Value name="1">
+<Value>ExcludedFacilities</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -33,9 +54,19 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
+<property name='isAcceptedLocation' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='Location' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1700' >
-<scope xpos='200' ypos='250' xend='200' yend='1600' >
+<sequence xend='200' yend='2150' >
+<scope xpos='200' ypos='250' xend='200' yend='2050' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -72,6 +103,7 @@ BPL Definition</Description>
  	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.PowerPathResultsPathTextHl7ToCac.Lookup.PowerPathCacRpts not exists")  
  }]]]]><![CDATA[>
 </code>
+
 <code name='Validate message structure' xpos='200' ypos='850' >
 <annotation><![CDATA[Get Validation setting from settings & test against the structure]]]]><![CDATA[></annotation>
 <![CDATA[
@@ -105,13 +137,58 @@ BPL Definition</Description>
 	 set context.obr24Value = retVal
  }]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerPathResultsPathTextHl7ToCac' source='request' target='response' xpos='200' ypos='1050' >
+<code name='CheckAllowedFacilities' xpos='200' ypos='1050' >
+<![CDATA[ set ExcludedLocations =""
+  set context.Location = request.GetValueAt("MSH:ReceivingFacility.namespaceID")
+ 
+  set context.isAcceptedLocation = 1
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ExcludedFacilities",.ExcludedLocations) 
+ $$$TRACE("Trigger Location= "_context.Location)
+ if ($$$ISOK(pstatus)&&(ExcludedLocations'=""))
+ {
+    $$$TRACE("ExcludedLocations : "_ExcludedLocations ) 
+    $$$TRACE("ExcludedLocations Count: "_$L(ExcludedLocations , ",")) 
+    For iTarget=1:1:$L(ExcludedLocations , ",") 
+        { 
+        
+        //$$$TRACE("For loop index "_iTarget) 
+            Set tOneTarget=$ZStrip($P(ExcludedLocations ,",",iTarget),"<>W") 
+            $$$TRACE("tOneTarget.. "_tOneTarget)
+            Continue:""=tOneTarget
+            
+            
+            if (context.Location = tOneTarget)
+            {
+	            $$$TRACE("Location Excluded")
+	            set context.isAcceptedLocation = 0
+	            QUIT
+            } 
+    
+
+         }
+
+ }else{
+	 $$$TRACE("Config setting for ExcludedLocation not Available")
+	 Set pstatus = $$$ERROR("Initialization error, No configuration for Excluded Location found")
+	 
+	 }]]]]><![CDATA[>
+</code>
+<if name='isLocationAccepted' condition='context.isAcceptedLocation=1' xpos='200' ypos='1150' xend='200' yend='1400' >
+<false>
+<code name='Filter Message' xpos='335' ypos='1300' >
+<![CDATA[   
+ set PatientID= request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("PowerPath", "Invalid Location:["_context.Location_"] EMPI:["_PatientID _"]. Skipping the record." ) ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerPathResultsPathTextHl7ToCac' source='request' target='response' xpos='200' ypos='1500' >
 <annotation><![CDATA[translate to Cac format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1150' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1600' >
 <annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1250' xend='200' yend='350' >
+<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1700' xend='200' yend='350' >
 <annotation><![CDATA[Publish to each Target Configured]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -119,13 +196,13 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='1350' >
+<code name='Reset Error' xpos='200' ypos='1800' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1450' xend='200' yend='350' >
+<catchall xpos='200' ypos='1900' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -138,9 +215,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
