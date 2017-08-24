@@ -299,6 +299,12 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			if(!isNOE(msg.getPID().getMaritalStatus(0).getValue())) {
 				m_memberInfo.setMaritalStatusCid(new Coded(new BigInteger(msg.getPID().getMaritalStatus(0).getValue())));
             }
+
+                        // Populate Religion
+			if(!isNOE(msg.getPID().getReligion().getValue()) && isNumeric(msg.getPID().getReligion().getValue())) {
+				m_memberInfo.setReligionCid(new Coded(new BigInteger(msg.getPID().getReligion().getValue())));
+			}
+
 			
 			// Populate EthnicGroup			
 			if(!isNOE(msg.getPID().getEthnicGroup().getValue())) {				
