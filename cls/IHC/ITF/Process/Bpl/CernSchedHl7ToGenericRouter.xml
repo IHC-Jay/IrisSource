@@ -30,10 +30,29 @@ BPL Definition</Description>
 <property name='empiNumber' type='%String' instantiate='0' />
 <property name='uofuMrnNumber' type='%String' instantiate='0' />
 
+<property name='facNcid' type='%String' instantiate='0' />
 
 <property name='updatedResponse' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50000' />
+</parameters>
+</property>
+<property name='IsMemberRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.IsMemberLookupRequest' instantiate='1' />
+<property name='IsMemberResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' />
+
+<property name='hddFacilityDomainIsMember' type='%String' initialexpression='"526051176"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='isFacMemberResp' type='%Boolean' initialexpression='0' instantiate='0' >
+</property>
+
+
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
 
@@ -52,6 +71,26 @@ BPL Definition</Description>
  	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
  }
  	  ]]]]><![CDATA[>
+</code>
+
+<code name='initializeHddTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No HddTargetConfigName found.")   	
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='check MSH-4' xpos='200' ypos='1150' >
+<![CDATA[ set context.facNcid=request.GetValueAt("MSH:SendingFacility.NamespaceID")
+ $$$TRACE("Sending FAC NCID: " _ context.facNcid)   
+ if ($ISVALIDNUM(context.facNcid)'="1"){	
+	  $$$TRACE("Sending facility ncid is NOT a number ")
+	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facNcid, " Invalid MSH-4 ["_ context.facNcid _"]. Skipping the record." )
+ }]]]]><![CDATA[>
 </code>
 <code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
 <annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
@@ -91,6 +130,16 @@ BPL Definition</Description>
 </code>
 
 
+<code name='Get Domain Ncid for Facility' xpos='470' ypos='1700' >
+<![CDATA[
+ set context.hddFacilityDomainIsMember=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddFacilityDomainNcid",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("Facility Hdd Domain IsMember: " _ context.hddFacilityDomainIsMember)
+ } 
+ 	  ]]]]><![CDATA[>
+</code>
+
+
 <code name='ValidateMessage' xpos='200' ypos='650' >
 <annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
@@ -102,7 +151,6 @@ BPL Definition</Description>
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
-
 
 <code name='SetCernerAndUofUMrns' xpos='200' ypos='650' >
 <annotation><![CDATA[Get EMPI(CMRN and UofU)]]]]><![CDATA[></annotation>
@@ -120,9 +168,18 @@ BPL Definition</Description>
  }
  $$$TRACE("Cerner MRN " _ context.empiNumber) 
  $$$TRACE("UofU MRN " _ context.uofuMrnNumber) 
+ 
+ if ($ISVALIDNUM(context.uofuMrnNumber)'="1"){	 
+  set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("NTEgrp.ZBX()",k1,.tSCTrans)  Quit:k1=""               
+     If (request.GetValueAt("NTEgrp.ZBX:("_(k1)_").3(1).1")="Sch U MRN") {
+         Set context.uofuMrnNumber=request.GetValueAt("NTEgrp.ZBX:("_(k1)_").5")              
+     }     
+  }
+ }
  ]]]]><![CDATA[>
 </code>
-
 
 <code name='ValidateCernerMRN' xpos='200' ypos='650' >
 <annotation><![CDATA[Validate EMPI(CMRN)]]]]><![CDATA[></annotation>
@@ -133,44 +190,83 @@ BPL Definition</Description>
      }
  ]]]]><![CDATA[>
 </code>
-
-
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToGenericRouter' source='request' target='response' xpos='605' ypos='2550' >
-<annotation><![CDATA[Routes Cerner Hl7 to all scheduling downstream interfaces. Routes to UofU only if the record has UofU MRN#]]]]><![CDATA[></annotation>
-</transform>
-
-
-   <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="response" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-<code name='RESETERROR' xpos='470' ypos='2600' >
-<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
-
+ 
+<code name='createIsMemberRequests' xpos='740' ypos='2300' >
+<![CDATA[  
+    $$$TRACE(" IsMember Hdd Requests..")    
+     $$$TRACE("Facility Ncid in MSH-4 " _ context.facNcid) 
+     if (context.facNcid '= "" && $ISVALIDNUM(context.facNcid)= "1"){
+	     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(context.IsMemberRequest, context.hddFacilityDomainIsMember, context.facNcid, "IsMemberMSH4")         
+      }
 ]]]]><![CDATA[>
 </code>
-</foreach>
 
+<code name='CallHddIsMemberMethod' xpos='1010' ypos='2400' >
+<![CDATA[ 
+ // Call HDD Operation     
+    set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.IsMemberRequest,.hddIsMemberResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure during isMember Hdd call. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+    }else { 
+       set context.IsMemberResponse = hddIsMemberResponse 
+    }
+    ]]]]><![CDATA[>
+</code>
 
+<code name='CheckIfFacilityIsMember' xpos='1010' ypos='2400' >
+<![CDATA[ 
+     set context.isFacMemberResp = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse, "IsMemberMSH4")    
+    if (context.isFacMemberResp) {                      
+       $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is a member of UofU Domain: ["_context.hddFacilityDomainIsMember_"]") 
+    }else{
+	    $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is NOT a member of UofU Domain: ["_context.hddFacilityDomainIsMember_"]") 
+    }
+]]]]><![CDATA[>
+</code>
+    
+<if name='isFacilityMember' condition='$LENGTH(context.isFacMemberResp) &gt; "0"' xpos='200' ypos='1450' xend='200' yend='2250' >
+<true>
 <if name='hasUofUMrn' condition='$LENGTH(context.uofuMrnNumber) &gt; "0"' xpos='200' ypos='1450' xend='200' yend='2250' >
 <true>
 <call name='Send to UofUTarget' target='@context.UofUTargetConfigName' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
-<response type='Ens.Response' />
+</call>
+</true>
+<false>
+     <trace name='NoUofUMrnRecord' value=' "No UofU MRN# in the record. "' xpos='200' ypos='450' ></trace>
+     <code name='skipMessage' xpos='200' ypos='1000' >
+<annotation><![CDATA[skip message- NoUofU MRN in the record.]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ $$$TRACE("Skip message...") 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No UofU MRN in the record. Skipped it.")]]]]><![CDATA[>
+</code>      
+</false>
+</if>
+</true>
+<false>
+     <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToGenericRouter' source='request' target='response' xpos='605' ypos='2550' >
+<annotation><![CDATA[Routes Cerner Hl7 to all scheduling downstream interfaces. Routes to UofU only if the record has UofU MRN#]]]]><![CDATA[></annotation>
+</transform>
+   <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
 </call>
 <code name='RESETERROR' xpos='470' ypos='2600' >
-<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 
 ]]]]><![CDATA[>
 </code>
-</true>
+</foreach>
+</false>
 </if>
-
+<code name='RESETERROR' xpos='470' ypos='2600' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
 </true>
 <false>
 <trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' >
@@ -198,8 +294,22 @@ BPL Definition</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="HddFacilityDomainNcid">
+<Description>
+Facility Domain Ncid for IsMember Hdd method operation</Description>
+<Type>%String</Type>
+<InitialExpression>"526051176"</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>UofUTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>HddTargetConfigName:Additional,HddFacilityDomainNcid:Additional,UofUTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -209,6 +319,15 @@ BPL Definition</Description>
 <Subscript>"CernSchedHl7ToGenericRouter"</Subscript>
 <Value name="1">
 <Value>UofUTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>HddDomainNcid</Value>
+</Value>
+<Value name="3">
+<Value>HddFacilityDomainNcid</Value>
+</Value>
+<Value name="4">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
