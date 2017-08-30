@@ -33,8 +33,13 @@ This interface receives Adt data from LegacyPlus and sends it to Horizon.</Descr
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AllowedEventTypes:Additional,AllowedFacilities:Additional,AllowedMedServiceNCIDs:Additional,Msh11Environment:Additional</Default>
+<Default>AllowedEventTypes:Additional,AllowedFacilities:Additional,AllowedMedServiceNCIDs:Additional,Msh11Environment:Additional,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -54,6 +59,9 @@ This interface receives Adt data from LegacyPlus and sends it to Horizon.</Descr
 <Value name="4">
 <Value>Msh11Environment</Value>
 </Value>
+<Value name="5">
+<Value>HddTargetConfigName</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -62,7 +70,7 @@ This interface receives Adt data from LegacyPlus and sends it to Horizon.</Descr
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2050' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2650' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -114,9 +122,27 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddCountryContext' type='%String' initialexpression='6490387' instantiate='0' >
+<annotation><![CDATA[HDD context to convert Country NCID]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' />
+<property name='hddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.LookupResponse' instantiate='0' />
+<property name='hddInsuredRelationContext' type='%String' initialexpression='999999' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1800' >
-<scope xpos='200' ypos='250' xend='200' yend='1700' >
+<sequence xend='200' yend='2400' >
+<scope xpos='200' ypos='250' xend='200' yend='2300' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -333,14 +359,130 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<transform name='Horizon Data Transformation' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToHorizon' source='request' target='response' xpos='200' ypos='1150' >
+<code name='set HddTargetConfigName' xpos='200' ypos='1150' >
+<annotation><![CDATA[- Retrieve HDD Target Config Name from Additional Settinge
+- If not found, set 'status' and exit]]]]><![CDATA[></annotation>
+<![CDATA[    //
+    // We will be making some HDD calls within then DPL
+    // The HDD Target Config name is defined as an "Additional Setting"
+    // Make sure this has been set
+    //
+    set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+        $$$TRACE("Steve - did not get target config name")
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+ 
+ 
+  ]]]]><![CDATA[>
+</code>
+<code name='- Define hddRepRequest' xpos='200' ypos='1250' >
+<annotation><![CDATA[Define hddRepRequest]]]]><![CDATA[></annotation>
+<![CDATA[  set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+  
+]]]]><![CDATA[>
+</code>
+<code name='Get  HDD Contexts' xpos='200' ypos='1350' >
+<annotation><![CDATA[- Access lookup file for:
+- Guarantor Country context
+- Insured Relation context
+- If any are not found, use the default value defined in the variable definition]]]]><![CDATA[></annotation>
+<![CDATA[  //
+  // Get the HDD context value used to convert the Country NCID
+  // If not found in the lookup file, use the value set in the variable definition
+  //
+      set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHorizon.Lookup.HddContexts", "CONTEXT.CountryContext", .retVal )
+    if (retVal '= "Unknown")
+    {
+	set context.hddCountryContext = retVal
+    } 		
+    $$$TRACE("Hdd Context hddCountryContext: " _ context.hddCountryContext)
+    
+      //
+  // Get the HDD context value used to convert the InsuredRelation NCID
+  // If not found in the lookup file, use the value set in the variable definition
+  //
+      set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToHorizon.Lookup.HddContexts", "CONTEXT.InsuredRelationContext", .retVal )
+    if (retVal '= "Unknown")
+    {
+	set context.hddInsuredRelationContext = retVal
+    } 		
+    $$$TRACE("Hdd Context hddInsuredRelationContext: " _ context.hddInsuredRelationContext)
+
+]]]]><![CDATA[>
+</code>
+<code name='Get NCIDs to send to HDD' xpos='200' ypos='1450' >
+<annotation><![CDATA[- Retrieve Guarantor Country NCID's from HL7 message
+- Retrieve InsuredrelationToPatient NCIDs
+- Load these values into variable 'hddRepRequest'
+- These will be used to call HDD from within DTL]]]]><![CDATA[></annotation>
+<![CDATA[
+  //
+  // Retrieve all Guarantor Country NCID's & add to 'hddRepRequest
+  //
+  set k1 = 1
+  set ncid = request.GetValueAt("GT1("_k1_"):GuarantorAddress(1).country")
+ 
+  
+  while((ncid '= "") && ($ISVALIDNUM(ncid) = "1"))
+  {
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ncid,  context.hddCountryContext, "GT1:Country"_k1)  
+     
+     set k1 = k1 + 1
+     set ncid = request.GetValueAt("GT1("_k1_"):GuarantorAddress(1).country")
+  }
+  
+  // Subtract 1 from k1 to get the correct number of NCID's
+  set k1 = k1 - 1
+  $$$TRACE("Retrieved "_k1_" Country NCID's")
+ 
+  //-------------------------------------------------------------------------------------
+  //
+  // Retrieve all InsuredRelationToPatient NCID's & add to 'hddRepRequest
+  //
+  set k1 = 1
+  set ncid = request.GetValueAt("IN1grp("_k1_").ZNI:PatientRelationship")
+ 
+  while((ncid '= "") && ($ISVALIDNUM(ncid) = "1"))
+  {
+     $$$TRACE("Retrieved relationship NCID : "_ncid)
+ 
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ncid,  context.hddInsuredRelationContext, "IN1:InsuredRelation"_k1)  
+     
+     set k1 = k1 + 1
+     set ncid = request.GetValueAt("IN1grp("_k1_").ZNI:PatientRelationship")
+  }
+  
+  // Subtract 1 from k1 to get the correct number of NCID's
+  set k1 = k1 - 1
+  $$$TRACE("Retrieved "_k1_" InsuredRelationToPatient NCID's")
+ ]]]]><![CDATA[>
+</code>
+<code name='GetHddRepFromNcid ' xpos='200' ypos='1550' >
+<annotation><![CDATA[- Load hddRepResponse with all the NCIDs used in HDD lookup call performed in DTL 
+
+]]]]><![CDATA[></annotation>
+<![CDATA[  set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
+
+ if ('tStatus) {     
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus)) 
+ }
+ else { 
+   set context.hddRepResponse= hddRepResponse
+ }
+]]]]><![CDATA[>
+</code>
+<trace name='HDD return count' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='200' ypos='1650' />
+<transform name='Horizon Data Transformation' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToHorizon' source='request' target='response' xpos='200' ypos='1750' >
 <annotation><![CDATA[Horizon Data Transformation]]]]><![CDATA[></annotation>
 </transform>
-<code name='Write outgoing record to log' xpos='200' ypos='1250' >
+<code name='Write outgoing record to log' xpos='200' ypos='1850' >
 <annotation><![CDATA[Write outgoing record to log]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Outbound: " _response.RawContent)]]]]><![CDATA[>
 </code>
-<foreach name='For Each target' property='context.targetList' key='context.cntr' xpos='200' ypos='1350' xend='200' yend='450' >
+<foreach name='For Each target' property='context.targetList' key='context.cntr' xpos='200' ypos='1950' xend='200' yend='450' >
 <annotation><![CDATA[For Each target]]]]><![CDATA[></annotation>
 <call name='for each target' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <annotation><![CDATA[For each target]]]]><![CDATA[></annotation>
@@ -352,13 +494,13 @@ BPL Definition</Description>
 <annotation><![CDATA[Trace message sent]]]]><![CDATA[></annotation>
 </trace>
 </foreach>
-<code name='RESETERROR' xpos='200' ypos='1450' >
+<code name='RESETERROR' xpos='200' ypos='2050' >
 <![CDATA[   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 
 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1550' xend='200' yend='350' >
+<catchall xpos='200' ypos='2150' xend='200' yend='350' >
 <code name='process' xpos='200' ypos='250' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
 ]]]]><![CDATA[>
