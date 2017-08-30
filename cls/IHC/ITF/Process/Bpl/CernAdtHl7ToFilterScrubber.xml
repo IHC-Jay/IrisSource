@@ -1,0 +1,207 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToFilterScrubber">
+<Description>
+Router to filter out UofU facility to Legacy and LegacyPlus</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64524,61792.686638</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3300' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='IsMemberRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.IsMemberLookupRequest' instantiate='1' />
+<property name='IsMemberResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' />
+<property name='hddFacilityDomainIsMember' type='%String' initialexpression='"526051176"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='isFacMemberResp' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='facNcid' type='%String' instantiate='0' />
+</context>
+<sequence xend='200' yend='3050' >
+<scope xpos='200' ypos='250' xend='200' yend='2950' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='ValidateMessage' xpos='200' ypos='450' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0 
+    $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.") 
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='550' xend='200' yend='2700' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='700' />
+
+<code name='Check ReplyCodeActions' xpos='470' ypos='800' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found.")   	
+ }
+ ]]]]><![CDATA[>
+</code>
+
+<code name='Trace MaxError and get Target Config Names' xpos='470' ypos='1000' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)  
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ){   
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+ $$$TRACE("TargetConfigNames: " _context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())
+]]]]><![CDATA[>
+</code>
+
+<code name='check MSH-4' xpos='200' ypos='1150' >
+<![CDATA[ set context.facNcid=request.GetValueAt("MSH:SendingFacility.NamespaceID")
+ $$$TRACE("Sending FAC NCID: " _ context.facNcid)   
+ if ($ISVALIDNUM(context.facNcid)'="1"){	
+	  $$$TRACE("Invalid facility in MSH-4 : ["_context.facNcid_"]")
+	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facNcid, " Invalid MSH-4 ["_ context.facNcid _"]. Skipping the record." )
+ }]]]]><![CDATA[>
+</code>
+
+
+<code name='initializeHddTarget' xpos='470' ypos='1100' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='createIsMemberRequests' xpos='470' ypos='1700' >
+<![CDATA[  
+    $$$TRACE(" IsMember Hdd Requests..")    
+     $$$TRACE("Facility Ncid in MSH-4 " _ context.facNcid) 
+     if (context.facNcid '= "" && $ISVALIDNUM(context.facNcid)= "1"){
+	     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(context.IsMemberRequest, context.hddFacilityDomainIsMember, context.facNcid, "IsMemberMSH4")         
+      }
+]]]]><![CDATA[>
+</code>
+
+<code name='CallHddIsMemberMethod' xpos='470' ypos='1800' >
+<![CDATA[ 
+ // Call HDD Operation     
+    set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.IsMemberRequest,.hddIsMemberResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure during isMember Hdd call. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+    }else { 
+       set context.IsMemberResponse = hddIsMemberResponse 
+    }
+    ]]]]><![CDATA[>
+</code>
+
+<code name='CheckIfFacilityIsMember' xpos='470' ypos='1900' >
+<![CDATA[ 
+     set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse, "IsMemberMSH4")    
+     if (hddObj '= ""){
+	     set context.isFacMemberResp = hddObj.Rep   
+	     $$$TRACE("Value of 'IsMemberMSH4' from Hdd lookup: " _ context.isFacMemberResp) 	
+     }
+    if (context.isFacMemberResp = "1") {                      
+       $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is a member of UofU Domain: ["_context.hddFacilityDomainIsMember_"]") 
+    }else{
+	    $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is NOT a member of UofU Domain: ["_context.hddFacilityDomainIsMember_"]") 	  
+	      
+    }
+]]]]><![CDATA[>
+</code>
+<if name='isFacilityMember' condition='(context.isFacMemberResp &apos;= 1)' xpos='470' ypos='2000' xend='470' yend='2600' >
+<true>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2250' xend='200' yend='450' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="request" action="set" />
+</request>
+</call>
+<code name='RESETERROR' xpos='200' ypos='350' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</foreach>
+</true>
+<false>
+  <code name='UofUFacilitySkip' xpos='200' ypos='350' >
+<![CDATA[  
+  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "Messages is not from UofU Facility. Skipping the record." )	  	
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='700' >
+<annotation><![CDATA[Write the code in this path to Skip error or Check Error. If Check error is used then reset error should be used]]]]><![CDATA[></annotation>
+</trace>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2800' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToFilterScrubberDefaultData</DefaultData>
+<Data name="CernAdtHl7ToFilterScrubberDefaultData">
+<Subscript>"CernAdtHl7ToFilterScrubber"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
