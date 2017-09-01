@@ -47,6 +47,18 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='testTargetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='testTargetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='testTargetConfigIndex' type='%Integer' instantiate='0' >
+</property>
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
@@ -114,6 +126,26 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
+
+<code name='Check TestTargetConfigNames' xpos='200' ypos='850' >
+<annotation><![CDATA[Get TestTargetConfigNames from settings]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ //TestTargetConfigNames validation
+ set context.testTargetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TestTargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.testTargetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get testTargetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TestTargetConfigNames: " _ context.testTargetConfigNames)
+    for iTarget=1:1:$L(context.testTargetConfigNames, ","){ 
+		set tOneTarget=$ZStrip($P(context.testTargetConfigNames,",",iTarget),"<>W")  
+        continue:""=tOneTarget
+        set stat = context.testTargetList.Insert(tOneTarget)
+        $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+	}    
+    $$$TRACE("TestTargetListCount: " _ context.testTargetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+
 
 <code name='Get UofU TargetConfigName' xpos='470' ypos='1700' >
 <![CDATA[
@@ -226,6 +258,39 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
     
+    
+ <code name='Check XY/XZ test patient' xpos='200' ypos='2150' >
+<annotation><![CDATA[Check XY/XZ Test patient record]]]]><![CDATA[></annotation>
+<![CDATA[
+ set context.isTestFacility = 0
+ if (context.flagTestRecord = "Y") {
+	 set completePid5 = request.GetValueAt("PIDgrp.PID:PatientName()")
+	 //$$$TRACE("PID-5 value is: " _ completePid5)
+	 //$$$TRACE("PID-5 List length: " _ $LISTLENGTH($LISTFROMSTRING(completePid5, "~")))
+	 for iTarget=1:1:$LENGTH(completePid5, "~"){ 
+		set tOneTarget=$ZStrip($PIECE(completePid5,"~",iTarget),"<>W") 
+		//$$$TRACE("PID-5 value at iteration: " _ iTarget _ " is: " _ tOneTarget)
+		set tOneTargetId=$ZStrip($PIECE(tOneTarget,"^",7),"<>W")
+		//$$$TRACE("PID-5.7 value at iteration: " _ iTarget _ " is: " _ tOneTargetId)
+        continue:""=tOneTargetId
+        if ($LOCATE(context.nameTypesMatch,tOneTargetId) > 0){
+	        set tOneTargetLName = $ZStrip($PIECE(tOneTarget,"^",1),"<>W")
+	        for jTarget=1:1:$LENGTH(context.lastNamesMatch, ","){ 
+	        	set jOneTarget=$ZStrip($PIECE(context.lastNamesMatch,",",jTarget),"<>W") 
+				//$$$TRACE("LastNameMatch value at iteration: " _ jTarget _ " is: " _ jOneTarget)				
+	        	if ($LOCATE($ZCONVERT(tOneTargetLName,"U"),$ZCONVERT(jOneTarget,"U")) = 1 ){
+		        	set context.isTestFacility = 1
+		        	quit
+	        	}
+	        }
+        }        
+	 }	 
+ }
+ $$$TRACE("Value of 'isTestFacility' from calculation: " _ context.isTestFacility) 
+ ]]]]><![CDATA[>
+</code>
+
+    
 <if name='isFacilityMember' condition='(context.isFacMemberResp &apos;= 0)' xpos='470' ypos='2000' xend='470' yend='2600' >
 <true>
 <if name='hasUofUMrn' condition='$LENGTH(context.uofuMrnNumber) &gt; "0"' xpos='200' ypos='1450' xend='200' yend='2250' >
@@ -241,31 +306,45 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-     <trace name='NoUofUMrnRecord' value=' "No UofU MRN# in the record. "' xpos='200' ypos='450' ></trace>
-     <code name='skipMessage' xpos='200' ypos='1000' >
-<annotation><![CDATA[skip message- NoUofU MRN in the record.]]]]><![CDATA[></annotation>
-<![CDATA[ 
- $$$TRACE("Skip message...") 
- set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No UofU MRN in the record. Skipped it.")]]]]><![CDATA[>
+ <trace name='NoUofUMrnRecord' value=' "No UofU MRN# in the record. "' xpos='200' ypos='450' ></trace>
+ <code name='skipMessage' xpos='200' ypos='1000' >
+	<annotation><![CDATA[skip message- NoUofU MRN in the record.]]]]><![CDATA[></annotation>
+	<![CDATA[ 
+ 		$$$TRACE("NoUofU MRN. Skipping the record...") 
+ 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No UofU MRN in the record. Skipped it.")
+ 	]]]]><![CDATA[>
 </code>      
 </false>
 </if>
 </true>
 <false>
-     <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToGenericRouter' source='request' target='response' xpos='605' ypos='2550' >
-<annotation><![CDATA[Routes Cerner Hl7 to all scheduling downstream interfaces. Routes to UofU only if the record has UofU MRN#]]]]><![CDATA[></annotation>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToGenericRouter' source='request' target='response' xpos='605' ypos='2550' >
+	<annotation><![CDATA[Routes Cerner Hl7 to all scheduling downstream interfaces. Routes to UofU only if the record has UofU MRN#]]]]><![CDATA[></annotation>
 </transform>
-   <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="response" action="set" />
-</request>
-</call>
-<code name='RESETERROR' xpos='470' ypos='2600' >
-<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
-]]]]><![CDATA[>
-</code>
+<switch name='FilterTestRecordFlag' xpos='200' ypos='2250' xend='200' yend='2750' >
+  <case condition='context.isTestFacility' name='isTestFacility' >
+	<foreach name='Send To Each Test Target Conf' property='context.testTargetList' key='context.testTargetConfigIndex' xpos='605' ypos='2550' xend='200' yend='350' >
+		<call name='CallTestTargetConfigNames' target='@context.testTargetList.GetAt(context.testTargetConfigIndex)' async='1' xpos='200' ypos='250' >
+	 	<request type='Ens.Request' >
+		 <assign property="callrequest" value="request" action="set" />
+		</request>
+		</call>
+	</foreach>
+   </case>
+   <default name='NotXYXZTestRecord' >
+    <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1000' xend='200' yend='350' >
+	<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+	<request type='Ens.Request' >
+	<assign property="callrequest" value="response" action="set" />
+	</request>
+	</call>
+	<code name='RESETERROR' xpos='470' ypos='2600' >
+	<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+	]]]]><![CDATA[>
+	</code>
 </foreach>
+   </default>
+</switch>
 </false>
 </if>
 </true>
@@ -316,8 +395,15 @@ UofU Epic MRN type ncid</Description>
 <InitialExpression>"520912268"</InitialExpression>
 </Property>
 
+<Property name="TestTargetConfigNames">
+<Description>
+TestTargetConfigNames:Custom setting to select Configuration item(s) to  send the messages to TestTarget</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,HddFacilityDomainNcid:Additional,UofUMrnTypeNcid:Additional,UofUTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default><![CDATA[TestTargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TestTargetConfigNames=1&productionName=@productionId},HddTargetConfigName:Additional,HddFacilityDomainNcid:Additional,UofUMrnTypeNcid:Additional,UofUTargetConfigName:Additional,-NextOperation,-TargetConfigMask]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -339,6 +425,9 @@ UofU Epic MRN type ncid</Description>
 </Value>
 <Value name="5">
 <Value>UofUMrnTypeNcid</Value>
+</Value>
+<Value name="6">
+<Value>TestTargetConfigNames</Value>
 </Value>
 </Data>
 </Storage>
