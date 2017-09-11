@@ -1121,12 +1121,14 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </true>
 </if>
-<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3800' xend='200' yend='2850' >
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3800' xend='200' yend='3300' >
 <trace name='Working Clones' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
 <code name='RXCcountForRXEIndex' xpos='200' ypos='350' >
 <![CDATA[ 
  
  set context.rxeRxcCount = context.RXCCount.GetAt(context.RXEIndex)
+ $$$TRACE("RXE-RXCCount: "_context.rxeRxcCount)
+ 
  if ((context.rxeRxcCount<1) || ($ISVALIDNUM(context.rxeRxcCount)=0)){
    $$$TRACE("BPL does not see any RXC segments for current RXEIndex... Setting RXCCount to zero.")
    set context.rxeRxcCount = 0
@@ -1200,6 +1202,7 @@ Order should have already been handled and sent out the appropriate number of ti
 </true>
 </if>
 <if name='RDEwithRXCs' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.rxeRxcCount &gt;=2) &amp;&amp; (context.rxc2CompCodeIDLength&gt;0))' xpos='200' ypos='1750' xend='200' yend='2200' >
+<annotation><![CDATA[Must have two or more RXC segments]]]]><![CDATA[></annotation>
 <true>
 <code name='Work Clone RXE' xpos='335' ypos='1900' >
 <![CDATA[ $$$TRACE("Make a copy of the Response to break out each of the individual RXCs to their own RXE order message for the RDE Message")
@@ -1253,10 +1256,41 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </true>
 </if>
-<if name='RDEorRDSNoRXCs' condition='(((context.doNotSendAgain=0) &amp;&amp; (context.MSH9MsgType="RDE" ) &amp;&amp; (context.rxeRxcCount=0)) || ((context.doNotSendAgain=0) &amp;&amp; (context.MSH9MsgType="RDS" ) &amp;&amp; (context.rxeRxcCount=0)))' xpos='200' ypos='2300' xend='200' yend='2650' >
+<if name='RDEwithOneRXCs' condition='((context.MSH9MsgType="RDE") &amp;&amp; (context.rxeRxcCount =1) &amp;&amp; (context.rxc2CompCodeIDLength&gt;0))' xpos='200' ypos='2300' xend='200' yend='2650' >
+<annotation><![CDATA[Must have only one RXC segments]]]]><![CDATA[></annotation>
 <true>
-<transform name='NoRxcTransform' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacyRDSRDE' source='response' target='context.NewResponseClone' xpos='335' ypos='2450' />
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='2550' xend='200' yend='450' >
+<code name='Work Clone RXE' xpos='335' ypos='2450' >
+<![CDATA[ $$$TRACE("Make a copy of the Response to break out each of the individual RXCs to their own RXE order message for the RDE Message")
+ $$$TRACE("Make a copy clone of the Response.")
+ set context.NewResponseClone = response.%ConstructClone(1)
+ $$$TRACE("Successfully made clone, now removing single RXC and then will send to targets!")
+ do context.NewResponseClone.SetValueAt(,"RXEgrp().RXC()","remove")
+ do context.NewResponseClone.%Save()
+ FOR callIndex=1:1:context.TargetList.Count() {
+        set targetOperation=context.TargetList.GetAt(callIndex)
+        $$$TRACE("Preparing call to send to: "_targetOperation)
+        set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseClone)
+        if ('tStatus) {
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Call Operation Error <add your custom error info here>") 
+        }
+        else { 
+             $$$TRACE("Successfully send Clone. Sent to:["_targetOperation_"]...")
+             
+        }
+ } 
+
+]]]]><![CDATA[>
+</code>
+<code name='DoNotSendMessageAgain2' xpos='335' ypos='2550' >
+<annotation><![CDATA[Message has been set the appropriate amount of times. Set Boolean to not allow the message to be sent again.]]]]><![CDATA[></annotation>
+<![CDATA[ set context.doNotSendAgain = 1]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<if name='RDEorRDSNoRXCs' condition='(((context.doNotSendAgain=0) &amp;&amp; (context.MSH9MsgType="RDE" ) &amp;&amp; (context.rxeRxcCount=0)) || ((context.doNotSendAgain=0) &amp;&amp; (context.MSH9MsgType="RDS" ) &amp;&amp; (context.rxeRxcCount=0)))' xpos='200' ypos='2750' xend='200' yend='3100' >
+<true>
+<transform name='NoRxcTransform' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacyRDSRDE' source='response' target='context.NewResponseClone' xpos='335' ypos='2900' />
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='335' ypos='3000' xend='200' yend='450' >
 <annotation><![CDATA[Sending to ConnectRx targets and Vigilanz target]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -1267,7 +1301,7 @@ Order should have already been handled and sent out the appropriate number of ti
 </foreach>
 </true>
 </if>
-<trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='2750' />
+<trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='3200' />
 </foreach>
 <code name='ResetErrors' xpos='200' ypos='3900' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
