@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.SrcCtrlPkg.Deployment">
-<IncludeCode>EnsErrors</IncludeCode>
+<IncludeCode>EnsErrors,EnsUtil</IncludeCode>
 <Super>IHC.ITF.SrcCtrlPkg.Template</Super>
 <TimeCreated>63460,51845.359716</TimeCreated>
 
@@ -80,10 +80,11 @@ This XML block defines the contents of this pane.</Description>
          cellStyle="padding: 2px; padding-left: 5px; padding-right: 5px;">
 <text label="Component:" id="deployComponent" name="Component" size="50" />
 <text label="Namespace:" id="deployNamespace" name="Namespace" size="25"/>
-<hgroup>
+<hgroup align="left">
 <label id="lblRev" value="Deployment revision # " />
 <text id="deployRev" name="Rev"  required="true" size="10" align="left"/>
 </hgroup>
+
 
 <hgroup>
 <label id="lblfType" value="Deploy Type: " />
@@ -374,9 +375,17 @@ This client event, if present, is fired when the page is loaded.</Description>
     zenPage.endModal();
 	    try
 	    {		    
-   			var statStr = zenPage.CallDeployService(comp, nmSp, deployType, rev, depCls, depConf);
+	    	var statStr = zenPage.VerifyRevNum(comp, rev )
+	    	if( statStr.length > 0)
+	    	{
+		    	zenPage.VerifyWithUser(statStr, comp, nmSp, deployType, rev, depCls, depConf);
+	    	}
+	    	else
+	    	{
+   				var statStr = zenPage.CallDeployService(comp, nmSp, deployType, rev, depCls, depConf);
   
-	   		zenPage.getComponentById('lblAccess').setValue(statStr);
+	   			zenPage.getComponentById('lblAccess').setValue(statStr);
+	    	}
    		
 	    } catch(err)
 	    {
@@ -464,6 +473,78 @@ This client event, if present, is fired when the page is loaded.</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="VerifyWithUser">
+<FormalSpec>msg,comp,nmSp,deployType,rev,depCls,depConf</FormalSpec>
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+	zenPage.getComponentById('lblAccess').setValue('Verify: ' + msg);
+  
+  
+	  var group = this.createComponent('modalGroup'); 
+      group.setProperty('height', 100);
+      zenPage.addChild(group);
+
+      var lbl = this.createComponent('label'); 
+      group.addChild(lbl); 
+      var printStr = msg.replace(/[\u{0080}-\u{FFFF}]/gu,"");
+      lbl.setProperty('value', printStr + " Do you want to continue?");
+      // lbl.setProperty('height', 50)
+      
+      var sp1 = this.createComponent('spacer'); 
+      sp1.setProperty('height', 10);
+      group.addChild(sp1);
+      
+      var hg = this.createComponent('hgroup'); 
+      group.addChild(hg); 
+      hg.setProperty('cellAlign', 'center')
+      
+      var btn = this.createComponent('button'); 
+      hg.addChild(btn); 
+      btn.setProperty('caption','Cancel'); 
+      btn.setProperty('onclick','zenPage.btnCancel();'); 
+      
+       var sp = this.createComponent('spacer'); 
+      hg.addChild(sp); 
+      sp.setProperty('width', 50);
+      
+       var btn2 = this.createComponent('button'); 
+      hg.addChild(btn2); 
+      btn2.setProperty('caption','OK'); 
+      btn2.setProperty('onclick','zenPage.btnContinue();'); 
+      
+      zenPage.refreshContents(true); 
+
+      group.show('Warning', 'dynamic');
+]]></Implementation>
+</Method>
+
+<Method name="btnContinue">
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+   var comp = zenPage.getComponentById('deployComponent').getValue();
+   var nmSp = zenPage.getComponentById('deployNamespace').getValue();
+   var rev = zenPage.getComponentById('deployRev').getValue();
+   var deployType = zenPage.getComponentById('comboboxdeployType').getValue();
+    var depCls = zenPage.getComponentById('DeployClasses').getValue();
+   var depConf = zenPage.getComponentById('DeployConfig').getValue();
+
+    zenPage.endModal();
+	    try
+	    {		    
+	    	
+   			var statStr = zenPage.CallDeployService(comp, nmSp, deployType, rev, depCls, depConf);
+  
+	   		zenPage.getComponentById('lblAccess').setValue(statStr);
+   		
+	    } catch(err)
+	    {
+		    zenPage.getComponentById('lblAccess').setValue('Exception: ' + err.message);
+	    }
+]]></Implementation>
+</Method>
+
 <Method name="CreateDeploymentFiles">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>comp:%String,nmSp:%String</FormalSpec>
@@ -498,6 +579,10 @@ This client event, if present, is fired when the page is loaded.</Description>
 
 	set createDeployCls = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentFiles).%New()
 	set retStr = createDeployCls.GetVersions(comp, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")) )
+	if ($L(retStr) <= 0)
+	{
+		set retStr = "Could not find Deployment files for " _ comp
+	}
 	if ( $FIND(retStr, "Last Changed Rev") > 0)
 	{
 		set retStr = $REPLACE(retStr, "Last Changed Rev", "<B>Last Changed Rev</B>")
@@ -508,6 +593,38 @@ This client event, if present, is fired when the page is loaded.</Description>
 	}
 	
 	Return retStr
+]]></Implementation>
+</Method>
+
+<Method name="VerifyRevNum">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>comp:%String,revNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<ZenMethod>1</ZenMethod>
+<Implementation><![CDATA[
+	
+	set retStr = ""
+
+	try {
+		set deployCls = ##class(IHC.ITF.SrcCtrlPkg.DeployFilesToNamespace).%New()
+		set stat = deployCls.ValidateSvnRevision(comp, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")), revNum )
+		if $$$ISERR(stat)
+		{
+			 if $GET(%objlasterror) '= ""
+	    	{
+	        	set retStr =  $System.Status.GetErrorText(%objlasterror)
+	    	}
+	    	else
+	    	{
+				set retStr = "Fail: " _ tSC
+	    	}
+		}
+		
+	} catch(err)
+	{
+		set retStr = "Exception: Could not find files from SVN " _ err.Data
+	}
+	return retStr
 ]]></Implementation>
 </Method>
 

@@ -68,7 +68,7 @@
  if ( (deployType = "NEW") || (deployType = "UPDATE" && depCls = 1))
  {
  	Set fileName = ..DeployDirectory_"Deployment_CLS_" _compNm_".xml"
- 	set tSC = ..CheckoutFile(fileName, usrNm, passwd, rev )
+ 	set tSC = ..CheckoutFile(compNm, fileName, usrNm, passwd, rev )
  	
  }
  
@@ -120,11 +120,11 @@
    {
 	 Set fileName = ..DeployDirectory_"Deployment_CONFIG_" _compNm_".xml"
  
- 	 set tSC = ..CheckoutFile(fileName, usrNm, passwd, rev )
+ 	 set tSC = ..CheckoutFile(compNm, fileName, usrNm, passwd, rev )
  
  	 if $$$ISERR(tSC)
  	 {
-	 	Set comment = comment _ ##class(IHC.ITF.ITFCOMMON.Utility).getErrorMsg(tSC, " CONFIG File not found, checkout failed. ")
+	 	Set comment = comment _ ##class(IHC.ITF.ITFCOMMON.Utility).getErrorMsg(tSC, " CONFIG File not found, checkout failed. " _ tSC)
 	 	return comment
  	 }
  	 try {
@@ -385,12 +385,14 @@
 
 <Method name="CheckoutFile">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>fileNm:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
+<FormalSpec>compNm:%String,fileNm:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	
 	set tSC = $$$OK
 	if (rev '= "")
 	{
+		
 		Do ##class(%File).Delete(fileNm)
 		Set cmd= $$$SVNUPDATE _ " --revision " _ rev
 		Set cmd= cmd _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _  fileNm 
@@ -428,6 +430,57 @@
 	}
 	
  	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="ValidateSvnRevision">
+<FormalSpec>compNm:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		set tSC = $$$OK
+		set srcStr = "LastChangedRev:"
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "ValidateSvnRevision: Rev # " _ rev )
+		set createDeployCls = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentFiles).%New()
+		set retStr = createDeployCls.GetVersions(compNm, usrNm, passwd)
+		
+		if ($L(retStr) <= 0)
+		{
+				set tSC = $$$ERROR($$$GeneralError, "Could not get SVN revisions for : " _ compNm)
+				Quit tSC
+
+		}
+		set retStr = $ZSTRIP( retStr, "*W") // Strip all spaces
+		set headInd = $FIND(retStr, srcStr) // find first line with SVN revision number
+		if ( headInd > 0)
+		{
+			set endLnInd = $FIND(retStr, "<BR>", headInd) // find end of this line
+			set revInd = $FIND(retStr, srcStr _ rev) // find line with specified SVN rev number
+
+			if ( revInd = 0)
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not a valid checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1) )
+				set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is not a valid checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1) )
+				Quit tSC
+			}
+			elseif ((headInd - $L(srcStr)) '= (revInd - $L(srcStr _ rev)))
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not the last checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1))
+				set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is not the last checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1))
+				Quit tSC
+			}
+			else
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Last checked in Revision number found: " _  rev)
+			}
+		}
+		else
+		{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number not found: " _ retStr)
+				set tSC = $$$ERROR($$$GeneralError, "Last Revision number not found: " _ retStr)
+				Quit tSC
+
+		}
+		Quit tSC
 ]]></Implementation>
 </Method>
 </Class>
