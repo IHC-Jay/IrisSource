@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.OpCdrAndInitiateDemogrDrcDuplicates">
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
+<TimeCreated>64547,44588.343339</TimeCreated>
+
+<Property name="objCdrTuxService">
+<Type>org.ihc.itf.cdr.drc.InitiateContextAndCdrTaskSearch</Type>
+</Property>
+
+<Property name="JarFiles">
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/initiate-10.1.0.jar:/WORK/common/class/IhcItfCdrDrc.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service </Description>
+<Type>%String</Type>
+<InitialExpression>"DSQL"</InitialExpression>
+<Parameter name="MAXLEN" value="10"/>
+</Property>
+
+<Property name="DrcUser">
+<Description>
+User to get the report date from CDR drc tables</Description>
+<Type>%String</Type>
+<InitialExpression>"INITIATE"</InitialExpression>
+<Parameter name="MAXLEN" value="10"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>DrcUser:Additional</Default>
+</Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ try{
+		 do ##super()
+		 $$$TRACE("Connect to " _ ..ApplicationAddress)
+		 $$$TRACE("Connect to " _ ..TuxedoService)
+		 set ..objCdrTuxService = ##class(org.ihc.itf.cdr.drc.InitiateContextAndCdrTaskSearch).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))
+     	 set status = ..CheckObject()
+	}catch err{
+		 $$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName," Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	}	
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StringRequest,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #dim status as %Status	 
+	 set status = $$$OK
+	 $$$TRACE("Inside OnMessage method<" _ pRequest.StringValue _ ">")
+	 
+	 set tableObj = ##class(IHC.ITF.Response.MmiEventsTable).%New()
+	 set tableObj.ListOfMmiEventsRows = ##class(%ListOfObjects).%New()
+	 set tableObj.DataExists = 0
+	 
+	  $$$TRACE("objCdrTuxService Object valid: "_$IsObject(..objCdrTuxService))
+	 
+	 try {
+	      if (..CheckObject() '= $$$OK) {
+		 	$$$TRACE("**** Object does not exists ****")
+		 	// Try to re intialize
+		 	set result = ..OnInit()
+			if (result '= $$$OK){
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-CdrAndInitiate-Demogr-DRCDUPLICATES", "OpCdrGetReportDate failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+				return status
+			}
+	 	}
+
+		$$$TRACE("Object name: " _ ..objCdrTuxService.%ClassName(1))
+		set reportDate = pRequest.StringValue		
+		set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.InitiateDemogrXmlToCdrEmpiInvestigator.InitiateMpiProperties","INITIATE_HOST_USER",.retVal) 
+		set iniHostUser = retVal
+		set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.InitiateDemogrXmlToCdrEmpiInvestigator.InitiateMpiProperties","INITIATE_HOST_NAME",.retVal) 
+		set iniHostName = retVal
+		set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.InitiateDemogrXmlToCdrEmpiInvestigator.InitiateMpiProperties","INITIATE_HOST_PASSWORD",.retVal) 
+		set iniHostPwd = retVal
+		set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.InitiateDemogrXmlToCdrEmpiInvestigator.InitiateMpiProperties","INITIATE_HOST_PORT",.retVal) 
+		set iniHostPort = retVal
+						
+		set output = ..objCdrTuxService.createContext(reportDate,iniHostUser,iniHostPwd,iniHostName,iniHostPort)
+		
+		$$$TRACE("Output after invocation of OpCdrAndInitiateDemogrDrcDuplicates Java Method<" _ output _ ">")
+	
+		Set tmpstream = ##class(%Stream.GlobalCharacter).%New()
+    	Do tmpstream.Write(output.toString())
+    	Do tmpstream.%Save()
+    
+        Set pResponse = ##class(Ens.StreamContainer).%New(tmpstream)		
+ 		set String = pResponse.Stream.Read()
+	    $$$TRACE("OpCdrAndInitiateDemogrDrcDuplicates (Response): <" _ String _ ">")
+	    
+	    
+	} catch err {	
+	        set errText = $System.Status.GetErrorText(err) 
+	     
+	     $$$TRACE(" ErrorText Catch Block : "_errText)	       	
+	     if (err.Name["<STORE>" ){
+		    $$$TRACE(" STORE Error REASON : " _ $SYSTEM.Process.StoreErrorReason())   
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName," STORE Error REASON : " _ $SYSTEM.Process.StoreErrorReason())
+		    quit
+		 }
+		 if (errText["#5023"){
+		     if (errText["java.lang.NullPointerException"){
+			     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(..%ConfigName," JavaGateway:NullPointerException ErrorText: " _ errText)
+			     quit
+			 }	 
+		 }	 	
+	       Set status = ..ExceptionHandler(err, "OnMessage")
+	 }
+
+	 $$$TRACE("OnMessage(OpCdrAndInitiateDemogrDrcDuplicates) status: " _ status)	
+	 
+	 return status
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^IHC.ITF.Op8497.OpCdrAndIniEA5FD</DataLocation>
+<DefaultData>OpCdrAndInitiateDemogrDrcDuplicatesDefaultData</DefaultData>
+<IdLocation>^IHC.ITF.Op8497.OpCdrAndIniEA5FD</IdLocation>
+<IndexLocation>^IHC.ITF.Op8497.OpCdrAndIniEA5FI</IndexLocation>
+<StreamLocation>^IHC.ITF.Op8497.OpCdrAndIniEA5FS</StreamLocation>
+<Data name="OpCdrAndInitiateDemogrDrcDuplicatesDefaultData">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>objCdrTuxService</Value>
+</Value>
+<Value name="3">
+<Value>JarFiles</Value>
+</Value>
+<Value name="4">
+<Value>TuxedoService</Value>
+</Value>
+<Value name="5">
+<Value>DrcUser</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
