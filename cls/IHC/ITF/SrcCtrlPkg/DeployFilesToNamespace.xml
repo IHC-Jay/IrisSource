@@ -438,10 +438,16 @@
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 		set tSC = $$$OK
-		set srcStr = "LastChangedRev:"
+		set infoSearchStr = "LastChangedRev:"
+		set logSearchStr = "r" _ rev _ "|"
+		
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "ValidateSvnRevision: Rev # " _ rev )
 		set createDeployCls = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentFiles).%New()
 		set retStr = createDeployCls.GetVersions(compNm, usrNm, passwd)
+		
+		// SVN infor and log line will be returned
+		// Info line: Last Changed Rev: 2274
+		// Log line: r2223 | cbelde | 2016-07-12 16:15:18 -0600 (Tue, 12 Jul 2016) | 25 lines
 		
 		if ($L(retStr) <= 0)
 		{
@@ -450,22 +456,34 @@
 
 		}
 		set retStr = $ZSTRIP( retStr, "*W") // Strip all spaces
-		set headInd = $FIND(retStr, srcStr) // find first line with SVN revision number
+		set headInd = $FIND(retStr, infoSearchStr) // find first line: Last Changed Rev:
 		if ( headInd > 0)
 		{
 			set endLnInd = $FIND(retStr, "<BR>", headInd) // find end of this line
-			set revInd = $FIND(retStr, srcStr _ rev) // find line with specified SVN rev number
+			set revInd = $FIND(retStr, infoSearchStr _ rev) // find line with specified SVN rev number
 
-			if ( revInd = 0)
+			if ( revInd = 0) // Not found
 			{
-				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not a valid checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1) )
-				set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is not a valid checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1) )
-				Quit tSC
+				// Search SVN log entries
+				set logInd = $FIND(retStr, logSearchStr)
+				if ( logInd = 0)
+				{
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not a valid checked-in version. " _ logSearchStr)
+					set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is not a valid checked-in version, " _ $EXTRACT(retStr, headInd - $L(infoSearchStr), endLnInd -1) )
+					Quit tSC
+				}
+				else // found the revision
+				{
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not the last checked-in version. " _ logSearchStr)
+					set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is a old checked-in version, " _ $EXTRACT(retStr, headInd - $L(infoSearchStr), endLnInd -1))
+					Quit tSC
+
+				}
 			}
-			elseif ((headInd - $L(srcStr)) '= (revInd - $L(srcStr _ rev)))
+			elseif ((headInd - $L(infoSearchStr)) '= (revInd - $L(infoSearchStr _ rev))) // Verify that both lines have same start index
 			{
-				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not the last checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1))
-				set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is not the last checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(srcStr), endLnInd -1))
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Revision number " _ rev _ " is not the last checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(infoSearchStr), endLnInd -1))
+				set tSC = $$$ERROR($$$GeneralError, "Revision number " _ rev _ " is a old checked-in version. <BR>" _ $EXTRACT(retStr, headInd - $L(infoSearchStr), endLnInd -1))
 				Quit tSC
 			}
 			else
