@@ -12,6 +12,12 @@ Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services wi
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
+<Property name="FilterInPatientClass">
+<Type>%String</Type>
+<InitialExpression>"I,E"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
 <Property name="FilterOutLocations">
 <Type>%String</Type>
 <InitialExpression>"199,999"</InitialExpression>
@@ -19,7 +25,7 @@ Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services wi
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-TargetConfigNames,-TargetConfigMask,FilterInADTEventTypes:Additional,FilterOutLocations:Additional</Default>
+<Default>-TargetConfigNames,-TargetConfigMask,FilterInADTEventTypes:Additional,FilterOutLocations:Additional,FilterInPatientClass:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -36,6 +42,9 @@ Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services wi
 <Value name="3">
 <Value>FilterOutLocations</Value>
 </Value>
+<Value name="4">
+<Value>FilterInPatientClass</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -44,7 +53,7 @@ Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services wi
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2550' width='2000' >
+<process language='objectscript' request='Ens.Request' height='2650' width='2000' >
 <context>
 <property name='Target' type='%String' instantiate='0' >
 <parameters>
@@ -83,9 +92,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='reponseRESTback' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='PV1PatientClass' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2200' >
-<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2400' >
+<scope xpos='200' ypos='250' xend='200' yend='2300' >
 <trace name='In BPL' value='"Working LegacyPlus ADT from Cerner to send to IHC HIE Which in turn sends on to UHIN"' xpos='200' ypos='350' />
 <code name='Check Reply code' xpos='200' ypos='450' >
 <annotation><![CDATA[check Reply code]]]]><![CDATA[></annotation>
@@ -220,7 +234,50 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='DoPreTranslationWork' xpos='200' ypos='1250' >
+<code name='GetPV1PatientClass' xpos='200' ypos='1250' >
+<annotation><![CDATA[Get PV1-2 Value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Fetch PV1PatientClass(PV1.2)...") 
+  Set context.PV1PatientClass=request.GetValueAt("PV1:PatientClass")
+  $$$TRACE("PV1PatientClass: " _context.PV1PatientClass)]]]]><![CDATA[>
+</code>
+<code name='GetPV1PatientClassFilterList' xpos='200' ypos='1350' >
+<annotation><![CDATA[Get PV1-2 Filter In List]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Fetch PV1PatientClass Filter In List")
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterInPatientClass", .getPatientClassFilterInStr)
+ if ($$$ISOK(pstatus)){
+		$$$TRACE(" PatientClass  to Filter In: " _getPatientClassFilterInStr)
+		TRY {
+			For iTarget=1:1:$L(getPatientClassFilterInStr,",") 
+			{ 
+				Set tOneTarget=$ZStrip($P(getPatientClassFilterInStr,",",iTarget),"<>W")  
+				Continue:""=tOneTarget
+				if (context.PV1PatientClass = tOneTarget){
+					set filterOutPV1PatientClass = 0
+					QUIT
+				}
+				set filterOutPV1PatientClass = 1
+				$$$TRACE("Filter In PV1 PatientClass from settings: [" _ tOneTarget _"] verifying against PV1PatientClass: [ " _ context.PV1PatientClass_"]")
+			}
+			$$$TRACE("Checking against allowed PV1 PatientClass...")
+			if (filterOutPV1PatientClass=1) {
+				$$$TRACE("Message  is a PV1 Patient Class Message  to be Filtered Out. Skipping HL7 Message. PV1 PatientClass  found: ["_context.PV1PatientClass_"]")
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***HL7 message has PV1 PatientClass Message  that is being filtered out: - PHI: ["_context.PV1PatientClass _"]. Record will be skipped.***")
+			}
+			else{
+				$$$TRACE("Have a workable PV1 PatientClass.")
+			}
+		} Catch eException {
+			Set exceptStatus = "Error Parsing STRING: getPatientClassFilterInStr - for Filter In PV1 PatientClass list: "_eException.AsStatus()
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Could not parse data required to proces HL7 data. Error caught: "_exceptStatus )
+			
+		}   
+		
+	} else {
+		set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get FilterInPatientClass from the Process Settings for Cern-Adt-Hl7_IhcHie-Base64-UHINREST. Setting required for processing messages!")
+	}
+	]]]]><![CDATA[>
+</code>
+<code name='DoPreTranslationWork' xpos='200' ypos='1450' >
 <![CDATA[ $$$TRACE("Do any remaining message work prior to DTL")
  
  
@@ -229,8 +286,8 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<transform name='SetHIEHL7Data' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToIhcHieBase64UhinRest' source='request' target='response' xpos='200' ypos='1350' />
-<code name='DoPostTranslationWork' xpos='200' ypos='1450' >
+<transform name='SetHIEHL7Data' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToIhcHieBase64UhinRest' source='request' target='response' xpos='200' ypos='1550' />
+<code name='DoPostTranslationWork' xpos='200' ypos='1650' >
 <![CDATA[ $$$TRACE("Do any remaining message work post DTL-Base64Encoding")
  $$$TRACE("Cloning Response!")
  set context.NewResponseClone = response.%ConstructClone(1)
@@ -244,7 +301,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='CreateHttpGenericStream' xpos='200' ypos='1550' >
+<code name='CreateHttpGenericStream' xpos='200' ypos='1750' >
 <annotation><![CDATA[Creating Generic HTTP Stream to use to send to the REST service]]]]><![CDATA[></annotation>
 <![CDATA[ 
  set newStreamContainer = ##class(%GlobalCharacterStream).%New()
@@ -266,7 +323,7 @@ BPL Definition</Description>
  $$$TRACE("Base64 Encoded Clone set to the stream. Stream is: "_context.NewResponseStream)
 ]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='1650' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='1850' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -286,7 +343,7 @@ BPL Definition</Description>
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1750' xend='200' yend='550' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='1950' xend='200' yend='550' >
 <annotation><![CDATA[Sending to IHC HIE target ]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='0' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -329,12 +386,12 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 </foreach>
-<code name='ResetErrors' xpos='200' ypos='1850' >
+<code name='ResetErrors' xpos='200' ypos='2050' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
  ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall name='CatchAll' xpos='200' ypos='2150' xend='200' yend='350' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 <code xpos='200' ypos='250' >
 <![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
