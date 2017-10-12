@@ -23,9 +23,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='msg' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='hl7Msg' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='iSeries' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='hl7RecNum' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='hl7RecCount' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='arupHl7Rec' type='EnsLib.HL7.Message' instantiate='0' />
 </context>
-<sequence xend='200' yend='1500' >
-<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<sequence xend='200' yend='2450' >
+<scope xpos='200' ypos='250' xend='200' yend='2350' >
 <trace name='1. In BPL' value='"1. In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
@@ -39,7 +44,15 @@ BPL Definition</Description>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("3. Max Errors set to: " _ maxErr)	  ]]]]><![CDATA[>
 </code>
-<code name='4. Check TargetConfigNames' xpos='200' ypos='650' >
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation", pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0
+    set context.errorStatus=tempStatus
+    }]]]]><![CDATA[>
+</code>
+<code name='4. Check TargetConfigNames' xpos='205' ypos='749' >
 <![CDATA[   //Read TargetConfigNames
  $$$TRACE("4 In TargetConfigNames." )
  set configValue = "" 
@@ -57,36 +70,95 @@ BPL Definition</Description>
     $$$TRACE("4. 3 Count: " _ context.targetList.Count())
  ]]]]><![CDATA[>
 </code>
-<code name='5. ImportFromString' xpos='200' ypos='750' >
+<if name='request.{BHS / FHS} &apos;=""' condition='(request.{BHS}="") &amp;&amp; (request.{FHS}="")' xpos='200' ypos='850' xend='200' yend='2000' >
+<true>
+<code name='5. ImportFromString' xpos='200' ypos='1000' >
 <![CDATA[  set tstr = request.RawContent
-  $$$TRACE("5.*****Raw Content string before calling the ImportFromString method: "_tstr)
+  $$$TRACE("HL7 msg *****Raw Content string before calling the ImportFromString method: "_tstr)
   set tMsg = ##class(EnsLib.HL7.Message).ImportFromString(tstr)
   
   Set tMsg.DocType="2.3:DFT_P03"
    
  //$$$TRACE("*****MSH4:"_tMsg.GetValueAt("MSH:4"))
  
-  $$$TRACE("5.1 After ImportFromString and Setting DocType.")]]]]><![CDATA[>
+  $$$TRACE("5.1 After ImportFromString and Setting DocType, check message type.")]]]]><![CDATA[>
 </code>
-<transform name='6. Transform' class='IHC.ITF.Transform.Dtl.SplitArupBillingHl7' source='request' target='response' xpos='200' ypos='850' />
-<code name='7. After Transformation' xpos='200' ypos='950' >
+<transform name='6. Transform' class='IHC.ITF.Transform.Dtl.SplitArupBillingHl7' source='request' target='response' xpos='200' ypos='1100' />
+<code name='7. After Transformation' xpos='200' ypos='1200' >
 <![CDATA[  $$$TRACE("7. After Transformation.")
   
     //$$$TRACE("7.1 After Transformation." _Response.RawContent)]]]]><![CDATA[>
 </code>
-<foreach name='8. LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
+<foreach name='8. LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1300' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='9. Reset error' xpos='200' ypos='1150' >
+</true>
+<false>
+<if name='BHS' condition='request.{FHS}="" ' xpos='470' ypos='1000' xend='470' yend='1900' >
+<true>
+<trace name='BHS' value='"Has BHS or BTS - End of Batch"' xpos='605' ypos='1150' />
+<code name='get HL7 msg' xpos='605' ypos='1250' >
+<![CDATA[ set context.hl7RecCount = request.ChildCount
+   $$$TRACE("HL7 msgs # " _  context.hl7RecCount)
+ set context.hl7Msg = request.NextChild()
+  set sndStr = context.hl7Msg.RawContent
+  $$$TRACE("Raw Content string before parsing PID18: "_ sndStr )
+ 
+ ]]]]><![CDATA[>
+</code>
+<while name='check all pid-18' condition='context.hl7RecNum &lt;=  context.hl7RecCount' xpos='605' ypos='1350' xend='200' yend='700' >
+<code name='check pid-18' xpos='200' ypos='250' >
+<![CDATA[  $$$TRACE("BSH  MSH-7: " _ context.hl7Msg.GetValueAt("MSH:7"))
+  set pid181 = context.hl7Msg.GetValueAt("PID:18.1")
+   $$$TRACE("BSH  Rec #: " _ context.hl7RecNum _ " pid18.1 value:  " _ pid181)
+   //If PID-18.1 has more than than 9 characters, route to the Cerner outbound operation
+   if ( (pid181'="") && ($LENGTH(pid181) <= 9) )
+   {  
+      set context.iSeries = 1
+      set context.arupHl7Rec = context.hl7Msg
+      $$$TRACE("BSH  - Found a iSeries record")
+   }
+   
+  ]]]]><![CDATA[>
+</code>
+<if name='iSeries record found' condition='context.iSeries = 1' xpos='200' ypos='350' xend='200' yend='600' >
+<true>
+<break xpos='470' ypos='500' />
+</true>
+<false>
+<code name='Get Next' xpos='200' ypos='500' >
+<![CDATA[ set context.hl7Msg = request.NextChild(context.hl7Msg)
+ set context.hl7RecNum  = context.hl7RecNum  + 1]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</while>
+<if name='iSeries record found' condition='context.iSeries = 1' xpos='605' ypos='1450' xend='605' yend='1800' >
+<true>
+<transform name='Transform End record' class='IHC.ITF.Transform.Dtl.ArupBillingEndRecHl7' source='context.arupHl7Rec' target='response' xpos='740' ypos='1600' />
+<foreach name='8. LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='743' ypos='1702' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+</if>
+</true>
+</if>
+</false>
+</if>
+<code name='9. Reset error' xpos='200' ypos='2100' >
 <![CDATA[  $$$TRACE("9. Reset error code.")
   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1250' xend='200' yend='350' >
+<catchall xpos='200' ypos='2200' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <![CDATA[ //Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
 </code>
