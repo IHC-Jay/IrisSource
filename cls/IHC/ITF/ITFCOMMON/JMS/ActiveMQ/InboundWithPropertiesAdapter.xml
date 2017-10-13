@@ -26,26 +26,27 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
  else
 	{
 		try {
-        	$$$TRACE("OnTask: receive message with properties, Ack from Ensemble")
+        	$$$TRACE("OnTask: receive message with byte[] properties, Ack from Ensemble")
         	set msgHash = ##class(java.util.HashMap).%New()
         	set msgHash = ..ActMqObj.recvMsgWithProperties()
         	do {
+	        	#dim msg As %Stream.GlobalCharacter
     			set msg = msgHash.get("Message")
-				if ($L(msg) = 0)
+				if ($IsObject(msg) = 0 )
 				{
-	    			 $$$TRACE("No message in the queue")
+	    			 $$$TRACE("No message in the queue. IsObject(msg): " _ $IsObject(msg)) // _", size:" _ msg.Size)
 	    		 	Quit 
     			}
- 				else
+ 				elseif (msg.Size > 0)
 				{
-	   				$$$TRACE("Got a Message " )
+	   				$$$TRACE("Got a Message of size: " _ msg.Size )
 	   				set jmsMsgWithProperties = ##class(IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties).%New()
 	   				Do jmsMsgWithProperties.Properties.%New()
-	   				set strData=##class(%Stream.GlobalCharacter).%New()
-	
-					set wStat = strData.Write(msg)
-					$$$TRACE("Write msg to stream: " _ wStat)
-	   				set jmsMsgWithProperties.Message = strData
+	   				
+	   				$$$TRACE("MSG: " _ msg.Read(100))
+					Do msg.Rewind()
+					Do msg.Rewind()
+	   				set jmsMsgWithProperties.Message = msg
 	   				
 	   				$$$TRACE("# of properties: " _ msgHash.size())
 	   			    #dim properties As array Of %String;
@@ -53,7 +54,8 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
 					Set it=msgHash.keySet().iterator()
  					While (it.hasNext()) {
      					Set key=it.next()
-				  		set val = msgHash.get(key)
+				  		set valStream = msgHash.get(key)
+				  		set val = valStream.Read()
 				  		
 				  		if (key '= "Message")
 				  		{
@@ -72,12 +74,13 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
 	   				
 	   				Set tStat = ..SendMessageToService(jmsMsgWithProperties)
 	   				$$$TRACE("Sending ACK")
-	   				Do ..ActMqObj.AckMsg()	   
+	   				Do ..ActMqObj.AckMsg()	
+	   				$$$TRACE("receive next msg without timeout")
+    			    set msgHash = ..ActMqObj.recvMsgWithProperties()
+    			    set msg = msgHash.get("Message")
+   
 				}
-				$$$TRACE("receive next msg without timeout")
-    			set msgHash = ..ActMqObj.recvMsgWithProperties()
-    			set msg = msgHash.get("Message")
-        	}while ($L(msg) '= 0)
+        	}while ($IsObject(msg) '= 0)
 		
 		 }catch err
     	 {
@@ -89,9 +92,9 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
 		    {
 			    set errMsg = "No error obj"
 	    	}
- 			Set tSC=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+ 			Set tStat=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
 	    
-	   		if ((..connected = 1) && ($IsObject(..ActMqObj)) )
+	   		if ((..connected = 1) && ($IsObject(..JmsGateway)) && ($IsObject(..ActMqObj))) 
 			{
 				Do ..ActMqObj.CloseActiveMQ()
 				set ..ActMqObj = $$$NULLOREF
@@ -103,10 +106,11 @@ default InboundAdapter behavior: always call ProcessInput on CallInterval</Descr
 		  		    set ..JmsGateway = $$$NULLOREF
 		  	    	$$$TRACE("JmsGateway.%Disconnect")
 	    	}
+	    	
  			Set ..connected = 0
     	}
 }
-    
+    $$$TRACE("OnTask exit: " _ tStat)
 	Quit tStat
 ]]></Implementation>
 </Method>
