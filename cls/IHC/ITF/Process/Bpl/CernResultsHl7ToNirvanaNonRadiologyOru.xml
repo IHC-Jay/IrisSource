@@ -13,7 +13,7 @@ BPL for Cerner Non Radiology Results to Nirvana.</Description>
 
 <Property name="AllowedFacilities">
 <Type>%String</Type>
-<InitialExpression>"2000000217"</InitialExpression>
+<InitialExpression>"130"</InitialExpression>
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
@@ -121,6 +121,18 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='hddContextICentraToIHC50035' type='%String' initialexpression='"526003992"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+<property name='FacilityRep' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25' />
+</parameters>
+</property>
+
+
 </context>
 <sequence xend='200' yend='3250' >
 <scope xpos='200' ypos='250' xend='200' yend='3150' >
@@ -129,9 +141,61 @@ BPL Definition</Description>
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
 </trace>
 
+<code name='Prep GetRepFromNcid' xpos='200' ypos='650' >
+<annotation><![CDATA[Prep GetRepFromNcid ]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set context.hddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+
+ $$$TRACE(" After creating Ncid Hdd lookup request object")  
+
+ set MSH4 = request.GetValueAt("MSH:4.1") 
+ if (MSH4 '= "" && $ISVALIDNUM(MSH4)= "1") 
+ {
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , MSH4 , context.hddContextICentraToIHC50035, "MSH.4")  	  	
+         		
+ }
+ else {
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MSH.4.1 is Null or invalid NCID, Skipping the record.")
+ }
+ 
+ 
+ ]]]]><![CDATA[>
+</code>
+<code name='Call GetRepFromNcid' xpos='200' ypos='750' >
+<annotation><![CDATA[Call GetRepFromNcid]]]]><![CDATA[></annotation>
+<![CDATA[  
+  
+  
+   set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
+ if ('tStatus) {     
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+ } else { 
+   set context.hddRepResponse= hddRepResponse
+ }
+ 
+  ]]]]><![CDATA[>
+</code>
+<code name='Retrieve Facility Rep' xpos='200' ypos='850' >
+<annotation><![CDATA[Retrieve Nirvana Facility Rep]]]]><![CDATA[></annotation>
+<![CDATA[ 
+
+ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.hddRepResponse, "MSH.4")
+ if (hddObj '= ""){
+    if (hddObj.Rep '= ""){
+      set context.FacilityRep = hddObj.Rep
+       $$$TRACE(" *****   context.FacilityRep" _ context.FacilityRep)  
+      
+ }
+
+ }
+ 
+ ]]]]><![CDATA[>
+</code>
+
 <code name='CheckAllowedFacilities' xpos='200' ypos='650' >
 <![CDATA[ set AcceptedLocations=""
-  set Location = request.GetValueAt("MSH:SendingFacility")
+ // set Location = request.GetValueAt("MSH:SendingFacility")
+  set Location = context.FacilityRep 
  
   set context.isAcceptedLocation = 0
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedFacilities",.AcceptedLocations) 
@@ -150,7 +214,7 @@ BPL Definition</Description>
             
             //$$$TRACE(" Trig Event:  "_context.TriggerEvent) 
             
-            if (Location = tOneTarget)
+            if ((Location = tOneTarget) ||  (tOneTarget ="*"))
             {
 	            $$$TRACE("Location Accepted")
 	            set context.isAcceptedLocation = 1
