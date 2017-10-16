@@ -25,13 +25,14 @@ BPL Definition</Description>
 <property name='msg' type='EnsLib.HL7.Message' instantiate='0' />
 <property name='hl7Msg' type='EnsLib.HL7.Message' instantiate='0' />
 <property name='iSeries' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='iSeriesFlag' type='%String'  instantiate='0' />
 <property name='hl7RecNum' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='hl7RecCount' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='arupHl7Rec' type='EnsLib.HL7.Message' instantiate='0' />
 </context>
 <sequence xend='200' yend='2450' >
 <scope xpos='200' ypos='250' xend='200' yend='2350' >
-<trace name='1. In BPL' value='"1. In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='1. In BPL' value='"1. In BPL: " _ $CLASSNAME() _ ", Process: " _ request.RawContent' xpos='200' ypos='350' />
 <code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
@@ -44,14 +45,7 @@ BPL Definition</Description>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("3. Max Errors set to: " _ maxErr)	  ]]]]><![CDATA[>
 </code>
-<code name='ValidateMessage' xpos='200' ypos='650' >
-<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation", pstatus)
- set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
- if (tempStatus'=$$$OK){
-    set context.ValidationPassed=0
-    set context.errorStatus=tempStatus
-    }]]]]><![CDATA[>
-</code>
+
 <code name='4. Check TargetConfigNames' xpos='205' ypos='749' >
 <![CDATA[   //Read TargetConfigNames
  $$$TRACE("4 In TargetConfigNames." )
@@ -70,7 +64,9 @@ BPL Definition</Description>
     $$$TRACE("4. 3 Count: " _ context.targetList.Count())
  ]]]]><![CDATA[>
 </code>
-<if name='request.{BHS / FHS} &apos;=""' condition='(request.{BHS}="") &amp;&amp; (request.{FHS}="")' xpos='200' ypos='850' xend='200' yend='2000' >
+
+
+<if name='request.{BHS / FHS} &apos;=""' condition='((request.{BHS}="") &amp;&amp; (request.{FHS}=""))' xpos='200' ypos='850' xend='200' yend='2000' >
 <true>
 <code name='5. ImportFromString' xpos='200' ypos='1000' >
 <![CDATA[  set tstr = request.RawContent
@@ -80,7 +76,7 @@ BPL Definition</Description>
   Set tMsg.DocType="2.3:DFT_P03"
    
  //$$$TRACE("*****MSH4:"_tMsg.GetValueAt("MSH:4"))
- 
+   
   $$$TRACE("5.1 After ImportFromString and Setting DocType, check message type.")]]]]><![CDATA[>
 </code>
 <transform name='6. Transform' class='IHC.ITF.Transform.Dtl.SplitArupBillingHl7' source='request' target='response' xpos='200' ypos='1100' />
@@ -101,6 +97,7 @@ BPL Definition</Description>
 <if name='BHS' condition='request.{FHS}="" ' xpos='470' ypos='1000' xend='470' yend='1900' >
 <true>
 <trace name='BHS' value='"Has BHS or BTS - End of Batch"' xpos='605' ypos='1150' />
+
 <code name='get HL7 msg' xpos='605' ypos='1250' >
 <![CDATA[ set context.hl7RecCount = request.ChildCount
    $$$TRACE("HL7 msgs # " _  context.hl7RecCount)
@@ -108,6 +105,9 @@ BPL Definition</Description>
   set sndStr = context.hl7Msg.RawContent
   $$$TRACE("Raw Content string before parsing PID18: "_ sndStr )
  
+  set context.hl7Msg = ##class(EnsLib.HL7.Message).ImportFromString(sndStr)  
+  Set context.hl7Msg.DocType="2.3:DFT_P03"
+  
  ]]]]><![CDATA[>
 </code>
 <while name='check all pid-18' condition='context.hl7RecNum &lt;=  context.hl7RecCount' xpos='605' ypos='1350' xend='200' yend='700' >
@@ -125,18 +125,25 @@ BPL Definition</Description>
    
   ]]]]><![CDATA[>
 </code>
+
 <if name='iSeries record found' condition='context.iSeries = 1' xpos='200' ypos='350' xend='200' yend='600' >
 <true>
 <break xpos='470' ypos='500' />
 </true>
 <false>
 <code name='Get Next' xpos='200' ypos='500' >
-<![CDATA[ set context.hl7Msg = request.NextChild(context.hl7Msg)
+<![CDATA[ 
+  set testMsg = request.NextChild(context.hl7Msg)
+  $$$TRACE("GetNext: "_testMsg.RawContent)
+  //set sndStr = context.hl7Msg.RawContent
+  set context.hl7Msg = testMsg  
+  Set context.hl7Msg.DocType="2.3:DFT_P03"
  set context.hl7RecNum  = context.hl7RecNum  + 1]]]]><![CDATA[>
 </code>
 </false>
 </if>
 </while>
+
 <if name='iSeries record found' condition='context.iSeries = 1' xpos='605' ypos='1450' xend='605' yend='1800' >
 <true>
 <transform name='Transform End record' class='IHC.ITF.Transform.Dtl.ArupBillingEndRecHl7' source='context.arupHl7Rec' target='response' xpos='740' ypos='1600' />
