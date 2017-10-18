@@ -37,11 +37,15 @@ public class ActiveMQClass {
 	private MessageProducer producer = null;
 	private MessageConsumer consumber = null;
 	public static Logger log = null;
+	private Message message = null;
 
 	public ActiveMQClass(String url, String qName, String logFileNm, int debug)
 			throws Exception {
-		log = ItfLogger.setLoggerProperties(logFileNm, (debug == 1) ? true
+		if(log == null)
+		{
+			log = ItfLogger.setLoggerProperties(logFileNm, (debug == 1) ? true
 				: false);
+		}
 		log.debug("ItfLogger initialized: " + url);
 		createActiveMQClass(url, qName);
 	}
@@ -50,7 +54,7 @@ public class ActiveMQClass {
 
 		log = Logger.getLogger(ActiveMQClass.class);
 		BasicConfigurator.configure();
-		log.setLevel(Level.ERROR);
+		log.setLevel(Level.DEBUG);
 		createActiveMQClass(url, qName);
 	}
 
@@ -66,7 +70,7 @@ public class ActiveMQClass {
 			log.debug("Start factory connection to :" + url);
 
 			session = (ActiveMQSession) connection.createSession(false,
-					Session.AUTO_ACKNOWLEDGE);
+					Session.CLIENT_ACKNOWLEDGE);
 			// log.debug("Created a session");
 
 			destination = session.createQueue(qName);
@@ -98,9 +102,7 @@ public class ActiveMQClass {
 
 	{
 
-		log.debug("session isRunning " + session.isRunning());
-		log.debug("session isClosed " + session.isClosed());
-		log.debug("connection Client ID: " + connection.getClientID());
+		log.debug("CloseActiveMQ session isRunning " + session.isRunning() + ", session isClosed " + session.isClosed() + ", connection Client ID: " + connection.getClientID());
 
 		if (producer != null) {
 			producer.close();
@@ -111,8 +113,6 @@ public class ActiveMQClass {
 		session.close();
 		connection.close();
 		factory = null;
-		log = null;
-
 	}
 
 	public ActiveMQSession GetActiveMQSession() throws JMSException {
@@ -147,43 +147,67 @@ public class ActiveMQClass {
 			log.debug("Time to live: " + producer.getTimeToLive());
 			producer.send(message);
 			log.debug("Sent message");
+
 		} else {
 			CloseActiveMQ();
 			throw new JMSException("Re initialize the JMS queue");
 		}
 	}
 	
+	
+	
 	public String recvMsg() throws JMSException, UnsupportedEncodingException {
-		HashMap<String, String> hmap = recvMsgWithProperties();
-		return (hmap.get("Message"));
+		HashMap<String, byte[]> hmap = recvMsgWithProperties();
+		String msg = new String(hmap.get("Message"));
+		return (msg);
 	}
 
-	public HashMap<String, String> recvMsgWithProperties() throws JMSException, UnsupportedEncodingException {
+	public HashMap<String, byte[]> recvMsgWithProperties() throws JMSException, UnsupportedEncodingException {
 
-		Message message = null;
-		HashMap<String, String> hmap = new HashMap<String, String>();
-		String outStr = null;
+		
+		HashMap<String, byte[]> hmap = new HashMap<String, byte[]>();
 
-		log.debug("In recvMsg");
+		byte[] byteArr = null;
+
+		log.debug("In recvMsgWithProperties with receiveNoWait: " + session.isRunning());
 		if (!session.isRunning()) {
 			CloseActiveMQ();
 			throw new JMSException("Re initialize the JMS queue");
 		}
 		message = consumber.receiveNoWait();
+		
+		if(message == null)
+		{
+			log.debug("consumber.receive(5000)");
+			message = consumber.receive(5000);
+			if(message == null)
+			{
+				log.debug("message is null");
+				hmap.put("Message", null);
+				return hmap;
+			}
+		}
 		if(message != null)
 		{
 			// List all properties
+			log.debug("Properties: ");
 				Enumeration<String> e = (Enumeration<String>) message.getPropertyNames();
 				
 				while (e.hasMoreElements()) {
 				  String name = e.nextElement();
-				  hmap.put(name, message.getStringProperty(name));
+				  hmap.put(name, message.getStringProperty(name).getBytes());
 				  log.debug("Property: " + name + ", " + message.getStringProperty(name));
 				}
 		}
-		if (message instanceof TextMessage) {
-			log.debug("TextMessage");
-			outStr = ((TextMessage) message).getText();
+		if (message instanceof BytesMessage) {
+			log.debug("BytesMessage message of length: " + (int)((BytesMessage) message).getBodyLength());
+			byteArr = new byte[(int)((BytesMessage) message).getBodyLength()];
+			((BytesMessage) message).readBytes(byteArr);
+			log.debug("byte array:" + byteArr.length);
+		}
+		else if (message instanceof TextMessage) {
+			log.debug("Received a TextMessage" );
+			byteArr = ((TextMessage) message).getText().getBytes();
 		} else if (message instanceof ActiveMQBlobMessage) {
 			log.debug("Blob message");
 
@@ -198,43 +222,65 @@ public class ActiveMQClass {
 			int c = smsg.readBytes(buffer);
 
 			String tempStr = new String(buffer, 0, c);
-			outStr = tempStr;
+			byteArr = tempStr.getBytes();
 
 		}
-		if (message instanceof BytesMessage) {
-			log.debug("BytesMessage message");
-			byte[] byteArr = new byte[(int)((BytesMessage) message).getBodyLength()];
-			((BytesMessage) message).readBytes(byteArr); 
-			outStr = new String(byteArr);
-		}
+		
 		else
 		{
 			log.debug("Other message: " + message);
 		
 		}
 
-		log.debug("Message: " + outStr);
-		hmap.put("Message", outStr);
+		log.debug("Message length: " + byteArr.length);
+		hmap.put("Message", byteArr);
 		return hmap;
 	}
+	public void AckMsg() throws JMSException
+	{
+	   if (message != null)
+	   {
+		  log.debug("Ack message"); 
+	      message.acknowledge();
+	      message = null;
+	      log.debug("Acked message"); 
+	   }
+	}
+
 
 	public static void main(String[] args) throws Exception {
 
 		try {
+			// ActiveMQClass actObj = new ActiveMQClass(
+			//		"tcp://webitfmsg-test.co.ihc.com:5671", "Q_IMH_SH_835_TransTracking", "c:\\Temp\\ActMQ.txt", 1);
 			ActiveMQClass actObj = new ActiveMQClass(
-					"tcp://webitfmsg-dev.co.ihc.com:61616", "EQ_Test");
-
+					"tcp://webitfmsg-dev.co.ihc.com:61616", "test", "c:\\Temp\\ActMQ.txt", 1);
 			actObj.CreateConsumer();
-			actObj.CreateProducer();
+			// actObj.CreateProducer();
 
-			actObj.sendMsg("Hello ...This is a sample message 2..sending from FirstClient");
+			// actObj.sendMsg("Hello ...This is a sample message 112..sending from FirstClient");
 			// System.out.println( actObj.recvMsg());
 
 			// actObj.sendBlob();
-			Thread.sleep(1000);
+			// Thread.sleep(1000);
 			// System.out.println( actObj.recvStreamMsg());
-			// String str = actObj.recvMsg();
-			// System.out.println("Main: Received msg: " + str);
+			int numMsg=0;
+			while(true)
+			{
+				HashMap<String, byte[]> hm  = actObj.recvMsgWithProperties();
+				log.debug("Main: Received Hash: " + hm.size());
+				if(hm.get("Message") == null || hm.get("Message").length ==0)
+				{
+					break;
+				}
+				
+				log.debug(numMsg++ + ". Received Msg length: " + hm.get("Message").length + new String(hm.get("Message")));
+				if(hm != null)
+				{
+					actObj.AckMsg();
+				}
+			}
+			
 			actObj.CloseActiveMQ();
 		} catch (Exception e) {
 			e.printStackTrace();
