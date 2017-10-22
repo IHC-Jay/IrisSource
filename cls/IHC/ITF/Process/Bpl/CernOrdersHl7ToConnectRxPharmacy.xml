@@ -12,8 +12,18 @@ iCentra Pharmacy Med Orders to ConnectRx BPL</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="StripSpecialCharacters">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="ReplaceString">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,StripSpecialCharacters:Additional,ReplaceString:Additional</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -97,6 +107,12 @@ iCentra Pharmacy Med Orders to ConnectRx BPL</Description>
 <Subscript>"CernOrdersHl7ToConnectRxPharmacy"</Subscript>
 <Value name="1">
 <Value>LocationOperationsTable</Value>
+</Value>
+<Value name="2">
+<Value>StripSpecialCharacters</Value>
+</Value>
+<Value name="3">
+<Value>ReplaceString</Value>
 </Value>
 </Data>
 </Storage>
@@ -325,9 +341,15 @@ Order should have already been handled and sent out the appropriate number of ti
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='stripChars' type='%Integer' collection='list' instantiate='0' />
+<property name='replaceStr' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='4450' >
-<scope xpos='200' ypos='250' xend='200' yend='4350' >
+<sequence xend='200' yend='4550' >
+<scope xpos='200' ypos='250' xend='200' yend='4450' >
 <annotation><![CDATA[Translation from Cerner Pharm Orders to the Pharmacy System  - ConnectRx ORDERS]]]]><![CDATA[></annotation>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Scope for Med Orders to ConnectRx]]]]><![CDATA[></annotation>
@@ -1115,9 +1137,33 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </foreach>
 <trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2950' />
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='3050' />
-<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3150' />
-<code name='CheckForModOder' xpos='200' ypos='3250' >
+<code name='get strip special characters' xpos='200' ypos='3050' >
+<![CDATA[ set sschars= ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","StripSpecialCharacters",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("StripSpecialCharacters: " _ sschars)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No StripSpecialCharacters found")
+ } 
+   
+   SET countdown=$LENGTH(sschars,",")
+   SET countup=1
+   FOR reps=countdown:-1:1 {
+      SET extract=$PIECE(sschars,",",countup)
+      $$$TRACE(countup_" "_extract)
+      set st = context.stripChars.Insert(extract)
+      SET countup=countup+1
+   }
+ set tStr= ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplaceString",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("ReplaceSrting: " _tStr)
+ 	set context.replaceStr=tStr
+ }else{
+	 Set status = $$$ERROR("Initialization error, No ReplaceString found")
+ } ]]]]><![CDATA[>
+</code>
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='3150' />
+<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3250' />
+<code name='CheckForModOder' xpos='200' ypos='3350' >
 <![CDATA[ if ((context.orcOrderControlID="XO" ) || (context.orcOrderControlID="SC"))
  {
    set context.haveModOrder = 1
@@ -1125,7 +1171,7 @@ Order should have already been handled and sent out the appropriate number of ti
  }
 ]]]]><![CDATA[>
 </code>
-<code name='SetTargetFromLookup' xpos='200' ypos='3350' >
+<code name='SetTargetFromLookup' xpos='200' ypos='3450' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
@@ -1139,7 +1185,7 @@ Order should have already been handled and sent out the appropriate number of ti
     set context.Target = retVal
  }]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3450' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='3550' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -1159,10 +1205,10 @@ Order should have already been handled and sent out the appropriate number of ti
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3550' xend='200' yend='3900' >
+<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3650' xend='200' yend='4000' >
 <true>
-<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='3700' />
-<code name='CreateModifiedDC' xpos='335' ypos='3800' >
+<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='3800' />
+<code name='CreateModifiedDC' xpos='335' ypos='3900' >
 <![CDATA[ $$$TRACE("Make a copy clone of the Response.")
  set context.NewResponseClone = response.%ConstructClone(1) 
  $$$TRACE("Take cloned message and send out 8 fake DC messages copies")
@@ -1197,7 +1243,7 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </true>
 </if>
-<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4000' xend='200' yend='3300' >
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4100' xend='200' yend='3300' >
 <trace name='Working Clones' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
 <code name='RXCcountForRXEIndex' xpos='200' ypos='350' >
 <![CDATA[ 
@@ -1387,13 +1433,13 @@ Order should have already been handled and sent out the appropriate number of ti
 </if>
 <trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='3200' />
 </foreach>
-<code name='ResetErrors' xpos='200' ypos='4100' >
+<code name='ResetErrors' xpos='200' ypos='4200' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
  set errMsg = ""
  set context.doNotSendAgain = 0 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='4200' xend='200' yend='350' >
+<catchall name='CatchAll' xpos='200' ypos='4300' xend='200' yend='350' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 <code name='ProcessCaughtError' xpos='200' ypos='250' >
 <![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
