@@ -23,8 +23,13 @@
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AllowedPatientClass:Additional,AllowedEventTypes:Additional,AllowedFacility:Additional</Default>
+<Default>HddTargetConfigName:Additional,AllowedPatientClass:Additional,AllowedEventTypes:Additional,AllowedFacility:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -41,6 +46,9 @@
 <Value name="3">
 <Value>AllowedFacility</Value>
 </Value>
+<Value name="4">
+<Value>HddTargetConfigName</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -49,7 +57,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2800' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3100' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -71,9 +79,24 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='isOutPatient' type='%Boolean' instantiate='0' />
+<property name='in1Rel' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='patRel' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2650' >
-<scope xpos='200' ypos='250' xend='200' yend='2550' >
+<sequence xend='200' yend='2850' >
+<scope xpos='200' ypos='250' xend='200' yend='2750' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -120,7 +143,7 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2300' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2500' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='FilterByFacility' xpos='470' ypos='1000' >
@@ -230,12 +253,84 @@ BPL Definition</Description>
 	    set context.isOutPatient = 0  
       }]]]]><![CDATA[>
 </code>
-<if name='isOutPatient' condition='context.isOutPatient = 1' xpos='470' ypos='1600' xend='470' yend='2200' >
+<if name='isOutPatient' condition='context.isOutPatient = 1' xpos='470' ypos='1600' xend='470' yend='2400' >
 <true>
-<if name='isOutOfNetwork' condition='request.GetValueAt("ZZ2:ZZ212") = "1"' xpos='740' ypos='1750' xend='740' yend='2100' >
+<if name='isOutOfNetwork' condition='request.GetValueAt("ZZ2:ZZ212") = "1"' xpos='740' ypos='1750' xend='740' yend='2300' >
 <true>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToArupClearingHouse' source='request' target='response' xpos='1010' ypos='1900' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='2000' xend='200' yend='350' >
+<code name='initializeHDDTargets' xpos='1010' ypos='1900' >
+<![CDATA[ 
+  set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ set hddOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } ]]]]><![CDATA[>
+</code>
+<code name='GetPatientRelationship' xpos='1010' ypos='2000' >
+<![CDATA[ set k1="",tSC=1   
+ For { 
+   Set k1=request.GetNextIndex("IN1grp()",k1,.tSCTrans)  Quit:k1="" 
+  
+   //LegacyPlus places the IN1-43 value into ZZ1-26  
+   set ZZ126Insadminsex = request.GetValueAt("ZZ1:ZZ126InsuranceAdminSexIN143("_k1_")")
+   $$$TRACE(" ZZ126Insadminsex "_k1_":" _ ZZ126Insadminsex )
+   
+   set ZNI3relationshipNcid = request.GetValueAt("IN1grp("_k1_").ZNI:3")
+   $$$TRACE(" ZNI3relationshipNcid Ncid "_k1_":" _ ZNI3relationshipNcid )
+   do context.in1Rel.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getHelp1PatRelationship(ZNI3relationshipNcid, ZZ126Insadminsex, hddOpNm, .process))     
+   $$$TRACE("  context.in1Rel :" _context.in1Rel.GetAt(k1))
+   
+   // Get Relationship codes from lookup table
+   
+   try {  	
+ 	set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToArupClearingHouse.Lookup.RelationshipCodes", context.in1Rel.GetAt(k1), .retVal ) 	
+ 	do context.in1Rel.SetAt(retVal,k1)
+ 	if (retVal="Unknown"){
+	 	do context.in1Rel.SetAt("21",k1)
+	}
+ }catch err{
+	do context.in1Rel.SetAt("21",k1)   
+ }
+ 
+ $$$TRACE(" context.in1Rel after lookup :" _context.in1Rel.GetAt(k1))
+  
+ }
+ 
+ 
+ 
+  set ZGI3PatientRelationshipNcid = request.GetValueAt("ZGI:PatientRelationship") 	
+  $$$TRACE("ZGI3 patient relationship ncid: " _ ZGI3PatientRelationshipNcid)  	
+	
+ set k1="",tSC=1
+ For { 
+   Set k1=request.GetNextIndex("GT1()",k1,.tSCTrans)  Quit:k1="" 
+        
+   set gt19SexNcid = request.GetValueAt("GT1("_k1_"):9")
+   $$$TRACE(" GT19 GuarantorSex Ncid "_k1_":" _ gt19SexNcid )
+ 
+   do context.patRel.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getHelp1PatRelationship(ZGI3PatientRelationshipNcid,gt19SexNcid, hddOpNm, .process))
+   $$$TRACE(" Patient Relationship "_k1_":" _ context.patRel.GetAt(k1)) 
+   
+   
+   // Get Relationship codes from lookup table
+   
+   try {  	
+ 	set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToArupClearingHouse.Lookup.RelationshipCodes", context.patRel.GetAt(k1), .retVal ) 	
+ 	do context.patRel.SetAt(retVal,k1)
+ 	if (retVal="Unknown"){
+	 	do context.patRel.SetAt("21",k1)
+	}
+ }catch err{
+	do context.patRel.SetAt("21",k1)   
+ }
+ 
+ $$$TRACE(" Patient Relationship after lookup "_k1_":" _ context.patRel.GetAt(k1)) 
+     
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToArupClearingHouse' source='request' target='response' xpos='1010' ypos='2100' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='2200' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -264,7 +359,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2400' xend='200' yend='350' >
+<catchall xpos='200' ypos='2600' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
