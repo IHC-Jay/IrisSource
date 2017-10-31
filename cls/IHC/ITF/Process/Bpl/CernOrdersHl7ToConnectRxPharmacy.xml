@@ -12,18 +12,8 @@ iCentra Pharmacy Med Orders to ConnectRx BPL</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
-<Property name="StripSpecialCharacters">
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="500"/>
-</Property>
-
-<Property name="ReplaceStrings">
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="500"/>
-</Property>
-
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,StripSpecialCharacters:Additional,ReplaceStrings:Additional</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -99,6 +89,17 @@ iCentra Pharmacy Med Orders to ConnectRx BPL</Description>
 	quit hddreturnrep
 ]]></Implementation>
 </Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernOrdersHl7ToConnectRxPharmacyDefaultData</DefaultData>
+<Data name="CernOrdersHl7ToConnectRxPharmacyDefaultData">
+<Subscript>"CernOrdersHl7ToConnectRxPharmacy"</Subscript>
+<Value name="1">
+<Value>LocationOperationsTable</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -324,16 +325,9 @@ Order should have already been handled and sent out the appropriate number of ti
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='stripChars' type='%Integer' collection='list' instantiate='0' />
-<property name='replaceStrs' type='%String' initialexpression='""' collection='list' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
-<property name='hl7msg' type='EnsLib.HL7.Message' instantiate='0' />
 </context>
-<sequence xend='200' yend='4550' >
-<scope xpos='200' ypos='250' xend='200' yend='4450' >
+<sequence xend='200' yend='4450' >
+<scope xpos='200' ypos='250' xend='200' yend='4350' >
 <annotation><![CDATA[Translation from Cerner Pharm Orders to the Pharmacy System  - ConnectRx ORDERS]]]]><![CDATA[></annotation>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Scope for Med Orders to ConnectRx]]]]><![CDATA[></annotation>
@@ -399,7 +393,82 @@ Order should have already been handled and sent out the appropriate number of ti
   }
   ]]]]><![CDATA[>
 </code>
-<code name='WorkPID8Gender' xpos='200' ypos='1150' >
+<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1150' >
+<annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
+ Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
+ $$$TRACE("PharmOrderPlacerNumber: " _context.PharmOrderPlacerNumber) 
+ if ($ISVALIDNUM(context.PharmOrderPlacerNumber)=0){
+     $$$TRACE("ORC-2 PharmOrderPlacerNumber value is NOT a VALID numeric value. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid ORC-2 PharmOrderPlacerNumber code supplied from Cerner! iCentra Value received is - PHI: ["_context.PharmOrderPlacerNumber_"].  Expecting numeric Values.***")
+  }
+  ]]]]><![CDATA[>
+</code>
+<code name='VerifyOrderType' xpos='200' ypos='1250' >
+<annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
+ set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
+ $$$TRACE("Here is the Message Type: "_ context.MSH9MsgType)
+ set getFirstThreeChar = $Extract(context.MSH9MsgType,1,3)
+ $$$TRACE("Here is the compare string: "_getFirstThreeChar ) 
+ if ((getFirstThreeChar="RDE") || (getFirstThreeChar="RDS")){
+   $$$TRACE("We have a Pharmacy Order! Order Type is: "_ getFirstThreeChar)
+   
+ }else{
+ $$$TRACE("We don't have a Pharmacy Order, Sending Warning Error and record will be skipped. Order type: "_ context.MSH9MsgType)
+ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "HL7 message is not an expected RDE or RDS message type.") 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='ClinicFiltering' xpos='200' ypos='1350' >
+<annotation><![CDATA[Filter Clinic - Checking PV1-18 Patient Type for Clinic and allowed list of clinics against MSH-4]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Do Clinic check. Only a select few are allowed to go to pharmacy.")
+ set context.pv1PatientType = request.GetValueAt("PV1:PatientType")
+ 
+ $$$TRACE("Checking against not allowed clinics and clinic patient types")
+
+ $$$TRACE("Here is the patient type value to check against from PV1-18: "_context.pv1PatientType)
+ 
+ if ($LISTFIND($GET(^IHC.CernConnectRxPharmacy("NotAllowedPatientTypes")),context.pv1PatientType )>0) {
+ 
+    $$$TRACE("Found a patient type that matches the not allowed clinic patient type.")
+    $$$TRACE("Now checking to see if the MSH-4 is an allowed clinic. ")
+     if ($LISTFIND($GET(^IHC.CernConnectRxPharmacy("AllowedPharmClinic")),context.msh4Facility)>0) {
+        $$$TRACE("MSH-4 is an allowed Clinic MSH-4 value, it is: " _context.msh4Facility)
+     }else{
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that is not in the AllowedPharmClinic List!")
+     }
+ }
+ $$$TRACE("Finished checking for allowed clinics and clinic patient types!!!!")
+ 
+ ]]]]><![CDATA[>
+</code>
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1450' >
+<annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
+ Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ $$$TRACE("PID-3.1 EMPI: " _ context.empiNumber) 
+ if ($ISVALIDNUM(context.empiNumber)=0){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid empi number - PHI: ["_context.empiNumber_"]. ***")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1550' >
+<annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
+ Set pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
+ $$$TRACE("PID-18.1 Account/Encounter (Cerner FIN) number:  " _pid18)
+ $$$TRACE("$ISVALIDNUM(pid18) is: "_$ISVALIDNUM(pid18))
+ if ($ISVALIDNUM(pid18)=1){	  
+	  $$$TRACE("Account/Encounter (Cerner FIN) number is a VALID number...")
+	  set context.finPID18 = pid18
+ }else{
+	 $$$TRACE("Account/Encounter (Cerner FIN) number is NOT a VALID number ")
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid Account/Encounter (Cerner FIN) number - PHI: ["_pid18_"]. ***")
+ }]]]]><![CDATA[>
+</code>
+<code name='WorkPID8Gender' xpos='200' ypos='1650' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:Sex")
  set context.HL7SpecValue= "PID:Sex"
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -434,7 +503,7 @@ Order should have already been handled and sent out the appropriate number of ti
     set context.PID8Gender = "UNKNOWN"
  }]]]]><![CDATA[>
 </code>
-<code name='WorkPID30DeathIndicator' xpos='200' ypos='1250' >
+<code name='WorkPID30DeathIndicator' xpos='200' ypos='1750' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:PatientDeathIndicator")
   set context.HL7SpecValue= "PID:PatientDeathIndicator"
   if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -472,81 +541,6 @@ Order should have already been handled and sent out the appropriate number of ti
  }
  
 ]]]]><![CDATA[>
-</code>
-<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1350' >
-<annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
- Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
- $$$TRACE("PharmOrderPlacerNumber: " _context.PharmOrderPlacerNumber) 
- if ($ISVALIDNUM(context.PharmOrderPlacerNumber)=0){
-     $$$TRACE("ORC-2 PharmOrderPlacerNumber value is NOT a VALID numeric value. ")
-     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid ORC-2 PharmOrderPlacerNumber code supplied from Cerner! iCentra Value received is - PHI: ["_context.PharmOrderPlacerNumber_"].  Expecting numeric Values.***")
-  }
-  ]]]]><![CDATA[>
-</code>
-<code name='VerifyOrderType' xpos='200' ypos='1450' >
-<annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
- set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
- $$$TRACE("Here is the Message Type: "_ context.MSH9MsgType)
- set getFirstThreeChar = $Extract(context.MSH9MsgType,1,3)
- $$$TRACE("Here is the compare string: "_getFirstThreeChar ) 
- if ((getFirstThreeChar="RDE") || (getFirstThreeChar="RDS")){
-   $$$TRACE("We have a Pharmacy Order! Order Type is: "_ getFirstThreeChar)
-   
- }else{
- $$$TRACE("We don't have a Pharmacy Order, Sending Warning Error and record will be skipped. Order type: "_ context.MSH9MsgType)
- Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "HL7 message is not an expected RDE or RDS message type.") 
- }
- ]]]]><![CDATA[>
-</code>
-<code name='ClinicFiltering' xpos='200' ypos='1550' >
-<annotation><![CDATA[Filter Clinic - Checking PV1-18 Patient Type for Clinic and allowed list of clinics against MSH-4]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Do Clinic check. Only a select few are allowed to go to pharmacy.")
- set context.pv1PatientType = request.GetValueAt("PV1:PatientType")
- 
- $$$TRACE("Checking against not allowed clinics and clinic patient types")
-
- $$$TRACE("Here is the patient type value to check against from PV1-18: "_context.pv1PatientType)
- 
- if ($LISTFIND($GET(^IHC.CernConnectRxPharmacy("NotAllowedPatientTypes")),context.pv1PatientType )>0) {
- 
-    $$$TRACE("Found a patient type that matches the not allowed clinic patient type.")
-    $$$TRACE("Now checking to see if the MSH-4 is an allowed clinic. ")
-     if ($LISTFIND($GET(^IHC.CernConnectRxPharmacy("AllowedPharmClinic")),context.msh4Facility)>0) {
-        $$$TRACE("MSH-4 is an allowed Clinic MSH-4 value, it is: " _context.msh4Facility)
-     }else{
-          set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that is not in the AllowedPharmClinic List!")
-     }
- }
- $$$TRACE("Finished checking for allowed clinics and clinic patient types!!!!")
- 
- ]]]]><![CDATA[>
-</code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1650' >
-<annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
- Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
- $$$TRACE("PID-3.1 EMPI: " _ context.empiNumber) 
- if ($ISVALIDNUM(context.empiNumber)=0){	  
-	  $$$TRACE("Empi# is NOT a VALID number ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid empi number - PHI: ["_context.empiNumber_"]. ***")
- }
- ]]]]><![CDATA[>
-</code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1750' >
-<annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
- Set pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
- $$$TRACE("PID-18.1 Account/Encounter (Cerner FIN) number:  " _pid18)
- $$$TRACE("$ISVALIDNUM(pid18) is: "_$ISVALIDNUM(pid18))
- if ($ISVALIDNUM(pid18)=1){	  
-	  $$$TRACE("Account/Encounter (Cerner FIN) number is a VALID number...")
-	  set context.finPID18 = pid18
- }else{
-	 $$$TRACE("Account/Encounter (Cerner FIN) number is NOT a VALID number ")
-	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid Account/Encounter (Cerner FIN) number - PHI: ["_pid18_"]. ***")
- }]]]]><![CDATA[>
 </code>
 <code name='WorkPatientClassAndType' xpos='200' ypos='1850' >
 <annotation><![CDATA[Setup HDD Get Help1 Billing Data Object
@@ -801,37 +795,41 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 <code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2750' >
 <annotation><![CDATA[Lookup ORC-7 QuantityTimingIntervalRepeatPattern In HDD and set Rep to context variable]]]]><![CDATA[></annotation>
-<![CDATA[ set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
+<![CDATA[  set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
  set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
- if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
-    set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("FrequencyContext"))
-    $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
-    
-    
-    Try {
-    	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
-    } Catch eException {
-	 	Set exceptStatus = eException.AsStatus()
-	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
-    }
+ if (context.Ncid '= ""){
+	 
+	if ($ISVALIDNUM(context.Ncid)) {
+		set context.hddncidtorepcontext = $G(^IHC.CernConnectRxPharmacy("FrequencyContext"))
+		$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+		
+		
+		Try {
+			set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+			// work return value
+			if ($LENGTH(context.hddreturnrep)>0){
+				 $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+				 $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+			}else{     
+				 set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
+			}  
+		} Catch eException {
+			Set exceptStatus = eException.AsStatus()
+			$$$LOGSTATUS(exceptStatus)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+		}
 
-   
-
-   //After HDD call set context specific variable to use in setting DTL
-   set context.orcQTIntervalRepeatPattern = context.Ncid _"_"_ context.hddreturnrep
-   
+	   //After HDD call set context specific variable to use in setting DTL
+	   set context.orcQTIntervalRepeatPattern = context.Ncid _"_"_ context.hddreturnrep
+	   
+	 }else{
+		//Email Alerting, but not stopping processing
+		Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18_" Value received is: "_context.Ncid)
+	 }  
 
  }else {
-    //Email Alerting, but not stopping processing
-    Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_".***Working this Ensemble Process:"_process.%ConfigName)
+    //logging that no NCID came in, not stopping process
+    $$$TRACE("There is no Frequency/Interval NCID for ORC-7 so we are expecting this order to be a continuous order.")
    
  }
 ]]]]><![CDATA[>
@@ -874,7 +872,7 @@ Order should have already been handled and sent out the appropriate number of ti
     }
     if (context.Ncid '= "" && '$ISVALIDNUM(context.Ncid)){
        //Email Alerting, but not stopping processing
-       Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_".***Working this Ensemble Process:"_process.%ConfigName)
+       Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18_" Value received is: "_context.Ncid)
    }
    
  }
@@ -1121,40 +1119,9 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </foreach>
 <trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2950' />
-<code name='get strip special characters' xpos='200' ypos='3050' >
-<![CDATA[ set sschars= ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","StripSpecialCharacters",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("StripSpecialCharacters: " _ sschars)
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No StripSpecialCharacters found!")
- } 
- set tStrs= ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplaceStrings",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("ReplaceSrtings: " _tStrs)
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No ReplaceStrings found!")
- } 
-   
-   SET rscount=$LENGTH(tStrs,",")
-   SET countdown=$LENGTH(sschars,",")
-   SET countup=1
-   Set msg = request.RawContent
-   FOR reps=countdown:-1:1 {
-      SET extract=$PIECE(sschars,",",countup)
-      $$$TRACE(countup_" "_extract)
-       if (countup <= rscount) {
-         SET extractRs=$PIECE(tStrs,",",countup)
-       }
-      else {
-         set extractRs= ""
-      }
-      set msg = $REPLACE(msg,$CHAR(extract),extractRs)
-   }
-   set context.hl7msg=##class(EnsLib.HL7.Message).ImportFromString(msg)]]]]><![CDATA[>
-</code>
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='context.hl7msg' target='response' xpos='200' ypos='3150' />
-<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3250' />
-<code name='CheckForModOder' xpos='200' ypos='3350' >
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='3050' />
+<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3150' />
+<code name='CheckForModOder' xpos='200' ypos='3250' >
 <![CDATA[ if ((context.orcOrderControlID="XO" ) || (context.orcOrderControlID="SC"))
  {
    set context.haveModOrder = 1
@@ -1162,7 +1129,7 @@ Order should have already been handled and sent out the appropriate number of ti
  }
 ]]]]><![CDATA[>
 </code>
-<code name='SetTargetFromLookup' xpos='200' ypos='3450' >
+<code name='SetTargetFromLookup' xpos='200' ypos='3350' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
@@ -1176,7 +1143,7 @@ Order should have already been handled and sent out the appropriate number of ti
     set context.Target = retVal
  }]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3550' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='3450' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -1196,10 +1163,10 @@ Order should have already been handled and sent out the appropriate number of ti
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3650' xend='200' yend='4000' >
+<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3550' xend='200' yend='3900' >
 <true>
-<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='3800' />
-<code name='CreateModifiedDC' xpos='335' ypos='3900' >
+<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='3700' />
+<code name='CreateModifiedDC' xpos='335' ypos='3800' >
 <![CDATA[ $$$TRACE("Make a copy clone of the Response.")
  set context.NewResponseClone = response.%ConstructClone(1) 
  $$$TRACE("Take cloned message and send out 8 fake DC messages copies")
@@ -1234,7 +1201,7 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </true>
 </if>
-<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4100' xend='200' yend='3300' >
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4000' xend='200' yend='3300' >
 <trace name='Working Clones' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
 <code name='RXCcountForRXEIndex' xpos='200' ypos='350' >
 <![CDATA[ 
@@ -1424,13 +1391,13 @@ Order should have already been handled and sent out the appropriate number of ti
 </if>
 <trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='3200' />
 </foreach>
-<code name='ResetErrors' xpos='200' ypos='4200' >
+<code name='ResetErrors' xpos='200' ypos='4100' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
  set errMsg = ""
  set context.doNotSendAgain = 0 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='4300' xend='200' yend='350' >
+<catchall name='CatchAll' xpos='200' ypos='4200' xend='200' yend='350' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 <code name='ProcessCaughtError' xpos='200' ypos='250' >
 <![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
@@ -1442,23 +1409,5 @@ Order should have already been handled and sent out the appropriate number of ti
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernOrdersHl7ToConnectRxPharmacyDefaultData</DefaultData>
-<Data name="CernOrdersHl7ToConnectRxPharmacyDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"CernOrdersHl7ToConnectRxPharmacy"</Subscript>
-<Value name="1">
-<Value>LocationOperationsTable</Value>
-</Value>
-<Value name="2">
-<Value>StripSpecialCharacters</Value>
-</Value>
-<Value name="3">
-<Value>ReplaceStrings</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
