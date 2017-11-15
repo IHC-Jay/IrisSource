@@ -79,7 +79,7 @@ BPL Definition</Description>
 <process language='objectscript' request='Ens.Request' response='Ens.Response' height='2350' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
-<property name='Target' type='%String' instantiate='0' />
+<property name='Target' type='%String' collection='list' instantiate='0' />
 <property name='IsUnvAdt' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='IsConsol' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='SourceConfigName' type='%String' instantiate='0' />
@@ -93,6 +93,7 @@ BPL Definition</Description>
 <property name='SingleCharPatientTypes' type='%String' initialexpression='"120,125,128,140,142,146,152,154"' instantiate='0' />
 <property name='FinancialClass' type='%String' instantiate='0' />
 <property name='Carrier2Code' type='%String' instantiate='0' />
+<property name='TargetIndex' type='%Integer' instantiate='0' />
 </context>
 <sequence xend='200' yend='2100' >
 <scope xpos='200' ypos='250' xend='200' yend='2000' >
@@ -143,7 +144,17 @@ BPL Definition</Description>
 <switch xpos='200' ypos='850' xend='200' yend='1550' >
 <case condition='context.IsConsol' name='Consolidation' >
 <code name='set target' xpos='470' ypos='1000' >
-<![CDATA[ set context.Target = "Out-Hdm-Adt-Keyword-File-CON"]]]]><![CDATA[>
+<![CDATA[ set pstatus =##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ConsolidationTargetConfigNames", .targets) 
+ if ( ($$$ISERR(pstatus)) || ($LL(targets)= 0) ){
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get TargetConfigNames, shutting down.")   
+ }else {
+    for iTarget=1:1:$L(targets, ",") { 
+       set tOneTarget=$ZStrip($P(targets,",",iTarget),"<>W")  
+       continue:""=tOneTarget
+       set stat = context.Target.Insert(tOneTarget)
+       $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+    }
+ } ]]]]><![CDATA[>
 </code>
 <transform name='consol transform' class='IHC.ITF.Transform.Dtl.iSeriesAdtCffToHdmAdtKeyword.ConsolTransform' source='request' target='response' xpos='470' ypos='1100' />
 <code name='Setup stream to send' xpos='470' ypos='1200' >
@@ -166,6 +177,7 @@ BPL Definition</Description>
 <![CDATA[ try {
     $$$TRACE("Checking record type and filtering for patient types")
     set errMsg =""
+    set patientType =""
     set context.TransactionCode = request.TransactionCode
     set context.MajorPatientType = request.MajorPatientType
     set context.PatientType = request.PatientType
@@ -179,8 +191,14 @@ BPL Definition</Description>
     set admitHour = $EXTRACT(admitTime,1,2)
     set admitMinutes = $EXTRACT(admitTime,3,4)
     set admitDate = admitMonth_"/"_admitDay_"/"_admitYear_" "_admitHour_":"_admitMinutes
-    set admitDate2 = $ZDTH(admitDate)
-    set admitDate3 = ($piece(admitDate2,",")*86400+$p(admitDate2,",",2))
+    $$$TRACE("Admit date: "_admitDate)
+    set admitDate3 =""
+    if (admitDate '="00/00/0000 00:00") {
+       set admitDate2 = $ZDTH(admitDate)
+       set admitDate3 = ($piece(admitDate2,",")*86400+$p(admitDate2,",",2))
+    }else {
+       set admitDate3 = 0
+    }
     set cutoffDate = ($piece(context.CutoffDate,",")*86400+$p(context.CutoffDate,",",2))
     $$$TRACE("Admit date: "_admitDate_". Cutoff date: "_$ZDT(context.CutoffDate,1,2))
     if (admitDate3 > cutoffDate) {
@@ -197,11 +215,23 @@ BPL Definition</Description>
        }else {
           set patientType = context.PatientType
        }
-       $$$TRACE("Patient Type: "_patientType)
+       $$$TRACE("Patient Type: "_patientType_". Transaction code: "_context.TransactionCode)
        if ("46" = context.TransactionCode) {
+          $$$TRACE("filter 1")
           set context.Type46 = 1
-          set context.Target = "Out-Hdm-Adt-Keyword-File-OPT"
+          set pstatus =##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"OutpatientTargetConfigNames", .targets) 
+          if ($$$ISERR(pstatus)){
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get TargetConfigNames, shutting down.")   
+ 	  }else {
+             for iTarget=1:1:$L(targets, ",") { 
+                Set tOneTarget=$ZStrip($P(targets,",",iTarget),"<>W")  
+                Continue:""=tOneTarget
+                set stat = context.Target.Insert(tOneTarget)
+                $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+             }
+          } 
        }elseif (context.MajorPatientType="E") {
+          $$$TRACE("filter 2")
           set patientTypeStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.iSeriesAdtCffToHdmAdtKeyword.lookup.AllowedPatientTypes", context.FacilityID, .retVal )
           if ($$$ISERR(patientTypeStat) || (retVal = "Unknown") || (retVal ="")) {
              set errMsg = "Unable to get facility patient types from the lookup table IHC.ITF.Process.Bpl.iSeriesAdtCffToHdmAdtKeyword.lookup.AllowedPatientTypes not a transaction needed on this pathway, skipping record"
@@ -214,9 +244,20 @@ BPL Definition</Description>
                 set errMsg = "Unable to find patient type for facility from the lookup table IHC.ITF.Process.Bpl.iSeriesAdtCffToHdmAdtKeyword.lookup.AllowedPatientTypes not a transaction needed on this pathway, skipping record"
                 throw errMsg
              }       
-             set context.Target = "Out-Hdm-Adt-Keyword-File-EPT"
+             set pstatus =##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"EmergencyTargetConfigNames", .targets) 
+             if ($$$ISERR(pstatus)){
+ 	        set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get TargetConfigNames, shutting down.")   
+             }else {
+                for iTarget=1:1:$L(targets, ",") { 
+                   Set tOneTarget=$ZStrip($P(targets,",",iTarget),"<>W")  
+                   Continue:""=tOneTarget
+                   set stat = context.Target.Insert(tOneTarget)
+                   $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+                }
+             } 
           }
        }elseif (context.MajorPatientType="I") {
+          $$$TRACE("filter 3")
           if ($LF($LB("128,139,143,154,365"),context.FacilityID) >0) {
              if (context.PatientType ="I05") {
                 set errMsg= "Facility "_context.FacilityID_" does not want inpatient records for patient types "_context.PatientType_" not a transaction needed on this pathway, skipping record"
@@ -235,9 +276,20 @@ BPL Definition</Description>
                 set errMsg = "Unable to find patient type for facility from the lookup table IHC.ITF.Process.Bpl.iSeriesAdtCffToHdmAdtKeyword.lookup.AllowedPatientTypes not a transaction needed on this pathway, skipping record"
                 throw errMsg
              }       
-             set context.Target = "Out-Hdm-Adt-Keyword-File-IPT"
+             set pstatus =##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"InpatientTargetConfigNames", .targets) 
+             if ($$$ISERR(pstatus)){
+ 	        set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get TargetConfigNames, shutting down.")   
+             }else {
+                for iTarget=1:1:$L(targets, ",") { 
+                   Set tOneTarget=$ZStrip($P(targets,",",iTarget),"<>W")  
+                   Continue:""=tOneTarget
+                   set stat = context.Target.Insert(tOneTarget)
+                   $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+                }
+             }           
           }
        }elseif (context.MajorPatientType="O") {
+          $$$TRACE("filter 4")
           if (($LF($LB("128,139,143,154,365"),context.FacilityID) && (context.PatientType ="H07")) >0) {
              if (($LF($LB("04,05,07,52"),context.FinancialClass) >0) && ('$LF($LB("04,05,07,52"),context.Carrier2Code) >0)) {
                 GOTO END
@@ -277,15 +329,32 @@ BPL Definition</Description>
              }
           }
 END;
-          set context.Target = "Out-Hdm-Adt-Keyword-File-OPT"   
+          set pstatus =##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"OutpatientTargetConfigNames", .targets) 
+          if ($$$ISERR(pstatus)){
+ 	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get TargetConfigNames, shutting down.")   
+          }else {
+             for iTarget=1:1:$L(targets, ",") { 
+                Set tOneTarget=$ZStrip($P(targets,",",iTarget),"<>W")  
+                Continue:""=tOneTarget
+                set stat = context.Target.Insert(tOneTarget)
+                $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+             }
+          }  
+       }else {
+          $$$TRACE("filter 5")
+          set errMsg = "No patient type in record unable to process. Skipping record."
+          throw errMsg
        }
     }
  } catch error {
+    $$$TRACE("filter 6")
     if (errMsg '="") {
        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, errMsg)
+    }else {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unknown error occured while trying to process filtering. Error code:"_error.Code_". Error name: "_error.Name_". Error data: "_error.Data)
     }
  }
- $$$TRACE("Target: "_context.Target)]]]]><![CDATA[>
+ ]]]]><![CDATA[>
 </code>
 <if name='Is type 46' condition='context.Type46' xpos='740' ypos='1100' xend='740' yend='1450' >
 <true>
@@ -339,11 +408,13 @@ END;
 </code>
 </default>
 </switch>
-<call name='Send to TargetConfigNames' target='@context.Target' async='1' xpos='200' ypos='1650' >
+<foreach name='for each target' property='context.Target' key='context.TargetIndex' xpos='200' ypos='1650' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.Target.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.StreamContainer' >
 <assign property="callrequest" value="context.Packets" action="set" />
 </request>
 </call>
+</foreach>
 <code name='reset error count' xpos='200' ypos='1750' >
 <![CDATA[ $$$TRACE("Resetting error count")
   
