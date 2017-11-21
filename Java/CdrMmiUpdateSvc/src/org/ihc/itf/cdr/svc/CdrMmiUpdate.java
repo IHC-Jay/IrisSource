@@ -289,7 +289,12 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			if(!isNOE(msg.getPID().getRace().getValue()) && isNumeric(msg.getPID().getRace().getValue())) {
 				m_memberInfo.setRaceCid(new Coded(new BigInteger(msg.getPID().getRace().getValue())));
             }
-			
+						
+			// Populate Religion
+			if(!isNOE(msg.getPID().getReligion().getValue()) && isNumeric(msg.getPID().getReligion().getValue())) {
+				m_memberInfo.setReligionCid(new Coded(new BigInteger(msg.getPID().getReligion().getValue())));
+			}
+						
 			// Populate Language
 			if(!isNOE(msg.getPID().getPrimaryLanguage().getIdentifier().getValue())) {    
 				m_memberInfo.setPassPort(msg.getPID().getPrimaryLanguage().getIdentifier().getValue());
@@ -299,12 +304,6 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			if(!isNOE(msg.getPID().getMaritalStatus(0).getValue())) {
 				m_memberInfo.setMaritalStatusCid(new Coded(new BigInteger(msg.getPID().getMaritalStatus(0).getValue())));
             }
-
-                        // Populate Religion
-			if(!isNOE(msg.getPID().getReligion().getValue()) && isNumeric(msg.getPID().getReligion().getValue())) {
-				m_memberInfo.setReligionCid(new Coded(new BigInteger(msg.getPID().getReligion().getValue())));
-			}
-
 			
 			// Populate EthnicGroup			
 			if(!isNOE(msg.getPID().getEthnicGroup().getValue())) {				
@@ -420,7 +419,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
                         m_DataRecord.getMmiRecords()[0].getMemberInfo().getNames()[j].setLastName(retNames[i].getLastName());
                     }
                     //if(nm.getFirstName().length() == 0) {
-                    if(!isNOE(nm.getFirstName()) ) { 
+                    if(!isNOE(nm.getFirstName()) && (nm.getFirstName().length() == 0 )) { 
                         log.debug("updateMmi, Keep First Name ..." + nt.toString());
                         m_DataRecord.getMmiRecords()[0].getMemberInfo().getNames()[j].setFirstName(retNames[i].getFirstName());
                     }
