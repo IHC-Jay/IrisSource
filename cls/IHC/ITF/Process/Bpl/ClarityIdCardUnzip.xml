@@ -43,7 +43,8 @@ BPL Definition</Description>
 </property>
 <property name='zipReq' type='HS.Message.ZipRequest' instantiate='1' />
 <property name='zipResp' type='HS.Message.ZipResponse' instantiate='1' />
-<property name='tPath' type='%String' instantiate='0' >
+<property name='tPath' type='%String' initialexpression='"/itf-share/itf-tmp/Clarity-IdCard-Unzip/"' instantiate='0' >
+<annotation><![CDATA[To copy the file for unzipping]]]]><![CDATA[></annotation>
 <parameters>
 <parameter name='MAXLEN'  value='500' />
 </parameters>
@@ -54,8 +55,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='1300' >
-<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<sequence xend='200' yend='1650' >
+<scope xpos='200' ypos='250' xend='200' yend='1550' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -75,7 +76,6 @@ BPL Definition</Description>
    Set tSC=request.%Save()
    
    Set context.tFilename = ##Class(%File).GetFilename(request.OriginalFilename)
-   Set context.tPath = "/itf-share/itf-tmp/Clarity-IdCard-Unzip/"
      
    Set tStream=##class(%FileBinaryStream).%New()
    $$$TRACE("Set paramaters name:" _ context.tFilename _ ", path:" _ context.tPath)
@@ -96,26 +96,21 @@ BPL Definition</Description>
      Set status = $$$ERROR("File error: " _ request.OriginalFilename _", error: " _ tSC)
    }
    $$$TRACE("Saved the file stream to "_ context.tFilename _ " in "_ context.tPath)
-   If ##class(%File).Exists(context.tPath _ context.tFilename) 
-   { 
-      $$$TRACE("File exists")
-   }
-   else
-   {
-      Set status = $$$ERROR("Stream error, No File created")
-   }
+ 
 ]]]]><![CDATA[>
 </code>
-<code name='Prepate to Call unzip' xpos='200' ypos='650' >
+<if name='if file exists' condition='##class(%File).Exists(context.tPath _ context.tFilename)' xpos='200' ypos='650' xend='200' yend='1300' >
+<true>
+<code name='Prepate to Call unzip' xpos='470' ypos='800' >
 <![CDATA[
-	set tFile=##class(%Stream.FileBinary).%New()
-	Do tFile.LinkToFile(context.tPath _ context.tFilename)
+	set stFile=##class(%Stream.FileBinary).%New()
+	Do stFile.LinkToFile(context.tPath _ context.tFilename)
 	set context.zipReq = ##class(HS.Message.ZipRequest).%New()
-	set context.zipReq.File = tFile
+	set context.zipReq.File = stFile
 	set context.zipReq.Operation = "FromZip"
 	$$$TRACE("Ready to call unzip: " _ context.tPath _ context.tFilename)]]]]><![CDATA[>
 </code>
-<call name='Call Unzip' target='Op-Unzip' async='0' xpos='200' ypos='750' >
+<call name='Call Unzip' target='Op-Unzip' async='0' xpos='470' ypos='900' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.zipReq" action="set" />
 </request>
@@ -123,23 +118,29 @@ BPL Definition</Description>
 <assign property="context.zipResp" value="callresponse" action="set" />
 </response>
 </call>
-<code name='Target List' xpos='200' ypos='850' >
+<code name='Delete input file' xpos='470' ypos='1000' >
+<![CDATA[ Do ##class(%File).Delete(context.tPath _ context.tFilename, .retVal)
+ $$$TRACE("Delete file: " _ retVal)]]]]><![CDATA[>
+</code>
+<code name='Target List' xpos='470' ypos='1100' >
 <![CDATA[    $$$TRACE("Check Targetlist")
     
    set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Target Count: " _ context.targetList.Count())
 ]]]]><![CDATA[>
 </code>
-<foreach name='Loops through target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='950' xend='200' yend='350' >
-<code name='Status' xpos='200' ypos='250' >
+<foreach name='Loops through target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<code name='send unzip file to target' xpos='200' ypos='250' >
 <![CDATA[ 
  $$$TRACE("Number of unzip files: " _ context.zipResp.Items.Count() )
  if (context.zipResp.Items.Count() >= 1)
  {
-   set zipItem= context.zipResp.Items.GetAt(1)
-   $$$TRACE("File name: " _ zipItem.Filename)
+   for flCnt = 1:1:context.zipResp.Items.Count()
+   {
+      set zipItem= context.zipResp.Items.GetAt(flCnt)
+      $$$TRACE(flCnt _ ". File name: " _ zipItem.Filename)
  
-     //Status of the file operation
+      //Status of the file operation
       try {
         $$$TRACE("Create Ens.StreamContainer with flStream: " _ zipItem.File)
         set opReq = ##class(Ens.StreamContainer).%New(zipItem.File)
@@ -149,15 +150,16 @@ BPL Definition</Description>
           set opStatus = process.SendRequestSync(context.targetList.GetAt(1), opReq, response)
       }  catch
       {
-          set opStatus = $$$ERROR("Exception in send Request")
+          set status = $$$ERROR("Exception in send Request")
       }
       if ($$$ISOK(opStatus)) { 
        $$$TRACE("Successfully sent the file.")
      }
      else
      {
-        set opStatus = $$$ERROR("Could not send the file:" _ flStream.Filename)
+        set status = $$$ERROR("Could not send the file:" _ flStream.Filename)
      }
+   }
   }
   else
   {
@@ -165,8 +167,15 @@ BPL Definition</Description>
   }]]]]><![CDATA[>
 </code>
 </foreach>
+</true>
+<false>
+<code name='file does not exists' xpos='200' ypos='800' >
+<![CDATA[ Set status = $$$ERROR("Stream error, No File created")]]]]><![CDATA[>
+</code>
+</false>
+</if>
 <faulthandlers>
-<catchall xpos='200' ypos='1050' xend='200' yend='350' >
+<catchall xpos='200' ypos='1400' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
