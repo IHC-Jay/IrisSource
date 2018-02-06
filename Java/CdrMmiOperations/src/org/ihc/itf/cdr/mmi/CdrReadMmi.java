@@ -133,13 +133,15 @@ public class CdrReadMmi extends CdrTuxServices {
 							}
 						}
 						log.debug("Setting Names Length...<" + getVal(retMembInfo.getNames().length) + ">");
-
+						
+						if (retMembInfo.getFacilities() != null) {
 						log.debug("Setting Facilities Length...<" + getVal(retMembInfo.getFacilities().length) + ">");
 
 						for (int i = 0; i < retMembInfo.getFacilities().length; i++) {
 							Facility retFacility = retMembInfo.getFacilities()[i];
 							log.debug("Facility... at " + i + " : <" + getVal(retFacility.getMmiFacilityCid().getNcid())
 									+ ">");
+						}
 						}
 
 						log.debug("Setting Address ...");
