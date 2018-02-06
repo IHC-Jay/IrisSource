@@ -40,6 +40,7 @@ public class CdrMmiAdd extends CdrTuxServices {
 	/* Get actual class name to be printed on */
 	private static Logger log = null;
 	private static String CERNER_FAC_NCID = "525935320";
+	private static String CB_FAC_NCID="2000000341";
 	private static final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
 	
 	public CdrMmiAdd(String applicationAddress, String serviceName, String fileName, int debug) throws Exception	{
@@ -117,7 +118,9 @@ public class CdrMmiAdd extends CdrTuxServices {
             Facility facilities[] = new Facility[1];
             facilities[0] = new Facility();
             String faciltyNcid = msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue();
-            if (faciltyNcid.equals(CERNER_FAC_NCID)){
+            if (faciltyNcid.equals(CERNER_FAC_NCID)){            	
+            	facilities[0].setMedRecNumber(msg.getPID().getPatientIDInternalID(0).getID().getValue());
+            } else if ( faciltyNcid.equals(CB_FAC_NCID)){
             	facilities[0].setMedRecNumber(msg.getPID().getPatientIDExternalID().getID().getValue());
             } else {
             	facilities[0].setMedRecNumber("");
@@ -304,8 +307,10 @@ public class CdrMmiAdd extends CdrTuxServices {
             mmiRecs[0] = new MmiRecord();
             mmiRecs[0].setMemberInfo(memberInfo);
             
-            //set UnitNumber
-            mmiRecs[0].setUnitNumber(new BigInteger(msg.getPID().getPatientIDInternalID(0).getID().getValue()));
+            //set UnitNumber            
+            if (msg.getPID().getPatientIDInternalID(0).getID().getValue()!=null){
+             mmiRecs[0].setUnitNumber(new BigInteger(msg.getPID().getPatientIDInternalID(0).getID().getValue()));
+            }
             
             //setting Flags ...
             mmiRecs[0].setMmiFlags(mmiFlags);
