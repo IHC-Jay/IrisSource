@@ -40,6 +40,8 @@ public class CdrMmiUpdate extends CdrTuxServices {
 	/* Get actual class name to be printed on */
 	private static Logger log ;
 	private static String CERNER_FAC_NCID="525935320";
+	private static String CB_FAC_NCID="2000000341";
+	
 	private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
 
 	private String UnlockServiceName;
@@ -322,10 +324,15 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			m_mmiRec.setMmiFlags(m_mmiFlags);
 			
 			// MedRecNumber
-			String medRecNumber = "";
-			if(msg.getPID().getPatientIDInternalID(0).getID().getValue().equals(CERNER_FAC_NCID)){
+			String medRecNumber = ""; 
+			//if(msg.getPID().getPatientIDInternalID(0).getID().getValue().equals(CERNER_FAC_NCID)){
+			if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CERNER_FAC_NCID)){
 				medRecNumber =msg.getPID().getPatientIDInternalID(0).getID().getValue();
+			}			
+			if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CB_FAC_NCID)){
+				medRecNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();			
 			}
+			
 			//Populate Facilities
 			Facility[] facilities = new Facility[1];
 			Facility facility = new Facility();
@@ -475,22 +482,32 @@ public class CdrMmiUpdate extends CdrTuxServices {
             boolean hasMatch = false;
             for(int i = 0; i < retFCnt; i++) {
                 boolean existFlg = false;
+                log.debug(" Outer Loop Index: " + i);
                 for(int j = 0; j < fcCnt; j++) {
+                	log.debug(" Inner Loop Index: " + j);
                     Facility fc = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[j];
-                    log.debug("MmiFacility Ncid: " + retFacilities[i].getMmiFacilityCid().getNcid());
-                    log.debug("fc ncid: " + fc.getMmiFacilityCid());
-                    log.debug("ret mrn# : [" + retFacilities[i].getMedRecNumber() + "] fc(NEW) mrn# : [" + fc.getMedRecNumber() + "]");
+                    log.debug("Facility Ncid(From CDR): " + retFacilities[i].getMmiFacilityCid().getNcid());
+                    log.debug("FacilityNcid(From current record) " + fc.getMmiFacilityCid().getNcid());
+                    log.debug("mrn# (From CDR): [" + retFacilities[i].getMedRecNumber() + "] mrn#(From current record): [" + fc.getMedRecNumber() + "]");
                     log.debug("$$$$ " + retFacilities[i].getMmiFacilityCid().getNcid().compareTo(fc.getMmiFacilityCid().getNcid()));
-                    if(retFacilities[i].getMmiFacilityCid().getNcid().compareTo(fc.getMmiFacilityCid().getNcid()) != 0 || hasMatch)
-                        continue;
+                    if(retFacilities[i].getMmiFacilityCid().getNcid().compareTo(fc.getMmiFacilityCid().getNcid()) != 0 || hasMatch)                    	
+                        continue;                    
                     existFlg = true;
-                    mrnNumber = retFacilities[i].getMedRecNumber();
+                    if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CERNER_FAC_NCID)){
+                    	mrnNumber = msg.getPID().getPatientIDInternalID(0).getID().getValue();
+        			}else if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CB_FAC_NCID)){
+        				mrnNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();        				
+        			} else{
+                    	mrnNumber = retFacilities[i].getMedRecNumber();
+                    }                    
                     radNumber = retFacilities[i].getRadiologyNumber();
+                    log.debug(" Setting mrnNumber " + mrnNumber);
                     m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[0].setMedRecNumber(mrnNumber);
                     m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[0].setRadiologyNumber(radNumber);
                     hasMatch = true;
                     break;
                 }
+                log.debug(" Outer Loop - existFlg: " + existFlg);
 
                 if(!existFlg){
                 	Facility[] facilties = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities();
@@ -502,6 +519,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
             }
             
             fcCnt = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities().length;
+            log.debug(" Fac COunt: " + fcCnt);
             int fcIndx = 0;
             facilities = new Facility[fcCnt];
             for(fcIndx = 0; fcIndx < fcCnt; fcIndx++)
