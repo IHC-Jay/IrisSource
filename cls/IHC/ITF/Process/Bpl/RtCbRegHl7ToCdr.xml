@@ -20,9 +20,9 @@ UpdateTargetConfigName:Custom setting to select Configuration item(s) to  send t
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
-<Property name="CheckMMITargetConfigName">
+<Property name="GetMMITargetConfigName">
 <Description>
-CheckMMITargetConfigName:Custom setting to select Configuration item(s) to  request to CheckMMI lookup operation</Description>
+GetMMITargetConfigName:Custom setting to select Configuration item(s) to  request to CheckMMI lookup operation</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="100"/>
 </Property>
@@ -35,7 +35,7 @@ CheckMMITargetConfigName:Custom setting to select Configuration item(s) to  requ
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>AddTargetConfigName:Additional,UpdateTargetConfigName:Additional,CheckMMITargetConfigName:Additional</Default>
+<Default>AddTargetConfigName:Additional,UpdateTargetConfigName:Additional,GetMMITargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -54,6 +54,12 @@ CheckMMITargetConfigName:Custom setting to select Configuration item(s) to  requ
 </Value>
 <Value name="4">
 <Value>NumberOfCdrInstances</Value>
+</Value>
+<Value name="5">
+<Value>GetMMITargetConfigName</Value>
+</Value>
+<Value name="6">
+<Value>MmiInCDR</Value>
 </Value>
 </Data>
 </Storage>
@@ -86,7 +92,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='checkMMITargetConfigName' type='%String' instantiate='0' >
+<property name='GetMMITargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
@@ -101,6 +107,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='clone' type='Ens.Request' instantiate='0' />
 </context>
 <sequence xend='200' yend='1650' >
 <scope xpos='200' ypos='250' xend='200' yend='1550' >
@@ -140,10 +147,10 @@ BPL Definition</Description>
     $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
  }
  
- //CheckMMITargetConfigName validation
- set context.checkMMITargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","CheckMMITargetConfigName",.pstatus)
- if ( ($$$ISERR(pstatus)) || (context.checkMMITargetConfigName= "") ) {
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get CheckMMITargetConfigName, shutting down.")   
+ //GetMMITargetConfigName validation
+ set context.GetMMITargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","GetMMITargetConfigName",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.GetMMITargetConfigName= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get GetMMITargetConfigName, shutting down.")   
     quit
  }
  
@@ -189,15 +196,18 @@ BPL Definition</Description>
 <code name='Is MMI Present' xpos='200' ypos='850' >
 <![CDATA[
  	
-  set keepMmiInCDR = 0
+  set MmiInCDR = ""
+  
  //Check if MMI present
- set i1=""  
+ set patIdcount = request.GetValueAt("PID:PatientIdentifierList(*)")  
+ $$$TRACE("count value for patIdcount : "_patIdcount)
  for {
-         
+	  
 	 set i1 = request.GetNextIndex("PID:PatientIdentifierList()",i1,.tSC)  
+	 quit:i1=""
 	 
  $$$TRACE("identifiertypecode:"_request.GetValueAt("PID:PatientIdentifierList("_(i1)_").assigningauthority"))
-	 quit:i1=""
+	 
 	 if (request.GetValueAt("PID:PatientIdentifierList("_(i1)_").assigningauthority") = "MMI")   
 	 {
 	     $$$TRACE("Inside MMI")
@@ -224,39 +234,54 @@ BPL Definition</Description>
  }
  
  //If MMI not present we still need to hit CDR and Check with MRN no
- if ( context.mmiPresent =0 )
+ if ( context.mmiPresent = 0 )
  {
      set trequest = ##class(Ens.StringRequest).%New("")
      set trequest.StringValue = context.empiNum
-     set tStatus=process.SendRequestSync(context.checkMMITargetConfigName,trequest,.checkMmiResponse)
+
+     
+     set tStatus=process.SendRequestSync(context.GetMMITargetConfigName,trequest,.getMmiResponse)
  if ('tStatus)
     {
         set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected CheckMMI response returned or CheckMMI call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
     } 
     else
     { 
- 	 set keepMmiInCDR = checkMmiResponse.StringValue   
+ 	set MmiInCDR = getMmiResponse.StringValue
     }
  
  }
  
+  $$$TRACE("MmiInCDR Value : "_MmiInCDR)
+  $$$TRACE("MmiInCDR Length: "_$L(MmiInCDR))
+
+  
+  //Create a clone. we will modify the value in clone if GetMMI fetch some result else the clone will be uses as it is
+  set context.clone = request.%ConstructClone(1)
+  Do context.clone.%Save()
  
- //If MMI is found setting MMIpresent as true so that Update will be called
+ //If MMI is found Update will be called
  
- if (keepMmiInCDR = 1)
+ if ($L(MmiInCDR) > 1)
   {
     set context.mmiPresent = 1
+	set patIdcount = patIdcount + 1
+	$$$TRACE("Position Value : "_patIdcount)
+  
+  Do context.clone.SetValueAt(MmiInCDR, "PID:PatientIdentifierList("_(patIdcount)_").ID")
+  Do context.clone.SetValueAt("MMI", "PID:PatientIdentifierList("_(patIdcount)_").assigningauthority")
+  Do context.clone.SetValueAt("OAN", "PID:PatientIdentifierList("_(patIdcount)_").identifiertypecodeID")
+	 	
+  Do context.clone.%Save()
     
   }
- 
- //TO Delete
- // set context.mmiPresent = 1]]]]><![CDATA[>
+ ]]]]><![CDATA[>
 </code>
 <if name='MMI Present' condition='context.mmiPresent' xpos='200' ypos='950' xend='200' yend='1200' >
 <true>
 <code name='Send to Update operation' xpos='470' ypos='1100' >
 <![CDATA[  $$$TRACE("Calling Update Operation") 
- do process.SendRequestAsync(context.updateTargetConfigName,request) ]]]]><![CDATA[>
+ do process.SendRequestAsync(context.updateTargetConfigName,context.clone) ]]]]><![CDATA[>
 </code>
 </true>
 <false>
