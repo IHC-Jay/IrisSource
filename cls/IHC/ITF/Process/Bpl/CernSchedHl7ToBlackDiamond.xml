@@ -6,9 +6,28 @@
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64670,54615.657954</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Description>
+HddTargetConfigName: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask</Default>
+<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernSchedHl7ToBlackDiamondDefaultData</DefaultData>
+<Data name="CernSchedHl7ToBlackDiamondDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"CernSchedHl7ToBlackDiamond"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -162,7 +181,13 @@ BPL Definition</Description>
     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "No target set shutting down.")
  }
  
-]]]]><![CDATA[>
+ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "No hdd target set shutting down.")
+ } ]]]]><![CDATA[>
 </code>
 <code name='check configuration setup' xpos='200' ypos='650' >
 <![CDATA[
@@ -216,14 +241,14 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <code name='check location filtering' xpos='200' ypos='1150' >
-<![CDATA[ set pv13 = request.GetValueAt("PIDgrp.PV1grp.PV1:3.2")
- if ((pv13="") || (pv13="<sp>")) {
-    set pv13 = request.GetValueAt("PIDgrp.PV1grp.PV1:3.1")
- }
+<![CDATA[ set blackDiamondRecord =""
+ set pv13 = request.GetValueAt("PIDgrp(1).PV1:3.1")
  $$$TRACE("Pv1-3: "_pv13)
- set blackDiamondRecord =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.BlackDiamondDomain,pv13,context.hddTargetConfigName,.process)
+ if (pv13'="") {
+    set blackDiamondRecord =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.BlackDiamondDomain,pv13,context.hddTargetConfigName,.process)
+ }
  $$$TRACE("Black Dimond Record? "_blackDiamondRecord)
- if (blackDiamondRecord ="0") {
+ if ((blackDiamondRecord ="0") || (pv13="")) {
     set status =##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Not a record needed on this pathway. Skipping record.")
  }elseif ((blackDiamondRecord["ITFCOMMON:10109") || (blackDiamondRecord="") || (blackDiamondRecord["Web service returned(error):")){
     set status =##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "There was a problem with either the data used for the Black Diamond isMember lookup (using domain: "_context.BlackDiamondDomain_" and ncid: "_pv13_") or the lookup returned an error, shutting down. Error returned: "_blackDiamondRecord_". If blank after error returned then it is a domain/data issue.")
@@ -233,12 +258,7 @@ BPL Definition</Description>
 <true>
 <code name='createHddRequests GetRepFromNcid' xpos='470' ypos='1400' >
 <![CDATA[
- set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "No hdd target set shutting down.")
- } 
+
   $$$TRACE(" GetRepfromNcid Hdd Requests..")
   set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
   set context.facilityId = request.GetValueAt("MSH:SendingFacility.NamespaceID") 
@@ -370,7 +390,7 @@ BPL Definition</Description>
   	set context.hddBillingTypeRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddBillingTypeReqObject()  	
   	set pv110HospitalServiceNcid = request.GetValueAt("PIDgrp(1).PV1:HospitalService")     	
   	$$$TRACE(" PV1.10 hosp. service ncid value: " _ pv110HospitalServiceNcid)	
-  	set pv118PatientTypeNcid = context.patientType     	
+  	set pv118PatientTypeNcid = request.GetValueAt("PIDgrp(1).PV1:18")
   	$$$TRACE(" PV1.18 Patient Type ncid value: " _ pv118PatientTypeNcid)	
   	if (pv118PatientTypeNcid '= "" && $ISVALIDNUM(pv118PatientTypeNcid)= "1"){
 		Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddBillingTypeObject(context.hddBillingTypeRequest,pv118PatientTypeNcid,pv110HospitalServiceNcid, "PV118And10:PatientType")  	  	
@@ -422,7 +442,7 @@ BPL Definition</Description>
 </call>
 </foreach>
 <code name='RESETERROR' xpos='605' ypos='2450' >
-<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 
 ]]]]><![CDATA[>
 </code>
@@ -449,9 +469,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
