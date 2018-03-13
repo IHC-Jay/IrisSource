@@ -117,18 +117,33 @@
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	$$$TRACE("Inside Operation class")
-	Set Payload=req.Payload
-	$$$TRACE("Payload:"_Payload)
+	#dim Payload as %Stream.GlobalCharacter
+	Set stream=req.Payload
+	Do stream.Rewind()
+	$$$TRACE("Payload:"_stream.Size)
 	Set EdiCheckNo=req.EdiCheckNo
 	$$$TRACE("EdiCheckNo:"_EdiCheckNo)
-	S fieldDelim=$E(Payload,104)
-	$$$TRACE("fieldDelim:"_fieldDelim)
-	S segDelim=$E(Payload,106)
-	$$$TRACE("segDelim:"_segDelim)
-	//s SegCount=Payload.SegCountGet()
-     S SegCount=$L(Payload,segDelim)
-     $$$TRACE("SegCount:"_SegCount)
- 	//S len=$LENGTH(Payload,
+
+	set sepStr = ""
+ 	set SegCount = 0
+ 
+ 	if (stream.Size < 110)
+ 	{
+	 	$$$LOGERROR(" X12 message has no segments")
+	 	Quit
+	}
+ 	else
+	{
+		// Get separators
+		set Payload = stream.Read(110,.sc) 
+	 	S fieldDelim=$E(Payload,104)
+	 	$$$TRACE("fieldDelim:"_fieldDelim)
+	 	S segDelim=$E(Payload,106)
+	 	$$$TRACE( "segDelim:"_segDelim)
+	}
+	DO stream.Rewind()
+ 
+	 	
  	#dim tSC As %Status=$$$OK
 	#dim tRTs As %ListOfObjects
 	#dim tResultSet,snap As EnsLib.SQL.Snapshot
@@ -142,67 +157,87 @@
 	$$$TRACE("Inside "_..%ConfigName_" Method SHSP_EDI_SEGMENT_INSERT")
 	S strTokenDelim=""
 	S checkingnull= $TR($P(Payload,"~",1)," ","")
-	//
+	// Read stream
  	try
  	{
-		if ((SegCount>0) && ((checkingnull'="")&&($L(checkingnull>0))))
-    	{
-	   		For i=1:1:SegCount
-	   		{
-				Set strTokenDelim=$P(Payload,"~",i)
-				$$$TRACE("Single segment through loop:"_strTokenDelim)
-				$$$TRACE("Single Segment:"_strTokenDelim)
-				Set ioParms=5
-				Set ioParms(1)=EdiCheckNo
-				Set ioParms(1,"SqlType")=4
-				Set ioParms(2)=strTokenDelim_"~"
-				//$$$TRACE("ioParms(2) before setting sqlType"_ioParms(2))
-				Set ioParms(2,"SqlType")=12
-				//$$$TRACE("ioParms(2) After setting sqlType"_ioParms(2))
-				Set ioParms(3)=fieldDelim
-				Set ioParms(3,"SqlType")=12
-				Set ioParms(4,"SqlType")=4
-				Set ioParms(5,"SqlType")=12
-				$$$TRACE("calling getSHSP_EDI_SEGMENT_INSERT For"_i_"th segment")
-				
-				Set tQuery="{call EDI_CORE.SHSP_EDI_SEGMENT_INSERT(?,?,?,?,?)}"
-				if i'=SegCount
-				{
- 	  			Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"iiioo#",.ioParms)
-				}
-				Else
-				{ 
-					$$$TRACE("Avoiding Extra line to inserting into DB")
-					Quit 
-				}
-				if $$$ISOK(tSC)
-				{
-					If $ISOBJECT(tOutParms)
-		 			{
-	 					$$$TRACE("outparm cnt  :"_tOutParms.Count())
-	  					$$$TRACE(tOutParms.Size_" || Error code: "_tOutParms.GetAt(1)_" || Error desc:  "_tOutParms.GetAt(2)) 
-	    				Set PErrorcode = tOutParms.GetAt(1)
-	  					Set PErrorDescription = tOutParms.GetAt(2)
-	    				$$$TRACE("PErrorcode : "_PErrorcode)
-	  					$$$TRACE("PErrorDescription : "_PErrorDescription)
-		    			If PErrorcode '= "0"
-		    			{
-		    				$$$LOGERROR("Received error when calling stored procedure with segment_"_strTokenDelim_"ErrorCode:"_PErrorcode_"ErrorDescription:"_PErrorDescription)
-		    			}
-					}
-	    			Else
-	    			{
-						$$$LOGERROR("Exception on getting response from StoredProcedure call")
-        			}
-	  	        }
+		While 'stream.AtEnd 
+ 		{ 
+   			set rl = stream.Read(100,.sc) 
+   			If $$$ISERR(sc) 
+   			{ 
+      			$$$LOGERROR("ERROR in reading stream: " _ sc)
+      			Quit
+  			} 
+  			else
+   			{
+			   	Write !, "Read # of bytes from stream: " _ $L(rl)
+	   			Set SegCounts = $L(rl,segDelim) 
+	   			if SegCounts = 1 
+	   			{
+		   			// SegDelimitor not found
+		   			set sepStr = sepStr _ rl
+	   			}
+	   			else
+	   			{
+		   			set sepStr = sepStr _ rl
+		   
+		  
+		   			For i=1:1:(SegCounts-1)
+	   				{
+			   			// Found Segment delimiter, create the string till that character
+			   			set SegCount = SegCount + 1
+			   			
+			   			Set strTokenDelim = $P(sepStr, segDelim, i)
+			   			Write !, SegCount_ ": " _ strTokenDelim
+						Set strTokenDelim=$P(Payload,"~",i)
+						$$$TRACE("Single segment through loop:"_strTokenDelim)
+						$$$TRACE("Single Segment:"_strTokenDelim)
+						Set ioParms=5
+						Set ioParms(1)=EdiCheckNo
+						Set ioParms(1,"SqlType")=4
+						Set ioParms(2)=strTokenDelim_"~"
+						//$$$TRACE("ioParms(2) before setting sqlType"_ioParms(2))
+						Set ioParms(2,"SqlType")=12
+						//$$$TRACE("ioParms(2) After setting sqlType"_ioParms(2))
+						Set ioParms(3)=fieldDelim
+						Set ioParms(3,"SqlType")=12
+						Set ioParms(4,"SqlType")=4
+						Set ioParms(5,"SqlType")=12
+						$$$TRACE("calling getSHSP_EDI_SEGMENT_INSERT For"_i_"th segment")
+						
+						Set tQuery="{call EDI_CORE.SHSP_EDI_SEGMENT_INSERT(?,?,?,?,?)}"
+
+		 	  			Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"iiioo#",.ioParms)
+						
+						if $$$ISOK(tSC)
+						{
+							If $ISOBJECT(tOutParms)
+				 			{
+			 					$$$TRACE("outparm cnt  :"_tOutParms.Count())
+			  					$$$TRACE(tOutParms.Size_" || Error code: "_tOutParms.GetAt(1)_" || Error desc:  "_tOutParms.GetAt(2)) 
+			    				Set PErrorcode = tOutParms.GetAt(1)
+			  					Set PErrorDescription = tOutParms.GetAt(2)
+			    				$$$TRACE("PErrorcode : "_PErrorcode)
+			  					$$$TRACE("PErrorDescription : "_PErrorDescription)
+				    			If PErrorcode '= "0"
+				    			{
+				    				$$$LOGERROR("Received error when calling stored procedure with segment_"_strTokenDelim_"ErrorCode:"_PErrorcode_"ErrorDescription:"_PErrorDescription)
+				    			}
+							}
+		    				Else
+		    				{
+								$$$LOGERROR("Exception on getting response from StoredProcedure call")
+	        				}
+		  	        	}
+	   				}
+	  	        	// Create next segment from remaining characters in the string
+		   			set sepStr = $P(sepStr, segDelim, i+1)
 	  		   			    
-	  		}
-  		}
-  		Else
-      			{
-	  				$$$TRACE("X12 message has no segments")
-	  				$$$LOGERROR(" X12 message has no segments")
 	  			}
+	  		}
+   			If stream.AtEnd  { Write !,  "END: " _ sepStr} 
+  		}
+  		
  	}
  
  	//try end
