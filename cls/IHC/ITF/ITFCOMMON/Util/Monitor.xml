@@ -12,7 +12,7 @@
 	Set namelist = ""
 
 
-	Write !, "In setNmSp, Namespace: " _ nm
+	// Write !, "In setNmSp, Namespace: " _ nm
     try {
  	  set $NAMESPACE = nm
  	  // Write !, $NAMESPACE 
@@ -51,10 +51,10 @@
 		   Set compItem = tProduction.Items.GetAt(i)
 		   Set tItemName=compItem.Name, tBusinessType=compItem.BusinessType()
 		   Set tProduction = compItem.Production
-		   // Write !, i _ ". " _ tItemName _ " " _ tBusinessType _ " " _ prodNm
-		   set namelist = namelist _ " " _ tItemName
+		   // Write !, i _ ". " _ tItemName _ "," _ tBusinessType _ " " _ prodNm
+		   set namelist = namelist _ "," _ tItemName
 		}
-		SET namelist=$LISTFROMSTRING(namelist," ")
+		SET namelist=$LISTFROMSTRING(namelist,",")
 
 		// Write !, "Return: " _ $LISTLENGTH(namelist)
     }
@@ -117,7 +117,7 @@
 		set tSc = ##class(Ens.Director).IsItemEnabled(tItemName)
 		if (tSc = 1)
 		{
-			 	set stat = "Started, " _ ..GetPID(tItemName)
+			 	set stat = "Started, " _ ..GetCompStatus(tItemName)
 		}
 		else
 		{
@@ -126,31 +126,217 @@
 	 }
 	 else
 	 {
-		 set stat = "Already in Enabled status, " _ ..GetPID(tItemName)
+		 set stat = "Already in Enabled status, " _ ..GetCompStatus(tItemName)
 	 }
 	 return stat
 ]]></Implementation>
 </Method>
 
-<Method name="GetPID">
+<Method name="getComponentHostSettings">
+<FormalSpec>nm:%String,tItemName:%String</FormalSpec>
+<ReturnType>%List</ReturnType>
+<Implementation><![CDATA[
+	set origNm = $NAMESPACE
+	set namelist = ""
+	try {
+ 	  set $NAMESPACE = nm
+ 	  // Write !, $NAMESPACE 
+    } catch er
+    {
+	   Write !, "ERROR: Can't change to namespace " _ $NAMESPACE
+    }
+ 	Write "getComponentHostSettings"
+	Set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+
+   	Set tProduction = ##class(Ens.Config.Production).%OpenId(tProductionName,,.tStatus)
+   	$$$ThrowOnError(tStatus)
+  	set tConfigName = tProductionName _ "||" _ tItemName
+  	Write !, 	tConfigName
+  	Set tStatus = ##class(Ens.Director).getProductionItems(tProduction,.tProductionDefinition)
+   	$$$ThrowOnError(tStatus)
+  	If ($DATA(tProductionDefinition) = 10) {
+	  	  	Set tConfigBusinessType = $DATA(tProductionDefinition(tItemName,"BusinessType"))
+
+			if (tConfigBusinessType < 1 || tConfigBusinessType > 3)
+			{
+	   			Write !, searchNm _ " not found = " _ tConfigName
+   			}
+ 			Else
+			{
+				Set tConfigBusinessType = tProductionDefinition(tItemName,"BusinessType")
+				Set tConfigBusinessType = $CASE(tConfigBusinessType,
+              							1:"BusinessService",
+              							2:"BusinessProcess",
+              							3:"BusinessOperation",
+              							:"Unknown")
+	   			set namelist = namelist _ "," _ "BusinessType" _ ":" _ tConfigBusinessType
+
+	   			Set tClassName = tProductionDefinition(tItemName,"ClassName")
+	   			set namelist = namelist _ "," _ "ClassName" _ ":" _ tClassName
+
+	   			Set tConfigItemId = tProductionDefinition(tItemName,"%Id")
+	   			set namelist = namelist _ "," _ "%Id" _ ":" _ tConfigItemId
+	   			
+				// Analyze static settings for this component/config item
+				Set tConfigItem = ##class(Ens.Config.Item).%OpenId(tConfigItemId,,.tStatus)
+				$$$ThrowOnError(tStatus)
+  
+  				// Process static settings
+				Set tStatus = tConfigItem.GetStaticSettings(.tStaticSettings)
+				$$$ThrowOnError(tStatus)
+				Write !, tConfigName _ ", " _ tConfigBusinessType  _ ", " _ tClassName  
+								If ($DATA(tStaticSettings) = 10) {
+					Set tSettingIndex = ""
+					For {
+						Set tSettingIndex = $ORDER(tStaticSettings(tSettingIndex))
+						Quit:(tSettingIndex = "")
+						
+						Set tSettingList = tStaticSettings(tSettingIndex)
+						Set tSettingName = $LG(tSettingList,2)
+						
+						// Grab the value
+						Set tCurrentValue = $LG(tSettingList,3)
+						
+						// Notes
+						Set tNotes = ""
+						set namelist = namelist _ "," _ tSettingName _ ":" _ tCurrentValue
+
+						// WRITE !, "    StaticSettings: setting: " _ tSettingName _ ", val: " _ tCurrentValue _ ", notes: " _ tNotes
+						$$$ThrowOnError(tStatus)
+					} // end For
+				} // End if $DATA(tStaticSettings) = 10
+				Kill tStaticSettings
+  				Set tStatus = ##class(Ens.Director).GetHostSettings(tConfigName,.tHostSettings)
+ 
+  				Set tSettingName = ""
+  				For {
+					Set tSettingName = $ORDER(tHostSettings(tSettingName))
+					Quit:(tSettingName = "")
+				
+					Set tCurrentValue = tHostSettings(tSettingName)
+  					set namelist = namelist _ "," _ tSettingName _ ":" _ tCurrentValue
+				}
+				Set tStatus = ##class(Ens.Director).GetAdapterSettings(tConfigName,.tAdapterSettings)
+ 
+			  	Set tSettingName = ""
+			  	For {
+							Set tSettingName = $ORDER(tAdapterSettings(tSettingName))
+							Quit:(tSettingName = "")
+							
+							Set tCurrentValue = tAdapterSettings(tSettingName)
+			  				set namelist = namelist _ "," _ tSettingName _ ":" _ tCurrentValue
+					}
+			}
+  	}
+	// Write !, namelist	
+	SET namelist=$LISTFROMSTRING(namelist,",")
+		
+  	set $NAMESPACE = origNm
+  	
+  	if ($$$ISOK(tStatus))
+  	{
+  		return namelist
+  	}
+]]></Implementation>
+</Method>
+
+<Method name="GetCompStatus">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>compNm:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
+	set msgStat = ""
 		Set tSC = ##class(Ens.Director).getRunningJobData(.tRunningJobCount,.tRunningConfig)
 		If $$$ISERR(tSC) Quit tSC
 		Set tJob=""
 		Set tJob=$Order(tRunningConfig(compNm,tJob),1,tIsTemp)  
-		// Write !, compNm _ ", " _ tJob
+		Write !, compNm _ ", " _ tJob 
 		if (tJob="")
 		{
-			set tJob = "PID not found"
+			set tJob = "-"
 		}
-		else
-		{
-			set tJob = "PID: " _ tJob
+		set cnt = $GET(^Ens.Queue(compNm, 0, "count"))
+		set msgStat = ..GetLastProcessedMsg(compNm)
+		set ret = tJob _ "," _cnt  _ "," _ msgStat _ ..GetNumberOfProcessedMsg(compNm)
+		// Write !, "GetCompStatus: " _ ret
+		return ret
+]]></Implementation>
+</Method>
+
+<Method name="GetLastProcessedMsg">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set ret = " ,NoMessage"
+	Set SQLCODE=0
+	set stat = 0
+	set tmProc = ""
+
+	Try {
+		&sql(SELECT top (1) Status, TimeProcessed into :stat, :tmProc
+		FROM Ens.MessageHeader
+		where TargetConfigName = :nm 
+		order by TimeProcessed desc  )
+   	    // Write !, "SQLCODE: " _ SQLCODE _ ": " _  stat _ ", " _ tmProc	
+		if SQLCODE = 0 {
+			set ret = tmProc _ "," _ $PIECE(##class(Ens.DataType.MessageStatus).#DISPLAYLIST, ",", stat+1)
 		}
-		Quit tJob
+	}
+    Catch (ex) {
+	    Write !, "Exception in reading from MessageHeader" _ $NAMESPACE _ ": " _ex.Name _ ", " _  ex.Code _ ", " _ ex.Data _ ", " _ ex.Location
+	    set ret = " ,NoMessage"
+    }
+	// Write !, "GetLastProcessedMsg: " _ ret
+	return ret
+]]></Implementation>
+</Method>
+
+<Method name="GetNumberOfProcessedMsg">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set ret = " ,NoMessage"
+	Set SQLCODE=0
+	set stat = 0
+	set tmProc = ""
+
+	SET dateint=$PIECE($HOROLOG,",",1)
+    SET timeint=$PIECE($HOROLOG,",",2)
+    SET nowDtTm=$ZDATETIME($HOROLOG,3,1)
+   
+   set prevDateint = dateint - 1
+   SET prevTimeint = timeint - 3600
+   set prevDt = $ZDATE(prevDateint, 3) _ " " _ $ZTIME(timeint, 1)
+   // Write prevDt _ " -> " _ nowDtTm
+   
+      set prevTm = $ZDATE(dateint, 3) _ " " _ $ZTIME(prevTimeint, 1)
+   // Write prevTm _ " -> " _ nowDtTm
+	Try {
+		&sql(SELECT count(*) into :num24Hr
+		FROM Ens.MessageHeader
+		where TargetConfigName = :nm 
+		and TimeProcessed <= :nowDtTm and TimeProcessed >= :prevDt  )
+   	    Write !, "SQLCODE: " _ SQLCODE _ ": " _  num24Hr	
+		if SQLCODE = 0 {
+			set ret = "," _ num24Hr
+		}
+		&sql(SELECT count(*) into :numHr
+		FROM Ens.MessageHeader
+		where TargetConfigName = :nm 
+		and TimeProcessed <= :nowDtTm and TimeProcessed >= :prevTm  )
+   	    Write !, "SQLCODE: " _ SQLCODE _ ": " _  numHr	
+		if SQLCODE = 0 {
+			set ret = ret _ "," _ numHr
+		}
+	}
+    Catch (ex) {
+	    Write !, "Exception in SQL" _ $NAMESPACE _ ": " _ex.Name _ ", " _  ex.Code _ ", " _ ex.Data _ ", " _ ex.Location
+	    set ret = " ,NoMessage"
+    }
+	Write !, "GetLastProcessedMsg: " _ ret
+	return ret
 ]]></Implementation>
 </Method>
 
