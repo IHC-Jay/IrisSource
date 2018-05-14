@@ -34,29 +34,22 @@ UofU Epic MRN type ncid</Description>
 <InitialExpression>"520912268"</InitialExpression>
 </Property>
 
-<Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,UofUMrnTypeNcid:Additional,-NextOperation,-TargetConfigMask</Default>
-</Parameter>
+<Property name="DelayFlag">
+<Description>
+Delay flag for A05  transactions</Description>
+<Type>%Boolean</Type>
+</Property>
 
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernAdtHl7ToUofUDefaultData</DefaultData>
-<Data name="CernAdtHl7ToUofUDefaultData">
-<Subscript>"CernAdtHl7ToUofU"</Subscript>
-<Value name="1">
-<Value>HddTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>AllowedEventTypes</Value>
-</Value>
-<Value name="3">
-<Value>ProcessingId</Value>
-</Value>
-<Value name="4">
-<Value>UofUMrnTypeNcid</Value>
-</Value>
-</Data>
-</Storage>
+<Property name="DelayTime">
+<Description>
+Delay (in Seconds) Example: PT120S, this delays the transaction for 120 seconds, For 60 seconds, specify the value PT60S</Description>
+<Type>%String</Type>
+<InitialExpression>"PT120S"</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>DelayFlag:Additional,DelayTime:Additional,HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,UofUMrnTypeNcid:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
 
 <XData name="BPL">
 <Description>
@@ -72,6 +65,7 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='delayFlag' type='%Boolean'/>
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -84,6 +78,7 @@ BPL Definition</Description>
 </property>
 <property name='empiNumber' type='%String' instantiate='0' />
 <property name='uofuMrnNumber' type='%String' instantiate='0' />
+<property name='msgType' type='%String' instantiate='0' />
 <property name='pid8' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -123,6 +118,11 @@ BPL Definition</Description>
 <property name='UofUMrnTypeNcid' type='%String' initialexpression='"520912268"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='DelayTime' type='%String' initialexpression='"PT120S"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='20' />
 </parameters>
 </property>
 <property name='pv134Facility' type='%String' initialexpression='""' instantiate='0' >
@@ -286,18 +286,19 @@ BPL Definition</Description>
 <code name='getMessageType.TriggerEvent' xpos='200' ypos='650' >
 <annotation><![CDATA[get Message type]]]]><![CDATA[></annotation>
 <![CDATA[     
-     Set msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
-     $$$TRACE("Trigger Event: " _ msgType) 
+     Set context.msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+     $$$TRACE("Trigger Event: " _ context.msgType) 
      set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEventTypes",.AllowedAdtEvents) 
      if ($$$ISOK(pstatus)&&(AllowedAdtEvents '="")){    	
     	$$$TRACE("Value of allowed ADT events="_AllowedAdtEvents)
-    	if ($LISTFIND($LISTFROMSTRING(AllowedAdtEvents,","), msgType) = 0) {	     
-	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a an event type: ["_msgType_"] that does not match a value from the Allowed list of event types :["_AllowedAdtEvents_"]")
+    	if ($LISTFIND($LISTFROMSTRING(AllowedAdtEvents,","), context.msgType) = 0) {	     
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a an event type: ["_context.msgType_"] that does not match a value from the Allowed list of event types :["_AllowedAdtEvents_"]")
         }
  	 } else {
     	$$$TRACE("Config setting for AllowedAdtEvents not Available")
     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No configuration for AllowedAdtEvents found")
  	 }
+ 	 
      
     ]]]]><![CDATA[>
 </code>
@@ -325,6 +326,30 @@ BPL Definition</Description>
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1100' />
 
+<code name='DelayTime' xpos='200' ypos='750' >
+<![CDATA[ 
+ set context.delayFlag=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DelayFlag",.pstatus)
+ $$$TRACE("DelayFlag: " _ context.delayFlag)
+
+ set context.DelayTime=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DelayTime",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.DelayTime '="")){
+ 	$$$TRACE("DelayTime: " _ context.DelayTime)
+ }else{
+	 $$$TRACE("Setting the default DelayTime: " _ context.DelayTime)
+ } 
+  ]]]]><![CDATA[>
+</code>
+<if name='DelayFlag' condition='context.delayFlag = 1' xpos='200' ypos='950' xend='200' yend='1300' >
+<true>
+<if name='DelayA05' condition='context.msgType = "A05"' xpos='200' ypos='950' xend='200' yend='1300' >
+<true>
+    <trace name='TraceLogBeforeDelay' value='"Before A05 Delay"' xpos='470' ypos='1100' />
+    <delay duration='context.DelayTime' />  
+    <trace name='TraceLogAfterDelay' value='"After A05 Delay"' xpos='470' ypos='1100' />
+</true>
+</if>
+</true>
+</if>
 <code name='getProcessIdMSH-11' xpos='470' ypos='1200' >
 <![CDATA[ 
  set processId = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ProcessingId",.pstatus)
@@ -648,5 +673,31 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToUofUDefaultData</DefaultData>
+<Data name="CernAdtHl7ToUofUDefaultData">
+<Subscript>"CernAdtHl7ToUofU"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>AllowedEventTypes</Value>
+</Value>
+<Value name="3">
+<Value>ProcessingId</Value>
+</Value>
+<Value name="4">
+<Value>UofUMrnTypeNcid</Value>
+</Value>
+<Value name="5">
+<Value>DelayTime</Value>
+</Value>
+<Value name="6">
+<Value>DelayFlag</Value>
+</Value>
+</Data>
+</Storage>
 </Class>
 </Export>
