@@ -6,12 +6,40 @@ Business Process from iCentra Adt Legacy To Telcor Outreach Billing</Description
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63866,42556.821767</TimeCreated>
 
-<UDLText name="T">
-<Content><![CDATA[
-/// BPL Definition
+<Parameter name="SETTINGS">
+<Default>-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
 
-]]></Content>
-</UDLText>
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,item:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+   #dim locArray As array Of %String;
+   set tValue=""
+   set tKey=""
+   Set (tValue,tIndex)=""
+   for {
+      Set tKey=$O(^Ens.LookupTable("IHC.ITF.Process.Bpl.CernAdtHl7ToTelcorBilling.Lookup.IHCSiteIDtoTelcorFacility",tKey))
+      quit:tKey=""
+      set value = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTelcorBilling.Lookup.IHCSiteIDtoTelcorFacility", tKey, .retValForLines )
+      if (tValue ="") {
+         set tValue = $PIECE(retValForLines,",",2)
+      }else {
+         set tValue = tValue_","_$PIECE(retValForLines,",",2)
+      }
+   }
+   
+   For i=1:1:$L(tValue,",") {
+      Set tOne=$ZSTRIP($P(tValue,",",i),"<>W")
+      Continue:""=tOne
+      Set pArray(tOne)=""
+   }
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -33,11 +61,10 @@ BPL Definition</Description>
 <property name='primaryInsPlanID' type='%String' instantiate='0' />
 <property name='primaryInsCoName' type='%String' instantiate='0' />
 <property name='facility' type='%String' instantiate='0' />
-<property name='targetConfigIndex' type='%Integer' instantiate='0' />
-<property name='targetList' type='%String' collection='list' instantiate='0' />
+<property name='Target' type='%String' instantiate='0' />
 </context>
-<sequence xend='200' yend='3200' >
-<scope xpos='200' ypos='250' xend='200' yend='3100' >
+<sequence xend='200' yend='3100' >
+<scope xpos='200' ypos='250' xend='200' yend='3000' >
 <trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
@@ -71,12 +98,6 @@ BPL Definition</Description>
  set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: [" _ maxErr+"]")
  
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = "") ){   
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetConfigNames found")
- }else{
- 	$$$TRACE("TargetConfigNames: " _configValue)
- } 
  
  
 ]]]]><![CDATA[>
@@ -123,10 +144,12 @@ BPL Definition</Description>
     
     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToTelcorBilling.Lookup.IHCSiteIDtoTelcorFacility", sendingFacility, .retVal )    
     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {   
-    	Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Non-Telcor Facility:["_sendingFacility_"]. EMPI:["_context.empiNumber _"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")	  	  
+    	Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Non-Telcor Facility:["_sendingFacility_"]. EMPI:["_context.empiNumber _"]. Skipping the record.")	  	  
     }else{
-	    Set context.facility = retVal
-	}   
+	    Set context.facility = $PIECE(retVal,",",1)
+	    set context.Target = $PIECE(retVal,",",2)
+	    $$$TRACE("Facility TLA: "_context.facility_". Target: "_context.Target)
+    }   
 ]]]]><![CDATA[>
 </code>
 <code name='CheckEventType' xpos='200' ypos='1050' >
@@ -270,28 +293,22 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='getTargetConfigList' xpos='200' ypos='2450' >
-<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
- $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
-</code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorBilling' source='request' target='response' xpos='200' ypos='2550' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorBilling' source='request' target='response' xpos='200' ypos='2450' >
 <annotation><![CDATA[translates iCentra Adt to TelclorBilling Hl7]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='2650' xend='200' yend='350' >
-<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<call name='CallTargetConfigNames' target='@context.Target' async='1' xpos='200' ypos='2550' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
-</foreach>
-<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='2750' />
-<code name='RESETERROR' xpos='200' ypos='2850' >
+<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='2650' />
+<code name='RESETERROR' xpos='200' ypos='2750' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 
 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2950' xend='200' yend='350' >
+<catchall xpos='200' ypos='2850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -304,9 +321,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
