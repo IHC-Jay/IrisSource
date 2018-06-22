@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.BPL.CbRemitCffToR1">
+<Description>
+</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64818,35788.950007</TimeCreated>
+
+<Property name="ENVIRONMENT">
+<Description>
+ENVIRONMENT - Test, Production.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="FilePath">
+<Description>
+File Path - Base remote path.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>FilePath:Additional, ENVIRONMENT:Additional</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='newStreamwithFilePath' type='IHC.ITF.ITFCOMMON.DataStructure.StreamWithFilePath' instantiate='1' />
+<property name='stat' type='%Library.Status' instantiate='0' />
+<property name='extract' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='env' type='%String' initialexpression='"/"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='LookupFile' type='%String' initialexpression='"IHC.ITF.Process.Bpl.CbRemitCffR1.Lookup.AllowedFileNames"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<code name='Get ENV' xpos='200' ypos='350' >
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ENVIRONMENT",.retVal) 
+  $$$TRACE("Returned ENVIRONMENT: " _ retVal)
+  if (retVal = "PROD")
+  {
+   set context.env = "/A400/"
+  }
+]]]]><![CDATA[>
+</code>
+<code name='check filename with lookup values' xpos='200' ypos='450' >
+<![CDATA[  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.LookupFile)
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),  context.LookupFile _ " does not exists")  
+  }
+  
+  $$$TRACE("File name: " _ request.OriginalFilename) 
+  // Filename format: 20180614.A400.VALIDAR01D.TXT
+  SET context.extract=$PIECE(request.OriginalFilename ,".",3)
+  
+  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.LookupFile, context.extract, .retVal )
+
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+    $$$TRACE("Third part of the file name is not in the lookup table, file: " _ request.OriginalFilename)
+    // Search all parts of the file name against lookup table
+    SET delim="."
+    SET countdown=$LENGTH(request.OriginalFilename, delim)
+    SET countup=1
+    FOR reps=countdown:-1:1 {
+       SET context.extract=$PIECE(request.OriginalFilename, delim, countup)
+       SET countup=countup+1
+       set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.LookupFile, context.extract, .retVal )
+       $$$TRACE("File part # " _ countup _": "_ context.extract _ ", ItfLookup: stat " _ retStat _ ", val: " _ retVal)
+       if ($$$ISOK(retStat) && (retVal '= "Unknown") && (retVal '= "")) {
+         quit
+       }
+    }
+    if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) { 
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "LOOKUP FILE: " _ context.LookupFile _ " does not contain value in the filename, File name: ["_ request.OriginalFilename _"]. Skipping the file." )
+    } 
+  } 
+  else
+  {
+     $$$TRACE("Found lookup value: " _ context.extract)
+  }]]]]><![CDATA[>
+</code>
+<code name='Set filepath' xpos='200' ypos='550' >
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilePath",.filePath)
+ set context.newStreamwithFilePath.NewFilePath = filePath _ "/" _ context.extract _ context.env
+ set context.newStreamwithFilePath.Stream = request.Stream
+ set context.newStreamwithFilePath.OriginalFilename = request.OriginalFilename
+ 
+ $$$TRACE("Call operation to send file to " _ context.newStreamwithFilePath.NewFilePath)]]]]><![CDATA[>
+</code>
+<code name='Get targetList' xpos='200' ypos='650' >
+<![CDATA[ //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+]]]]><![CDATA[>
+</code>
+<call name='Call operation' target='@context.targetList.GetAt(1)' async='0' xpos='200' ypos='750' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newStreamwithFilePath" action="set" />
+</request>
+<response type='%Library.Status' >
+<assign property="context.stat" value="callresponse" action="set" />
+</response>
+</call>
+<trace name='Trace operation status' value='"Operation status: " _ context.stat' xpos='200' ypos='850' />
+<code name='Reset error count' xpos='200' ypos='950' >
+<![CDATA[   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1050' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[	   
+  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CbRemitCffToR1DefaultData</DefaultData>
+<Data name="CbRemitCffToR1DefaultData">
+<Structure>listnode</Structure>
+<Subscript>"CbRemitCffToR1"</Subscript>
+<Value name="1">
+<Value>ENVIRONMENT</Value>
+</Value>
+<Value name="2">
+<Value>FilePath</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
