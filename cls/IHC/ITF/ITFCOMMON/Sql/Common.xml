@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Sql.Common">
+<Description>
+Overridden EnsLib.SQL.Common with an updated ExecuteProcedureParmArray method that allows us to accept an empty Result Set (.tRTs).</Description>
+<Abstract>1</Abstract>
+<ClassType/>
+<IncludeCode>Ensemble,EnsSQLTypes</IncludeCode>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.SQL.Common</Super>
+<System>4</System>
+<TimeCreated>64852,36180.779486</TimeCreated>
+
+<Method name="ExecuteProcedureParmArray">
+<Description>
+Execute a stored procedure SQL Call statement. Any number of parameters may be passed in the multidimensional pIOParms array. For DSNs using
+ODBC drivers that don't support SQLDescribeParam: IOType, SqlType, CType, Prec, and Scale may be specified as sub-nodes of the node for each parameter.
+If pIO is given, it is a string of IO types for the statement parameters as described for ExecuteProcedure() above.
+If pIO is not given the IO types for the parameters may be given under an "IOType" subscript for each parameter in the pIOParms array. This means that
+Output parameters must also be included in the array, but the top node for each of these must be left undefined.
+If the parameters in the pParms array have descriptor subscripts, then these are used and the SQLDescribeParam query is not done.
+(This is determined by checking for a "SqlType" or "CType" subscript under the first parameter: pParms(1,"SqlType") ).</Description>
+<FormalSpec><![CDATA[&pResultSnapshots:%ListOfObjects,*pOutputParms:%ListOfDataTypes,pQueryStatement:%String,pIO:%String="",&pIOParms]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set $ZT="Trap", tHS="", tNoDC=0, tSC=$$$OK, (tHasResults,tNetErr)=0  Kill pOutputParms Set pOutputParms=$$$NULLOREF
+	Do {
+		Set:"#"=$E(pIO,*) $E(pIO,$L(pIO))="", tNoDC=-1 ; remove and remember the trailing '#' if any
+
+		#; Connect if not already connected
+		Set tSC=..Connect(..ConnectTimeout) If $$$ISERR(tSC) Set:$$$StatusEquals(tSC,$$$EnsErrOutConnectExpired,$$$EnsErrOutConnectFailed)&&..BusinessHost.%Extends("Ens.BusinessOperation") ..BusinessHost.Retry=1  Quit
+
+		#; Execute the statement
+		If '..%Connection.%Extends("EnsLib.SQL.CommonJ") {
+			Set tSC=..privPrepare(.tHS,pQueryStatement,.pIOParms,pIO,.tOutParmsCount,.tNetErr)  Quit:$$$ISERR(tSC)
+			If $$$ISOK(tSC) {
+				$$$sysTRACE("Executing...")
+				Set tSC=..%Connection.Execute(tHS), tHasResults=1
+			}
+		} Else {
+			Set tSC=..privPrepareJ(.tHS,pQueryStatement,.pIOParms,pIO,.tOutParmsCount,.tNetErr)  Quit:$$$ISERR(tSC)
+			If $$$ISOK(tSC) {
+				$$$sysTRACE("Executing...")
+				Set tSC=..%Connection.execProc(tHS,.tHasResults)
+			}
+		}
+		Set:$$$SQLCODENeedData=..%Connection.sqlcode tSC=..putLOBStreams(tHS,.pIOParms)
+		Quit:$$$ISERR(tSC)
+
+		#; construct the result record set snapshot(s)
+		If $$$IsdefObject(pResultSnapshots) && pResultSnapshots.%Extends("%Collection.AbstractListOfObj") { Set tRSCount = pResultSnapshots.Count() }
+		Else { Set pResultSnapshots = $$$NULLOREF }
+		Set (tNumRS,tRes)=1  While tHasResults {
+			#; Succeeded, construct the snapshot(s) if any
+			$$$sysTRACE("Getting results")
+			Set tRS=##class(EnsLib.SQL.GatewayResultSet).%New()  $$$ASSERT($IsObject(tRS))
+			Set tSC=tRS.Initialize(pQueryStatement,$this,tHS,0,$S(-1=tNoDC:-1, 1:tRes)), tRes=tRes+1
+			If $$$ISERR(tSC) {
+				Quit:'$$$StatusEquals(tSC,$$$EnsErrNoSQLColumns)
+				Set tSC=..%Connection.MoreResults(tHS)  If 100=..%Connection.sqlcode Set tSC=$$$OK  Quit
+				Quit:$$$ISERR(tSC)
+				Continue ; there is more; try again for a resultset
+			}
+			If '$IsObject(pResultSnapshots) Set pResultSnapshots=##class(%ListOfObjects).%New(), tRSCount=0  $$$ASSERT($IsObject(pResultSnapshots))
+
+			Set tSnap=pResultSnapshots.GetAt(tNumRS),tHadSnap=$IsObject(tSnap) Set:tHadSnap&&'tSnap.%Extends("EnsLib.SQL.Snapshot") tSnap=$$$NULLOREF,tHadSnap=0
+			If tHadSnap $$$sysTRACE("Using initialized SnapShot "_(tNumRS))
+			Set tSC=tRS.GetSnapshot(.tSnap,1) Quit:$$$ISERR(tSC)
+			Set tSC=$S(tHadSnap:$$$OK, tNumRS<tRSCount:pResultSnapshots.SetAt(tSnap,tNumRS), 1:pResultSnapshots.Insert(tSnap)) Quit:$$$ISERR(tSC)
+			Set tNumRS=tNumRS+1
+			Set tSC=..%Connection.MoreResults(tHS)  If 100=..%Connection.sqlcode Set tSC=$$$OK  Quit
+			Quit:$$$ISERR(tSC)
+		} Set tNumRS=tNumRS-1  Kill tRS
+
+		#; Fetch the return value / output parameter(s) if any
+		If $$$ISOK(tSC) && $G(tOutParmsCount) {
+			Set DataNotFound=0
+			Set tNumParams=pIOParms  For tI=1:1:tNumParams {
+				$$$sysTRACE("BRENT - tI="_tI_"tNumParams="_tNumParams)
+				If ..#SQLParamInput'=pIOParms(tI,"IOType") {
+					If '..%Connection.%Extends("EnsLib.SQL.CommonJ") {
+						Set tSC=..%Connection.GetParameter(tHS, tI, .tValue)  Quit:$$$ISERR(tSC)
+						Set:""'=tValue tValue=$LI(tValue,1)
+					} Else {
+						Continue:'$G(pIOParms(tI,"Used"),1)
+						Set tOrd=$G(pIOParms(tI,"Ordinal"),tI), tSqlType=$G(pIOParms(tI,"SqlType")), tTypeName=$G(pIOParms(tI,"SqlTypeName")), tIsLOB=pIOParms(tI,"LOB"), tIsBin=pIOParms(tI,"Bin")
+						Set tHadSnap=0
+						Try {
+							If $IsObject(pResultSnapshots),'tIsLOB,##class(EnsLib.SQL.CommonJ).isaRS(tSqlType, tTypeName),(pResultSnapshots.Count()>tNumRS) {
+								Set tValue=pResultSnapshots.GetAt(tNumRS+1),tHadSnap=$IsObject(tValue)
+								If tHadSnap,'tValue.%Extends("EnsLib.SQL.Snapshot") {Kill tValue Set tHadSnap=0}
+								If tHadSnap $$$sysTRACE("Using initialized SnapShot "_(tNumRS+1))
+							}
+						} Catch e { Set tSC = e.AsStatus()}
+						$$$sysTRACE("Before Quit:$$$ISERR(tSC)" _ tSC)
+						Quit:$$$ISERR(tSC)
+						$$$sysTRACE("After Quit:$$$ISERR(tSC)" _ tSC)
+						
+						$$$sysTRACE("tI="_tI_" DataNotFound="_DataNotFound) 
+						If ((5=tI) && (DataNotFound=1)) {
+							//set tValue = NULL
+							Continue
+						}
+						Else {
+							$$$sysTRACE("Calling %Connection.GetParameter("_tHS_","_ tOrd_",tValue,"_ tSqlType_","_ tTypeName_","_ tIsLOB_","_ tIsBin) 
+							
+							Set tSC=..%Connection.GetParameter(tHS, tOrd, .tValue, tSqlType, tTypeName, tIsLOB, tIsBin) $$$sysTRACE("BRENT - Before Second Quit:$$$ISERR(tSC)" _ tSC)  Quit:$$$ISERR(tSC)
+							$$$sysTRACE("tI="_tI_" tValue="_tValue) 
+							If ((2=tI) && (4=tValue)) {
+								$$$sysTRACE("In If (2=tI & 4=tValue)") 
+								Set DataNotFound=1
+								}
+							$$$sysTRACE("DataNotFound="_DataNotFound) 
+						}
+						$$$sysTRACE("After %Connection.GetParameter(tHS, tOrd, .tValue, tSqlType, tTypeName, tIsLOB, tIsBin)" _ tSC)
+						#; If the returned value was a ResultSet, return it in pResultSnapshots rather than pOutputParms
+						If $IsObject(tValue),tValue.%Extends("%Library.IResultSet") {
+							$$$sysTRACE("Inside If" _ tSC)
+							If '$IsObject(pResultSnapshots) Set pResultSnapshots=##class(%ListOfObjects).%New(), tRSCount=0  $$$ASSERT($IsObject(pResultSnapshots))
+							Set tSC=$S(tHadSnap:$$$OK, tI<tRSCount:pResultSnapshots.SetAt(tValue,tI), 1:pResultSnapshots.Insert(tValue)) Quit:$$$ISERR(tSC)
+							$$$sysTRACE("getting parm object "_tI_" / Ordinal "_tOrd_", type "_tSqlType_"("_tTypeName_") / result "_tI_" = '"_tValue_"'")
+							Set tNumRS=tNumRS+1
+							Kill tValue
+							Continue
+						}
+										
+					}
+					If '$$$IsdefObject(pOutputParms) Set pOutputParms=##class(%ListOfDataTypes).%New()  $$$ASSERT($IsObject(pOutputParms))
+					Set tSC=pOutputParms.Insert(tValue)  Quit:$$$ISERR(tSC)
+					$$$sysTRACE("getting parm "_tI_$S($D(tOrd):" / Ordinal "_tOrd_", type "_tSqlType_"("_tTypeName_")",1:"")_" / output "_pOutputParms.Count()_" = '"_tValue_"'")
+					Kill tValue
+				}
+			}
+		}
+		#;tSC could be an error from above in For loop. Statement will be dropped in Exit
+		$$$sysTRACE("BRENT - Before Outer Quit:$$$ISERR(tSC)" _ tSC)
+		Quit:$$$ISERR(tSC) 
+		$$$sysTRACE("BRENT - After Outer Quit:$$$ISERR(tSC)" _ tSC)
+ 		#; Delete trailing entries in the pResultSnapshots list that came in, if it was longer than the list we actually retrieved
+ 		If $IsObject(pResultSnapshots) {
+			If 'tNumRS { Set pResultSnapshots=$$$NULLOREF }
+			Else { For tI=pResultSnapshots.Count():-1:tNumRS+1 { Do pResultSnapshots.RemoveAt(tI) } }
+		}
+		#; Get the update counts of rows affected
+		If '..%Connection.%Extends("EnsLib.SQL.CommonJ") {
+			Set pResultSnapshots("UpdateCount")=..%Connection.RowCount(tHS)
+		} Else {
+			Merge pResultSnapshots("UpdateCount")=..%Connection.%rowcount(tHS)
+		}		
+		Set tSC=..%Connection.DropStatement(tHS), tHS=""  Quit:$$$ISERR(tSC)
+	} While 0
+Exit
+	$$$sysTRACE("BRENT - Inside Exit" _ tSC)
+	If $$$ISERR(tSC) {
+		If 'tNetErr {
+			#; if privPrepare() returned tNetErr already, we came direct and tSC is already decorated
+			Set tNetErr=..isNetErr($$$StatusText(tSC))
+			If tHS'=""&&'tNetErr {
+				#; Add SQL detailed errors		
+				Set tSC=..addErrorList(tSC,tHS,.tNetErr)
+	
+				#; Drop statement; If the drop fails, record that error status too
+				Set tSC1=..%Connection.DropStatement(tHS)
+				If $$$ISERR(tSC1) {
+					Set:'tNetErr tNetErr=..isNetErr($$$StatusText(tSC1))
+					Set tSC=$$$ADDSC(tSC,tSC1)
+				}
+			}
+		}
+		If tNetErr Do ..Disconnect()  Set:..BusinessHost.%Extends("Ens.BusinessOperation") ..BusinessHost.Retry=1
+	}
+	// ElseIf $D(..%rowcount) { Set tParms=$G(pOutputParms) Merge pOutputParms=..%rowcount  Set pOutputParms(1)=pOutputParms, pOutputParms=tParms  ZKill:""=tParms pOutputParms }
+	Do:'..StayConnected ..Disconnect()
+	Quit tSC
+Trap
+	Set $ZT="",tSC=$$$EnsSystemError
+	Goto Exit
+]]></Implementation>
+</Method>
+</Class>
+</Export>
