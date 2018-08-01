@@ -10,7 +10,6 @@
 Insert information of all files that are checked-in to SVN into a table IHC_ITF_SrcCtrlPkg.ClassInfo</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
-<ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
 	
 	set tStat = ..CheckSvnSetup(usrNm, passwd)
@@ -131,7 +130,7 @@ Insert information of all files that are checked-in to SVN into a table IHC_ITF_
          set endDtTm = $ZDATETIME($HOROLOG,3, 1)
          Do ..UpdateProcessTime("SVN update", stDtTm, endDtTm)
          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CreateListOfFilesInSvn: Updated SVN information for " _ numFiles _ " files.")
-         Return numFiles
+         Return // numFiles
 ]]></Implementation>
 </Method>
 
@@ -1441,6 +1440,28 @@ If needed, create and add all directories from root to SVN</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="CleanSvnSetup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usrNm:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 	 
+     // Delete complete source tree
+    SET svnSrcTrunk = $$$USRBASEDIR _ usrNm _ $$$SVNSRCTRUNK
+	IF ##class(%File).DirectoryExists(svnSrcTrunk)
+	 {
+	   set stat = ##class(%File).RemoveDirectoryTree(svnSrcTrunk)
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Delete: " _ svnSrcTrunk _ " Stat: " _ stat)
+	 }
+	 set svnDepDir = $$$USRRELEASEBASEDIR  _ usrNm_ $$$SVNSRCTRUNK
+	 IF ##class(%File).DirectoryExists(svnDepDir)
+	 {
+	   set stat = ##class(%File).RemoveDirectoryTree(svnDepDir)
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Delete: " _ svnDepDir _ " Stat: " _ stat)
+	 }
+]]></Implementation>
+</Method>
+
 <UDLText name="T">
 <Content><![CDATA[
 // Create required directories, update svn tree
@@ -1453,19 +1474,20 @@ If needed, create and add all directories from root to SVN</Description>
 <FormalSpec>usrNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	 	
 	 set svnBaseDir = $$$USRBASEDIR _ usrNm
  	 set tSC = ..createSvnDirectories(svnBaseDir)
  	 if $$$ISERR(tSC)
  	 {
 	 	  Quit tSC
  	 }
+ 	 
      // Checkout complete source tree
      SET svnSrcTrunk = svnBaseDir _ $$$SVNSRCTRUNK
      Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Check if source control directory: " _ svnSrcTrunk)
      IF ' ##class(%File).DirectoryExists(svnSrcTrunk)
 	 {
-	   Do ##class(%File).CreateDirectoryChain(svnSrcTrunk)
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ svnSrcTrunk)
+	     Do ##class(%File).CreateDirectoryChain(svnSrcTrunk)
 	 }
 	 set fullPath = svnSrcTrunk _ "cls" // cls directory should exists when checkout is successful
 	 IF ' ##class(%File).DirectoryExists(fullPath)
@@ -1536,7 +1558,7 @@ If needed, create and add all directories from root to SVN</Description>
      SET svnBaseDir = usrBaseDir _ $$$SVNSRCTRUNK
 	 IF ' ##class(%File).DirectoryExists(svnBaseDir)
      {
-   	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories: Create " _ svnBaseDir )
+   	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("createSvnDirectories: Create SVN TRUNK " _ svnBaseDir )
 
          Do ##class(%File).CreateDirectoryChain(svnBaseDir)
          
@@ -1716,6 +1738,10 @@ Return the name of this item without the prefix </Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("ExecuteShellCmd: " _ cmd)
+	IF ' ##class(%File).DirectoryExists("/WORK/CLIN/tmp")
+	{
+		Do ##class(%File).CreateDirectoryChain("/WORK/CLIN/tmp")
+	}
 	SET delim=" "
    		SET countdown=$LENGTH(cmd,delim)
    		SET countup=2
@@ -1723,6 +1749,13 @@ Return the name of this item without the prefix </Description>
    		SET cmdArr(1) = ""
    		set multiWord = 0
    		Set linuxCmd = $PIECE(cmd,delim,1)
+   		set tempFile = "/WORK/CLIN/tmp/" _ linuxCmd _ ".txt"
+   		If ( ##class(%File).Exists(tempFile))
+   		{
+			Do ##class(%File).Delete(tempFile)
+   		}
+   		
+
    		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($ZDATETIME($HOROLOG) _ "In EnsembleSrcCtrlClass.ExecuteShellCmd: " _ linuxCmd )
    		FOR reps=countdown:-1:1 {
       		SET extract=$PIECE(cmd,delim,countup)
@@ -1763,7 +1796,12 @@ Return the name of this item without the prefix </Description>
       		SET countup = countup+1
    		}
 
-        set stat = $ZF(-100,"/SHELL", linuxCmd, .cmdArr)
+        set stat = $ZF(-100, "/STDERR= """ _ tempFile _ """ /SHELL", linuxCmd, .cmdArr)
+        If ( ##class(%File).Exists(tempFile))
+   		{
+	   		set errStr = ..GetFileContent(tempFile) 
+	   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(errStr)
+   		}
         return stat
 ]]></Implementation>
 </Method>
