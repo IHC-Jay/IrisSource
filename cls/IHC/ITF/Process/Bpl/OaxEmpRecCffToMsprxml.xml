@@ -59,6 +59,14 @@ XML Proxy Operaion Name</Description>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
+<Property name="TargetConfigNameMsprQuery">
+<Description>
+Mspr query Operaion Name</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Mspr-Oax-Ssn"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Property name="TargetConfigNameHddWebService">
 <Description>
 Hdd Lookup Operation name</Description>
@@ -68,8 +76,27 @@ Hdd Lookup Operation name</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default><![CDATA[-NextOperation,TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+<Description><![CDATA[
+Parameter SETTINGS = "-NextOperation,TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNameMsprQuery=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}";]]></Description>
+<Default><![CDATA[-NextOperation,TargetConfigNameMsprQuery:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>OaxEmpRecCffToMsprxmlDefaultData</DefaultData>
+<Data name="OaxEmpRecCffToMsprxmlDefaultData">
+<Subscript>"OaxEmpRecCffToMsprxml"</Subscript>
+<Value name="1">
+<Value>TargetConfigNameXMLProxy</Value>
+</Value>
+<Value name="2">
+<Value>TargetConfigNameHddWebService</Value>
+</Value>
+<Value name="3">
+<Value>TargetConfigNameMsprQuery</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -136,9 +163,11 @@ BPL Definition</Description>
 </property>
 <property name='cntr' type='%Integer' instantiate='0' />
 <property name='msprMasterRequest' type='IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO' instantiate='0' />
+<property name='msprSsnRequest' type='IHC.ITF.ITFCOMMON.Request.OaxSsnMspr' instantiate='1' />
+<property name='storeSsn' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='2200' >
-<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -233,11 +262,11 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 <code name='Set the RoleTypNcid' xpos='200' ypos='850' >
-<![CDATA[ if context.UserType="Student"{
+<![CDATA[ if context.UserType="STUDENT"{
   set context.roleTypeNcid="520490951"
- }elseif context.UserType="Volunteer"{
+ }elseif context.UserType="VOLUNTEER"{
  set context.roleTypeNcid="520490950"
- }elseif context.UserType="Instructor"{
+ }elseif context.UserType="INSTRUCTOR"{
  set context.roleTypeNcid="520718589"
  }
  
@@ -263,8 +292,30 @@ BPL Definition</Description>
 
  }]]]]><![CDATA[>
 </code>
-<transform name='Call Mspr Request' class='IHC.ITF.Transform.Dtl.OaxEmpRecCffToMsprResquestXml' source='request' target='context.MsprRequest' xpos='200' ypos='1050' />
-<code name='create XMl Request' xpos='200' ypos='1150' >
+<code name='check ssn' xpos='200' ypos='1050' >
+<![CDATA[ if (request.SSN'="") {
+   // Create request
+   $$$TRACE("Person ID: "_request.PERSONID_" Id Type: "_request.USERTYPE)
+   set context.msprSsnRequest.personId=request.PERSONID
+   set context.msprSsnRequest.idType=context.roleTypeNcid
+   //Call 
+   $$$TRACE("Call MSPR query")
+   set tStatus=process.SendRequestSync(process.TargetConfigNameMsprQuery,context.msprSsnRequest,.ssn)
+   If $$$ISOK(tStatus){ 
+      $$$TRACE("SSN Length: "_##class(Ens.Util.FunctionSet).Length($ZStrip(ssn.StringValue,"<>W")))
+      if ##class(Ens.Util.FunctionSet).Length($ZStrip(ssn.StringValue,"<>W"))<4 {
+         set context.storeSsn=1
+         $$$TRACE("STORE SSN!!! ")
+      }
+      else {
+         $$$TRACE("Already has SSN in MSPR!!! ")
+      }
+   }
+ }
+]]]]><![CDATA[>
+</code>
+<transform name='Call Mspr Request' class='IHC.ITF.Transform.Dtl.OaxEmpRecCffToMsprResquestXml' source='request' target='context.MsprRequest' xpos='200' ypos='1150' />
+<code name='create XMl Request' xpos='200' ypos='1250' >
 <![CDATA[    set quote=""""
    set status=context.MsprRequest.XMLExportToString(.strXmlproxyRequest)
     $$$LOGINFO("XMLproxy String conversion Status "_status)
@@ -277,7 +328,7 @@ BPL Definition</Description>
       set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%CongigName,"Issue creating XMLProxy request to be sent to MSPR - "_$SYSTEM.Status.GetOneErrorText(status))
  }]]]]><![CDATA[>
 </code>
-<code name='Call Mspr Operation' xpos='200' ypos='1250' >
+<code name='Call Mspr Operation' xpos='200' ypos='1350' >
 <![CDATA[   $$$TRACE("Call XML Proxy Operation")
   set status=process.SendRequestSync(process.TargetConfigNameXMLProxy,context.strXmlproxyRequest,.strXmlProxyResponse)
   //convert string to XMLclass
@@ -286,7 +337,7 @@ BPL Definition</Description>
   }ELse {
      set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status)) }]]]]><![CDATA[>
 </code>
-<code name='validate MSPR response' xpos='200' ypos='1350' >
+<code name='validate MSPR response' xpos='200' ypos='1450' >
 <![CDATA[  // Validate the response by loading it to the IHC.ITF.DStruc.Schema.XMLPROXYMSPRRESPONSE.CiwsInfo structure
  set status=$$$OK
  set replstr="<?xml version="_""""_"1.0"_""""_"?>"
@@ -321,7 +372,7 @@ BPL Definition</Description>
   }
   $$$TRACE("ReponseString:"_context.MSPRResponseString)]]]]><![CDATA[>
 </code>
-<code name='Check for MSPR warning' xpos='200' ypos='1450' >
+<code name='Check for MSPR warning' xpos='200' ypos='1550' >
 <![CDATA[ set msprRespVal="<context><completionCode><sType>INF</sType><iNumber>0</iNumber>"
  
  if context.MSPRResponseString'[msprRespVal{
@@ -344,7 +395,7 @@ BPL Definition</Description>
     }   
  }]]]]><![CDATA[>
 </code>
-<code name='To Get the Unit Number and Id' xpos='200' ypos='1550' >
+<code name='To Get the Unit Number and Id' xpos='200' ypos='1650' >
 <![CDATA[ if context.MSPRResponseString [ "<msprRecords><Item><unitNumber>" {
  
     set unitnumber=$piece(context.MSPRResponseString,"<msprRecords><Item><unitNumber>",2)
@@ -366,7 +417,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Create the master msg' xpos='200' ypos='1650' >
+<code name='Create the master msg' xpos='200' ypos='1750' >
 <![CDATA[ set context.msprMasterRequest=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO).%New()
  set context.msprMasterRequest.sourceSystem="OAX"
  set tmspr=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.MSPR).%New()
@@ -383,11 +434,11 @@ BPL Definition</Description>
       set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))
   }]]]]><![CDATA[>
 </code>
-<code name=' Get the TargetConfigList' xpos='200' ypos='1750' >
+<code name=' Get the TargetConfigList' xpos='200' ypos='1850' >
 <![CDATA[    set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='Loop through the List' property='context.targetList' key='context.cntr' xpos='200' ypos='1850' xend='200' yend='350' >
+<foreach name='Loop through the List' property='context.targetList' key='context.cntr' xpos='200' ypos='1950' xend='200' yend='350' >
 <call name='Call Operation' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO' >
 <assign property="callrequest" value="context.msprMasterRequest" action="set" />
@@ -396,7 +447,7 @@ BPL Definition</Description>
 </call>
 </foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -409,19 +460,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>OaxEmpRecCffToMsprxmlDefaultData</DefaultData>
-<Data name="OaxEmpRecCffToMsprxmlDefaultData">
-<Subscript>"OaxEmpRecCffToMsprxml"</Subscript>
-<Value name="1">
-<Value>TargetConfigNameXMLProxy</Value>
-</Value>
-<Value name="2">
-<Value>TargetConfigNameHddWebService</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
