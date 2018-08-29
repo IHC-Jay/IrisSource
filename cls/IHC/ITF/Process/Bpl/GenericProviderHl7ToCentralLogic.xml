@@ -6,23 +6,32 @@ GenericProviderHl7ToCentralLogic</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64880,35978.749227</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Description>
+HddTargetConfigName:Custom setting to select Configuration item(s) to  request to HDD lookup operation</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Property name="AllowedStatusID">
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="2000"/>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>AllowedStatusID:Additional</Default>
+<Default>AllowedStatusID,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
 <DefaultData>GenericProviderHl7ToCentralLogicDefaultData</DefaultData>
 <Data name="GenericProviderHl7ToCentralLogicDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"GenericProviderHl7ToCentralLogic"</Subscript>
 <Value name="1">
 <Value>AllowedStatusID</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -47,9 +56,30 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddNcidRequest' type='%String' initialexpression='IHC.ITF.ITFCOMMON.HDD.Interface.NcidLookupRequest' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='0' />
+<property name='hddRepResponse' type='%String' initialexpression='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='specialityNcid' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1200' >
-<scope xpos='200' ypos='250' xend='200' yend='1100' >
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -80,15 +110,47 @@ BPL Definition</Description>
     }
  	  ]]]]><![CDATA[>
 </code>
-<transform name='GenericHl7ToCentralLogic' class='IHC.ITF.Transform.Dtl.GenericProviderHl7ToCentralLogic' source='request' target='context.hl7' xpos='200' ypos='550' />
-<code name='RESET ERROR' xpos='200' ypos='650' >
+<code name='Initialize HDD' xpos='200' ypos='550' >
+<![CDATA[ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+ Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ }
+ 
+  $$$TRACE(" Get  Ncid from Rep Hdd lookup call")  	
+ set context.hddRepRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+ $$$TRACE(" After creating Ncid Hdd lookup request object")]]]]><![CDATA[>
+</code>
+<code name='call operation' xpos='200' ypos='650' >
+<![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
+ if ('tStatus) {     
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+ } else { 
+   set context.hddRepResponse= hddRepResponse
+ }]]]]><![CDATA[>
+</code>
+<code name='Call Rep To Ncid' xpos='200' ypos='750' >
+<![CDATA[ $$$TRACE(" Calling getNcidFromRep...")  	
+  	set specialityText = request.GetValueAt("PRA:Speciality(1).specialityname")     
+  	$$$TRACE(" PRA-5 Speciality REP  :"_specialityText ) 	
+  	if (specialityText '= "" ){		
+		set context.specialityNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(specialityText, "2000", "291", context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid PRA:5 NCID is " _ context.specialityNcid)		
+	}  
+	kill specialityText	
+	
+	]]]]><![CDATA[>
+</code>
+<transform name='GenericHl7ToCentralLogic' class='IHC.ITF.Transform.Dtl.GenericProviderHl7ToCentralLogic' source='request' target='context.hl7' xpos='200' ypos='850' />
+<code name='RESET ERROR' xpos='200' ypos='950' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='200' ypos='750' >
+<code name='GetTargetConfigList' xpos='200' ypos='1050' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='850' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1150' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -101,7 +163,7 @@ BPL Definition</Description>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='950' xend='200' yend='350' >
+<catchall xpos='200' ypos='1250' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
