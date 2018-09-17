@@ -26,8 +26,16 @@ Operation Name for MMI Add tuxedo service call</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="TargetOperationCdrEjbHl7Update">
+<Description>
+Operation Name for CDR EJB tuxedo service call</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Cdr-MMIUPDATE"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>TargetOperationMmiHl7Add:Additional,TargetOperationCdrGetPatName:Additional,TargetOperationCdrGetDob:Additional, -NextOperation,-TargetConfigMask</Default>
+<Default>TargetOperationCdrEjbHl7Update:Additional,TargetOperationMmiHl7Add:Additional,TargetOperationCdrGetPatName:Additional,TargetOperationCdrGetDob:Additional, -NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -43,6 +51,9 @@ Operation Name for MMI Add tuxedo service call</Description>
 		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
 	}
 	If pItem.GetModifiedSetting("TargetOperationCdrGetDob",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+	If pItem.GetModifiedSetting("TargetOperationCdrEjbHl7Update",.tValue) {
 		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
 	}
 ]]></Implementation>
@@ -63,6 +74,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='AmWellMrn' type='%String' instantiate='0' />
+<property name='ihcEmpiNum' type='%String' instantiate='0' />
+
+<property name='MsgType' type='%String' instantiate='0' />
 <property name='PatientEmpi' type='%String' instantiate='0' />
 <property name='GuarantorAmWellMrn' type='%String' instantiate='0' />
 <property name='GuarantorEmpi' type='%String' instantiate='0' />
@@ -93,7 +107,14 @@ BPL Definition</Description>
  $$$TRACE(" Config Value: [" _ configValue+"]")	  
  if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
  	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetOperationMmiHl7Add  found")
- }  
+ }
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetOperationCdrEjbHl7Update",.configValue)
+ $$$TRACE(" Config Value: [" _ configValue+"]")	  
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetOperationCdrEjbHl7Update  found")
+ }
+   
  set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: [" _ maxErr+"]")  
 ]]]]><![CDATA[>
@@ -114,6 +135,21 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
+
+<code name='getMessageType' xpos='200' ypos='650' >
+<![CDATA[  
+    Set context.MsgType = request.GetValueAt("MSH:9.2")     
+ ]]]]><![CDATA[>
+</code>
+
+<code name='getIhcEmpiNum' xpos='200' ypos='650' >
+<![CDATA[  
+     Set context.ihcEmpiNum = request.GetValueAt("PID:2.1")  
+     Set context.isIhcMrnExists = "Y"
+ ]]]]><![CDATA[>
+</code>
+
+
 <code name='getAmWellMrnNumbers' xpos='200' ypos='650' >
 <![CDATA[  
      Set context.AmWellMrn=request.GetValueAt("PID:PatientIdentifierList(1).ID")  
@@ -131,6 +167,8 @@ BPL Definition</Description>
 	 }
  ]]]]><![CDATA[>
 </code>
+
+
 <code name='getTargetConfigList' xpos='200' ypos='750' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
@@ -138,10 +176,256 @@ BPL Definition</Description>
 
 <if name='hasAmWellMrn' condition='($length(context.AmWellMrn) &gt; 0)' xpos='200' ypos='850' xend='200' yend='5750' >
 <true>
+<if name='A28MsgType' condition='(context.MsgType = "A28")' xpos='200' ypos='850' xend='200' yend='5750' >
+<true>
+ <trace name='A28MsgType' value=' " Msg Type A28. Ihc Mrn exists: "_context.isIhcMrnExists' xpos='470' ypos='1300' />
+  <if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='5300' xend='470' yend='5650' >
+<true>
+  <trace name='A28AndHasIhcMrn' value=' " Msg Type A28. Ihc Mrn exists. Calling cdr update service"' xpos='470' ypos='1300' />
+  <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrEjbPatientMrn' source='request' target='responseEmpi' xpos='470' ypos='1200' >
+  <annotation><![CDATA[translates A028 from American Well into CDR Hl7 (Cdr Ejb Call)format with IHC empi#/mrn]]]]><![CDATA[></annotation>
+</transform>
+<code name='Send to Update CDR Ejb operation' xpos='740' ypos='2400' >
+<![CDATA[	
+ $$$TRACE("Calling Cdr ejb Update Operation") 
+ $$$TRACE(" Target Operation CdrEjb Cdr Update: " _ process.TargetOperationCdrEjbHl7Update)
+ do process.SendRequestSync(process.TargetOperationCdrEjbHl7Update,responseEmpi,.result)
+]]]]><![CDATA[>
+</code>
+</true>
+<false>
+   <trace name='A28AndNoIhcMrn' value=' " Msg Type A28. No Ihc Mrn. Calling Main_Enc cdr tuxedo service"' xpos='470' ypos='1300' />
+   <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrPatientMrn' source='request' target='responseEmpi' xpos='470' ypos='1200' >
+<annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format with IHC empi#/mrn]]]]><![CDATA[></annotation>
+</transform>
+  <trace name='EmpiResponse' value=' "EMPI RESPONSE: ["_responseEmpi.RawContent_"]"' xpos='470' ypos='1300' />
+<code name='CallHl7MmiAdd' xpos='470' ypos='1400' >
+<![CDATA[  
+ // Call MMI Add - Tuxedo Operation, Build the request   
+   set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
+   set mmiAddRequest.hl7Msg = responseEmpi   
+   $$$TRACE(" Target Operation MmiHl7Add: " _ process.TargetOperationMmiHl7Add)
+   set tStatus=process.SendRequestSync(process.TargetOperationMmiHl7Add,mmiAddRequest,.cdrResponse)
+   if (tStatus = $$$OK){
+	  $$$TRACE("RESPONSE: " _ cdrResponse.StringValue)   
+	  set indexMSA = $F(cdrResponse.StringValue, "MSA|AA")    	  
+   	  if (indexMSA > 0){
+		$$$TRACE("SUCCESS!!!..Ack received from MMIAddUpdate. "_cdrResponse.StringValue) 
+		set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	    			 
+			 set patEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
+			 set context.PatientEmpi =$TRANSLATE(patEmpi,$C(13),"")  			
+			 $$$TRACE(" empiNum: [" _context.PatientEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
+		}
+   	  }else{	   		  
+	     $$$TRACE(" NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	  
+	     set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	   
+		     $$$TRACE(" NACK received from MMIAddUpdate. But Cdr MMI allocated. "_cdrResponse.StringValue)  	   			 
+			 set patEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
+			 set context.PatientEmpi =$TRANSLATE(patEmpi,$C(13),"")  			
+			 $$$TRACE(" empiNum: [" _context.PatientEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
+		}else{
+			$$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	   			 
+	     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " NACK Response from CDR. Failed to update the CDR. Invalid Data. Please check Tuxedo logs table for the details. Response: "_cdrResponse.StringValue)
+		}
+	  } 	   	  	
+   }else{
+	    set errText = $SYSTEM.Status.GetOneErrorText(tStatus)
+	    if errText["CONNECTIONERROR"{
+		   //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))      //Retry max times and disable
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    }	    
+	    if errText["RESEND"{
+		   //set status=$$$ERROR("AMWELL:12",$SYSTEM.Status.GetOneErrorText(tStatus))      //Retry max times and disable
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError($CLASSNAME(),errText)
+	    }
+	    if errText["DATAERROR"{
+		   //set status=$$$ERROR("AMWELL:13",$SYSTEM.Status.GetOneErrorText(tStatus))      //Disable
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    }
+	    if errText["SHUTDOWN"{
+		   //set status=$$$ERROR("AMWELL:14",$SYSTEM.Status.GetOneErrorText(tStatus))      //Disable
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),errText)
+	    } 	       
+   } 
+ ]]]]><![CDATA[>
+</code>
+
+<if name='hasPatientEmpiNumberForAmWellMrn' condition='($length(context.PatientEmpi) &gt; 0)' xpos='470' ypos='1500' xend='470' yend='3750' >
+<true>
+<trace name='TraceHasPatientEmpiNumberForAmWellMrn' value=' "hasPatientEmpiNumberForAmWellMrn: ["_context.PatientEmpi_"]"' xpos='605' ypos='1650' />
+<if name='hasGuarantorAmWellMrn' condition='($length(context.GuarantorAmWellMrn) &gt; 0)' xpos='605' ypos='1750' xend='605' yend='2650' >
+<true>
+<if name='isGuarantorSameAsPatient' condition='(context.GuarantorAmWellMrn=context.AmWellMrn)' xpos='875' ypos='1900' xend='875' yend='2450' >
+<true>
+<trace name='GuarantorSameAsPatient' value=' "Guarantor AmWell MRN matches to Patient MRN: ["_context.GuarantorAmWellMrn_"]"' xpos='875' ypos='2050' />
+<assign property="context.GuarantorEmpi" value="context.PatientEmpi" action="set" xpos='875' ypos='2150' />
+</true>
+<false>
+<trace name='GuarantorNotSameAsPatient' value=' "Guarantor AmWell MRN not matches to Patient MRN. "' xpos='1145' ypos='2050' />
+<trace name='PatientMRN' value=' "Guarantor AmWell MRN: ["_context.GuarantorAmWellMrn_"]. Patient MRN: ["_context.AmWellMrn_"]"' xpos='1145' ypos='2150' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrGuarantorMrn' source='request' target='responseGuar' xpos='1145' ypos='2250' >
+<annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format for the Guarantor.]]]]><![CDATA[></annotation>
+</transform>
+<code name='CallHl7MmiAddForGuarantor' xpos='1145' ypos='2350' >
+<![CDATA[  
+        // Call MMI Add - Tuxedo Operation, Build the request   
+        set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
+   set mmiAddRequest.hl7Msg = responseGuar   
+   set tStatus=process.SendRequestSync(process.TargetOperationMmiHl7Add,mmiAddRequest,.cdrResponse)
+   if (tStatus = $$$OK){
+	  $$$TRACE("RESPONSE: " _ cdrResponse.StringValue)   
+   }   
+   set indexMSA = $F(cdrResponse.StringValue, "MSA|AA")    	  
+   if (indexMSA > 0){
+		$$$TRACE("SUCCESS!!!..Ack received from MMIAddUpdate. "_cdrResponse.StringValue) 
+		set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	    			 
+			 set guarEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)
+			 set context.GuarantorEmpi =$TRANSLATE(guarEmpi,$C(13),"") 			 
+			 $$$TRACE(" Guarantor EmpiNum: [" _ context.GuarantorEmpi_"]")	    			
+			 set context.isIhcMrnExists = "Y"
+		}
+   }else{
+	      $$$TRACE(" NACK received from MMIAddUpdate Guarantor. "_cdrResponse.StringValue)  	  
+	     set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	   
+		     $$$TRACE(" NACK received from MMIAddUpdate. But Cdr MMI allocated for Guarantor. "_cdrResponse.StringValue)  	   			 
+			 set guarEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
+			 set context.GuarantorEmpi =$TRANSLATE(guarEmpi,$C(13),"")  			
+			 $$$TRACE(" Guarantor empiNum: [" _context.GuarantorEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
+		}else{
+			$$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	   			 
+	     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " NACK Response from CDR. Failed to update the CDR. Invalid Data. Please check Tuxedo logs table for the details. Response: "_cdrResponse.StringValue)
+		}   
+   }   
+    ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='NoGuarantorAmWellMrn' value=' "No AmWell Mrn for the Guarantor present in the message "_request.RawContent' xpos='605' ypos='1900' />
+</false>
+</if>
+<if name='hasInsSubscriberAmWellMrn' condition='($length(context.InsSubscriberAmWellMrn) &gt; 0)' xpos='605' ypos='2750' xend='605' yend='3650' >
+<true>
+<trace name='InsuranceSubscriberExists' value=' "Insurance Subscriber Exists.. "_context.InsSubscriberAmWellMrn' xpos='875' ypos='2900' />
+<if name='isInsSubscriberSameAsPatientAndGuarantor' condition='(context.isNewInsSubscriberMrn = "Y")' xpos='875' ypos='3000' xend='875' yend='3450' >
+<true>
+<trace name='InsuranceSubscriberMrnExists' value='"Insurance Subscriber MRN same as Patient and Guarantor.. "' xpos='875' ypos='3150' />
+<code name='SetSubscriberInsuranceNumber' xpos='875' ypos='3250' >
+<![CDATA[  
+	      if (context.InsSubscriberAmWellMrn=context.AmWellMrn){
+		 Set context.InsSubscriberEmpi=context.PatientEmpi
+	 }
+	 if (context.InsSubscriberAmWellMrn=context.GuarantorAmWellMrn){
+		 Set context.InsSubscriberEmpi=context.GuarantorEmpi
+	 }
+	 ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1145' ypos='3150' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrInsSubsMrn' source='request' target='responseSubs' xpos='1145' ypos='3250' >
+<annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format for the Insurance Subscriber.]]]]><![CDATA[></annotation>
+</transform>
+<code name='CallHl7MmiAddForInsSubscriber' xpos='1145' ypos='3350' >
+<![CDATA[  
+        // Call MMI Add - Tuxedo Operation, Build the request   
+        set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
+   set mmiAddRequest.hl7Msg = responseSubs   
+   set tStatus=process.SendRequestSync(process.TargetOperationMmiHl7Add,mmiAddRequest,.cdrResponse)
+   if (tStatus = $$$OK){
+	  $$$TRACE("RESPONSE: " _ cdrResponse.StringValue)   
+   }   
+   set indexMSA = $F(cdrResponse.StringValue, "MSA|AA")    	  
+   if (indexMSA > 0){
+		$$$TRACE("SUCCESS!!!..Ack received from MMIAddUpdate. "_cdrResponse.StringValue) 
+		set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	    			 
+			 set insSubscriberEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	    			
+			 set context.InsSubscriberEmpi =$TRANSLATE(insSubscriberEmpi,$C(13),"") 			 
+			 $$$TRACE(" Insurance Subscriber EmpiNum: " _ context.InsSubscriberEmpi)	    			
+			 set context.isIhcMrnExists = "Y"
+		}
+   }else{
+	    $$$TRACE(" NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	  
+	     set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	   
+		     $$$TRACE(" NACK received from MMIAddUpdate(Insurance Subscriber). But Cdr MMI allocated. "_cdrResponse.StringValue)  	   			 
+			 set insSubscriberEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
+			 set context.InsSubscriberEmpi =$TRANSLATE(insSubscriberEmpi,$C(13),"")  			
+			 $$$TRACE(" Insurance subscriber empiNum: [" _context.InsSubscriberEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
+		}else{
+			$$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	   			 
+	     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " NACK Response from CDR. Failed to update the CDR. Invalid Data. Please check Tuxedo logs table for the details. Response: "_cdrResponse.StringValue)
+		} 	   
+	   }   
+    ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1145' ypos='3150' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrInsSubsMrn' source='request' target='responseSubs' xpos='1145' ypos='3250' >
+<annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format for the Insurance Subscriber.]]]]><![CDATA[></annotation>
+</transform>
+<code name='CallHl7MmiAddForGuarantor' xpos='1145' ypos='3350' >
+<![CDATA[  
+        // Call MMI Add - Tuxedo Operation, Build the request   
+        set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
+   set mmiAddRequest.hl7Msg = responseSubs   
+   set tStatus=process.SendRequestSync(process.TargetOperationMmiHl7Add,mmiAddRequest,.cdrResponse)
+   if (tStatus = $$$OK){
+	  $$$TRACE("RESPONSE: " _ cdrResponse.StringValue)   
+   }   
+   set indexMSA = $F(cdrResponse.StringValue, "MSA|AA")    	  
+   if (indexMSA > 0){
+		$$$TRACE("SUCCESS!!!..Ack received from MMIAddUpdate. "_cdrResponse.StringValue) 
+		set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	    			 
+			 set insSubscriberEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	    			
+			 set context.InsSubscriberEmpi =$TRANSLATE(insSubscriberEmpi,$C(13),"") 			 
+			 $$$TRACE(" Insurance Subscriber EmpiNum: " _ context.InsSubscriberEmpi)	    			
+			 set context.isIhcMrnExists = "Y"
+		}
+   }else{
+	    $$$TRACE(" NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	  
+	     set indexZEX = $F(cdrResponse.StringValue, "ZEX|")
+		if (indexZEX > 0){	   
+		     $$$TRACE(" NACK received from MMIAddUpdate(Insurance Subscriber). But Cdr MMI allocated. "_cdrResponse.StringValue)  	   			 
+			 set insSubscriberEmpi = $LISTGET($LISTFROMSTRING(cdrResponse.StringValue,"|"),*)	 
+			 set context.InsSubscriberEmpi =$TRANSLATE(insSubscriberEmpi,$C(13),"")  			
+			 $$$TRACE(" Insurance subscriber empiNum: [" _context.InsSubscriberEmpi_"]")
+			 set context.isIhcMrnExists = "Y"	    						 
+		}else{
+			$$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	   			 
+	     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " NACK Response from CDR. Failed to update the CDR. Invalid Data. Please check Tuxedo logs table for the details. Response: "_cdrResponse.StringValue)
+		} 	   
+	   }   
+    ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+</if>
+</false>
+</if>
+</true>
+<false> 
+<trace name='NotA28MsgType' value=' " Msg Type: ["_context.MsgType_"]"' xpos='470' ypos='1300' />
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCernWithIhcMRN' source='request' target='response' xpos='470' ypos='1000' >
 <annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format with IHC empi#/mrn]]]]><![CDATA[></annotation>
 </transform>
 <trace name='IhcMrnResponse' value=' "RESPONSE: ["_response.RawContent_"]"' xpos='470' ypos='1100' />
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrPatientMrn' source='request' target='responseEmpi' xpos='470' ypos='1200' >
 <annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format with IHC empi#/mrn]]]]><![CDATA[></annotation>
 </transform>
@@ -478,6 +762,7 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
+
 <if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='5300' xend='470' yend='5650' >
 <true>
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='5450' xend='200' yend='350' >
@@ -501,6 +786,8 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
+</false>
+</if>
 </true>
 <false>
 <code name='SkipInvalidRecordMissingMrnNumber' xpos='200' ypos='1000' >
@@ -510,6 +797,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
+
 <faulthandlers>
 <catchall xpos='200' ypos='5850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
@@ -538,6 +826,9 @@ BPL Definition</Description>
 </Value>
 <Value name="3">
 <Value>TargetOperationCdrGetDob</Value>
+</Value>
+<Value name="4">
+<Value>TargetOperationCdrEjbHl7Update</Value>
 </Value>
 </Data>
 </Storage>
