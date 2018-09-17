@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.VersacareResultsHl7ToNovoCardiacRehabPdf">
+<Description>
+BPL for Versacare PDF Results to Novo...</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64504,48922.877663</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4450' width='2000' >
+<context>
+<property name='targetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='obx13' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<trace name='1. Incoming Message' value=' "1. Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
+<code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shut down.")   
+ } else {
+    $$$TRACE("2. ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='3. Max Errors Check' xpos='200' ypos='550' >
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("3. Max Errors: " _ maxErr)]]]]><![CDATA[>
+</code>
+<code name='4. Check TargetConfigNames' xpos='200' ypos='650' >
+<![CDATA[ 
+ //TargetConfigNames validation
+ set targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shut down.")   
+ } else {
+    $$$TRACE("4.1 TargetConfigNames: " _ targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("4.2 TargetListCount: " _ context.targetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+<code name='Validate Message' xpos='200' ypos='750' >
+<![CDATA[ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ValidationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)    
+	if (pStatus'=$$$OK) {		
+	    $$$TRACE("Failed Validation Settings: " _ validationSetting)
+	    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Validation against data structure is failed. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]. ")
+	} else {
+		$$$TRACE("Passed Validation Settings: " _ validationSetting)
+	}
+ }]]]]><![CDATA[>
+</code>
+<code name='6. Filter for ORU^R01 Msg' xpos='200' ypos='850' >
+<![CDATA[  $$$TRACE("6. Filter for ORUR01 Message Type.")
+  
+  Set msgType91 = request.GetValueAt("MSH:9.1")
+  $$$TRACE("6.1 MSH-9.1 Message Type: " _ msgType91)  
+  
+  Set msgType92 = request.GetValueAt("MSH:9.2")
+   $$$TRACE("6.2  MSH-9.2 Message Type: " _ msgType92)
+
+ if (msgType91 '="ORU") {
+  	  $$$TRACE("6.3 MSH-9.1 message Type is NOT VALID.  ORU is expected.  Skip record.")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Skip the non ORU record. Invalid message type: " _ msgType91)
+	  
+ }elseif( msgType92'="R01") {	  
+ 
+    $$$TRACE("6.4  MSH-9.2 Message Type is NOT VALID.  R01 is expected.  Skip record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Skip the non R01 record. Invalid message type: " _ msgType92)	   
+ }
+ 
+ set ObxNcid = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(1).OBX:3.1")
+ $$$TRACE("OBX:3.1 " _ ObxNcid )  
+  
+   if ($ISVALIDNUM(ObxNcid )'="1"){	  
+	  $$$TRACE("OBX-3 is NOT a VALID ncid ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skip the R01 record. Invalid NCID value at OBX-3.1: " _ ObxNcid )
+	  
+   
+	  }  
+	  set empi = request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:3.1")	                             
+	  $$$TRACE("PID-3 is "_ empi)
+	   if ($ISVALIDNUM(empi)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "Hl7 message has invalid empi number: ["_empi_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }
+ 
+ set obr27 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR.OBR:27.4.1")
+ $$$TRACE("Value At OBR-27.4"_obr27 )
+ set context.obx13 = "SC_" _empi_ "_" _obr27
+ $$$TRACE("Value At OBX-13 "_context.obx13 )]]]]><![CDATA[>
+</code>
+<transform name='12. Transform' class='IHC.ITF.Transform.Dtl.VersacareResultsHl7ToNovoCardiacRehabPdf' source='request' target='response' xpos='200' ypos='950' />
+<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
+<call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='14.  reset error count' xpos='200' ypos='1150' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall name='15. Call ProcessError' xpos='200' ypos='1250' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
