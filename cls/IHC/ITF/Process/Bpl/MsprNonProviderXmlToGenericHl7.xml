@@ -134,9 +134,10 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='SfRequest' type='EnsLib.EDI.XML.Document' instantiate='0' />
 </context>
-<sequence xend='200' yend='2200' >
-<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2450' >
+<scope xpos='200' ypos='250' xend='200' yend='2350' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -152,11 +153,12 @@ BPL Definition</Description>
  	  ]]]]><![CDATA[>
 </code>
 <assign name="sendEmailAddress" property="context.sendEmailAddress" value="process.SendEmailAddress" action="set" xpos='200' ypos='550' />
-<if name='OAX' condition='request.sourceSystem="OAX"' xpos='200' ypos='650' xend='200' yend='1350' >
+<trace name='Source system' value='"Source System: "_request.sourceSystem' xpos='200' ypos='650' />
+<if name='OAX' condition='request.sourceSystem="OAX"' xpos='200' ypos='750' xend='200' yend='1600' >
 <annotation><![CDATA[If the source is OAX]]]]><![CDATA[></annotation>
 <true>
-<assign name="SourceSystem" property="context.sourceSystem" value="&quot;OAX&quot;" action="set" xpos='200' ypos='800' />
-<code name='Parse MSPR Response' xpos='200' ypos='900' >
+<assign name="SourceSystem" property="context.sourceSystem" value="&quot;OAX&quot;" action="set" xpos='200' ypos='900' />
+<code name='Parse MSPR Response' xpos='200' ypos='1000' >
 <![CDATA[  // Parse MSPR Response
    
   $$$TRACE("Parse MSPR response String")
@@ -194,9 +196,9 @@ BPL Definition</Description>
       }    
   } ]]]]><![CDATA[>
 </code>
-<code name='set OAX context' xpos='200' ypos='1000' >
+<code name='set OAX context' xpos='200' ypos='1100' >
 <![CDATA[ //set context.OaxRequest=request
- 
+        $$$TRACE("Parse OAX record.")
  Set reader = ##class(%XML.Reader).%New()
  //set context.oaxString=request.OAX.content
  Set sc=reader.OpenString(request.OAX.content)
@@ -217,11 +219,11 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<if name='ORACLEHR' condition='($Classname(request)["MasterProviderRequest.PROVIDERINFO")&amp;&amp;(request.sourceSystem="OracleHR")' xpos='470' ypos='800' xend='470' yend='1250' >
+<if name='ORACLEHR' condition='($Classname(request)["MasterProviderRequest.PROVIDERINFO")&amp;&amp;(request.sourceSystem="OracleHR")' xpos='470' ypos='900' xend='470' yend='1500' >
 <annotation><![CDATA[Is the source OracleHr]]]]><![CDATA[></annotation>
 <true>
-<assign name="SourceSystem" property="context.sourceSystem" value="request.sourceSystem" action="set" xpos='605' ypos='950' />
-<code name='Parse MSPR response' xpos='605' ypos='1050' >
+<assign name="SourceSystem" property="context.sourceSystem" value="request.sourceSystem" action="set" xpos='470' ypos='1050' />
+<code name='Parse MSPR response' xpos='470' ypos='1150' >
 <![CDATA[  // Parse MSPR Response
    
   $$$TRACE("Parse MSPR response String")
@@ -259,8 +261,9 @@ BPL Definition</Description>
       }    
   } ]]]]><![CDATA[>
 </code>
-<code name='Parse OracleHR Request' xpos='605' ypos='1150' >
+<code name='Parse OracleHR Request' xpos='470' ypos='1250' >
 <![CDATA[ Set reader = ##class(%XML.Reader).%New()
+ $$$TRACE("Parse HR record...")
  //set context.oracleHrString=request.OracleHR.content
  Set sc=reader.OpenString(request.OracleHR.content)
  if '$$$ISOK(sc){
@@ -280,10 +283,65 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </true>
+<false>
+<if name='SalesForce' condition='($Classname(request)["MasterProviderRequest.PROVIDERINFO")&amp;&amp;(request.sourceSystem="SF")' xpos='740' ypos='1050' xend='740' yend='1400' >
+<true>
+<code name='Parse MSPR Response' xpos='875' ypos='1200' >
+<![CDATA[ set context.sourceSystem=request.sourceSystem
+ 
+ // Parse MSPR Response
+   
+  $$$TRACE("Parse MSPR response String")
+  set replstr="<?xml version="_""""_"1.0"_""""_"?>"
+  set MSPRResponseString=$Replace(request.MSPR.content,replstr,"")
+  // Remove the XMl Version tag from start and Junk characters at the end
+  set MSPRResponseString="<CiwsInfo>"_$piece(MSPRResponseString,"<CiwsInfo>",2)
+  set MSPRResponseString=$piece(MSPRResponseString,"</CiwsInfo>")_"</CiwsInfo>"
+  Set reader = ##class(%XML.Reader).%New()
+  Set sc=reader.OpenString(MSPRResponseString)
+  $$$TRACE(MSPRResponseString)
+  if '$$$ISOK(sc){
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error Processing Response Back From MSPR"_$SYSTEM.Status.GetOneErrorText(sc))  
+  } 
+  Else {
+      Do reader.Correlate("CiwsInfo","IHC.ITF.DStruc.Schema.XMLPROXYMSPRRESPONSE.CiwsInfo")
+      do reader.Next(.CiwsInfo,.sc)
+      If $$$ISOK(sc){
+	      set context.msprResponse=CiwsInfo
+	      try { 
+	         $$$TRACE("Check Unit Number")
+	         set context.UnitNumber=context.msprResponse.ServiceMessage.MsprInfo.dataRecord.msprRecords.Item.GetAt(1).unitNumber.content
+	        $$$TRACE(" Unit Number "_context.UnitNumber)
+	        //set ^IHC("MSprPRoviderToGenericHl7","SExCdBpl")=context.msprResponse.ServiceMessage.MsprInfo.dataRecord.msprRecords.Item.GetAt(1).memberInfo.sex.content
+	        If ((context.UnitNumber="")){
+	           set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unit number missing from MSPR response please contact the sorce system and MSPR to resolve the issue") 
+	        }
+	      }catch {
+	           set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unit number missing from MSPR response please contact the source system and MSPR to resolve the issue") 
+	      }  
+	      
+      }
+      Else {	  
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error Processing Response Back From MSPR"_$SYSTEM.Status.GetOneErrorText(sc))  
+      }    
+  } ]]]]><![CDATA[>
+</code>
+<code name='Parse SalesForce Request' xpos='875' ypos='1300' >
+<![CDATA[   $$$TRACE("Parse SF record...")
+  set context.SfRequest=##class(EnsLib.EDI.XML.Document).ImportFromString(request.SF.content) 
+  set context.SfRequest.DocType="SfRecord:sObject" 
+  
+  $$$TRACE("Parse SF record successful!")
+ 
+ ]]]]><![CDATA[>
+</code>
+</true>
 </if>
 </false>
 </if>
-<code name='CheckProviderPhysicianException' xpos='200' ypos='1450' >
+</false>
+</if>
+<code name='CheckProviderPhysicianException' xpos='200' ypos='1700' >
 <![CDATA[ 
  // Call Ldap Operation to CheckProviderPhysician exception indicator
  $$$TRACE("Inside Call to LDAP")
@@ -325,15 +383,15 @@ BPL Definition</Description>
   }  
  ]]]]><![CDATA[>
 </code>
-<transform name='GenericHl7Request' class='IHC.ITF.Transform.Dtl.MsprNonProviderXmlToGenericHl7' source='context.msprResponse' target='context.hl7' xpos='200' ypos='1550' />
-<code name='RESET ERROR' xpos='200' ypos='1650' >
+<transform name='GenericHl7Request' class='IHC.ITF.Transform.Dtl.MsprNonProviderXmlToGenericHl7' source='context.msprResponse' target='context.hl7' xpos='200' ypos='1800' />
+<code name='RESET ERROR' xpos='200' ypos='1900' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='200' ypos='1750' >
+<code name='GetTargetConfigList' xpos='200' ypos='2000' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1850' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2100' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -346,7 +404,7 @@ BPL Definition</Description>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall xpos='200' ypos='2200' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
