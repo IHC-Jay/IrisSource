@@ -30,7 +30,12 @@ BPL Definition</Description>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
 <property name='eventType' type='%String' instantiate='0' />
-<property name='facility' type='%String' initialexpression='""' instantiate='0' >
+<property name='facilityId' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='unitIdPV131' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -87,14 +92,33 @@ BPL Definition</Description>
 </code>
 <code name='Lookup Allowed Facilities' xpos='200' ypos='850' >
 <![CDATA[	  
- set context.facility = request.GetValueAt("MSH:SendingFacility")  
- set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToViaOncology.Lookup.AllowedFacilities", context.facility, .retVal )
- $$$TRACE("context.facility:[" _context.facility _"]. Return Value: ["_retVal _"]") 
- if (retVal ="1") {      
+ set context.facilityId = request.GetValueAt("MSH:SendingFacility")  
+ set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToViaOncology.Lookup.AllowedFacilities", context.facilityId, .retVal )
+ $$$TRACE("context.facilityId:[" _context.facilityId_"]. Return Value: ["_retVal _"]") 
+ if (retVal ="1") 
+ {   
+      //LDS Bone Marrow unit must match both MSH-4 NCID and PV1-3.1 values below
+    if (context.facilityId = "128")
+    {
+        set unitId = request.GetValueAt("PV1:AssignedPatientLocation.pointofcare") 
+        $$$TRACE("PV1-3.1 Unit value is: " _unitId ) 
+        if ((unitId'= "") && (unitId = "LD_Lvlnd BMTInf"))
+        {
+           set context.unitIdPV131 = unitId
+           $$$TRACE("The context.unitIdPV131 variable got its value from the PV1-3.1 input: " _context.unitIdPV131) 
+        }
+        else
+        {
+           set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid unit in PV1-3.1: ["_unitId_"]. Skipping the record." )	
+        }
+    }
+    else
+    {
+    }  
      
  }else{
-	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility:["_context.facility _"]. Skipping the record." )	  	  
-	 }
+	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility in MSH-4:["_context.facilityId_"]. Skipping the record." )	  	  
+ }
 ]]]]><![CDATA[>
 </code>
 <code name='Event Type Lookup Tables' xpos='200' ypos='950' >
@@ -114,22 +138,30 @@ BPL Definition</Description>
      
  }else{
 	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid EventType:["_context.eventType_"]. Skipping the record." )	  	  
-	 }
+ }
 ]]]]><![CDATA[>
 </code>
 <code name='Check for Help1 merge record' xpos='200' ypos='1150' >
-<![CDATA[ $$$TRACE("Check for valid Help1 merge data.")  
- set servingFacPv139 = request.GetValueAt("PV1:ServicingFacility") 
- if (context.eventType ="A31") {  
-  if ((context.facility ="199") && (servingFacPv139 = "DX")) {      
-    $$$TRACE("This is a valid merge record from Help1 with context.eventType:[" _context.eventType_"] and context.facility:[" _context.facility_ "] and servingFacPv139:[" _servingFacPv139_ "].")    
- }else{
-	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility from Cerner:["_context.facility _"]. Skipping the record." )
-	      $$$TRACE("Skip this invalid merge record with context.eventType:[" _context.eventType_"] and context.facility:[" _context.facility_ "] and servingFacPv1-39:[" _servingFacPv139_ "].") 	  	  
-	 }    
-     
- }else{
+<![CDATA[ $$$TRACE("Check for valid merge data from Help1 whose MSH-10 has all numeric values.")  
+ set msh10 = request.GetValueAt("MSH:10")
 
+ if ($ISVALIDNUM(msh10) = "1")
+ { 
+     set servingFacPv139 = request.GetValueAt("PV1:ServicingFacility") 
+     
+     if ((context.eventType ="A31") && (servingFacPv139 = "DX")) 
+     {      
+          $$$TRACE("This is a valid merge record from Help1 with context.eventType:[" _context.eventType_"], MSH-10 :[" _msh10_ "], and servingFacPv139:[" _servingFacPv139_ "].")    
+     }
+     else
+     {
+	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid event type in MSH-9.2 and/or serving facility code in PV1-39. Skipping the record." )
+	  
+	  $$$TRACE("Skip this record from Help1 MSH-10 :[" _msh10_ "] due to invalid context.eventType:[" _context.eventType_"] or servingFacPv1-39:[" _servingFacPv139_ "].") 	  	  
+     }       
+ }
+ else
+ {
  }
 ]]]]><![CDATA[>
 </code>
