@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.MuseBillingHl7ToBillingDelim">
+<Description>
+</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64937,45458.814474</TimeCreated>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='5150' width='2825' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='configName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='msgType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='ValidData' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='targetConfigNames' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='message' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='outCSV' type='IHC.ITF.BILLING.DStruc.MuseBillingCsv.Record' instantiate='0' />
+<property name='MaxErrors' type='%Integer' instantiate='0' />
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1400' >
+<scope xpos='200' ypos='250' xend='200' yend='1300' >
+<trace name='InsideBP' value='"Inside configName "_process.%ConfigName' xpos='200' ypos='350' />
+<code name='Check Max Errors' xpos='200' ypos='450' >
+<![CDATA[    set context.MaxErrors=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MaxErrors",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("MaxErrors: " _ context.MaxErrors)
+ }else{
+ Set status = $$$ERROR("Initialization error, No MaxErrors setting found")
+ }]]]]><![CDATA[>
+</code>
+<code name='Check ReplyCodeActions' xpos='200' ypos='550' >
+<annotation><![CDATA[Get ReplyCodeActions from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='GetTargetConfigList' xpos='200' ypos='650' >
+<![CDATA[ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='750' >
+<annotation><![CDATA[Check if the message passes the message validation as set in the Validation Settings]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Message") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,process.Validation) 
+ if (tStatus'=$$$OK){ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, $SYSTEM.Status.GetOneErrorText(tStatus)) }
+ else { $$$TRACE("Passed Validation Check"_process.Validation) }
+]]]]><![CDATA[>
+</code>
+<transform name='TransformMuseToCSV' class='IHC.ITF.Transform.Dtl.MuseBillingHl7ToBillingDelim' source='request' target='context.outCSV' xpos='200' ypos='850' />
+<foreach name='LoopThroughTargetConfig' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='950' xend='200' yend='350' >
+<code name='Send  csv to targets' xpos='200' ypos='250' >
+<![CDATA[    	 set tRequest = ##class(Ens.StreamContainer).%New("")	
+	 set tStream = ##class(%Stream.GlobalCharacter).%New("")	 
+         set tIOStream = ##class(%IO.MetaCharacterStream).%New(tStream)
+         set tCsv = ##class(IHC.ITF.BILLING.DStruc.MuseBillingCsv).PutObject(tIOStream, context.outCSV,1)
+    	 do tStream.WriteLine(tCsv)
+         set tRequest.Stream = tStream	 
+		 set tStatus = process.SendRequestSync(context.targetList.GetAt(context.targetConfigIndex),tRequest)
+	]]]]><![CDATA[>
+</code>
+</foreach>
+<code name='RESETERROR' xpos='200' ypos='1050' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1150' xend='200' yend='350' >
+<code name='Unhandeled Exception' xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE("In catchall")
+ 		   
+ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
