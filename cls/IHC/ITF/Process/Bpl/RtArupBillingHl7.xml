@@ -17,23 +17,28 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
 <context>
-<property name='targetOperation' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='pid181' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='targetConfigNm' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetOperation' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1650' >
-<scope xpos='200' ypos='250' xend='200' yend='1550' >
+<sequence xend='200' yend='1550' >
+<scope xpos='200' ypos='250' xend='200' yend='1450' >
 <trace name='1. Incoming Message' value=' "1. Incoming Message:: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
-<if name='BHS - end of batch Record' condition='request.GetValueAt("MSH:5.1") &apos;= "END"' xpos='200' ypos='450' xend='200' yend='900' >
+<if name='BHS - end of batch Record' condition='request.GetValueAt("MSH:5.1") &apos;= "END"' xpos='200' ypos='450' xend='200' yend='1000' >
 <true>
 <code name='3. Initialize Portal Settings ' xpos='470' ypos='600' >
 <annotation><![CDATA[Check/Initialize for Management Portal Settings]]]]><![CDATA[></annotation>
@@ -49,62 +54,61 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<code name='4. Lookup Target Operation' xpos='470' ypos='700' >
-<![CDATA[   
-   //Check the PID-18.1 to determine the route to the target operation (Cerner or iSeries/ARM)
-   //set context.pid181 = ""
-   set context.targetOperation= ""
-  
+<code name='4. Target Config Name' xpos='470' ypos='700' >
+<![CDATA[
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+ }else{
+        set context.targetConfigNm = configValue
+        $$$TRACE("TargetConfigNames: " _context.targetConfigNm)
+ }]]]]><![CDATA[>
+</code>
+<code name='5. Check PID' xpos='470' ypos='800' >
+<![CDATA[  
    set context.pid181 = request.GetValueAt("PID:18.1")
-   $$$TRACE("4.  context.pid181 value:  " _context.pid181)
-   //If PID-18.1 has more than than 9 characters, route to the Cerner outbound operation
-   if (context.pid181'="")
+   $$$TRACE("PID-18.1 value:  " _context.pid181)
+   
+   set pid31 = request.GetValueAt("PID:3.1")
+   $$$TRACE("PID-3.1 value:  " _pid31)
+   
+   if (pid31="" && context.pid181="")
    {
-       if ($LENGTH(context.pid181) > 9)
-       {
-           set context.targetOperation="Arup-Billing-Hl7_Cern"
-           $$$TRACE("4.1  context.targetOperation for Cerner:  " _context.targetOperation)
-       }
-       else
-       {
-           set context.targetOperation = "Out-Arup-Billing-BRIDGE-Ens-TO-EgBilling-ISERIES"
-           $$$TRACE("4.2  context.targetOperation for iSeria/AORLL:  " _context.targetOperation)
-       }
+       $$$TRACE("Neither Patient ID in PID-3.1 nor Patient account number in PID-18.1. Error out the record and send it to source system to fix.")
+       set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Invaid record with no PID-3.1 and no PID-18.1. Skip and send it to Arup fir fix.") 
    }
    else
    {
-       $$$TRACE("4.3 The PID-18.1 account number is Null or empty. Skip the record with invalid data.")
-       set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The PID-18.1 account number is Null or empty. Skip the record with invalid data.") 
+    set context.targetOperation = context.targetConfigNm
    }]]]]><![CDATA[>
 </code>
-<trace name='5. Trace Target Operation' value='"5. Target Operation is "_context.targetOperation' xpos='470' ypos='800' />
-</true>
-<false>
-<code name='set taget to ISERIES' xpos='200' ypos='600' >
-<![CDATA[ // Send batch END record      
-           set context.targetOperation = "Out-Arup-Billing-BRIDGE-Ens-TO-EgBilling-ISERIES"
-           $$$TRACE("BHS  context.targetOperation   " _context.targetOperation)
- ]]]]><![CDATA[>
-</code>
-</false>
-</if>
-<call name='6. Call Target Config Names' target='@context.targetOperation' async='1' xpos='200' ypos='1000' >
+<call name='target.callrequest' target='@context.targetOperation' async='1' xpos='470' ypos='900' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
 </call>
-<trace name='Trace' value='"Passed No. 6"' xpos='200' ypos='1100' >
-<annotation><![CDATA["Passed No. 6"]]]]><![CDATA[></annotation>
-</trace>
-<code name='7. Reset Error Count' xpos='200' ypos='1200' >
+</true>
+<false>
+<code name='2. Suppress the "END" record' xpos='200' ypos='600' >
+<![CDATA[  // Skip this batch END record used to be for iSeries/AS400 route. (AIKB-4967 / RITM0150592)       
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError($CLASSNAME(),"Suppress the iSeries batch END record from being sent to Cerner.  Just skip it.") 
+
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='7. Reset Error Count' xpos='200' ypos='1100' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
-<trace value='"After reset errors"' xpos='200' ypos='1300' >
+<trace name='8. After reset errors' value='"After reset errors"' xpos='200' ypos='1200' >
 <annotation><![CDATA["After reset errors"]]]]><![CDATA[></annotation>
 </trace>
 <faulthandlers>
-<catchall xpos='200' ypos='1400' xend='200' yend='350' >
+<catchall xpos='200' ypos='1300' xend='200' yend='350' >
 <code xpos='200' ypos='250' >
 <![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
 </code>
