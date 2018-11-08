@@ -144,8 +144,10 @@ BPL Definition</Description>
 
 <code name='getIhcEmpiNum' xpos='200' ypos='650' >
 <![CDATA[  
-     Set context.ihcEmpiNum = request.GetValueAt("PID:2.1")  
-     Set context.isIhcMrnExists = "Y"
+     Set context.ihcEmpiNum = request.GetValueAt("PID:2.1") 
+     if ($L(context.ihcEmpiNum) > 0){ 
+      Set context.isIhcMrnExists = "Y"
+     }
  ]]]]><![CDATA[>
 </code>
 
@@ -194,7 +196,7 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-   <trace name='A28AndNoIhcMrn' value=' " Msg Type A28. No Ihc Mrn. Calling Main_Enc cdr tuxedo service"' xpos='470' ypos='1300' />
+   <trace name='A28AndNoIhcMrn' value=' " Msg Type A28. No Ihc Mrn. Calling Main_Enc cdr tuxedo service. New ADD to CDR."' xpos='470' ypos='1300' />
    <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrPatientMrn' source='request' target='responseEmpi' xpos='470' ypos='1200' >
 <annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format with IHC empi#/mrn]]]]><![CDATA[></annotation>
 </transform>
@@ -272,6 +274,7 @@ BPL Definition</Description>
 </transform>
 <code name='CallHl7MmiAddForGuarantor' xpos='1145' ypos='2350' >
 <![CDATA[  
+
         // Call MMI Add - Tuxedo Operation, Build the request   
         set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
    set mmiAddRequest.hl7Msg = responseGuar   
@@ -373,12 +376,14 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1145' ypos='3150' />
+<trace name='InsuranceSubscriberMrnNotExists' value='"No Insurance Subscriber MRN#. Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1145' ypos='3150' />
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToCdrInsSubsMrn' source='request' target='responseSubs' xpos='1145' ypos='3250' >
 <annotation><![CDATA[translates A04/A03s from American Well into CDR Hl7 format for the Insurance Subscriber.]]]]><![CDATA[></annotation>
 </transform>
-<code name='CallHl7MmiAddForGuarantor' xpos='1145' ypos='3350' >
+<code name='CallHl7MmiAddForInsSubscriber' xpos='1145' ypos='3350' >
 <![CDATA[  
+   if (request.GetValueAt("IN1(1)") '="") { 
+         $$$TRACE(" Insurance segment exists.. ")
         // Call MMI Add - Tuxedo Operation, Build the request   
         set mmiAddRequest=##class(IHC.ITF.ITFCOMMON.Request.Hl7AddUpdateMmiStructure).%New()
    set mmiAddRequest.hl7Msg = responseSubs   
@@ -409,7 +414,10 @@ BPL Definition</Description>
 			$$$TRACE("FAILED!!!..NACK received from MMIAddUpdate. "_cdrResponse.StringValue)  	   			 
 	     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " NACK Response from CDR. Failed to update the CDR. Invalid Data. Please check Tuxedo logs table for the details. Response: "_cdrResponse.StringValue)
 		} 	   
-	   }   
+	   } 
+   } else{
+	   $$$TRACE(" Insurance segment NOT exists.. ")	   
+	 } 
     ]]]]><![CDATA[>
 </code>
 </false>
@@ -653,16 +661,20 @@ BPL Definition</Description>
    set getPatNameRequest.mmiNumber = context.PatientEmpi   
    $$$TRACE(" Target Operation GetPatName: " _ process.TargetOperationCdrGetPatName)
    set tStatus=process.SendRequestSync(process.TargetOperationCdrGetPatName,getPatNameRequest,.cdrGetPatNameResponse)   
+   $$$TRACE(" After the call.. " )
     if (tStatus = $$$OK){
 	  $$$TRACE(" cdrGetPatNameResponse: " _ cdrGetPatNameResponse.StringValue)   
 	  set patNameList = $LISTFROMSTRING(cdrGetPatNameResponse.StringValue, ",")
       $$$TRACE("CDR Pat Name List count::"_$LISTLENGTH(patNameList))   
       set patNameListLength = $LISTLENGTH(patNameList)
+      $$$TRACE("CDR Pat Name1 ::"_$LIST(patNameList,1))
 	  Do context.updatedResponse.SetValueAt($LIST(patNameList,1), "PID:PatientName(1).familyname.surname") 
 	  IF patNameListLength=2{
+		  $$$TRACE("CDR Pat Name2 ::"_$LIST(patNameList,2))
 		  Do context.updatedResponse.SetValueAt($LIST(patNameList,2), "PID:PatientName(1).givenname") 
 	  }
 	  IF patNameListLength=3{
+		  $$$TRACE("CDR Pat Name3 ::"_$LIST(patNameList,3))   
 		  Do context.updatedResponse.SetValueAt($LIST(patNameList,3), "PID:PatientName(1).secondandfurthergivennamesor") 
 	  }
     }    
@@ -762,7 +774,6 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-
 <if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='5300' xend='470' yend='5650' >
 <true>
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='5450' xend='200' yend='350' >
