@@ -14,12 +14,14 @@
 <Method name="GetPurgeSet">
 <Description>
 Call this method to clean all the chidren tables referenced by this</Description>
-<FormalSpec><![CDATA[&pSet,schema:%String,tbl:%String,rowID:%Integer]]></FormalSpec>
+<FormalSpec><![CDATA[&pSet,schema:%String,tbl:%String,rowID:%Integer,allRows:%Boolean=0]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	Set SQLCODE=0, tSC=$$$OK
-	Write !, "GetPurgeSet: Recursion # " _ ..tblNum _ " / Table: " _ tbl
+	Write !, "GetPurgeSet: Recursion # " _ ..tblNum _ " / Table: " _ tbl _ ", All: " _ allRows
 	set ..tblNum =  ..tblNum + 1
+	set origSchema = schema
+	set origTbl = tbl
 	// Get columns in the table
 	IF (..GetDataSet(.pDtSet, schema , tbl , rowID ) > 0)
 	{
@@ -91,14 +93,14 @@ Call this method to clean all the chidren tables referenced by this</Description
 	  			      		set id =  $ZStrip(extract,"<>WC")
 	  			      		
 	  			      		// Call self on this table for each ID
-				      		Do ..GetPurgeSet(.pSet, schema, tblNm, id)
+				      		Do ..GetPurgeSet(.pSet, schema, tblNm, id, allRows)
 				      		SET countup=countup+1
 				    	}
 				    }
 				    Else 
 				    {		
 				    	// Call self on this table	   
-					    Do ..GetPurgeSet(.pSet, schema, tblNm, tblNmId)
+					    Do ..GetPurgeSet(.pSet, schema, tblNm, tblNmId, allRows)
 				    }
 		 	 		
 		 	 		set leafTbl = 0
@@ -114,7 +116,14 @@ Call this method to clean all the chidren tables referenced by this</Description
  set ..tblNum = ..tblNum - 1
  if ($DATA(pDtSet(tbl _ "ID")) '= 0)
  {
- 	DO ..PurgeData(schema, tbl, $GET(pDtSet(tbl _ "ID")))
+	 if (tbl = origTbl)
+	 {
+		 DO ..PurgeData(origSchema, origTbl, $GET(pDtSet(origTbl _ "ID")), allRows)
+	 }
+	 else
+	 {
+ 		DO ..PurgeData(schema, tbl, $GET(pDtSet(tbl _ "ID")), allRows)
+	 }
 
  	if leafTbl = 1
  	{
@@ -182,20 +191,52 @@ Call this method to clean all the chidren tables referenced by this</Description
 
 <Method name="PurgeData">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>schema:%String,tbl:%String,rId:%String</FormalSpec>
+<FormalSpec>schema:%String,tbl:%String,rId:%String,allRows:%Boolean</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-   
-  	SET myquery = "DELETE FROM " _ schema _ "." _ tbl _ " where ID = ?"
-  	Write !, "* PurgeData: SQL: " _ myquery _ " / " _ rId
+   if (allRows = 1)
+   {
+		SET myquery = "DELETE %NOLOCK FROM " _ schema _ "." _ tbl _ " where ID < ?"
+   }
+   else
+   {
+  		SET myquery = "DELETE FROM " _ schema _ "." _ tbl _ " where ID = ?"
+   }
+  	Write !, $NAMESPACE _ ", * PurgeData: SQL: " _ myquery _ " / " _ rId _ ", All: " _ allRows
+  	
   	SET tStatement = ##class(%SQL.Statement).%New()
 	set qStatus = tStatement.%Prepare(myquery)
 	IF qStatus'=1 {WRITE !, "SQL %Prepare failed:" DO $System.Status.DisplayError(qStatus) QUIT}
-	// set rset = tStatement.%Execute(rId)
-	// Write !, "Execute Delete: " _ rset.%SQLCODE
-	// IF rset.%SQLCODE=0 { QUIT $$$OK }
-	// return $$$ERROR(rset.%SQLCODE _" " _ rset.%Message)
+	set rset = tStatement.%Execute(rId)
+	Write !, "Execute Delete: " _ rset.%SQLCODE
+	IF rset.%SQLCODE=0 { QUIT $$$OK }
+	return $$$ERROR(rset.%SQLCODE _" " _ rset.%Message)
+	
 	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="PurgeEnterprisePersonService">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>rowID:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ SET $NAMESPACE = "DEMOGRAPHICS"
+ set numCls = 0
+
+ set purgeObj = ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).%New()
+ Do purgeObj.GetPurgeSet(.pSet, "IHC_ITF_Request", "insertUpdatePersonRequest", rowID, 1)
+ // Do purgeObj.GetPurgeSet(.pSet, "IHC_ITF_Response", "insertUpdatePersonResponse", rowID, 1)
+ 
+  set num =1
+    SET key=$ORDER(pSet(""))
+   WHILE (key'="") {
+     WRITE !, num _ ". " _ key _ ": " _ $G(pSet(key))
+     // Get next subscript 
+     SET key = $ORDER(pSet(key))
+     set num = num +1
+   }
+ QUIT $$$OK
 ]]></Implementation>
 </Method>
 </Class>
