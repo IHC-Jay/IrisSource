@@ -52,6 +52,7 @@ BPL Definition</Description>
 </property>
 <property name='isInterHospitalBilling' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='TelcorRequest' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='interhospitalRecord' type='EnsLib.HL7.Message' instantiate='0' />
 </context>
 <sequence xend='200' yend='3150' >
 <scope xpos='200' ypos='250' xend='200' yend='3050' >
@@ -270,21 +271,21 @@ BPL Definition</Description>
          set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, tmpErroMsg)  
        }]]]]><![CDATA[>
 </code>
-<code name='IsInterhospitalBilling' xpos='1010' ypos='2000' >
-<![CDATA[   if (((request.GetValueAt("MSH:ReceivingFacility") = "670") || (request.GetValueAt("MSH:ReceivingFacility")= "652")) && ((request.GetValueAt("FT1(1):Feeschedule")= "IM"))){
+<trace name='Call Transformatiom' value='"Call Transformation"' xpos='1010' ypos='2000' />
+<transform name='Call Telcor Transform' class='IHC.ITF.Transform.Dtl.SunquestBillingHl7ToTelcorHl7' source='request' target='context.telcorResponse' xpos='1010' ypos='2100' />
+<code name='IsInterhospitalBilling' xpos='1010' ypos='2200' >
+<![CDATA[   if (((context.telcorResponse.GetValueAt("MSH:ReceivingFacility") = "SLC") || (context.telcorResponse.GetValueAt("FT1grp(1).FT1:PerformedByCode.IDnumberST")= "CRL"))){
     set context.isInterHospitalBilling = 1
   
   }
   
    $$$TRACE("isInterHospitalBilling Value is : "_context.isInterHospitalBilling )
-    $$$TRACE("MSH:ReceivingFacility Value is : "_request.GetValueAt("MSH:ReceivingFacility"))
-    $$$TRACE("FT1(1):Feeschedule Value is : "_request.GetValueAt("FT1(1):Feeschedule"))
+    $$$TRACE("MSH:ReceivingFacility Value is : "_context.telcorResponse.GetValueAt("MSH:ReceivingFacility"))
+    $$$TRACE("FT1-20.1 Value is : "_context.telcorResponse.GetValueAt("FT1grp(1).FT1:PerformedByCode.IDnumberST"))
     
 
     ]]]]><![CDATA[>
 </code>
-<trace name='Call Transformatiom' value='"Call Transformation"' xpos='1010' ypos='2100' />
-<transform name='Call Telcor Transform' class='IHC.ITF.Transform.Dtl.SunquestBillingHl7ToTelcorHl7' source='request' target='context.telcorResponse' xpos='1010' ypos='2200' />
 <trace name='TranformedValue' value='"tranformed Value"_context.telcorResponse.OutputToString()' xpos='1010' ypos='2300' />
 <code name='To Store the Transformed Telcor Dtl' xpos='1010' ypos='2400' >
 <![CDATA[  //Create a messgae from the transformed  value
@@ -308,7 +309,39 @@ BPL Definition</Description>
    
    
     
-  ]]]]><![CDATA[>
+  if context.isInterHospitalBilling = 1
+  {
+  
+     set interhospitalRecord  = ##class(EnsLib.HL7.Message).ImportFromString(context.telcorResponse.OutputToString())
+  set interhospitalRecord.DocType="2.3:DFT_P03"
+  
+  do interhospitalRecord.SetValueAt("","FT1grp(1).FT1:ProcedureCode")
+  do interhospitalRecord.SetValueAt("CRL-SLC","PV1:AssignedPatientLocation.pointofcareID")
+  do interhospitalRecord.SetValueAt("SLC","PV1:VisitNumber.assigningauthority")
+  do interhospitalRecord.SetValueAt("Client","PV1:FinancialClass(1).FinancialClass")
+  do interhospitalRecord.SetValueAt("CRL-SLC","PV1:ServicingFacility")
+  do interhospitalRecord.SetValueAt("CL","FT1grp(1).FT1:DepartmentCode.nameofcodingsystem")
+  do interhospitalRecord.SetValueAt("CRL-SLC","FT1grp(1).FT1:AssignedPatientLocation.pointofcareID")
+  do interhospitalRecord.SetValueAt("","FT1grp(1).FT1:FillerOrderNumber.entityidentifier")
+  
+  //Save the message
+  do interhospitalRecord.%Save()
+  $$$TRACE("Interhospital Billing Record : "_interhospitalRecord.OutputToString())
+  
+   $$$TRACE("Add Fac to Class")
+   //Check and see if this is the first message in the file
+  set isExist=$DATA(^IHC.Sunquest.TelcorKey("Key")) 
+  $$$TRACE("isExist:"_isExist) 
+   if 'isExist{
+     set ^IHC.Sunquest.TelcorKey("Key") = $ZDATETIME($ZTIMESTAMP,3,1,6)  
+  } 
+  $$$TRACE("SunquestToTelcor:>>"_$g(^IHC.Sunquest.TelcorKey("Key")))
+  
+   set key=$g(^IHC.Sunquest.TelcorKey("Key"))   
+   
+   set ^IHC.Sunquest.DtlTelcorIds(key,interhospitalRecord.%Id())=interhospitalRecord.%Id()       
+   
+  }]]]]><![CDATA[>
 </code>
 <code name='Reset the Error' xpos='1010' ypos='2500' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
