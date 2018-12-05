@@ -43,8 +43,8 @@ BPL Definition</Description>
 </property>
 <property name='msg' type='EnsLib.HL7.Message' instantiate='0' />
 </context>
-<sequence xend='200' yend='1850' >
-<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
 <trace name='Debug ' value='"Enter BPL..."' xpos='200' ypos='350' />
 <trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
 <code name='validateMsgStructure' xpos='200' ypos='550' >
@@ -71,14 +71,16 @@ BPL Definition</Description>
       $$$TRACE("Trigger Event: " _ context.msgType) 
      set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToRdm.Lookup.AdtEventsFilterIn", context.msgType, .retVal )
      set context.isFilterInEvent = retVal
-     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+     if ($$$ISERR(retStat)) {
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "Unable to read lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToRdm.Lookup.AdtEventsFilterIn, shutting down.")
+     } elseif ((retVal = "Unknown") || (retVal ="")) {       
        $$$TRACE("Unable to get Filter Out event map value from the lookup table. Getting the default value.")
        set context.isFilterInEvent = 0
-    } else {
+     } else {
 	   $$$TRACE("Value of Adt Event Filter In from the lookup table :" _ context.isFilterInEvent)
-    }]]]]><![CDATA[>
+     }]]]]><![CDATA[>
 </code>
-<if name='checkMessageTriggerEvent' condition='context.isFilterInEvent' xpos='200' ypos='750' xend='200' yend='1500' >
+<if name='checkMessageTriggerEvent' condition='context.isFilterInEvent' xpos='200' ypos='750' xend='200' yend='1600' >
 <true>
 <code name='validateEmpiNumber' xpos='470' ypos='900' >
 <![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
@@ -90,22 +92,40 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToRdm' source='request' target='response' xpos='470' ypos='1000' />
-<code name='getTargetConfigList' xpos='470' ypos='1100' >
+<code name='validate and filter Sending Facility' xpos='470' ypos='1000' >
+<![CDATA[ $$$TRACE("Validate Sending Facility...") 
+ set context.facilityId=request.GetValueAt("MSH:SendingFacility.namespaceID")
+ $$$TRACE("Facility ID: " _ context.facilityId) 
+ if ($ISVALIDNUM(context.facilityId)'="1"){	  
+	  $$$TRACE("FacilityId is NOT a number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facilityId, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record.")	  	  
+ }
+ 
+ set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToRdm.Lookup.RdmFacilityFilterIn", context.facilityId, .retVal )
+  set context.isAgfaFacility = retVal
+  if ($$$ISERR(retStat)) {
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "Unable to read lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToRdm.Lookup.RdmFacilityFilterIn, shutting down.")
+  } elseif ((retVal = "Unknown") || (retVal ="")) {       
+     $$$TRACE("Unable to get Filter Out event map value from the lookup table. Skipping record.")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Unable to find facility in lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToRdm.Lookup.RdmFacilityFilterIn, skipping record.")
+  }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToRdm' source='request' target='response' xpos='470' ypos='1100' />
+<code name='getTargetConfigList' xpos='470' ypos='1200' >
 <![CDATA[  
  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
  ]]]]><![CDATA[>
 </code>
-<trace name='Send message' value='"Send message to targets"' xpos='470' ypos='1200' />
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1300' xend='200' yend='350' >
+<trace name='Send message' value='"Send message to targets"' xpos='470' ypos='1300' />
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1400' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='1400' >
+<code name='RESETERROR' xpos='470' ypos='1500' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 
 ]]]]><![CDATA[>
@@ -120,7 +140,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
