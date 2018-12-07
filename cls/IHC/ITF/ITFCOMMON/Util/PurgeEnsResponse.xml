@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Util.PurgeEnsResponse">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64988,57957.309981</TimeCreated>
+
+<Method name="PurgeEnsResponseTask">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ SET $NAMESPACE = nmSp
+
+  Write !, $NAMESPACE _ "- PurgeEnsResponseTask"
+  
+  set getMinVal = "SELECT MIN (MessageBodyId) as minVal FROM Ens.MessageHeader where MessageBodyClassName = ?" 
+  SET tStatement2 = ##class(%SQL.Statement).%New()
+  SET qStatus = tStatement2.%Prepare(getMinVal)
+  IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
+
+  set getRespMinVal = "SELECT MIN (ID) as minRespVal FROM Ens.Response where x__classname = ?" 
+  SET tStatementResp = ##class(%SQL.Statement).%New()
+  SET qStatus = tStatementResp.%Prepare(getRespMinVal)
+  IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
+
+ 
+ try {
+
+		 SET myquery = " SELECT distinct x__classname as origClsNm, substring(x__classname, CHARINDEX('~IHC', x__classname) +1, LEN(x__classname) -2) as clsNm FROM Ens.Response where x__classname like '%IHC%'"
+		 // WRITE !, myquery
+		 SET tStatement = ##class(%SQL.Statement).%New()
+		 // Write !, "Prepare query"
+		 SET qStatus = tStatement.%Prepare(myquery)
+		 IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
+		 
+
+		 set rset = tStatement.%Execute()
+		 // WRITE !, "Execute: " _ rset.%SQLCODE 
+		 While (rset.%Next()) {
+			 WRITE !, "# " _ rset.%ROWCOUNT
+			 set nm = $ZSTRIP(rset.%Get("clsNm"), "*", "~")
+		     
+		    // FIND LAST . and get last part as table, replace . with _ in first part to get schema
+	 		SET lastPos=$LENGTH(nm)+2-$FIND($REVERSE(nm),".")
+			set tblNm = $EXTRACT(nm, lastPos+1, *)
+			set schema = $REPLACE($EXTRACT(nm, 1, lastPos-1), ".", "_")
+			set origClsNm = rset.%Get("origClsNm")
+			 Write " --- " _ nm _ "- " _ schema _"." _ tblNm _ ", orig name: " _ origClsNm
+		     // ----
+		     		set rsetResp = tStatementResp.%Execute(origClsNm)
+					 // WRITE !, "Execute: " _ rsetResp.%SQLCODE 
+					 While (rsetResp.%Next()) {
+						 set minRespVal = rsetResp.%Get("minRespVal")
+					     Write " minRespVal: " _ minRespVal
+					 }
+					 
+		     		 set rset2 = tStatement2.%Execute(nm)
+					 // WRITE !, "Execute: " _ rset2.%SQLCODE 
+					 While (rset2.%Next()) {
+						 set minVal = rset2.%Get("minVal")
+					     Write " minVal: " _ minVal
+					 }
+					 
+					 Do ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).PurgeTask($NAMESPACE, schema, tblNm, minVal)
+					 
+					  set delRespTable = "DELETE FROM Ens.Response where x__classname = '" _ origClsNm _ "' and ID < " _  minRespVal
+					  SET tStatement3 = ##class(%SQL.Statement).%New()
+					  SET qStatus = tStatement3.%Prepare(delRespTable)
+					  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delRespTable DO $System.Status.DisplayError(qStatus) QUIT}
+					  set rset3 = tStatement3.%Execute()
+					  WRITE !, "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delRespTable _ ", Count: " _ rset3.%ROWCOUNT
+
+		     // ----
+		 }
+		 					 
+
+	  Write !, " ------ " 
+
+ } catch err
+ {
+	 WRITE !, "Exception: " _ err
+ }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
