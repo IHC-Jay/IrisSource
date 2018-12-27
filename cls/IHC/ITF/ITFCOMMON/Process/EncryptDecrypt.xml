@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Process.EncryptDecrypt">
+<Description>
+A generic process to encrypt or decrypt data.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64978,36446.181485</TimeCreated>
+
+<Property name="isEncrypter">
+<Description>
+Enable to encrypt files, disable to decrypt them</Description>
+<Type>%Boolean</Type>
+</Property>
+
+<Property name="WorkingDirectory">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="PassPhraseFile">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="EncryptKey">
+<Description>
+The key (recipient) for encryption operations; decryptions do not use this value</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>WorkingDirectory:Additional, isEncrypter:Additional, EncryptKey:Additional, PassPhraseFile:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>EncryptDecryptDefaultData</DefaultData>
+<Data name="EncryptDecryptDefaultData">
+<Subscript>"EncryptDecrypt"</Subscript>
+<Value name="1">
+<Value>WorkingDirectory</Value>
+</Value>
+<Value name="2">
+<Value>PassPhraseFile</Value>
+</Value>
+<Value name="3">
+<Value>isEncrypter</Value>
+</Value>
+<Value name="4">
+<Value>Recipient</Value>
+</Value>
+<Value name="5">
+<Value>EncryptKey</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.StreamContainer' height='3550' width='2000' >
+<context>
+<property name='passPhraseFile' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='tFilename' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='isEncrypter' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='cryptoRequest' type='IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoRequest' instantiate='0' />
+<property name='cryptoResponse' type='IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoResponse' instantiate='0' />
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='flCnt' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='encryptKey' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='tPath' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='500' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<code name='Check Deploy Code' xpos='200' ypos='450' >
+<annotation><![CDATA[Check reply code actions code]]]]><![CDATA[></annotation>
+<![CDATA[  $$$TRACE("Checking Deploy Code")
+  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ $$$TRACE("ReplyCodeActions found: " _ configValue)
+ 
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"WorkingDirectory",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, WorkingDirectory not found or set")
+ }
+ set context.tPath = configValue
+  $$$TRACE("Configured Working Directory: "_configValue)
+ 
+ If (' ##class(%File).DirectoryExists(context.tPath))
+ {
+  $$$TRACE("Create directory: " _ context.tPath + "/")
+  Set tSC= ##class(%File).CreateDirectoryChain(context.tPath + "/")
+  $$$TRACE(context.tPath + "/" _ " created.")
+  if $$$ISERR(tSC)
+  {
+      Set status = $$$ERROR("Initialization error, Can not create directory: " _ context.tPath _ "/")
+  }
+ }
+ 
+  // Are we encrypting or not?
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"isEncrypter",.configValue)
+
+ set context.isEncrypter = configValue
+ 
+ 
+ ]]]]><![CDATA[>
+</code>
+<code name='Save the input file' xpos='200' ypos='550' >
+<![CDATA[   $$$TRACE("Original file name from request:" _ request.OriginalFilename)
+   Set tSC=request.%Save()
+   
+   Set context.tFilename = ##Class(%File).GetFilename(request.OriginalFilename)
+     
+   Set tStream=##class(%FileBinaryStream).%New()
+   $$$TRACE("Set parameters name:" _ context.tFilename _ ", path:" _ context.tPath)
+   Do tStream.LinkToFile(context.tPath _ context.tFilename)
+
+   Do request.Stream.Rewind()
+   
+   Set tSC=tStream.CopyFrom(request.Stream)
+   $$$TRACE("Copy stream " _ tSC) 
+   
+   Do tStream.Flush()
+   
+   Set tSC=tStream.%Save()
+   $$$TRACE("Save stream " _ tSC)
+			
+   if ($$$ISERR(tSC))
+   {
+     Set status = $$$ERROR("File error: " _ request.OriginalFilename _", error: " _ tSC)
+   }
+   $$$TRACE("Saved the file stream to "_ context.tFilename _ " in "_ context.tPath)
+ 
+]]]]><![CDATA[>
+</code>
+<code name='Instantiate Operation' xpos='200' ypos='650' >
+<![CDATA[ set context.cryptoRequest = ##class(IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoRequest).%New()
+ 
+ set context.cryptoRequest.SrcFileName = context.tPath _ context.tFilename
+ $$$TRACE("Request Source File name is "_context.tPath _ context.tFilename)]]]]><![CDATA[>
+</code>
+<if name='If Encrypting' condition='context.isEncrypter' xpos='200' ypos='750' xend='200' yend='1100' >
+<true>
+<trace name='Encrypt Operation' value='"Setting operation to encrypt."' xpos='470' ypos='900' />
+<code name='Set Operation to Encrypt' xpos='470' ypos='1000' >
+<![CDATA[ set context.cryptoRequest.Operation = "Encrypt"
+ $$$TRACE("This is an encryption process.")
+  
+ // Get the Encryption Key
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"EncryptKey",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, Encryption Key (recipient) not found or set")
+ }
+ set context.encryptKey = configValue
+ $$$TRACE("Encryption Key (recipient): "_configValue) 
+  
+   set context.cryptoRequest.EncryptKey = context.encryptKey
+   
+ //Append a ".gpg" to the end of the filename
+ set context.cryptoRequest.DestFileName = context.tFilename _ ".gpg"
+ $$$TRACE("Destination file name is "_context.cryptoRequest.DestFileName)
+ 
+
+ 
+ $$$TRACE("Encryption Key is "_context.encryptKey)
+ 
+ $$$TRACE("Ready to call Encrypt Operation: " _ context.tPath _ "/"_context.tFilename _ ", Output: " _ context.cryptoRequest.DestFileName)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='Decrypt Operation' value='"Setting operation to decrypt."' xpos='200' ypos='900' />
+<code name='Set Operation to Decrypt' xpos='200' ypos='1000' >
+<![CDATA[	set context.cryptoRequest.Operation = "Decrypt"
+	 $$$TRACE("This is a decryption process.")
+	
+	//Remove the ".gpg" file extension
+	
+	set context.cryptoRequest.DestFileName = $P(context.tFilename, ".gpg", 1)
+	
+	 // PassPhraseFile
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"PassPhraseFile",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, PassPhraseFile not found or set")
+ }
+ set context.passPhraseFile = configValue
+ $$$TRACE("PassPhrase file:"_configValue)
+	
+		$$$TRACE("Ready to call Decrypt Operation: " _ context.tPath _ context.tFilename _ ", Output: " _ context.cryptoRequest.DestFileName)]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<if name='if inbound file exists' condition='##class(%File).Exists(context.tPath _ context.tFilename)' xpos='200' ypos='1200' xend='200' yend='1850' >
+<true>
+<trace name='Inbound file exists' value='"Inbound file " _ context.tPath _ context.tFilename _ " exists."' xpos='470' ypos='1350' />
+<code name='Prepare Operation' xpos='470' ypos='1450' >
+<![CDATA[ set context.cryptoRequest.SrcFileName = context.tPath _ context.tFilename
+	$$$TRACE("Request Source File name is "_context.tPath _ context.tFilename)
+	
+	set context.cryptoRequest.PassphraseFileName = context.passPhraseFile
+	
+	$$$TRACE("Passphrase file is "_context.passPhraseFile)
+]]]]><![CDATA[>
+</code>
+<call name='Call Operation' target='Op-EncryptDecrypt' async='0' xpos='470' ypos='1550' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.cryptoRequest" action="set" />
+</request>
+<response type='Ens.Response' >
+<assign property="context.cryptoResponse" value="callresponse" action="set" />
+</response>
+</call>
+<code name='Target List' xpos='470' ypos='1650' >
+<![CDATA[    $$$TRACE("Check Targetlist")
+    
+   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Target Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+<foreach name='Send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1750' xend='200' yend='350' >
+<code name='Send to Target' xpos='200' ypos='250' >
+<![CDATA[      try {
+        $$$TRACE("Create Ens.StreamContainer with file stream: " _ context.cryptoResponse.FileStream)
+        set opReq = ##class(Ens.StreamContainer).%New(context.cryptoResponse.FileStream)
+	set opReq.OriginalFilename = context.cryptoResponse.DestFileName
+
+         $$$TRACE("Call : " _ context.targetList.GetAt(1))
+         set opStatus = process.SendRequestSync(context.targetList.GetAt(1), opReq, response)
+      }  catch
+      {
+          set status = $$$ERROR("Exception in send Request to " _ context.targetList.GetAt(1))
+      }
+      if ($$$ISOK(opStatus)) 
+      { 
+       $$$TRACE("Successfully sent the filestream for " _ context.cryptoResponse.DestFileName _ " to " _ context.targetList.GetAt(1))
+      }
+      else
+      {
+         set status = $$$ERROR("Could not send the filestream for " _ context.cryptoResponse.DestFileName _ " to " _ context.targetList.GetAt(1))
+      }]]]]><![CDATA[>
+</code>
+</foreach>
+</true>
+<false>
+<trace name='Inbound file does not exist' value='"Inbound file " _ context.tPath _ context.tFilename _ " does not exist."' xpos='200' ypos='1350' />
+<code name='File does not exist' xpos='200' ypos='1450' >
+<![CDATA[ Set status = $$$ERROR("Stream error, No File created")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+<trace name='Exit Trace' value='"Exiting Process"' xpos='200' ypos='2200' />
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
