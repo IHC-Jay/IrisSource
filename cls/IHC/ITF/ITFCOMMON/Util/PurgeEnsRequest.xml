@@ -7,100 +7,112 @@
 
 <Method name="PurgeEnsRequestTask">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>nmSp:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- SET $NAMESPACE = nmSp
+  Set tRS = ##class(%ResultSet).%New("%SYS.Namespace:List")
+  Set tSC = tRS.Execute()
+  For {
+            Quit:'tRS.Next()
+            set nmSp = tRS.Get("Nsp")
+            
+            try
+            {
+	          set $NAMESPACE = nmSp
 
-  $$$LOGINFO( $NAMESPACE _ "- PurgeEnsRequestTask")
-  
-  set getMinVal = "SELECT MIN (MessageBodyId) as minVal FROM Ens.MessageHeader where MessageBodyClassName = ?" 
-  SET tStatement2 = ##class(%SQL.Statement).%New()
-  SET qStatus = tStatement2.%Prepare(getMinVal)
-  IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
+			  $$$LOGINFO( $NAMESPACE _ "- PurgeEnsRequestTask")
+			  
+			  set getMinVal = "SELECT MIN (MessageBodyId) as minVal FROM Ens.MessageHeader where MessageBodyClassName = ?" 
+			  SET tStatement2 = ##class(%SQL.Statement).%New()
+			  SET qStatus = tStatement2.%Prepare(getMinVal)
+			  IF qStatus'=1 {$$$LOGERROR( "%Prepare failed: " _ getMinVal) QUIT}
 
-  set getReqMinVal = "SELECT MIN (ID) as minReqVal FROM Ens.Request where x__classname = ?" 
-  SET tStatementReq = ##class(%SQL.Statement).%New()
-  SET qStatus = tStatementReq.%Prepare(getReqMinVal)
-  IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
+			  set getReqMinVal = "SELECT MIN (ID) as minReqVal FROM Ens.Request where x__classname = ?" 
+			  SET tStatementReq = ##class(%SQL.Statement).%New()
+			  SET qStatus = tStatementReq.%Prepare(getReqMinVal)
+			  IF qStatus'=1 {$$$LOGERROR(  "%Prepare failed: " _getReqMinVal) QUIT}
 
- 
- try {
+			 
+			 try {
 
-		 SET myquery = " SELECT distinct x__classname as origClsNm, substring(x__classname, CHARINDEX('~IHC', x__classname) +1, LEN(x__classname) -2) as clsNm FROM Ens.Request where x__classname like '%IHC%'"
-		 // WRITE !, myquery
-		 SET tStatement = ##class(%SQL.Statement).%New()
-		 // Write !, "Prepare query"
-		 SET qStatus = tStatement.%Prepare(myquery)
-		 IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
-		 
-
-		 set rset = tStatement.%Execute()
-		 // WRITE !, "Execute: " _ rset.%SQLCODE 
-		 While (rset.%Next()) {
-			 // WRITE !, "# " _ rset.%ROWCOUNT
-			 set nm = $ZSTRIP(rset.%Get("clsNm"), "*", "~")
-		     
-		    // FIND LAST . and get last part as table, replace . with _ in first part to get schema
-	 		SET lastPos=$LENGTH(nm)+2-$FIND($REVERSE(nm),".")
-			set tblNm = $EXTRACT(nm, lastPos+1, *)
-			set schema = $REPLACE($EXTRACT(nm, 1, lastPos-1), ".", "_")
-			set origClsNm = rset.%Get("origClsNm")
-			 // Write " --- " _ nm _ "- " _ schema _"." _ tblNm _ ", orig name: " _ origClsNm
-		     // ----
-
-					 set rsetReq = tStatementReq.%Execute(origClsNm)
-					 // WRITE !, "Execute: " _ rsetReq.%SQLCODE 
-					 While (rsetReq.%Next()) {
-						 set minReqVal = rsetReq.%Get("minReqVal")
-					     Write ", Min value in Ens.Request for " _ origClsNm _ ": " _ minReqVal
-					 }
+					 SET myquery = " SELECT distinct x__classname as origClsNm, substring(x__classname, CHARINDEX('~IHC', x__classname) +1, LEN(x__classname) -2) as clsNm FROM Ens.Request where x__classname like '%IHC%'"
+					 // WRITE !, myquery
+					 SET tStatement = ##class(%SQL.Statement).%New()
+					 // Write !, "Prepare query"
+					 SET qStatus = tStatement.%Prepare(myquery)
+					 IF qStatus'=1 {$$$LOGERROR( "%Prepare failed: " _ myquery) QUIT}
 					 
-		     		 set rset2 = tStatement2.%Execute(nm)
-					 // WRITE !, "Execute: " _ rset2.%SQLCODE 
-					 While (rset2.%Next()) {
-						 set minVal = rset2.%Get("minVal")
-					     // Write ", Min value in Ens.MessageHeader for " _ nm _ " : " _ minVal
-					 }
-					 $$$LOGINFO("Min value in Ens.MessageHeader for " _ nm _ " : " _ minVal _ ", Min value in Ens.Request for class: " _ origClsNm _ ": " _ minReqVal)
-					 if (($L(minVal) > 0) && (minVal > minReqVal))
-					 {
-						 try {
-						  Do ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).PurgeTask($NAMESPACE, schema, tblNm, minVal)
-						 
-						  set delReqTable = "DELETE FROM Ens.Request where x__classname = '" _ origClsNm _ "' and ID < " _  minVal
-						  SET tStatement3 = ##class(%SQL.Statement).%New()
-						  SET qStatus = tStatement3.%Prepare(delReqTable)
-						  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delReqTable DO $System.Status.DisplayError(qStatus) QUIT}
-						  set rset3 = tStatement3.%Execute()
-						  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delReqTable _ ", Count: " _ rset3.%ROWCOUNT)
-						  } catch err
-						 {
-							 $$$LOGERROR( "Exception in Delete: " _ delReqTable _ ", exception: " _ err)
-						 }
-					 }
-					 elseif ($L(minVal) <= 0)
-					 {
-						  // All rows can be deleted
-						  set delReqTable = "DELETE FROM Ens.Request where x__classname = '" _ origClsNm _ "'"
-						  SET tStatement3 = ##class(%SQL.Statement).%New()
-						  SET qStatus = tStatement3.%Prepare(delReqTable)
-						  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delReqTable DO $System.Status.DisplayError(qStatus) QUIT}
-						  set rset3 = tStatement3.%Execute()
-						  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delReqTable _ ", Count: " _ rset3.%ROWCOUNT)
 
+					 set rset = tStatement.%Execute()
+					 // WRITE !, "Execute: " _ rset.%SQLCODE 
+					 While (rset.%Next()) {
+						 // WRITE !, "# " _ rset.%ROWCOUNT
+						 set nm = $ZSTRIP(rset.%Get("clsNm"), "*", "~")
+					     
+					    // FIND LAST . and get last part as table, replace . with _ in first part to get schema
+				 		SET lastPos=$LENGTH(nm)+2-$FIND($REVERSE(nm),".")
+						set tblNm = $EXTRACT(nm, lastPos+1, *)
+						set schema = $REPLACE($EXTRACT(nm, 1, lastPos-1), ".", "_")
+						set origClsNm = rset.%Get("origClsNm")
+						 // Write " --- " _ nm _ "- " _ schema _"." _ tblNm _ ", orig name: " _ origClsNm
+					     // ----
+
+								 set rsetReq = tStatementReq.%Execute(origClsNm)
+								 // WRITE !, "Execute: " _ rsetReq.%SQLCODE 
+								 While (rsetReq.%Next()) {
+									 set minReqVal = rsetReq.%Get("minReqVal")
+								     // Write ", Min value in Ens.Request for " _ origClsNm _ ": " _ minReqVal
+								 }
+								 
+					     		 set rset2 = tStatement2.%Execute(nm)
+								 // WRITE !, "Execute: " _ rset2.%SQLCODE 
+								 While (rset2.%Next()) {
+									 set minVal = rset2.%Get("minVal")
+								     // Write ", Min value in Ens.MessageHeader for " _ nm _ " : " _ minVal
+								 }
+								 $$$LOGINFO("Min value in Ens.MessageHeader for " _ nm _ " : " _ minVal _ ", Min value in Ens.Request for class: " _ origClsNm _ ": " _ minReqVal)
+								 if (($L(minVal) > 0) && (minVal > minReqVal))
+								 {
+									 try {
+									  Do ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).PurgeTask($NAMESPACE, schema, tblNm, minVal)
+									 
+									  set delReqTable = "DELETE FROM Ens.Request where x__classname = '" _ origClsNm _ "' and ID < " _  minVal
+									  SET tStatement3 = ##class(%SQL.Statement).%New()
+									  SET qStatus = tStatement3.%Prepare(delReqTable)
+									  IF qStatus'=1 {$$$LOGERROR( "DELETE %Prepare failed: " _ delReqTable) DO $System.Status.DisplayError(qStatus) QUIT}
+									  set rset3 = tStatement3.%Execute()
+									  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delReqTable _ ", Count: " _ rset3.%ROWCOUNT)
+									  } catch err
+									 {
+										 $$$LOGERROR( "Exception in Delete: " _ delReqTable _ ", exception: " _ err)
+									 }
+								 }
+								 elseif ($L(minVal) <= 0)
+								 {
+									  // All rows can be deleted
+									  set delReqTable = "DELETE FROM Ens.Request where x__classname = '" _ origClsNm _ "'"
+									  SET tStatement3 = ##class(%SQL.Statement).%New()
+									  SET qStatus = tStatement3.%Prepare(delReqTable)
+									  IF qStatus'=1 {$$$LOGERROR( "DELETE %Prepare failed: " _ delReqTable) DO $System.Status.DisplayError(qStatus) QUIT}
+									  set rset3 = tStatement3.%Execute()
+									  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delReqTable _ ", Count: " _ rset3.%ROWCOUNT)
+
+								 }
+
+
+			 
+					     // ----
 					 }
-
-
- 
-		     // ----
+					 // Write !, " ------ " 
+								 
+			 } catch err
+			 {
+				 $$$LOGERROR( "Exception in running purge: " _ err.Code _ ", " _ err.Location  )
+			 }
+		 } catch err
+		 {
+			 WRITE !,  "Can't run Task in namespace: " _ nmSp _ ", " _ err.Code _ ", " _ err.Location 
 		 }
-		 Write !, " ------ " 
-					 
- } catch err
- {
-	 $$$LOGERROR( "Exception: " _ err)
- }
+  }
  return $$$OK
 ]]></Implementation>
 </Method>
