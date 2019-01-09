@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.ITFCOMMON.Util.PurgeEnsResponse">
+<IncludeCode>Ensemble</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64988,57957.309981</TimeCreated>
 
@@ -11,13 +12,17 @@
 <Implementation><![CDATA[
  SET $NAMESPACE = nmSp
 
-  Write !, $NAMESPACE _ "- PurgeEnsResponseTask"
+  $$$LOGINFO( $NAMESPACE _ "- PurgeEnsResponseTask")
   
-  set getMinVal = "SELECT MIN (MessageBodyId) as minVal FROM Ens.MessageHeader where MessageBodyClassName = ?" 
-  SET tStatement2 = ##class(%SQL.Statement).%New()
-  SET qStatus = tStatement2.%Prepare(getMinVal)
+  Do ..PurgeEmptyEnsResponse()
+  
+  // Get MIN from Header table
+  set getMsgHdrMinVal = "SELECT MIN (MessageBodyId) as msgHdrMinVal FROM Ens.MessageHeader where MessageBodyClassName = ?" 
+  SET msgHdrStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = msgHdrStatement.%Prepare(getMsgHdrMinVal)
   IF qStatus'=1 {WRITE "%Prepare failed:" QUIT}
 
+  // Get MIN from Response table
   set getRespMinVal = "SELECT MIN (ID) as minRespVal FROM Ens.Response where x__classname = ?" 
   SET tStatementResp = ##class(%SQL.Statement).%New()
   SET qStatus = tStatementResp.%Prepare(getRespMinVal)
@@ -25,7 +30,7 @@
 
  
  try {
-
+		 // GET all classnames from Ens.Response
 		 SET myquery = " SELECT distinct x__classname as origClsNm, substring(x__classname, CHARINDEX('~IHC', x__classname) +1, LEN(x__classname) -2) as clsNm FROM Ens.Response where x__classname like '%IHC%'"
 		 // WRITE !, myquery
 		 SET tStatement = ##class(%SQL.Statement).%New()
@@ -37,7 +42,7 @@
 		 set rset = tStatement.%Execute()
 		 // WRITE !, "Execute: " _ rset.%SQLCODE 
 		 While (rset.%Next()) {
-			 WRITE !, "# " _ rset.%ROWCOUNT
+			 // WRITE !, "# " _ rset.%ROWCOUNT
 			 set nm = $ZSTRIP(rset.%Get("clsNm"), "*", "~")
 		     
 		    // FIND LAST . and get last part as table, replace . with _ in first part to get schema
@@ -45,41 +50,105 @@
 			set tblNm = $EXTRACT(nm, lastPos+1, *)
 			set schema = $REPLACE($EXTRACT(nm, 1, lastPos-1), ".", "_")
 			set origClsNm = rset.%Get("origClsNm")
-			 Write " --- " _ nm _ "- " _ schema _"." _ tblNm _ ", orig name: " _ origClsNm
+			 // Write " --- " _ nm _ "- " _ schema _"." _ tblNm _ ", orig name: " _ origClsNm
 		     // ----
 		     		set rsetResp = tStatementResp.%Execute(origClsNm)
 					 // WRITE !, "Execute: " _ rsetResp.%SQLCODE 
 					 While (rsetResp.%Next()) {
 						 set minRespVal = rsetResp.%Get("minRespVal")
-					     Write " minRespVal: " _ minRespVal
+					     // Write ", Min value in Ens.Response for " _ origClsNm _ ": " _ minRespVal
 					 }
 					 
-		     		 set rset2 = tStatement2.%Execute(nm)
-					 // WRITE !, "Execute: " _ rset2.%SQLCODE 
-					 While (rset2.%Next()) {
-						 set minVal = rset2.%Get("minVal")
-					     Write " minVal: " _ minVal
+		     		 set msgHdrResSet = msgHdrStatement.%Execute(nm)
+					 // WRITE !, "Execute: " _ msgHdrResSet.%SQLCODE 
+					 While (msgHdrResSet.%Next()) {
+						 set msgHdrMinVal = msgHdrResSet.%Get("msgHdrMinVal")
+					     // Write ", Min value in Ens.MessageHeader for " _ nm _ " : " _ msgHdrMinVal
 					 }
-					 
-					 Do ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).PurgeTask($NAMESPACE, schema, tblNm, minVal)
-					 
-					  set delRespTable = "DELETE FROM Ens.Response where x__classname = '" _ origClsNm _ "' and ID < " _  minRespVal
-					  SET tStatement3 = ##class(%SQL.Statement).%New()
-					  SET qStatus = tStatement3.%Prepare(delRespTable)
-					  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delRespTable DO $System.Status.DisplayError(qStatus) QUIT}
-					  set rset3 = tStatement3.%Execute()
-					  WRITE !, "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delRespTable _ ", Count: " _ rset3.%ROWCOUNT
+				 	 $$$LOGINFO("Min value in Ens.MessageHeader for " _ nm _ " : " _ msgHdrMinVal _ ", Min value in Ens.Response for class: " _ origClsNm _ ": " _ minRespVal)
 
+					 if (($L(msgHdrMinVal) > 0) && (msgHdrMinVal > minRespVal))
+					 {
+						  Do ##class(IHC.ITF.ITFCOMMON.Util.PurgeClasses).PurgeTask($NAMESPACE, schema, tblNm, msgHdrMinVal)
+						 
+						  set delRespTable = "DELETE FROM Ens.Response where x__classname = '" _ origClsNm _ "' and ID < " _  msgHdrMinVal
+						  SET tStatement3 = ##class(%SQL.Statement).%New()
+						  SET qStatus = tStatement3.%Prepare(delRespTable)
+						  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delRespTable DO $System.Status.DisplayError(qStatus) QUIT}
+						  set rset3 = tStatement3.%Execute()
+						  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delRespTable _ ", Count: " _ rset3.%ROWCOUNT)
+					 }
+					 elseif ($L(msgHdrMinVal) <= 0)
+					 {
+						  set delRespTable = "DELETE FROM Ens.Response where x__classname = '" _ origClsNm _ "'"
+						  SET tStatement3 = ##class(%SQL.Statement).%New()
+						  SET qStatus = tStatement3.%Prepare(delRespTable)
+						  IF qStatus'=1 {WRITE "DELETE %Prepare failed: " _ delRespTable DO $System.Status.DisplayError(qStatus) QUIT}
+						  set rset3 = tStatement3.%Execute()
+						  $$$LOGINFO( "DELETE Execute: " _ rset3.%SQLCODE  _ " - " _ delRespTable _ ", Count: " _ rset3.%ROWCOUNT)
+
+					 }
 		     // ----
 		 }
 		 					 
 
-	  Write !, " ------ " 
+	  // Write !, " ------ " 
 
  } catch err
  {
-	 WRITE !, "Exception: " _ err
+	 $$$LOGERROR( "Exception in PurgeEnsResponseTask: " _ err)
  }
+ return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="PurgeEmptyEnsResponse">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 try
+            {
+	            
+	            set getMaxVal2 = "select count(ID) as cntBd from Ens.MessageBody where x__className = '~Ens.Response~'" 
+  				SET tStatement2 = ##class(%SQL.Statement).%New()
+  				SET qStatus = tStatement2.%Prepare(getMaxVal2)
+  				IF qStatus'=1 {WRITE !, "  SELECT %Prepare failed:" QUIT}
+  				set rset2 = tStatement2.%Execute()
+				WRITE !, "Execute: " _ rset2.%SQLCODE 
+				While (rset2.%Next()) {
+						 set maxVal = rset2.%Get("cntBd")
+					     Write ", count in Ens.MessageBody : " _ maxVal
+				}
+				&sql(SELECT MIN(ID) INTO :minVal from Ens.Response)
+				&sql(SELECT MAX(ID) INTO :maxVal from Ens.Response)
+				SET delStatement = ##class(%SQL.Statement).%New()
+				$$$LOGINFO("Purge ~Ens.Response~ from " _ minVal _ " to " _ maxVal)
+				FOR val = minVal:1000000:maxVal
+				{
+					set delMaxVal = "DELETE  %NOLOCK from Ens.Response where x__className = '~Ens.Response~' AND ID < " _ val 
+	  				
+	  				SET qStatus = delStatement.%Prepare(delMaxVal)
+	  				IF qStatus'=1 {WRITE !, "  SELECT %Prepare failed for: " _ delMaxVal QUIT}
+	  				set rset = delStatement.%Execute()
+					$$$LOGINFO( delMaxVal _ ", SQLCODE: " _ rset.%SQLCODE _ ", count: " _ rset.%ROWCOUNT)
+				} 
+				set rset2 = tStatement2.%Execute()
+				WRITE !, "Execute: " _ rset2.%SQLCODE 
+				While (rset2.%Next()) {
+						 set maxVal = rset2.%Get("cntBd")
+					     // Write !, "After Delete, Count in Ens.MessageBody : " _ maxVal
+				}
+				
+				&sql(SELECT COUNT(ID) INTO :cnt from Ens.Response)
+				Write ", count in Ens.Response : " _ cnt
+				
+				
+					
+            } catch err
+            {
+	            $$$LOGERROR( "EXception in PurgeEmptyEnsResponse: " _ err)
+            }
+            return $$$OK
 ]]></Implementation>
 </Method>
 </Class>
