@@ -40,6 +40,13 @@ Delay flag for A05  transactions</Description>
 <Type>%Boolean</Type>
 </Property>
 
+<Property name="LiveUofUHddFacilityDomainNcid">
+<Description>
+All Live UofU Facility Domain Ncid for IsMember Hdd method operation</Description>
+<Type>%String</Type>
+<InitialExpression>"529712694"</InitialExpression>
+</Property>
+
 <Property name="DelayTime">
 <Description>
 Delay (in Seconds) Example: PT120S, this delays the transaction for 120 seconds, For 60 seconds, specify the value PT60S</Description>
@@ -48,7 +55,7 @@ Delay (in Seconds) Example: PT120S, this delays the transaction for 120 seconds,
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>DelayFlag:Additional,DelayTime:Additional,HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,UofUMrnTypeNcid:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>LiveUofUHddFacilityDomainNcid:Additional,DelayFlag:Additional,DelayTime:Additional,HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,UofUMrnTypeNcid:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -250,6 +257,17 @@ BPL Definition</Description>
 </property>
 
 
+<property name='IsMemberRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.IsMemberLookupRequest' instantiate='1' />
+<property name='IsMemberResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' />
+<property name='hddAllUofUFacilityDomainIsMember' type='%String' initialexpression='"529712694"' instantiate='0' >
+ <parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='facNcid' type='%String' instantiate='0' />
+<property name='isLiveUofUFacility' type='%String' instantiate='0' />
+
 
 </context>
 
@@ -326,6 +344,77 @@ BPL Definition</Description>
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1100' />
 
+<code name='Get Domain Ncid for All UofU facilities ' xpos='470' ypos='1700' >
+<![CDATA[
+  set context.hddAllUofUFacilityDomainIsMember=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","LiveUofUHddFacilityDomainNcid",.pstatus1)
+ if ($$$ISOK(pstatus1)){
+ 	$$$TRACE("Live UofU Facility Hdd Domain IsMember: " _ context.hddAllUofUFacilityDomainIsMember)
+ } else{
+	 $$$TRACE("Config setting Live UofU HddFacilityDomainNcid is not set. Using default value of "_context.hddAllUofUFacilityDomainIsMember)
+ }
+]]]]><![CDATA[>
+</code>
+
+<code name='check MSH-4' xpos='200' ypos='1150' >
+<![CDATA[ set context.facNcid=request.GetValueAt("MSH:SendingFacility.NamespaceID")
+ $$$TRACE("Sending FAC NCID: " _ context.facNcid)   
+ if ($ISVALIDNUM(context.facNcid)'="1"){	
+	  $$$TRACE("Invalid facility in MSH-4 : ["_context.facNcid_"]")
+	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.facNcid, " Invalid MSH-4 ["_ context.facNcid _"]. Skipping the record." )
+ }]]]]><![CDATA[>
+</code>
+
+
+<code name='createIsMemberRequests' xpos='470' ypos='1700' >
+<![CDATA[  
+    $$$TRACE(" IsMember Hdd Requests..")    
+     $$$TRACE("Facility Ncid in MSH-4 " _ context.facNcid) 
+     if (context.facNcid '= "" && $ISVALIDNUM(context.facNcid)= "1"){
+	     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddIsMemberObject(context.IsMemberRequest, context.hddAllUofUFacilityDomainIsMember, context.facNcid, "IsAllUofUMemberMSH4")         
+	     
+      }
+]]]]><![CDATA[>
+</code>
+
+<code name='CallHddIsMemberMethod' xpos='470' ypos='1800' >
+<![CDATA[ 
+ // Call HDD Operation     
+    set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.IsMemberRequest,.hddIsMemberResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure during isMember Hdd call. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+    }else { 
+       set context.IsMemberResponse = hddIsMemberResponse 
+    }
+    ]]]]><![CDATA[>
+</code>
+
+<code name='CheckIfFacilityIsMemberAllUofU' xpos='470' ypos='1900' >
+<![CDATA[ 
+     set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.IsMemberResponse, "IsAllUofUMemberMSH4")    
+     if (hddObj '= ""){
+	     set context.isLiveUofUFacility = hddObj.Rep   
+	     $$$TRACE("Value of 'IsLiveUofUMemberMSH4' from Hdd lookup: " _ context.isLiveUofUFacility) 	
+     }
+     
+    ]]]]><![CDATA[>
+</code>
+ 
+<code name='CheckIfUofULiveFacility' xpos='470' ypos='1900' >
+<![CDATA[ 
+     
+    if (context.isLiveUofUFacility = "1") {                      
+       $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is a member of live facility UofU Domain: ["_context.hddAllUofUFacilityDomainIsMember_"]") 
+    }else{
+	    $$$TRACE("Facility in MSH-4: ["_context.facNcid_"] is NOT a member of live facility UofU Domain: ["_context.hddAllUofUFacilityDomainIsMember_"]") 	  
+	      
+    }
+]]]]><![CDATA[>
+</code>
+
+
+<if name='isFacilityMemberUofULiveFacility' condition='(context.isLiveUofUFacility = 1)' xpos='470' ypos='2000' xend='470' yend='2600' >
+<true>
+
 <code name='DelayTime' xpos='200' ypos='750' >
 <![CDATA[ 
  set context.delayFlag=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DelayFlag",.pstatus)
@@ -380,7 +469,6 @@ BPL Definition</Description>
 	set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToUofU.Lookup.HddPropertiesUofU", "HddContext.iCentraToEpicIns17Rel", .retVal )
 	set context.hddContextiCentraToEpicIns17Rel = retVal 		
 	$$$TRACE("Hdd Context hddContextiCentraToEpicIns17Rel " _ context.hddContextiCentraToEpicIns17Rel)
-	
 	
 	
 	
@@ -685,6 +773,15 @@ BPL Definition</Description>
 	]]]]><![CDATA[>
 	</code>
 </foreach>
+</true>
+<false>
+ <code name='SkipMsgErrorNonLiveUofUFacility' xpos='470' ypos='2600' >
+ <![CDATA[ 
+  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, " Non-Live UofU facility "_ context.facNcid _"]. Skipping the record." )
+  ]]]]><![CDATA[>
+	</code>
+</false>
+</if>
 
 </true>
 <false>
@@ -726,10 +823,13 @@ BPL Definition</Description>
 <Value>UofUMrnTypeNcid</Value>
 </Value>
 <Value name="5">
-<Value>DelayTime</Value>
+<Value>DelayFlag</Value>
 </Value>
 <Value name="6">
-<Value>DelayFlag</Value>
+<Value>LiveUofUHddFacilityDomainNcid</Value>
+</Value>
+<Value name="7">
+<Value>DelayTime</Value>
 </Value>
 </Data>
 </Storage>
