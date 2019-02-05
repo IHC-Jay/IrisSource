@@ -2,7 +2,7 @@
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy">
 <Description>
-iCentra Pharmacy Med Orders to ConnectRx BPL last updated: 20180830</Description>
+iCentra Pharmacy Med Orders to ConnectRx BPL last updated: 20190124</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64096,49867.278826</TimeCreated>
 
@@ -72,18 +72,18 @@ iCentra Pharmacy Med Orders to ConnectRx BPL last updated: 20180830</Description
 	$$$TRACE("Actually sending the HDD REQUEST from local class method...")
 	set tStatus=process.SendRequestSync(hddTargetConfigName,HddRepRequest,.hddResponse)
 	if ('tStatus){
-	    set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure")
+	    set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure for this HDD request for:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
     }else{
 		
 		$$$TRACE("Actually received HDD RESPONSE")
 		set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
-		if (hddObj '= ""){
+		if ((hddObj '= "") && ($LENGTH(hddObj.Rep)>0)){
 				set hddreturnrep = hddObj.Rep
 				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddObj.NCID_ ", HDD Context: " _hddContext )
 				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
 		}else{
 				//throw error
-				set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected Error - no or null value returned from HDD Call!")
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,"Unexpected Error - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
 		}	
 	}
 	quit hddreturnrep
@@ -106,7 +106,7 @@ iCentra Pharmacy Med Orders to ConnectRx BPL last updated: 20180830</Description
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='10000' width='4000' >
+<process language='objectscript' request='Ens.Request' height='10000' width='4000' >
 <context>
 <property name='empiNumber' type='%String' instantiate='0' >
 <parameters>
@@ -114,6 +114,11 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='MSH9MsgType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='MSH10' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -331,8 +336,8 @@ Order should have already been handled and sent out the appropriate number of ti
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='4450' >
-<scope xpos='200' ypos='250' xend='200' yend='4350' >
+<sequence xend='200' yend='4750' >
+<scope xpos='200' ypos='250' xend='200' yend='4650' >
 <annotation><![CDATA[Translation from Cerner Pharm Orders to the Pharmacy System  - ConnectRx ORDERS]]]]><![CDATA[></annotation>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Scope for Cerner Med Orders to ConnectRx]]]]><![CDATA[></annotation>
@@ -366,7 +371,7 @@ Order should have already been handled and sent out the appropriate number of ti
 <annotation><![CDATA[Verify Lookup Table Exists]]]]><![CDATA[></annotation>
 <![CDATA[ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.TargetOperationTable)
  if (retVal = 0){
-    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).ITFCOMMONLookUpNotFoundError(process.%ConfigName,"Lookup table not found. Required for processing data. File: " _context.TargetOperationTable)  
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table not found. Required for processing data. File: " _context.TargetOperationTable)  
  }]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='850' >
@@ -398,7 +403,35 @@ Order should have already been handled and sent out the appropriate number of ti
   }
   ]]]]><![CDATA[>
 </code>
-<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1150' >
+<code name='CheckMSH_4_NCIDisAllowed' xpos='200' ypos='1150' >
+<annotation><![CDATA[Check that the MSH-4 facility NCID is an allowed facility NCID]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Checking against not allowed facility NCIDs")
+  $$$TRACE("Here is the value to check against, context.msh4Facility: "_context.msh4Facility)
+    if ($LISTFIND($GET(^IHC.CernConnectRxPharmacy("NotAllowedMSH4Ncids")),context.msh4Facility)>0) {
+       $$$TRACE("Found an MSH-4 Facility NCID that matches a value from the Not Allowed MSH4 Facility NCID global setting.")
+       $$$TRACE("Found msh4Facility: "_context.msh4Facility_ ", which is not an allowed facility NCID! ****Skipping Message.*****")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that matches the Not Allowed MSH-4 Facility NCIDs list from the global setting! ****HL7 Record - Message Control ID: " _ context.MSH10)
+  }
+  $$$TRACE("Finished checking for allowed MSH4 Facility NCIDs!!!!")
+ ]]]]><![CDATA[>
+</code>
+<code name='GetMSH_10_MsgControlID' xpos='200' ypos='1250' >
+<annotation><![CDATA[Get MSH-10 Message Control ID]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Getting MSH:MessageControlID - MSH-10 value. ")
+  set context.MSH10 = request.GetValueAt("MSH:MessageControlID")
+  $$$TRACE("Setting context.MSH10 to: " _context.MSH10)
+  
+  ]]]]><![CDATA[>
+</code>
+<code name='CheckForDischargeDT' xpos='200' ypos='1350' >
+<annotation><![CDATA[If there is PV1-45 discharge datetime, don't send to ConnectRx]]]]><![CDATA[></annotation>
+<![CDATA[ set PV1FortyFiveDischargeDT = request.GetValueAt("PV1:DischargeDateTime.timeofanevent")
+ if ((PV1FortyFiveDischargeDT '= "") && ($ISVALIDNUM(PV1FortyFiveDischargeDT))) {
+     $$$TRACE("Found iCentra Pharmacy Med Order Event with a Discharge DateTime. Not sending to the ConnectRx! ****Skipping Message.*****")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found iCentra Pharmacy Med Order Event with Discharge DateTime value in the PV1-45! ****PHI - HL7 Message Control ID: " _context.MSH10)
+  }]]]]><![CDATA[>
+</code>
+<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1450' >
 <annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
  Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
@@ -409,7 +442,7 @@ Order should have already been handled and sent out the appropriate number of ti
   }
   ]]]]><![CDATA[>
 </code>
-<code name='VerifyOrderType' xpos='200' ypos='1250' >
+<code name='VerifyOrderType' xpos='200' ypos='1550' >
 <annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
  set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
@@ -425,7 +458,7 @@ Order should have already been handled and sent out the appropriate number of ti
  }
  ]]]]><![CDATA[>
 </code>
-<code name='ClinicFiltering' xpos='200' ypos='1350' >
+<code name='ClinicFiltering' xpos='200' ypos='1650' >
 <annotation><![CDATA[Filter Clinic and Pre-Clinic - Checking PV1-18 Patient Type for clinic/pre-Clinic and allowed list of clinics/pre-clinc against MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Do Clinic or PreClinic check. Only a select few are allowed to go to pharmacy.")
  set context.pv1PatientType = request.GetValueAt("PV1:PatientType")
@@ -448,7 +481,7 @@ Order should have already been handled and sent out the appropriate number of ti
  
  ]]]]><![CDATA[>
 </code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1450' >
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1750' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
  Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
@@ -459,7 +492,7 @@ Order should have already been handled and sent out the appropriate number of ti
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1550' >
+<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1850' >
 <annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
  Set pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
@@ -473,7 +506,7 @@ Order should have already been handled and sent out the appropriate number of ti
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has invalid Account/Encounter (Cerner FIN) number - PHI: ["_pid18_"]. ***")
  }]]]]><![CDATA[>
 </code>
-<code name='WorkPID8Gender' xpos='200' ypos='1650' >
+<code name='WorkPID8Gender' xpos='200' ypos='1950' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:Sex")
  set context.HL7SpecValue= "PID:Sex"
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -484,18 +517,18 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+    	$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
+        
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	//Just logging error for this HDD work as value is not a required value
+	 	//Email Alerting, but not stopping processing
+        Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID to Rep value returned - unable to get required data from the HDD lookup: " _" Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context used: " _context.hddncidtorepcontext_".***Working this Ensemble Process:"_process.%ConfigName)
+        set context.hddreturnrep = "UNKNOWN"	
+	 	
     }
-
    
 
    //After HDD call set context specific variable to use in setting DTL
@@ -508,7 +541,7 @@ Order should have already been handled and sent out the appropriate number of ti
     set context.PID8Gender = "UNKNOWN"
  }]]]]><![CDATA[>
 </code>
-<code name='WorkPID30DeathIndicator' xpos='200' ypos='1750' >
+<code name='WorkPID30DeathIndicator' xpos='200' ypos='2050' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:PatientDeathIndicator")
   set context.HL7SpecValue= "PID:PatientDeathIndicator"
   if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -519,18 +552,14 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             //Email Alerting, but not stopping processing - Not a value ConnectRs needs
-             Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_".***Working this Ensemble Process:"_process.%ConfigName)
-             set context.PID30DeathIndicator = ""
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
+	          
+         
     } Catch eException {
-	 	//Email Alerting, but not stopping processing - Not a value ConnectRs needs
-        Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_".***Working this Ensemble Process:"_process.%ConfigName)
-        set context.PID30DeathIndicator = ""
+	 	//Email Alerting, but not stopping processing - Not a value ConnectRx needs
+        Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","***No NCID to Rep value returned - unable to get required data from the HDD lookup: " _" Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context used: " _context.hddncidtorepcontext_".***Working this Ensemble Process:"_process.%ConfigName)
+        set context.hddreturnrep = ""
         		
     }
 
@@ -541,13 +570,13 @@ Order should have already been handled and sent out the appropriate number of ti
    
 
  }else {
-    //logging and setting to empty string - not stopping processing or not sending an alert - Not a value ConnectRs needs
+    //logging and setting to empty string - not stopping processing or not sending an alert - Not a value ConnectRx needs
     set context.PID30DeathIndicator = ""
  }
  
 ]]]]><![CDATA[>
 </code>
-<code name='WorkPatientClassAndType' xpos='200' ypos='1850' >
+<code name='WorkPatientClassAndType' xpos='200' ypos='2150' >
 <annotation><![CDATA[Setup HDD Get Help1 Billing Data Object
 ]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE(" GetHelp1BillingType Hdd Requests...")
@@ -557,17 +586,25 @@ Order should have already been handled and sent out the appropriate number of ti
  set pv118PatientTypeNcid = request.GetValueAt("PV1:PatientType")     	
  $$$TRACE(" PV1.18 Patient Type ncid value: " _ pv118PatientTypeNcid)	
  if (pv118PatientTypeNcid '= "" && $ISVALIDNUM(pv118PatientTypeNcid)= "1"){
-    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddBillingTypeObject(context.hddBillingTypeRequest,pv118PatientTypeNcid,pv110HospitalServiceNcid, "PVOne18And10:PatientTypeAndClass")  	  	
-		$$$TRACE("Hdd Request to GetHelp1BillingType")		
- }  ]]]]><![CDATA[>
+	 if (pv110HospitalServiceNcid '= "" && $ISVALIDNUM(pv110HospitalServiceNcid)= "1"){
+         Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddBillingTypeObject(context.hddBillingTypeRequest,pv118PatientTypeNcid,pv110HospitalServiceNcid, "PVOne18And10:PatientTypeAndClass")  	  	
+		 $$$TRACE("Hdd Request to GetHelp1BillingType")
+	 }else{
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has missing encounter related patient for PV1-10 required to do the HDD GetHelp1Billing lookup.***")
+		 
+	 }		
+ } else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has missing encounter related patient for PV1-18 required to do the HDD GetHelp1Billing lookup.***")
+ } 
+ ]]]]><![CDATA[>
 </code>
-<code name='HDDCallGetHelp1BillingData' xpos='200' ypos='1950' >
+<code name='HDDCallGetHelp1BillingData' xpos='200' ypos='2250' >
 <annotation><![CDATA[Use PV1-18 and PV1-10 to get HDD Help1 Billing return values]]]]><![CDATA[></annotation>
 <![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddBillingTypeRequest,.hddHelp1BillingTypeResponse)
 
  if ('tStatus) {
 
-    set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure when trying to get Help1 Billing Reference Data. "_$SYSTEM.Status.GetOneErrorText(tStatus))    
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure when trying to get Help1 Billing Reference Data. Error using PV1-10 and PV1-18 data from MessageControlID: "_context.MSH10_" Captured Error Status: "_$SYSTEM.Status.GetOneErrorText(tStatus))    
  
  }
  else {
@@ -583,12 +620,12 @@ Order should have already been handled and sent out the appropriate number of ti
    
    }else{
       $$$TRACE("Did not get data back from HDD Lookup for PV1-2 and PV1-18.")
-      set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Cerner Pharmacy Order HL7 message has missing encounter related patient billing data for PV1-2 and PV1-18 from HDD GetHelp1Billing lookup.***")
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "***HDD Help1Billing Lookup did not return expect values related to patient billing data for PV1-10 and PV1-18 key value pair to get back PV1-2 and PV18 for the Cerner Pharmacy Med Order. ***MessageControlID: "_context.MSH10)
    }
 
  } ]]]]><![CDATA[>
 </code>
-<code name='workPV1ThreeLocation' xpos='200' ypos='2050' >
+<code name='workPV1ThreeLocation' xpos='200' ypos='2350' >
 <annotation><![CDATA[Get LocationNcidFrom PV1-3 and Set context Values]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have valid PV1-3 locations for Pharmacy.")
   //Check the PV1-3 location values for NCIDS that Cerner used for Pharmacy locations
@@ -616,31 +653,41 @@ Order should have already been handled and sent out the appropriate number of ti
     }
  }
  if (Ncid="" || '$ISVALIDNUM(Ncid)){
-     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Unable to get required location value for setting PV1-3 values. No valid NCID found in: PV1:AssignedPatientLocation.bed, PV1:AssignedPatientLocation.room, or PV1:AssignedPatientLocation.pointofcare. Found - PHI: "_Ncid_"***")
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Unable to get required location value for setting PV1-3 values. No valid NCID found in: PV1:AssignedPatientLocation.bed, PV1:AssignedPatientLocation.room, or PV1:AssignedPatientLocation.pointofcare. Found - PHI: "_Ncid_"*** MessageControlID: "_context.MSH10)
  }
  ]]]]><![CDATA[>
 </code>
-<code name='SetHDDRepRequest' xpos='200' ypos='2150' >
+<code name='SetHDDRepRequest' xpos='200' ypos='2450' >
 <annotation><![CDATA[Set HDD Represntation Request]]]]><![CDATA[></annotation>
 <![CDATA[ //Creating HDD Request Object
- set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
- do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.HddRepRequest, context.locationNcid, $GET(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")), context.LocationInfo)
- $$$TRACE("Created HDD request object for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")))]]]]><![CDATA[>
+ Try{
+	 set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+     do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.HddRepRequest, context.locationNcid, $GET(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")), context.LocationInfo)
+     $$$TRACE("Created HDD request object for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")))
+     } Catch eException {
+	 	Set exceptStatus = eException.AsStatus()
+	 	$$$LOGSTATUS(exceptStatus)
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD object request object for: " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext"))_" Error Status Captureed:"_exceptStatus)     
+     }
+	  
+]]]]><![CDATA[>
 </code>
-<code name='Lookup Location in HDD' xpos='200' ypos='2250' >
+<code name='Lookup Location in HDD' xpos='200' ypos='2550' >
 <annotation><![CDATA[Get HDD response from the call to get representation from NCID]]]]><![CDATA[></annotation>
 <![CDATA[ // Call HDD Operation
  $$$TRACE("Actually sending the HDD REQUEST")
  set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.HddRepRequest,.hddResponse)
  if ('tStatus) {
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure")
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD object request object for: " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")))
  }
  else {
    set context.HddRepResponse = hddResponse
    $$$TRACE("Actually received HDD RESPONSE")
- }]]]]><![CDATA[>
+ }
+ 
+ ]]]]><![CDATA[>
 </code>
-<code name='Set Location Variables' xpos='200' ypos='2350' >
+<code name='Set Location Variables' xpos='200' ypos='2650' >
 <annotation><![CDATA[Set Location Variables and do filtering]]]]><![CDATA[></annotation>
 <![CDATA[ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.HddRepResponse, context.LocationInfo)
  if (hddObj '= ""){
@@ -676,10 +723,10 @@ Order should have already been handled and sent out the appropriate number of ti
     set context.Facility = ""
  }elseIF (patLocListLength < 3){
    $$$TRACE("Patient Location is not sufficient to set for Pharmacy. Erroring Out!")
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "****HDD ERRROR****Unexpected response back from HDD. Unable to get required ConnectRx Pharmacy Location representation for setting PV1-3 values for unit, room, and bed. HDD rep returned was - PHI: "_patLoc_"HDD request created for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")) _ "***")
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName, "****HDD ERRROR****Unexpected response back from HDD. Unable to get required ConnectRx Pharmacy Location representation for setting PV1-3 values for unit, room, and bed. HDD rep returned was - PHI: "_patLoc_"HDD request created for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _$G(^IHC.CernConnectRxPharmacy("HddTargetConfigName")) _ "Using HDD Context: " _$G(^IHC.CernConnectRxPharmacy("PV1ThreeLocationContext")) _ "***MessageControlID: "_context.MSH10)
  }]]]]><![CDATA[>
 </code>
-<code name='MSH_4_Facility' xpos='200' ypos='2450' >
+<code name='MSH_4_Facility' xpos='200' ypos='2750' >
 <annotation><![CDATA[Lookup Facility NCID in HDD and get Rep back and set context variable]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working MSH-4 value for the FACILITY")
  set context.Ncid = context.msh4Facility
@@ -693,16 +740,13 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+         
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
     
      
@@ -711,14 +755,12 @@ Order should have already been handled and sent out the appropriate number of ti
    set context.msh4Facility = context.hddreturnrep
    
 
-
-
  }else {
-    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for MSH-4 Facility: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for MSH-4 Facility: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***MessageControlID: "_context.MSH10)
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderControlID' xpos='200' ypos='2550' >
+<code name='ORCOrderControlID' xpos='200' ypos='2850' >
 <annotation><![CDATA[Lookup ORC-1 OrderControlID NCID in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ set context.Ncid = request.GetValueAt("ORC:OrderControl")
  set context.HL7SpecValue= "ORC:OrderControl"
@@ -729,16 +771,13 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+        
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
    
 
@@ -749,11 +788,11 @@ Order should have already been handled and sent out the appropriate number of ti
 
 
  }else {
-    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***MessageControlID: "_context.MSH10)
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderStatus' xpos='200' ypos='2650' >
+<code name='ORCOrderStatus' xpos='200' ypos='2950' >
 <annotation><![CDATA[Lookup ORC-5 OrderStatus in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ 
    set context.Ncid = request.GetValueAt("ORC:OrderStatus")
@@ -771,17 +810,14 @@ Order should have already been handled and sent out the appropriate number of ti
 		Try {
 		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
 		// work return value
-		if ($LENGTH(context.hddreturnrep)>0){
-			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-		}else{     
-			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-		}  
-	} Catch eException {
-		Set exceptStatus = eException.AsStatus()
-		$$$LOGSTATUS(exceptStatus)
-		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
-	}
+		$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+		  
+	    } Catch eException {
+		     Set exceptStatus = eException.AsStatus()
+		     $$$LOGSTATUS(exceptStatus)
+		     set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
+	    }
 	
 	
 		//After HDD call set context specific variable to use in setting DTL
@@ -790,15 +826,15 @@ Order should have already been handled and sent out the appropriate number of ti
 
 
 
-	}else {
-		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***")
+}else {
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***MessageControlID: "_context.MSH10)
 
-	}
+}
  
 
  ]]]]><![CDATA[>
 </code>
-<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2750' >
+<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='3050' >
 <annotation><![CDATA[Lookup ORC-7 QuantityTimingIntervalRepeatPattern In HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[  set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
  set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
@@ -812,16 +848,13 @@ Order should have already been handled and sent out the appropriate number of ti
 		Try {
 			set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
 			// work return value
-			if ($LENGTH(context.hddreturnrep)>0){
-				 $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-				 $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-			}else{     
-				 set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-			}  
+			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+			  
 		} Catch eException {
 			Set exceptStatus = eException.AsStatus()
 			$$$LOGSTATUS(exceptStatus)
-			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
 		}
 
 	   //After HDD call set context specific variable to use in setting DTL
@@ -829,7 +862,7 @@ Order should have already been handled and sent out the appropriate number of ti
 	   
 	 }else{
 		//Email Alerting, but not stopping processing
-		Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18)
+		Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18_"MessageControlID: "_context.MSH10)
 	 }  
 
  }else {
@@ -839,7 +872,7 @@ Order should have already been handled and sent out the appropriate number of ti
  }
 ]]]]><![CDATA[>
 </code>
-<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2850' xend='200' yend='950' >
+<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3150' xend='200' yend='950' >
 <annotation><![CDATA[Do the HDD Work for the RXE Group]]]]><![CDATA[></annotation>
 <trace name='Inside RXE Group' value='"Inside RXE Group"' xpos='200' ypos='250' />
 <code name='Working RXEQTIntervalRepeatPattern' xpos='200' ypos='350' >
@@ -854,16 +887,13 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+          
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
    
 
@@ -877,7 +907,7 @@ Order should have already been handled and sent out the appropriate number of ti
     }
     if (context.Ncid '= "" && '$ISVALIDNUM(context.Ncid)){
        //Email Alerting, but not stopping processing
-       Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18)
+       Do ..%Process.ItfSendEmailOnError("Pharmacy Order Processing Error","Pharmacy Order Processing has not been stopped, Warning Logged: No NCID found where Coded Values are expected to do required HDD lookup for: " _context.HL7SpecValue_".  Working this Ensemble Process: "_process.%ConfigName_ "  Working Pharmacy Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.finPID18_"MessageControlID: "_context.MSH10)
    }
    
  }
@@ -898,17 +928,14 @@ Order should have already been handled and sent out the appropriate number of ti
         Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
-    } Catch eException {
-	 	Set exceptStatus = eException.AsStatus()
-	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
-    }
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+          
+        } Catch eException {
+	 	    Set exceptStatus = eException.AsStatus()
+	 	    $$$LOGSTATUS(exceptStatus)
+	 	    set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
+        }
     
         
           
@@ -948,16 +975,13 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+        
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
     
     
@@ -1003,16 +1027,13 @@ Order should have already been handled and sent out the appropriate number of ti
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+          
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
     
     
@@ -1061,16 +1082,13 @@ Order should have already been handled and sent out the appropriate number of ti
 	Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToConnectRxPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+          
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
     }
     
 	
@@ -1083,8 +1101,6 @@ Order should have already been handled and sent out the appropriate number of ti
 	//Set Text empty string
 	$$$TRACE("No RXC-4 NCID so no Rep to lookup, setting any text that exisits from source...")
 	do context.rxcComponentUnitsTxtArr.SetAt((request.GetValueAt("RXEgrp("_context.RXEIndex_").RXC("_context.rxcIndex_"):ComponentUnits.text")),context.rxcIndex)
-	
-
 	
  }
 ]]]]><![CDATA[>
@@ -1123,10 +1139,10 @@ Order should have already been handled and sent out the appropriate number of ti
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2950' />
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='3050' />
-<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3150' />
-<code name='CheckForModOder' xpos='200' ypos='3250' >
+<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='3250' />
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToConnectRxPharmacy' source='request' target='response' xpos='200' ypos='3350' />
+<trace name='Back From DTL' value='"Back From Main DTL"' xpos='200' ypos='3450' />
+<code name='CheckForModOder' xpos='200' ypos='3550' >
 <![CDATA[ if ((context.orcOrderControlID="XO" ) || (context.orcOrderControlID="SC"))
  {
    set context.haveModOrder = 1
@@ -1134,21 +1150,22 @@ Order should have already been handled and sent out the appropriate number of ti
  }
 ]]]]><![CDATA[>
 </code>
-<code name='SetTargetFromLookup' xpos='200' ypos='3350' >
+<code name='SetTargetFromLookup' xpos='200' ypos='3650' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
  set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.TargetOperationTable, context.msh4Facility, .retVal )
  if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {
-    set errMsg = "****ERROR: Unable to get a matching Target from the lookup table. ****ERROR MSH-4 VALUE MAYBE MISSING FROM LOOKUP Table: "_$G(^IHC.CernConnectRxPharmacy("LocationOperationsTable"))      
+    set errMsg = "****ERROR: Unable to get a matching Target from the lookup table. ****ERROR MSH-4 VALUE MAYBE MISSING FROM LOOKUP Table: <"_$G(^IHC.CernConnectRxPharmacy("LocationOperationsTable"))_"> MSH-4 value: "_context.msh4Facility_" MessageControlID: "_context.MSH10      
        $$$TRACE(errMsg)
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).ITFCOMMONLookUpDataNotFoundError(process.%ConfigName, errMsg)
+       //using HddDataError as a lookup error
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, errMsg)      
  } else {
     $$$TRACE("Target: " _retVal)
     set context.Target = retVal
  }]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3450' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='3750' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -1165,13 +1182,13 @@ Order should have already been handled and sent out the appropriate number of ti
           $$$TRACE("targetList count " _ context.TargetList.Count())
  }else{
 	 $$$TRACE(errMsg )
-	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg_" Working HL7 message: MessageControlID: "_context.MSH10)
  }]]]]><![CDATA[>
 </code>
-<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3550' xend='200' yend='3900' >
+<if name='WorkingDConModify' condition='((context.doModifiedDC=1) &amp;&amp; (context.haveModOrder=1))' xpos='200' ypos='3850' xend='200' yend='4200' >
 <true>
-<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='3700' />
-<code name='CreateModifiedDC' xpos='335' ypos='3800' >
+<trace name='Creating DC orders for Modified Orders' value='"We have MOD Order and are sending out DC message clones..."' xpos='335' ypos='4000' />
+<code name='CreateModifiedDC' xpos='335' ypos='4100' >
 <![CDATA[ $$$TRACE("Make a copy clone of the Response.")
  $$$TRACE("Take cloned message and send out 9 fake DC messages copies")
       
@@ -1205,7 +1222,7 @@ Order should have already been handled and sent out the appropriate number of ti
         $$$TRACE("Preparing call to send to: "_targetOperation)
         set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseDCModClone)
         if ('tStatus) {
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Call Operation Error <add your custom error info here>") 
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error Calling Ensemble Operation: "_targetOperation_"For MessageControlID: "_context.MSH10 ) 
         }
         else { 
              $$$TRACE("Successfully sent Mod Order DC Clone. Sent to:-"_targetOperation_"-...")
@@ -1219,7 +1236,7 @@ Order should have already been handled and sent out the appropriate number of ti
 </code>
 </true>
 </if>
-<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4000' xend='200' yend='3300' >
+<foreach name='WorkResponseRXEGroups' property='response.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='4300' xend='200' yend='3300' >
 <trace name='Working Clones' value='"Start Work For Breaking out individual RXE for multiple RXC or RXE orders"' xpos='200' ypos='250' />
 <code name='RXCcountForRXEIndex' xpos='200' ypos='350' >
 <![CDATA[ 
@@ -1263,7 +1280,7 @@ Order should have already been handled and sent out the appropriate number of ti
     $$$TRACE("Preparing call to send to: "_targetOperation)
     set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseClone)
     if ('tStatus) {
-         set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error calling Ensemble Operation: "_targetOperation) 
+         set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error calling Ensemble Operation: "_targetOperation_" For MessageControlID: "_context.MSH10) 
     }
     else { 
          $$$TRACE("Successfully sent RDS Clone. Sent to:["_targetOperation_"]...")
@@ -1343,7 +1360,7 @@ Order should have already been handled and sent out the appropriate number of ti
              $$$TRACE("Preparing call to send to: "_targetOperation)
              set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseDCClone)
              if ('tStatus) {
-                set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error trying to send data out Ensemble Operation: "_targetOperation) 
+                set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error trying to send data out Ensemble Operation: "_targetOperation _"For MessageControlID: "_context.MSH10) 
              }
              else { 
                  $$$TRACE("Successfully sent RDE DC Clone. Sent to: ["_targetOperation_"]...")
@@ -1378,7 +1395,7 @@ Order should have already been handled and sent out the appropriate number of ti
         $$$TRACE("Preparing call to send to: "_targetOperation)
         set tStatus=process.SendRequestAsync(targetOperation,context.NewResponseClone)
         if ('tStatus) {
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Call Operation Error <add your custom error info here>") 
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error Calling Ensemble Operation: "_targetOperation_" For MessageControlID: "_context.MSH10) 
         }
         else { 
              $$$TRACE("Successfully sent RDE with RXC removed Clone. Sent to:["_targetOperation_"]...")
@@ -1410,13 +1427,13 @@ Order should have already been handled and sent out the appropriate number of ti
 </if>
 <trace name='WorkDone' value='"Done Processing of all Various Med Order Combinations."' xpos='200' ypos='3200' />
 </foreach>
-<code name='ResetErrors' xpos='200' ypos='4100' >
+<code name='ResetErrors' xpos='200' ypos='4400' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
  set errMsg = ""
  set context.doNotSendAgain = 0 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='4200' xend='200' yend='350' >
+<catchall name='CatchAll' xpos='200' ypos='4500' xend='200' yend='350' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 <code name='ProcessCaughtError' xpos='200' ypos='250' >
 <![CDATA[  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)]]]]><![CDATA[>
