@@ -20,9 +20,33 @@ HddTargetConfigName: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="AllowedFacilities">
+<Description>
+AllowedFacilities: facilities listed here are sent, others are filtered</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="512"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,ProcessingId:Additional</Default>
+<Default>AllowedFacilities,HddTargetConfigName:Additional,ProcessingId:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToRemedyPartnersDefaultData</DefaultData>
+<Data name="CernAdtHl7ToRemedyPartnersDefaultData">
+<Subscript>"CernAdtHl7ToRemedyPartners"</Subscript>
+<Value name="1">
+<Value>ProcessingId</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>AllowedFacilities</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -91,8 +115,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='1900' >
-<scope xpos='200' ypos='250' xend='200' yend='1800' >
+<sequence xend='200' yend='2100' >
+<scope xpos='200' ypos='250' xend='200' yend='2000' >
 <trace name='Debug ' value='"Enter BPL..."' xpos='200' ypos='350' />
 <assign name="getAndSetProcessName" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' >
 <annotation><![CDATA[Process Configuration Name]]]]><![CDATA[></annotation>
@@ -163,7 +187,32 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='Get NPI Rep from HDD' xpos='200' ypos='1050' >
+<code name='Check facility ID' xpos='200' ypos='1050' >
+<![CDATA[ $$$TRACE("Validate Facility ID....") 
+  Set context.msh4Facility=request.GetValueAt("MSH:SendingFacility.namespaceID")  
+  
+  $$$TRACE("msh4Facility: " _context.msh4Facility)
+ if ($ISVALIDNUM(context.msh4Facility)=0){         
+                  $$$TRACE("MSH-4 Facility value is NOT a VALID numeric value. ")
+                  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid msh4Facility number: ["_context.msh4Facility_"]. ***HL7 Msg:" _ request.RawContent)
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedFacilities",.configValue)           
+ $$$TRACE("Allowed Facilities: " _configValue)
+ 
+ if (configValue'=""){
+    $$$TRACE("ConfigValue has values.  CongfigValue:"_configValue)
+    if ($LISTFIND($LISTFROMSTRING(configValue,","), context.msh4Facility) = 0) {
+       $$$TRACE("Found a msh4Facility that does not match a value from the Allowed Facilities settings.")
+       $$$TRACE("Found msh4Facility: "_context.msh4Facility_ ", which is not an allowed facility! ****Erroring Message.*****")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that does not match the  Allowed Facilities from the settings! ****HL7 Record: " _request.RawContent)
+    }       
+ }else{
+    $$$TRACE("Nothing to create LIST for skip Facilities List. Record sent to next component")   
+ } 
+ 
+  $$$TRACE("Finished checking for allowed Facilities!!!!")]]]]><![CDATA[>
+</code>
+<code name='Get NPI Rep from HDD' xpos='200' ypos='1150' >
 <![CDATA[  Set provId =request.GetValueAt("PV1:AttendingDoctor().IDnumberST") 
   $$$TRACE("Call HDD look up NPI for provider:" _ provId)
   if ($L(provId ) > 0)
@@ -197,7 +246,7 @@ BPL Definition</Description>
   }
    ]]]]><![CDATA[>
 </code>
-<code name='Set processing ID' xpos='197' ypos='1104' >
+<code name='Set processing ID' xpos='200' ypos='1250' >
 <![CDATA[ set processId = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ProcessingId",.pstatus)
  if ($$$ISOK(pstatus) || (processId '= "")){
 	 set context.processingId = processId
@@ -206,30 +255,30 @@ BPL Definition</Description>
  	 $$$TRACE("Config setting ProcessingId not set. Using default value of "_context.processingId)	 
  } ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToRemedyPartners' source='request' target='response' xpos='200' ypos='1150' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToRemedyPartners' source='request' target='response' xpos='200' ypos='1350' >
 <annotation><![CDATA[translates legacyPlus Adt to RemedyPartners Hl7]]]]><![CDATA[></annotation>
 </transform>
-<code name='getTargetConfigList' xpos='200' ypos='1250' >
+<code name='getTargetConfigList' xpos='200' ypos='1450' >
 <![CDATA[  
  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
  ]]]]><![CDATA[>
 </code>
-<trace name='Send message' value='"Send message to targets"' xpos='200' ypos='1350' />
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1450' xend='200' yend='350' >
+<trace name='Send message' value='"Send message to targets"' xpos='200' ypos='1550' />
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1650' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='200' ypos='1550' >
+<code name='RESETERROR' xpos='200' ypos='1750' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 
 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1650' xend='200' yend='350' >
+<catchall xpos='200' ypos='1850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -242,20 +291,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernAdtHl7ToRemedyPartnersDefaultData</DefaultData>
-<Data name="CernAdtHl7ToRemedyPartnersDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"CernAdtHl7ToRemedyPartners"</Subscript>
-<Value name="1">
-<Value>ProcessingId</Value>
-</Value>
-<Value name="2">
-<Value>HddTargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
