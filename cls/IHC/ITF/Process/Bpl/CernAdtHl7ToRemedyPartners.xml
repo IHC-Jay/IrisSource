@@ -27,8 +27,15 @@ AllowedFacilities: facilities listed here are sent, others are filtered</Descrip
 <Parameter name="MAXLEN" value="512"/>
 </Property>
 
+<Property name="MedicareCodes">
+<Description>
+MedicareCodes NCIDs listed here are sent, others are filtered</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="512"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AllowedFacilities,HddTargetConfigName:Additional,ProcessingId:Additional</Default>
+<Default>AllowedFacilities,MedicareCodes,HddTargetConfigName:Additional,ProcessingId:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -45,6 +52,9 @@ AllowedFacilities: facilities listed here are sent, others are filtered</Descrip
 <Value name="3">
 <Value>AllowedFacilities</Value>
 </Value>
+<Value name="4">
+<Value>MedicareCodes</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -53,7 +63,7 @@ AllowedFacilities: facilities listed here are sent, others are filtered</Descrip
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4450' width='2000' >
+<process language='objectscript' request='Ens.Request' height='4450' width='2000' >
 <context>
 <property name='configName' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
@@ -129,6 +139,31 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='medicareCodes' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='512' />
+</parameters>
+</property>
+<property name='iCentraLegacyPlusContext' type='%String' initialexpression='527148879' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='IhcInterfaceContext' type='%String' initialexpression='50035' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='globalDomainContext' type='%String' initialexpression='1000000000' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='returnRepContext' type='%String' initialexpression='510097850' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='2100' >
 <scope xpos='200' ypos='250' xend='200' yend='2000' >
@@ -163,7 +198,7 @@ BPL Definition</Description>
  	set context.isValidationPassed=0 
     $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
     // Skip the record.
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message data structure validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(context.configName, "Hl7 message data structure validation failed, Skipping the record.")
  }else{
 	  $$$TRACE("Passed Validation Settings: " _ context.validationSettingValue) 
  }
@@ -177,19 +212,29 @@ BPL Definition</Description>
  if ($ISVALIDNUM(context.empiNumber)'="1"){	  
 	  $$$TRACE("Empi# is NOT a VALID number ")
 	  set context.isValidationPassed = "0"
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record.")
  }
 ]]]]><![CDATA[>
 </code>
 <code name='Filter on Company Plan Code' xpos='200' ypos='950' >
 <annotation><![CDATA[Get IN1grp(1).IN1:CompanyPlanCode]]]]><![CDATA[></annotation>
-<![CDATA[ Set k1="",tSC=1, medicare=0
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"MedicareCodes",.configValue)           
+ $$$TRACE("Allowed MedicareCodes: " _configValue)
+ 
+ if (($$$ISOK(pstatus)) && ($L(configValue) > 0) ){
+    set context.medicareCodes= configValue
+    $$$TRACE("medicareCodes: " _ context.medicareCodes)
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get MedicareCodes, shutting down.")
+ }  
+    
+ Set k1="",tSC=1, medicare=0
  For {
 	Set tSC1=1, k1=request.GetNextIndex("IN1grp()", k1, .tSC1)
 	Quit:k1=""		
         Set context.IN1planCode = request.GetValueAt("IN1grp(" _ k1 _ ").IN1:CompanyPlanCode")         
         $$$TRACE("IN1:CompanyPlanCode: " _ k1 _  " = #" _ context.IN1planCode _"#") 
-        if ( (context.IN1planCode = "14604085") || (context.IN1planCode = "526030877") ){     
+        if ($LISTFIND($LISTFROMSTRING(context.medicareCodes,","), context.IN1planCode) > 0) {     
 	   Set medicare = 1
 	   Quit // Found Medicare
 	 }
@@ -209,7 +254,7 @@ BPL Definition</Description>
   $$$TRACE("msh4Facility: " _context.msh4Facility)
  if ($ISVALIDNUM(context.msh4Facility)=0){         
                   $$$TRACE("MSH-4 Facility value is NOT a VALID numeric value. ")
-                  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid msh4Facility number: ["_context.msh4Facility_"]. ***HL7 Msg:" _ request.RawContent)
+                  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid msh4Facility number: ["_context.msh4Facility_"].")
  }
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedFacilities",.configValue)           
  $$$TRACE("Allowed Facilities: " _configValue)
@@ -219,7 +264,7 @@ BPL Definition</Description>
     if ($LISTFIND($LISTFROMSTRING(configValue,","), context.msh4Facility) = 0) {
        $$$TRACE("Found a msh4Facility that does not match a value from the Allowed Facilities settings.")
        $$$TRACE("Found msh4Facility: "_context.msh4Facility_ ", which is not an allowed facility! ****Erroring Message.*****")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that does not match the  Allowed Facilities from the settings! ****HL7 Record: " _request.RawContent)
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a MSH-4 value that does not match the  Allowed Facilities from the settings!")
     }       
  }else{
     $$$TRACE("Nothing to create LIST for skip Facilities List. Record sent to next component")   
@@ -242,16 +287,16 @@ BPL Definition</Description>
     // srcContext = IHC Interface Context,  50035
     // globalDomainContext  = User,  1000000000
     // returnRepContext  = NPI context, 510097850
-    // DO ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddUniqueRepByRepObject(context.repToRepRequest, provId, "50035","1000000000","510097850","NPI") 
+    // DO ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddUniqueRepByRepObject(context.repToRepRequest, provId, context.IhcInterfaceContext,context.globalDomainContext,context.returnRepContext,"NPI") 
         
-    set context.NPInum = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepByRep(provId, "50035","1000000000","510097850", context.hddTargetConfigName, .process)
+    set context.NPInum = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepByRep(provId, context.IhcInterfaceContext,context.globalDomainContext,context.returnRepContext, context.hddTargetConfigName, .process)
   }
   $$$TRACE("NPInum: " _ context.NPInum)
   
   Set gt111 = request.GetValueAt("GT1(1):GuarantorRelationship.identifierST")
   if ($L(gt111 ) > 0)
   {
-    set context.gt111rep =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(gt111 , "527148879", context.hddTargetConfigName, .process)
+    set context.gt111rep =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(gt111 , context.iCentraLegacyPlusContext, context.hddTargetConfigName, .process)
     $$$TRACE("gt1-11: " _ context.gt111rep)
   }
     set k1="",tSC=1  
