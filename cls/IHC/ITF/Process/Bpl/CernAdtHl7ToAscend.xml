@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToAscend">
+<Description>
+</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65064,35397.013193</TimeCreated>
+
+<Property name="HddTargetConfigName">
+<Description>
+HddTargetConfigName: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToAscendDefaultData</DefaultData>
+<Data name="CernAdtHl7ToAscendDefaultData">
+<Subscript>"CernAdtHl7ToAscend"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='6000' width='3000' >
+<context>
+<property name='validationSettingValue' type='%String' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' />
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='empiNumber' type='%String' instantiate='0' />
+<property name='msgType' type='%String' instantiate='0' />
+<property name='isFilterOutEvent' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='HddTargetConfigName' type='%String' instantiate='0' />
+<property name='SrcDrContext' type='%String' initialexpression='"50035"' instantiate='0' />
+<property name='ReturnDrContext' type='%String' initialexpression='"510097850"' instantiate='0' />
+<property name='DrDomain' type='%String' initialexpression='"1000000000"' instantiate='0' />
+<property name='DrNpi' type='%String' instantiate='0' />
+<property name='Relationship' type='%String' instantiate='0' />
+<property name='RelationshipHipaa' type='%String' instantiate='0' />
+<property name='IsPatientClassRequired' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='LocationContext' type='%String' initialexpression='"529721022"' instantiate='0' />
+<property name='Location' type='%String' instantiate='0' />
+</context>
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
+<trace name='Debug ' value='"Enter BPL..."' xpos='200' ypos='350' />
+<code name='setup HDD target' xpos='200' ypos='450' >
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName", .configValue)
+ if ($$$ISOK(pstatus)){
+    set context.HddTargetConfigName = configValue
+    $$$TRACE("HddTargetConfigName: " _ context.HddTargetConfigName)
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get HddTargetConfigName, shutting down.")
+ }]]]]><![CDATA[>
+</code>
+<code name='validateMsgStructure' xpos='200' ypos='550' >
+<![CDATA[ 
+ Set context.validationSettingValue=""
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  } 
+  
+ $$$TRACE("Validate Message Begins...") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){ 
+    $$$TRACE("Failed Validation.")
+    // Skip the record.
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message data structure validation failed, Skipping the record.")
+ }else{
+	  $$$TRACE("Passed Validation.") 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='patientclass filter' xpos='200' ypos='650' >
+<![CDATA[ Set patientClass =request.GetValueAt("ZZ1:ZZ111PatientClassNcid")
+ Set hospitalService =request.GetValueAt("ZZ1:ZZ116HospServiceNcid")
+ if ((patientClass = "503") && (hospitalService = "526066246")) {
+    set context.IsPatientClassRequired= 1
+ }
+]]]]><![CDATA[>
+</code>
+<if name='Valid patientclass?' condition='context.IsPatientClassRequired' xpos='200' ypos='750' xend='200' yend='1950' >
+<true>
+<code name='getMessageType.TriggerEvent' xpos='470' ypos='900' >
+<![CDATA[     Set context.msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+     $$$TRACE("Trigger Event: " _ context.msgType)  
+     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToAscend.Lookup.AdtEventsFilterOut", context.msgType, .retVal )
+     set context.isFilterOutEvent = retVal
+     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+        set context.isFilterOutEvent = 0
+     } else {
+        $$$TRACE("Value of Adt Event Filter Out from the lookup table :" _ context.isFilterOutEvent)
+     }
+        
+   ]]]]><![CDATA[>
+</code>
+<if name='checkMessageTriggerEvent' condition='context.isFilterOutEvent' xpos='470' ypos='1000' xend='470' yend='1850' >
+<true>
+<code name='skip trigger Message' xpos='470' ypos='1150' >
+<![CDATA[ 
+ $$$TRACE("Skip message...") 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Hl7 message trigger event is not in the filterin table, skipping message.")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='validateEmpiNumber' xpos='740' ypos='1150' >
+<![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
+  set context.empiNumber=""
+  set k1="",tSC=1 
+  Set context.empiNumber=request.GetValueAt("PID:3(1).1.1")         
+ $$$TRACE("EMPI: " _ context.empiNumber) 
+ if ($ISVALIDNUM(context.empiNumber)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi number: ["_context.empiNumber_"]. Skipping the record.")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Setup and Call HDD' xpos='740' ypos='1250' >
+<![CDATA[ set drId = request.GetValueAt("PV1:7(1).1")
+ if (drId '="") {
+    set npId = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepByRep(drId, context.SrcDrContext, context.DrDomain, context.ReturnDrContext, context.HddTargetConfigName, .process)
+    if ((npId["ITFCOMMON:10109") || (npId="") || (npId["Web service returned(error):")){
+       set context.DrNpi = ""
+    }else {
+       set context.DrNpi= npId
+    } 
+ }
+ 
+ set location = request.GetValueAt("ZZ1:ZZ114PointOfCareNcid")
+ if (location '="") {
+    set locTemp = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(location, context.LocationContext, context.HddTargetConfigName, .process)
+    if ((locTemp["ITFCOMMON:10109") || (locTemp="") || (locTemp["Web service returned(error):")){
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hl7 message has invalid location information in ZZ1-14 (copied from PV1-3.1 in previous translator): ["_location_"], unable to map from ncid using context "_context.LocationContext_". Skipping the record.")
+
+    }else {
+       set context.Location= locTemp
+    }
+ }else {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has blank location information in ZZ1-14 (copied from PV1-3.1 in previous translator). Skipping the record.")
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToAscend' source='request' target='response' xpos='740' ypos='1350' />
+<code name='getTargetConfigList' xpos='740' ypos='1450' >
+<![CDATA[  
+ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ ]]]]><![CDATA[>
+</code>
+<trace name='Send message' value='"Send message to targets"' xpos='740' ypos='1550' />
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1650' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='RESETERROR' xpos='740' ypos='1750' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<code name='skip patientclass message' xpos='200' ypos='900' >
+<![CDATA[ 
+ $$$TRACE("Skip message...") 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Hl7 patientclass not required on this pathway, skipping message.")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
