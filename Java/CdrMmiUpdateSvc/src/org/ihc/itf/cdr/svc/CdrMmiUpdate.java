@@ -41,6 +41,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
 	private static Logger log ;
 	private static String CERNER_FAC_NCID="525935320";
 	private static String CB_FAC_NCID="2000000341";
+	private static String CEOF_CONNECTCARE_FAC_NCID="528125086";
 	
 	private SimpleDateFormat dateFormat = new SimpleDateFormat("yyyyMMdd");
 
@@ -212,15 +213,25 @@ public class CdrMmiUpdate extends CdrTuxServices {
 	            	// Area Code
             		if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).getAreaCityCode().getValue())) {
 	            		phone.setAreaCode(msg.getPID().getPhoneNumberHome(phIndx).getAreaCityCode().getValue());            	
-	            	} else if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue())){	            		
-	            		phone.setAreaCode(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(0,3));	            		
+	            	} else if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue())){	
+	            		String homePhoneAreaCode = msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "");
+	            		if (homePhoneAreaCode.length()>2){
+	            			phone.setAreaCode(homePhoneAreaCode.substring(0,3));
+	            		}else{
+	            			phone.setAreaCode(homePhoneAreaCode);
+	            		}
 	            	}
 	
 	            	// Local Phone Number            		
             		if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue())) {            			
-	            		phone.setLocalNumber(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue());            	
-	            	} else if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue())){	            		
-	            		phone.setLocalNumber(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(3));	            		
+	            		phone.setLocalNumber(msg.getPID().getPhoneNumberHome(phIndx).getPhoneNumber().getValue().replaceAll("[^0-9]", ""));            	
+	            	} else if(!isNOE(msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue())){	
+	            		String homePhoneNumber = msg.getPID().getPhoneNumberHome(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "");
+	            		if (homePhoneNumber.length()>2){
+	            			phone.setLocalNumber(homePhoneNumber.substring(3));
+	            		}else{
+	            			phone.setLocalNumber(homePhoneNumber);
+	            		}
 	            	}
 	            	
             		// Extension
@@ -251,14 +262,26 @@ public class CdrMmiUpdate extends CdrTuxServices {
             		if(!isNOE(msg.getPID().getPhoneNumberBusiness(phIndx).getAreaCityCode().getValue())) {
 	            		phone.setAreaCode(msg.getPID().getPhoneNumberBusiness(phIndx).getAreaCityCode().getValue());            	
 	            	} else if(!isNOE(msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue())){
-	            		phone.setAreaCode(msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(0,3));	            		
+	            		String busPhoneAreaCode = msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "");	            		
+	            		log.debug("Business Phone AreaCode: "+busPhoneAreaCode);
+	            		if (busPhoneAreaCode.length()>2){
+	            		   phone.setAreaCode(busPhoneAreaCode.substring(0,3));
+	            		}else{
+	            			phone.setAreaCode(busPhoneAreaCode);
+	            		}
 	            	}
 	
 	            	// Local Phone Number
             		if(!isNOE(msg.getPID().getPhoneNumberBusiness(phIndx).getPhoneNumber().getValue())) {
-	            		phone.setLocalNumber(msg.getPID().getPhoneNumberBusiness(phIndx).getPhoneNumber().getValue());            	
-	            	} else if(!isNOE(msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue())){
-	            		phone.setLocalNumber(msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "").substring(3));	            		
+            			log.debug("Business Phone PhoneNumber: "+msg.getPID().getPhoneNumberBusiness(phIndx).getPhoneNumber().getValue());
+	            		phone.setLocalNumber(msg.getPID().getPhoneNumberBusiness(phIndx).getPhoneNumber().getValue().replaceAll("[^0-9]", ""));            	
+	            	} else if(!isNOE(msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue())){	 
+	            		String busPhoneNumber = msg.getPID().getPhoneNumberBusiness(phIndx).get9999999X99999CAnyText().getValue().replaceAll("[^0-9]", "");
+	            		if (busPhoneNumber.length()>3){
+	            			phone.setLocalNumber(busPhoneNumber.substring(3));
+	            		}else{
+	            			phone.setLocalNumber(busPhoneNumber);
+	            		}
 	            	}
 	            	
 	            	// Extension
@@ -325,12 +348,24 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			
 			// MedRecNumber
 			String medRecNumber = ""; 
+			String facilityCid = msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue();
 			//if(msg.getPID().getPatientIDInternalID(0).getID().getValue().equals(CERNER_FAC_NCID)){
 			if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CERNER_FAC_NCID)){
-				medRecNumber =msg.getPID().getPatientIDInternalID(0).getID().getValue();
+				String extIdPid2 = msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();
+				if (extIdPid2!=null && extIdPid2!="" && extIdPid2.startsWith("528125086-")){
+					medRecNumber = extIdPid2.substring(extIdPid2.lastIndexOf("-")+1);
+					log.debug(" CEOF MRN# "+medRecNumber);
+					facilityCid = "528125086";
+				}else{
+					medRecNumber =msg.getPID().getPatientIDInternalID(0).getID().getValue();
+				}
 			}			
 			if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CB_FAC_NCID)){
 				medRecNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();			
+			}
+			if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CEOF_CONNECTCARE_FAC_NCID)){
+				medRecNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();	
+				log.debug(" CEOF MRN# "+medRecNumber);
 			}
 			
 			//Populate Facilities
@@ -340,7 +375,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
 			facilities[0]=facility;
 			m_memberInfo.setFacilities(facilities);
 			// FacilityNcid
-			m_memberInfo.getFacilities()[0].setMmiFacilityCid(new Coded(new BigInteger(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue())));
+			m_memberInfo.getFacilities()[0].setMmiFacilityCid(new Coded(new BigInteger(facilityCid)));
 			// MotherName
 			if (!isNOE(msg.getPID().getMotherSMaidenName().getFamilyName().getValue())){				
 				Name name = new Name();				
@@ -477,6 +512,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
             int retFCnt = 0;
             if(retFacilities != null)
                 retFCnt = retFacilities.length;
+            log.debug(" CDR Fac COunt(From CDR): " + retFCnt);
             String mrnNumber = "";
             String radNumber = "";
             boolean hasMatch = false;
@@ -491,15 +527,24 @@ public class CdrMmiUpdate extends CdrTuxServices {
                     log.debug("mrn# (From CDR): [" + retFacilities[i].getMedRecNumber() + "] mrn#(From current record): [" + fc.getMedRecNumber() + "]");
                     log.debug("$$$$ " + retFacilities[i].getMmiFacilityCid().getNcid().compareTo(fc.getMmiFacilityCid().getNcid()));
                     if(retFacilities[i].getMmiFacilityCid().getNcid().compareTo(fc.getMmiFacilityCid().getNcid()) != 0 || hasMatch)                    	
-                        continue;                    
+                        continue;   
+                    log.debug("**0***");
                     existFlg = true;
                     if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CERNER_FAC_NCID)){
-                    	mrnNumber = msg.getPID().getPatientIDInternalID(0).getID().getValue();
-        			}else if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CB_FAC_NCID)){
-        				mrnNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();        				
+                    	String extIdPid2 = msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();
+        				if (extIdPid2!=null && extIdPid2!="" && extIdPid2.startsWith("528125086-")){
+        					mrnNumber = extIdPid2.substring(extIdPid2.lastIndexOf("-")+1);
+        					log.debug(" CEOF MRN# "+mrnNumber);        					
+        				}else{
+        					mrnNumber =msg.getPID().getPatientIDInternalID(0).getID().getValue();
+        				}                    	
+        			}else if(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CB_FAC_NCID) || msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CEOF_CONNECTCARE_FAC_NCID) ){
+        				mrnNumber =msg.getPID().getPatientIDExternalID().getCx1_ID().getValue();  
+        				log.debug("**1***");
         			} else{
                     	mrnNumber = retFacilities[i].getMedRecNumber();
-                    }                    
+                    }     
+                    log.debug("**2***");
                     radNumber = retFacilities[i].getRadiologyNumber();
                     log.debug(" Setting mrnNumber " + mrnNumber);
                     m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[0].setMedRecNumber(mrnNumber);
@@ -508,7 +553,7 @@ public class CdrMmiUpdate extends CdrTuxServices {
                     break;
                 }
                 log.debug(" Outer Loop - existFlg: " + existFlg);
-
+                
                 if(!existFlg){
                 	Facility[] facilties = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities();
                 	Facility[] newFacilities = new Facility[facilties.length+1];
@@ -518,13 +563,27 @@ public class CdrMmiUpdate extends CdrTuxServices {
                 }
             }
             
+            
+            
             fcCnt = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities().length;
             log.debug(" Fac COunt: " + fcCnt);
             int fcIndx = 0;
-            facilities = new Facility[fcCnt];
-            for(fcIndx = 0; fcIndx < fcCnt; fcIndx++)
-                facilities[fcIndx] = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[fcIndx];
+           /* if (msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue().equals(CEOF_CONNECTCARE_FAC_NCID)){
+            	facilities = new Facility[fcCnt+1];   
+            	for(fcIndx = 0; fcIndx < fcCnt; fcIndx++)
+                    facilities[fcIndx] = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[fcIndx];
+            	log.debug(" CEOF MRN#### "+medRecNumber);
+            	facilities[fcCnt] = new Facility();
+                facilities[fcCnt].setMedRecNumber(medRecNumber);
+                facilities[fcCnt].setMmiFacilityCid(new Coded(new BigInteger(msg.getMSH().getMsh4_SendingFacility().getNamespaceID().getValue())));
+            }else{ */
+              facilities = new Facility[fcCnt];
+              for(fcIndx = 0; fcIndx < fcCnt; fcIndx++)
+                  facilities[fcIndx] = m_DataRecord.getMmiRecords()[0].getMemberInfo().getFacilities()[fcIndx];
+            //}
+                        
             memberInfo.setFacilities(facilities);
+            
             
             log.debug("Setting Addresses...");
             Address retAddresses[] = memberInfo.getAddresses();
