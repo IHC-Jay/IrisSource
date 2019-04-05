@@ -72,6 +72,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='AddressElements' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='CallBackComments' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -97,9 +102,19 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='Street' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='OrganizationName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1600' >
-<scope xpos='200' ypos='250' xend='200' yend='1500' >
+<sequence xend='200' yend='1800' >
+<scope xpos='200' ypos='250' xend='200' yend='1700' >
 <trace name='In BPL' value='"*****In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <code name='Check Deploy code' xpos='200' ypos='450' >
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
@@ -112,7 +127,7 @@ BPL Definition</Description>
  	  ]]]]><![CDATA[>
 </code>
 <code name='Check required values' xpos='200' ypos='550' >
-<![CDATA[  //Global variables repaired for required field values from inbound
+<![CDATA[  //Global variables 
   set context.ProviderId = ""
   set context.FirstName = ""
   set context.FirstNameCombo = ""
@@ -131,24 +146,54 @@ BPL Definition</Description>
   set context.ContactStatus = request.ContactStatus
   $$$TRACE("The provider's contact status -->" _context.ContactStatus)
   
-
+  //Skip the first header record of each batch
+  if ((context.ProviderId '= "") && ($ISVALIDNUM(context.ProviderId))=0){         
+     $$$TRACE("The ProviderID field value is not numeric. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***The ProviderID field value is not numeric: ["_context.ProviderId_ "]. Skip the first header record of each batch.")
+  }
+  
+  //Four required values for each record
   if ( (context.ProviderId = "") || (context.FirstNameCombo = "") || (context.LastName = "") || (context.ContactStatus = "") )
   {         
      set ReqiredValues = "1.PID:"_context.ProviderId_" 2.Last Name:"_context.LastName_" 3.First Name:"_context.FirstNameCombo_" 4.Status:"_context.ContactStatus
      
      $$$TRACE("At least one of the four required values is missing.  The contents of the four fields are:"  _ReqiredValues  )
 
-    //Config the InputDataError with "F" in support page to skip the bad record and send email notification to the business support group.
+    //For all InputDataError, configure with "F" return code and support email to skip the bad record and email it to the business support group.
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "At least one of the four required values is missing.  The contents of the four fields are:"  _ReqiredValues)
   }
-
-  //Skip the first record of each batch as headers
-  if ($ISVALIDNUM(context.ProviderId )=0){         
-     $$$TRACE("The ProviderID field value is not numeric. ")
-     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***The ProviderID field value is not numeric: ["_context.ProviderId_ "]. Skip the record.")
-  }]]]]><![CDATA[>
+]]]]><![CDATA[>
 </code>
-<code name='First and/or Mid Names' xpos='200' ypos='650' >
+<code name='Organization Name' xpos='200' ypos='650' >
+<![CDATA[  set context.OrganizationName = ""
+  set context.OrganizationName = request.OrganizationName
+  $$$TRACE("Organization Name from source -->" _context.OrganizationName)
+  
+
+  if (context.OrganizationName'= "")
+  {   
+     if ($FIND(context.OrganizationName, "Intermountain")>0)
+     {
+           set tmpStr = $REPLACE(context.OrganizationName, "Intermountain","Im")
+           set context.OrganizationName = tmpStr 
+     }
+     
+     if ($FIND(context.OrganizationName, "-")>0)
+     {
+           set tmpStr = $REPLACE(context.OrganizationName, "-"," ")
+           set context.OrganizationName = tmpStr 
+     }
+             
+    if ($LENGTH(context.OrganizationName) > 35)
+    {
+       set tmpStr = $EXTRACT(context.OrganizationName,1,35)
+       set context.OrganizationName = tmpStr 
+    }
+    $$$TRACE("Organization Name after possible massage -->" _context.OrganizationName) 
+  }
+]]]]><![CDATA[>
+</code>
+<code name='First and/or Mid Names' xpos='200' ypos='750' >
 <![CDATA[  //Check if there is a blank space in between the string  
   set nameList= $LISTFROMSTRING(context.FirstNameCombo, " ")
   $$$TRACE("First name combo list: " _nameList )  
@@ -158,129 +203,383 @@ BPL Definition</Description>
   
   if nameListLength=1{	
          set context.FirstName = $LIST(nameList,1)
-         $$$TRACE("Just first name with no mid-name initial: " _context.FirstName)  
+         $$$TRACE("The string contains just first name with no mid-name initial element: " _context.FirstName)  
   
-  }elseIF nameListLength>1{
+  }elseIF nameListLength=2{
    
 	 set nameList1 = $LIST(nameList,1) 
          set nameList2= $LIST(nameList,2)
-         $$$TRACE("The nameList1 has the value: " _nameList1_ ".  The nameList2 has the value: " _nameList2)    
+         $$$TRACE("The element 1 has the value: " _nameList1_ ".  The element 2 has the value: " _nameList2)    
           
               
          if (( $LENGTH(nameList1)>2) && ( $LENGTH(nameList2)>2)){
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The nameList1 is: " _nameList1_ "The nameList2 is: " _nameList2_ "Usually the first name in full is followed by the middle name initial.  But here both names are in full, hard to tell which is the middle name. Skip the record and send it to business support group via support email for fix."  )               
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The nameList1 is: " _nameList1_ ".  The nameList2 is: " _nameList2_ ".  This first name string has two elements, both of which have more than two characters.  It is hard to determine which is first name and which is the middle name initial.  Skip the record and send it to business support group via support email for fix."  )               
          }  
-
-                
+             
 
          if ($LENGTH(nameList2)<3){
              set lastChar = $EXTRACT(nameList2,*)
              if ((lastChar =".") || ($LENGTH(nameList2)=1)){
                  set context.MidName = nameList2 
                  set context.FirstName = nameList1 
-                 $$$TRACE("The nameList2 is the mid-name initial with/out a dot: " _context.FirstName)     
-             }else{
+                 $$$TRACE("The nameList1 is the first name element: " _context.FirstName)     
+             }
+         }else{
                  set lastChar = $EXTRACT(nameList1,*)
                  if ((lastChar =".") || ($LENGTH(nameList1)=1)){
                      set context.MidName = nameList1 
                      set context.FirstName = nameList2 
-                     $$$TRACE("The nameList1 is the mid-name initial with/out a dot: " _context.FirstName)  
-                 }else{
-         
-                 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The nameList1 is: " _nameList1_ "The nameList2 is: " _nameList2_ "Usually the first name in full is followed by the mid-name initial.  But neither nameLists seem to have mid-name initial. Skip the record and send it to business support group via support email for fix."  )  
+                     $$$TRACE("The nameList1 is the mid-name initial element: " _context.FirstName)  
                  }
-             }
-                 
-         }        
-           
+         }
+         
+  }else{
+         
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "First name combo list: " _nameList_ "  The first name combo has more than 2 elements of first name and midname initial. Skip the record and send it to business support group via support email for fix."  )  
+
   }
  ]]]]><![CDATA[>
 </code>
-<code name='City, State, Zip' xpos='200' ypos='750' >
+<code name='Street' xpos='200' ypos='850' >
+<![CDATA[  set context.Street = ""
+  set context.Street = request.PhysicalStreet
+  $$$TRACE("The PhysicalStreet -->" _context.Street)
+  
+
+  if (context.Street '= "")
+  {         
+    //If the PhysicalStreet field has more than 35 characters, skip with an email to the source support.
+
+    if ($FIND(context.Street, "Timbuktu")>0)
+    {
+           set context.Street = "-"
+           $$$TRACE("The Physical Street string has the value of 'Timbuktu' and it needs to replaced wiht hyphen -->" _context.Street)
+    
+    }
+    else
+    {
+    
+       if ($LENGTH(context.Street) > 35)
+       {
+           set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The PhysicalStreet field more than 35 characters, skip the record with a support email to the business support. "  _context.Street) 
+       }
+       else
+       {
+    
+           if (($FIND(context.Street," E ")>0)|| ($FIND(context.Street," E.")>0)||($FIND(context.Street," e. ")>0) ||($FIND(context.Street," e ")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )  
+         		          
+           		    if (($ISVALIDNUM(nameList1)) && ($LENGTH(nameList2)<3)){         
+                               set tmpStr = nameList1_" East "_nameList3_ " "_nameList4
+                               $$$TRACE("The Street has changed its 2nd element -->" _tmpStr )
+                               set context.Street = tmpStr
+                            }
+               }
+
+           }
+           elseIF (($FIND(context.Street," E")>0)|| ($FIND(context.Street," E.")>0)||($FIND(context.Street," e.")>0) ||($FIND(context.Street," e")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )
+         		            
+           		    if (($ISVALIDNUM(nameList3)) && ($LENGTH(nameList4)<3)){         
+                                set tmpStr = nameList1_" "_nameList2_" "_nameList3_ " East"
+                                $$$TRACE("The Street has changed its 4th element -->" _tmpStr )
+                                set context.Street = tmpStr
+                            }
+               }
+             
+           }
+
+           $$$TRACE("After checking the East direction abbreviations -->" _context.Street)
+
+
+           if (($FIND(context.Street," N ")>0)|| ($FIND(context.Street," N.")>0)||($FIND(context.Street," n. ")>0) ||($FIND(context.Street," n ")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )  
+         		          
+           		    if (($ISVALIDNUM(nameList1)) && ($LENGTH(nameList2)<3)){         
+                               set tmpStr = nameList1_" North "_nameList3_ " "_nameList4
+                               $$$TRACE("The Street has changed its 2nd element -->" _tmpStr )
+                               set context.Street = tmpStr
+                            }
+               }
+
+           }
+           elseIF (($FIND(context.Street," N")>0)|| ($FIND(context.Street," N.")>0)||($FIND(context.Street," n.")>0) ||($FIND(context.Street," n")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )
+         		            
+           		    if (($ISVALIDNUM(nameList3)) && ($LENGTH(nameList4)<3)){         
+                                set tmpStr = nameList1_" "_nameList2_" "_nameList3_ " North"
+                                $$$TRACE("The Street has changed its 4th element -->" _tmpStr )
+                                set context.Street = tmpStr
+                            }
+               }
+              
+           }
+
+           $$$TRACE("After checking the East and North direction abbreviations -->" _context.Street)
+           
+           if (($FIND(context.Street," S ")>0)|| ($FIND(context.Street," S.")>0)||($FIND(context.Street," s. ")>0) ||($FIND(context.Street," s ")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )  
+         		          
+           		    if (($ISVALIDNUM(nameList1)) && ($LENGTH(nameList2)<3)){         
+                                set tmpStr = nameList1_" South "_nameList3_ " "_nameList4
+                                $$$TRACE("The Street has changed its 2nd element -->" _tmpStr )
+                                set context.Street = tmpStr
+                           }
+               }
+            
+           }
+           elseIF (($FIND(context.Street," S")>0)|| ($FIND(context.Street," S.")>0)||($FIND(context.Street," s.")>0) ||($FIND(context.Street," s")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )
+         		            
+           		    if (($ISVALIDNUM(nameList3)) && ($LENGTH(nameList4)<3)){         
+                               set tmpStr = nameList1_" "_nameList2_" "_nameList3_ " South"
+                               $$$TRACE("The Street has changed its 4th element -->" _tmpStr )
+                               set context.Street = tmpStr
+                            }
+               }
+             
+           }
+           
+           $$$TRACE("After checking East, North, and South street directoin abbreviations -->" _context.Street)
+                            
+           if (($FIND(context.Street," W ")>0)|| ($FIND(context.Street," W.")>0)||($FIND(context.Street," w. ")>0) ||($FIND(context.Street," w ")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )  
+         		          
+           		    if (($ISVALIDNUM(nameList1)) && ($LENGTH(nameList2)<3)){         
+                               set tmpStr = nameList1_" West "_nameList3_ " "_nameList4
+                               $$$TRACE("The Street has changed its 2nd element -->" _tmpStr )
+                               set context.Street = tmpStr
+                            }
+               }
+           
+           }
+           elseIF (($FIND(context.Street," W")>0)|| ($FIND(context.Street," W.")>0)||($FIND(context.Street," w.")>0) ||($FIND(context.Street," w")>0))
+           {
+               set nameList= $LISTFROMSTRING(context.Street, " ")
+     	       set nameListLength = $LISTLENGTH(nameList)  
+     	       $$$TRACE("Address has elements:." _nameListLength )
+     	                
+      	       if (nameListLength = 4){	
+         		    set nameList1 = $LIST(nameList,1)
+         		    $$$TRACE("1st element in Street string: " _nameList1 )  
+         		    set nameList2 = $LIST(nameList,2)  
+         		    $$$TRACE("2nd element in Street string: " _nameList2 )  
+         		    set nameList3 = $LIST(nameList,3)
+         		    $$$TRACE("3rd element in Street string:." _nameList3 )  
+         		    set nameList4 = $LIST(nameList,4) 
+         		    $$$TRACE("4th element in Street string:." _nameList4 )
+         		            
+           		    if (($ISVALIDNUM(nameList3)) && ($LENGTH(nameList4)<3)){         
+                               set tmpStr = nameList1_" "_nameList2_" "_nameList3_ " West"
+                               $$$TRACE("The Street has changed its 4th element -->" _tmpStr )
+                               set context.Street = tmpStr
+                            }
+               }
+            
+           }
+           $$$TRACE("After checking all four direction abbreviations -->" _context.Street)   
+                 
+       }
+    
+    }
+    
+  }]]]]><![CDATA[>
+</code>
+<code name='City, State, Zip' xpos='200' ypos='950' >
 <![CDATA[  //Separate incoming address string into city, state, and zip  
-  set AddressElements = ""
+  set context.AddressElements = ""
   set context.City = ""
   set context.State = "" 
   set context.Zip = "" 
     
-  set AddressElements = request.Address3  
-  $$$TRACE("The Address field has the elements:  " _AddressElements)
-  if (AddressElements '= "")
+  set context.AddressElements = request.Address3  
+  $$$TRACE("The Address field has the elements:  " _context.AddressElements)
+  if (context.AddressElements '= "")
   {
-     set nameList= $LISTFROMSTRING(AddressElements, " ")
-     set nameListLength = $LISTLENGTH(nameList)  
-     $$$TRACE("Address has elements:." _nameListLength )     
+     //If the address field has more than 45 characters, skip with an email to the source support.
+     if ($LENGTH(context.AddressElements ) > 45)
+     {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The address field more than 35 characters, skip the record with a support email to the business support. "  _context.AddressElements ) 
+    
+     }
+  
+     //If the address field contains "Timbuktu", replace it with the hyphen "-" as delete code for Sunquest end. 
+     
+     if ($FIND(context.AddressElements, "Timbuktu")>0)
+     {
+           set context.AddressElements = "-"
+           $$$TRACE("The Address string has the value of 'Timbuktu' and it needs to replaced wiht hyphen -->" _context.AddressElements)
+  
+     }else{
+     		set nameList= $LISTFROMSTRING(context.AddressElements, " ")
+     		set nameListLength = $LISTLENGTH(nameList)  
+     		$$$TRACE("Address has elements:." _nameListLength )     
       
-     if (nameListLength =4){	
-         set nameList1 = $LIST(nameList,1)
-         set nameList2 = $LIST(nameList,2)  
-         set nameList3 = $LIST(nameList,3)
-         set nameList4 = $LIST(nameList,4) 
-         $$$TRACE("Address has 4 elements.") 
-           
-         if (($ISVALIDNUM(nameList4)) && ($LENGTH(nameList3)=2)){  
-	    set context.City = _nameList1_ " " _nameList2
-	    $$$TRACE("The dual name city:  " _context.City)
-	    set context.City = $LIST(nameList,1) 
-            set context.State = nameList3
-            set context.Zip = nameList4
-            $$$TRACE("The address has 4 substrings:  " _Address3Parts)
-         }
-     }elseIF(nameListLength=3){ 
-         set nameList1 = $LIST(nameList,1)
-         set nameList2 = $LIST(nameList,2)  
-         set nameList3 = $LIST(nameList,3)
-         	    $$$TRACE("City: " _nameList1)
-         	    $$$TRACE("State: " _nameList2)
-         	    $$$TRACE("Zip: " _nameList3)
-         $$$TRACE("Address has 3 elements.")  
-         
-         if (($ISVALIDNUM(nameList3))&& ($LENGTH(nameList2)=2)){  
-	    set context.City = nameList1
-	    $$$TRACE("*****City: " _context.City)  
-            set context.State = nameList2
-            set context.Zip = nameList3
-                     	    $$$TRACE("*****Zip: " _context.Zip)
-         }       
-     }elseIF(nameListLength=2){   
-         set nameList1 = $LIST(nameList,1)
-         set nameList2 = $LIST(nameList,2) 
-         $$$TRACE("Address has 2 elements.") 
-              
-         if ( ($LENGTH(nameList1)=2) && ($ISVALIDNUM(nameList2))){
-             set context.State = nameList1
-             set context.Zip = nameList2                
-         }else{
-             if (($LENGTH(nameList2)=2) && ($ISVALIDNUM(nameList1))){
-                 set context.City = nameList1
-                 set context.State = nameList2                 
-             }else{
-               set context.City = nameList1 
-               if ($ISVALIDNUM(nameList2)=1){         
-                     $$$TRACE("The nameList2 is Zip code: " _nameList2)
-                     set context.Zip = nameList2 
-               }                         
-             }       
-         } 
-            
-      }elseIF(nameListLength=1){ 
+     		if (nameListLength = 4){	
+         		set nameList1 = $LIST(nameList,1)
+         		     		$$$TRACE("Address nameList1 has elements:." _nameList1 )  
+         		set nameList2 = $LIST(nameList,2)  
+         		     		$$$TRACE("Address nameList2 has elements:." _nameList2 )  
+         		set nameList3 = $LIST(nameList,3)
+         		         		     		$$$TRACE("Address nameList3 has elements:." _nameList3 )  
+         		set nameList4 = $LIST(nameList,4) 
+         		         		     		$$$TRACE("Address nameList4 has elements:." _nameList4 )  
 
-            $$$TRACE("The nameList1 is city name: " _context.City) 
+           
+         		if (($ISVALIDNUM(nameList4)) && ($LENGTH(nameList3)=2)){  
+	    			set context.City = nameList1_" "_nameList2
+	    			$$$TRACE("The dual name city:  " _context.City)
+            		        set context.State = nameList3
+            		        set context.Zip = nameList4
+            		        $$$TRACE("The address has 4 substrings:  " _context.AddressElements)
+         		}
+     		}elseIF(nameListLength=3){ 
+         			set nameList1 = $LIST(nameList,1)
+         			set nameList2 = $LIST(nameList,2)  
+         			set nameList3 = $LIST(nameList,3)
+         	    	        $$$TRACE("City: " _nameList1)
+         	    	        $$$TRACE("State: " _nameList2)
+         	    	        $$$TRACE("Zip: " _nameList3)
+         			$$$TRACE("Address has 3 elements: " _context.AddressElements)  
+         
+         			if (($ISVALIDNUM(nameList3))&& ($LENGTH(nameList2)=2)){  
+	    				set context.City = nameList1
+	    				$$$TRACE("*****City: " _context.City)  
+           				set context.State = nameList2
+            			        set context.Zip = nameList3
+                     	                $$$TRACE("*****Zip: " _context.Zip)
+         			}       
+     		}elseIF(nameListLength=2){   
+         			set nameList1 = $LIST(nameList,1)
+        			set nameList2 = $LIST(nameList,2) 
+        			$$$TRACE("Address has 2 elements." _context.AddressElements) 
+              
+         			if ( ($LENGTH(nameList1)=2) && ($ISVALIDNUM(nameList2))){
+             			     set context.State = nameList1
+             			     set context.Zip = nameList2                
+         			}else{
+             			     if (($LENGTH(nameList2)=2) && ($ISVALIDNUM(nameList1)=0)){
+                 			set context.City = nameList1 
+                 			set context.State = nameList2                 
+             			     }else{
+              				set context.City = nameList1 
+               				if ($ISVALIDNUM(nameList2)){         
+                     			   $$$TRACE("The nameList2 is Zip code: " _nameList2)
+                     			   set context.Zip = nameList2 
+               			        }                         
+             			     }       
+         			} 
+            
+      		}elseIF(nameListLength=1){ 
+
+            		$$$TRACE("The nameList1 is city name: " _context.City) 
              
-            if (($ISVALIDNUM(nameList1)=1) && ($LENGTH(nameList1)=5)){  
-                set context.Zip = nameList1
-                $$$TRACE("The address element is ZIP code:  " _context.Zip)
-            }elseIF($LENGTH(nameList1)=2){ 
-                set context.State = nameList1
-                $$$TRACE("The address is composed of two elements standing for two-digit state code:  " _context.State ) 
-            }elseIF($LENGTH(nameList1)>2){ 
-                set context.City = nameList1 
-                $$$TRACE("The address element is street info:  " _context.City)  
-            }
-      }  
+            		if (($ISVALIDNUM(nameList1)) && ($LENGTH(nameList1)=5)){  
+                			set context.Zip = nameList1
+                			$$$TRACE("The address element is ZIP code:  " _context.Zip)
+            		}elseIF($LENGTH(nameList1)=2){ 
+                			set context.State = nameList1
+                			$$$TRACE("The address is composed of two elements standing for two-digit state code:  " _context.State ) 
+            		}elseIF($LENGTH(nameList1)>2){ 
+                			set context.City = nameList1 
+                			$$$TRACE("The address element is street info:  " _context.City)  
+            		}
+      } 
+    } 
  }]]]]><![CDATA[>
 </code>
-<code name='Call Back Cmts' xpos='200' ypos='850' >
+<code name='Call Back Cmts' xpos='200' ypos='1050' >
 <![CDATA[  set context.CallBackComments = ""
   set context.CallBackComments = request.CallBackComments
   $$$TRACE("The Call Back Comments -->" _context.CallBackComments)
@@ -288,32 +587,40 @@ BPL Definition</Description>
 
   if (context.CallBackComments '= "")
   {         
-    //If the call back comments field has more than 100 charaters, skip with an email to the source support.
+    //If the call back comments field has more than 100 characters, skip with an email to the source support.
 
     if ($LENGTH(context.CallBackComments) > 100)
     {
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The Call Back Comments field more than 100 charaters, skip the record with a support email to the business support. "  _context.CallBackComments) 
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The Call Back Comments field more than 100 characters, skip the record with a support email to the business support. "  _context.CallBackComments) 
     
     }
     else
     {
-       //Add the escape method call
-        set className = "IHC.ITF.Process.Bpl.AllTracProviderTextToSunquestHl7"
-        set classMethodname = "Escape"        
-       set tmp = $CLASSMETHOD(className, classMethodname,context.CallBackComments)
-       set context.CallBackComments = tmp
+    
+     if ($FIND(context.CallBackComments, "Timbuktu")>0)
+     {
+           set context.CallBackComments = "-"
+           $$$TRACE("The CallBackComments string has the value of 'Timbuktu' and it needs to replaced wiht hyphen -->" _context.CallBackComments )
+  
+     }else{
+           //Add the escape method call
+           set className = "IHC.ITF.Process.Bpl.AllTracProviderTextToSunquestHl7"
+           set classMethodname = "Escape"        
+           set tmp = $CLASSMETHOD(className, classMethodname,context.CallBackComments)
+           set context.CallBackComments = tmp
+     }
     
     }
     
   }
 ]]]]><![CDATA[>
 </code>
-<transform name='AllTracDelimToSunquestHl7' class='IHC.ITF.Transform.Dtl.AllTracProviderTextToSunquestHl7' source='request' target='response' xpos='200' ypos='950' />
-<code name='GetTargetConfigList' xpos='200' ypos='1050' >
+<transform name='AllTracDelimToSunquestHl7' class='IHC.ITF.Transform.Dtl.AllTracProviderTextToSunquestHl7' source='request' target='response' xpos='200' ypos='1150' />
+<code name='GetTargetConfigList' xpos='200' ypos='1250' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1150' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1350' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -325,11 +632,11 @@ BPL Definition</Description>
 </if>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
-<code name='RESET ERROR' xpos='200' ypos='1250' >
+<code name='RESET ERROR' xpos='200' ypos='1450' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1350' xend='200' yend='350' >
+<catchall xpos='200' ypos='1550' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
