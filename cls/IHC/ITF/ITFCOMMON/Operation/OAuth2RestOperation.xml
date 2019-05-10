@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.OAuth2RestOperation">
+<Super>EnsLib.REST.GenericOperation</Super>
+<TimeCreated>65143,39484.073178</TimeCreated>
+
+<Property name="OAuth2ClientName">
+<Type>%String</Type>
+<InitialExpression>"PingDir"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>OAuth2ClientName:Additional,JarFiles:Additional</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.HTTP.GenericMessage,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK, ..%HttpRequest.Location="", ..%HttpRequest.AcceptGzip=0, ..%HttpRequest.FollowRedirect=0, ..%HttpRequest.ReadRawMode=..ReadRawMode
+    Do ..%HttpRequest.Reset()
+	Do ..%HttpRequest.RemoveHeader("HOST"), ..%HttpRequest.RemoveHeader("USER-AGENT"), ..%HttpRequest.RemoveHeader("REFERER")
+
+	#; Pass along selected HTTP headers
+	Set (tReq,tURL,tCT,tLen,tNParams,tRawParams,tApp,tCfg)="", tDoNotPassThrough=","_$ZCVT(..%ExcludeOutboundHeaders,"L")_",host,cspapplication,ensconfigname,ensattribute,url,httprequest,httpversion,content-length,content-type,charencoding,translationtable,iparams,params,rawparams,"
+	Set tHeaderKey="" For { Set tHeaderKey=pRequest.HTTPHeaders.Next(tHeaderKey)  Quit:""=tHeaderKey  Set tHeaderLwr=$ZCVT(tHeaderKey,"L")
+	Set tPass=(tDoNotPassThrough'[(","_tHeaderLwr_","))  Set:tPass&&(tHeaderLwr?1"iparams_"1.N) tPass=0
+	Do:tPass ..%HttpRequest.SetHeader(tHeaderKey,pRequest.HTTPHeaders.GetAt(tHeaderKey)) ; no need to handle multiple on one line
+	Set:tHeaderLwr="httprequest" tReq=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	Set:tHeaderLwr="url" tURL=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	Set:tHeaderLwr="content-type" tCT=$TR(pRequest.HTTPHeaders.GetAt(tHeaderKey),$C(34,39)) ; remove possible "  and '
+	Set:tHeaderLwr="content-length" tLen=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	Set:tHeaderLwr="iparams" tNParams=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+    Set:tHeaderLwr="rawparams" tRawParams=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	Set:tHeaderLwr="cspapplication" tApp=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	Set:tHeaderLwr="ensconfigname" tCfg=pRequest.HTTPHeaders.GetAt(tHeaderKey)
+	      
+	#; if rawparams then remove any query string from tURL
+	If tRawParams'="" Set tURL = $P(tURL,"?",1)
+	
+	#; if you want to POST both form body data and form variables then pass RAWPARAMS - the RAWPARAMS form variables will go in the URL and not in the form body, leaving the form body to contain your data
+	Set tFormVarNames="", tDataArray="", n=0, tGenRawParams = ""
+	Set:$Case($ZCVT(tReq,"U"),"":1,"POST":1,:0)&&$IsObject(pRequest.Stream) tNParams=0
+	For i=1:1:tNParams {
+	   Set tParam=pRequest.HTTPHeaders.GetAt("IParams_"_i)
+	   Set tKey=$ZStrip($P(tParam,"="),"<>W"), tVal=$S($F(tParam,"="):$E(tParam,$F(tParam,"="),*),1:"")
+	   If tRawParams="" Set tGenRawParams=tGenRawParams_$S(tGenRawParams="":"",1:"&")_$S(tKey="":"", 1:tKey)_$S(tVal="":"", 1:"="_tVal)
+	   If (tKey'=""),(tVal'="") {
+		  Set tFormVarNames=tFormVarNames_$S(tFormVarNames="":"",1:",")_tKey
+		  Set tDataArray($I(n))=tVal
+	   }
+	}
+	#; if the conversion to FormVarNames meant we did do not use all e.g. for  ?WSDL&abc=1 we would only set abc=1 then do not use tFormVarNames
+	If +tNParams && (n'=tNParams) {
+	  Set tFormVarNames=""
+	  #;if no tRawParams then need to use the one generated from iparams
+	  If tRawParams="" {$$$sysTRACE("Using generated RAWPARMS of "_tGenRawParams) Set tRawRarams = tGenRawParams}
+	}
+
+	#; If no IPARAMS then use RAWPARAMS in the URL
+	Set tRawParams=$S(""=tFormVarNames&&$L(tRawParams):"?"_tRawParams, 1:"")
+	Set ..%HttpRequest.ContentType=tCT
+	Set tSC=..constructHTTPRequest(pRequest,tLen,tCT)  Quit:$$$ISERR(tSC)
+	set accessToken=""
+	set myscopes="edit"
+    set isAuth=##class(%SYS.OAuth2.AccessToken).IsAuthorized(..OAuth2ClientName,,myscopes,
+                 .accessToken,.idtoken,.responseProperties,.error)
+                 
+    if $isobject(error) {
+       //error handling here
+       $$$TRACE("IsAuthorized check failed...")
+    }   
+    else {
+	  $$$TRACE("Returned access_token: "_accessToken)    
+    }  
+    if isAuth=0 {
+       $$$TRACE("Get new access_token...") 
+       set tSC=##class(%SYS.OAuth2.Authorization).GetAccessTokenClient(..OAuth2ClientName, myscopes,.responseProperties,.error)
+       set isAuth=##class(%SYS.OAuth2.AccessToken).IsAuthorized(..OAuth2ClientName,,myscopes,
+                 .accessToken,.idtoken,.responseProperties,.error)
+       $$$TRACE("Returned access_token: "_accessToken)    
+    }
+    //set jsonObject=##class(%DynamicObject).%New()
+    ///if ##class(%SYS.OAuth2.Validation).ValidateJWT(..OAuth2ClientName, accessToken,myscopes,,.jsonObject,.securityParameters,.tSC)=0 {
+	   /// $$$TRACE("Access Token is Invalid: "_accessToken)  
+   	    ///$$$TRACE("JSON Object: "_jsonObject.%ToJSON())  
+   // }
+   // else {
+      if $$$ISOK(tSC) {
+       // AddAccessToken adds the current access token to the request.
+       set sc=##class(%SYS.OAuth2.AccessToken).AddAccessToken(..%HttpRequest,"header",..Adapter.SSLConfig,..OAuth2ClientName)
+
+       #; Now send to the target address
+       Set tAdURL=..Adapter.URL, tAdURL1=$E(tAdURL)
+       If tAdURL1="^" {
+	     #; strip Application from URL and replace it with the remaining adapter URL part, if any
+	     Set $E(tAdURL,1)=""  Set:"*"=tAdURL tAdURL=""  Set:"/"'=$E(tAdURL,1) tAdURL="/"_tAdURL
+	     If (""'=tApp) {
+	       If (tApp=$E(tURL,1,$L(tApp)))&&("/"=$E(tApp,*)) {
+		      Set tURL=tAdURL_$S($L(tAdURL)>1:"/",1:"")_$E(tURL,$L(tApp)+1,*), tAdURL=""
+		   } 
+		 } Else {
+			/*	Come in via the adapter and the Application name is not at the front so keep inbound URL.
+				Prepend anthing after the | to the URL that came in.
+			*/
+		    Set tURL=$S($L(tAdURL)>1:tAdURL,1:"")_tURL, tAdURL = ""	
+		 }
+	   } ElseIf tAdURL1="|" {
+		  #; strip Application and ConfigName from URL and replace it with the remaining adapter URL part, if any
+		  If ""=tApp { Set:""'=tCfg tCfg="/"_tCfg_"/" } Else { Set tCfg=$S(""=tCfg:tApp, 1:tApp_tCfg_"/") }
+		  Set $E(tAdURL,1)=""  Set:"*"=tAdURL tAdURL=""  Set:"/"'=$E(tAdURL,1) tAdURL="/"_tAdURL
+	      If (""'=tCfg){
+	         If (tCfg=$E(tURL,1,$L(tCfg))) {
+	           Set tURL=tAdURL_$S($L(tAdURL)>1:"/",1:"")_$E(tURL,$L(tCfg)+1,*), tAdURL=""
+	  	     } ElseIf (tApp="") {
+			 /*	Come in via the adapter and the tCfg name is not the same so keep inbound URL. 
+					Prepend anthing after the | to the URL that came in.
+			 */
+			 Set tURL=$S($L(tAdURL)>1:tAdURL,1:"")_tURL, tAdURL = ""	
+			 }
+		  }
+	   }
+       #dim tHttpResponse As %Net.HttpResponse
+	   Set tSC=..Adapter.SendFormDataArray(.tHttpResponse,$S(""=tReq:"POST",1:tReq),..%HttpRequest,tFormVarNames,.tDataArray,$Case(tAdURL,"":tURL,"*":tURL,:tAdURL)_tRawParams)
+
+	   If ##class(Ens.Util.Statistics).StatsStarted(..%ConfigName) {
+		  Set tStatsUserDimension=$LG(pRequest.HTTPHeaders.GetAt("EnsAttribute"),2)
+		  If (tStatsUserDimension'="") Do ##class(Ens.Util.Statistics).SetStatsUserDimension(..%ConfigName,tStatsUserDimension)
+	   }
+
+	   #; Suppress HTTP status errors and just pass back the status, headers and body
+	   If $$$ISERR(tSC)&&'$$$StatusEquals(tSC,$$$EnsErrHTTPStatus) { 
+	      Set ..%HttpRequest=##class(%Net.HttpRequest).%New()
+	      //Quit tSC 
+	   }
+	   else {
+	      set tSC=..constructResponse(tHttpResponse,.pResponse)
+	   }
+	 }
+  //  }
+  }
+  Quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
