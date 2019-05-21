@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.PingDirOAuth2RestOperation">
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65149,35211.272289</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+Rest client to use OAuth 2</Description>
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="OAuth2ClientName">
+<Type>%String</Type>
+<InitialExpression>"PingDir"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>OAuth2ClientName:Additional,JarFiles:Additional</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:EnsLib.HTTP.GenericMessage,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+			
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	
+    set mrn=pRequest.HTTPHeaders.GetAt("mrn")
+	do pRequest.HTTPHeaders.RemoveAt("mrn")
+	$$$TRACE("EMPI: "_mrn)
+		$$$TRACE("URL: "_..Adapter.URL)
+	Set tAdURL = ..Adapter.URL_mrn, tAdURL1=$E(tAdURL)
+	$$$TRACE("Location: "_tAdURL)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	Set httprequest.Https="1"
+	
+	Set httprequest.ContentType="application/json"	
+	Do httprequest.EntityBody.Write() ;Set AtEnd=false since ..%HttpRequest.Reset() leads to EntityBody.Clear() which marks AtEnd true.
+	do httprequest.EntityBody.CopyFrom(pRequest.Stream)
+		
+	set accessToken=""
+	set myscopes="edit"
+    set isAuth=##class(%SYS.OAuth2.AccessToken).IsAuthorized(..OAuth2ClientName,,myscopes,
+                 .accessToken,.idtoken,.responseProperties,.error)
+                 
+    if $isobject(error) {
+       //error handling here
+       $$$TRACE("IsAuthorized check failed...")
+    }   
+    else {
+	  $$$TRACE("Returned access_token: "_accessToken)    
+    }  
+    if isAuth=0 {
+       $$$TRACE("Get new access_token...") 
+       set tSC=##class(%SYS.OAuth2.Authorization).GetAccessTokenClient(..OAuth2ClientName, myscopes,.responseProperties,.error)
+       set isAuth=##class(%SYS.OAuth2.AccessToken).IsAuthorized(..OAuth2ClientName,,myscopes,
+                 .accessToken,.idtoken,.responseProperties,.error)
+       $$$TRACE("Returned access_token: "_accessToken)    
+    }
+
+    if $$$ISOK(tSC) {
+       // AddAccessToken adds the current access token to the request.
+       set sc=##class(%SYS.OAuth2.AccessToken).AddAccessToken(httprequest,"header",..Adapter.SSLConfig,..OAuth2ClientName)
+	}
+    set status = httprequest.Put(tAdURL)
+
+    set aToken=""
+    if $$$ISERR(status) {
+         do $system.OBJ.DisplayError()
+         Quit status
+    } else {
+        set response=httprequest.HttpResponse
+       	$$$TRACE("StatusLine: "_response.StatusLine)  
+        do ..constructResponse(response,.jwtResponse)
+          
+        set pResponse=jwtResponse
+    }        
+    
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="constructResponse">
+<Internal>1</Internal>
+<FormalSpec>pHttpResponse:%Net.HttpResponse,pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	If $IsObject(pHttpResponse.Data) {
+		Set tStream=pHttpResponse.Data
+	} Else {
+		Set tStream=##class(%GlobalBinaryStream).%New()
+		Set tSC=tStream.Write(pHttpResponse.Data)  Quit:$$$ISERR(tSC) tSC
+	}
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New(tStream,,pHttpResponse)
+	Do pResponse.HTTPHeaders.SetAt(pHttpResponse.StatusLine,"StatusLine")
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="EnsLib.HTTP.GenericMessage">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
