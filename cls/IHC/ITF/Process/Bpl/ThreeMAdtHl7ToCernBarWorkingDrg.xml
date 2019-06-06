@@ -82,6 +82,16 @@ BPL Definition</Description>
 </property>
 <property name='hddNcidRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.NcidLookupRequest' instantiate='0' />
 <property name='hddNcidResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
+<property name='msh4Ncid' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='threeDigitFacNum' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='2400' >
 <scope xpos='200' ypos='250' xend='200' yend='2300' >
@@ -146,9 +156,7 @@ BPL Definition</Description>
    set retVal = ##class("Ens.Util.LookupTable").%ExistsTable("IHC.ITF.Process.Bpl.ThreeMAdtHl7ToCernBarWorkingDrg.Lookup.AllowedDrgTypes")
  if (retVal = 0){
  	set status = ##class("IHC.ITF.ITFCOMMON.Utility").DisableMsgError($CLASSNAME(),"Lookup table: IHC.ITF.Process.Bpl.ThreeMAdtHl7ToCernBarWorkingDrg.Lookup.AllowedDrgTypes not exists.")  
- }
- 
- $$$TRACE("5. After checking 3 lookup files.")   ]]]]><![CDATA[>
+ }  ]]]]><![CDATA[>
 </code>
 <code name='6. Populate context variables' xpos='200' ypos='950' >
 <![CDATA[     
@@ -164,9 +172,7 @@ BPL Definition</Description>
     	set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Couldn't get value for HddContextCerner in Lookup Table.")	  	  
     } else {
     	set context.hddContextCerner = retVal
-    }  
-    
-     $$$TRACE("6. After getting the two context values from lookup file.")  ]]]]><![CDATA[>
+    }  ]]]]><![CDATA[>
 </code>
 <code name='7. Check Hdd Configuration' xpos='200' ypos='1050' >
 <annotation><![CDATA[Get HDD configuration from settings]]]]><![CDATA[></annotation>
@@ -177,22 +183,20 @@ BPL Definition</Description>
     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get HddTargetConfigName, shutting down.")
  } else {
     $$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)   
- }
-  $$$TRACE("7. HddTargetConfigName validation.")  ]]]]><![CDATA[>
+ }]]]]><![CDATA[>
 </code>
 <code name='8. Prep GetNcidFromRep' xpos='200' ypos='1150' >
 <annotation><![CDATA[Prepare RepFromNcid values]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("For Hdd lookup call")  	
  set context.hddNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
- $$$TRACE("After creating HDD NCID lookup request object.")  
  
  set msh6 = request.GetValueAt("MSH:6.1")
- $$$TRACE("The value from the incoming MSH:6.1 is: " _msh6) 
- set ThreeDigitFacNum = ""
+ $$$TRACE("The facility code value from the incoming MSH:6.1 is: " _msh6)
+  
+ set context.threeDigitFacNum = ""
  
  if (msh6  = "")
  {    
-            $$$TRACE("MSH-6 Facility number is empty:  " _msh6 ) 
             set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "The message from 3M source system  has no facility value in MSH-6.  Skip and send it to source system for fix.")  
  }
  else
@@ -202,39 +206,46 @@ BPL Definition</Description>
             $$$TRACE("The facility 3 digit code Lookup returned value: " _retVal)
             
             if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {   
-    	        set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Couldn't get value for the facility in Lookup Table.")	  	  
+    	        set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Found no match in the allowed facility lookup Table.  Skip the messages with an invalid facility code.")	  	  
             }
             else
             {
-               set ThreeDigitFacNum = retVal
-               $$$TRACE("The corresponding 3 digit facility code on the lookup table is:  " _ThreeDigitFacNum ) 
+               set context.threeDigitFacNum = retVal
+               $$$TRACE("The corresponding 3 digit facility code found in the allowed facility lookup table is:  " _context.threeDigitFacNum ) 
             }                    
      
  } 
  
- if (ThreeDigitFacNum '= "") {
-     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, ThreeDigitFacNum, context.hddFacilityDomain, context.hddContextCerner, "MSH:4")  	  	
-     $$$TRACE("8.  Three digit facility code for HDD NCID lookup is: " _ThreeDigitFacNum)     		
+ if (context.threeDigitFacNum'= "") {
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, context.threeDigitFacNum, context.hddFacilityDomain, context.hddContextCerner, "MSH:4")  	  	
+     $$$TRACE("8.  Three digit facility code for HDD NCID lookup is: " _context.threeDigitFacNum)     		
  }
- 
- $$$TRACE("8.1 After setting HDD NCID lookup request object.")  
  ]]]]><![CDATA[>
 </code>
 <code name='9. Call GetNcidFromRep' xpos='200' ypos='1250' >
-<![CDATA[   $$$TRACE("9. Before call HDD SendRequestSync.") 
-   set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddNcidRequest,.hddNcidResponse)
+<![CDATA[ 
+   set tStatus = process.SendRequestSync(context.hddTargetConfigName,context.hddNcidRequest,.hddNcidResponse)
  if ('tStatus) {
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
- } else { 
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+ }else{ 
    set context.hddNcidResponse= hddNcidResponse
  }
 
-   $$$TRACE("9.1 After HDD SendRequestSync.") ]]]]><![CDATA[>
+   
+ set context.msh4Ncid = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(context.threeDigitFacNum, context.hddFacilityDomain, context.hddContextCerner, context.hddTargetConfigName, .process)
+     
+
+   if (context.msh4Ncid ="") {   
+    	set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "HDD getNcidFromRep call failed to return the NCID ["_context.msh4Ncid_"] for the Rep from Hl7 record [" _context.threeDigitFacNum_"].  Error out to the HDD support for checking.")
+   }
+   
+    $$$TRACE("The NCID result after the HDD lookup call is ["_context.msh4Ncid_"]. The Rep value passed in from the incoming MSH-6 is ["_context.threeDigitFacNum_"]")
+ ]]]]><![CDATA[>
 </code>
-<trace name='# of HDD objects returned' value='"Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1350' >
+<trace name='10. Num of HDD obj returned' value='"Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1350' >
 <annotation><![CDATA[Check out HDD RepFromNcid call return]]]]><![CDATA[></annotation>
 </trace>
-<code name='PID and Account Num' xpos='200' ypos='1450' >
+<code name='11. PID and Account Num' xpos='200' ypos='1450' >
 <annotation><![CDATA[Check Patient ID and Account #]]]]><![CDATA[></annotation>
 <![CDATA[
   $$$TRACE("Validate patient ID and account number.") 
@@ -252,7 +263,7 @@ BPL Definition</Description>
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Invalid PID-18 account number:  ["_pid18_"].  Error out for source system to fix.")
   }]]]]><![CDATA[>
 </code>
-<code name='Check "W" in DG1-6' xpos='200' ypos='1550' >
+<code name='12. Check "W" in DG1-6' xpos='200' ypos='1550' >
 <annotation><![CDATA[Checking for the working DRG diagnosis type code]]]]><![CDATA[></annotation>
 <![CDATA[  //source.{DG1grp(k1).DG1:DiagnosisType}
   set k1="",tSC=1    
@@ -266,7 +277,7 @@ BPL Definition</Description>
        }        
    }]]]]><![CDATA[>
 </code>
-<code name='DRG Type code for Cerner' xpos='200' ypos='1650' >
+<code name='13. DRG Type code for Cerner' xpos='200' ypos='1650' >
 <![CDATA[  $$$TRACE("Change the 3M's DRG Type description for Cerner.") 
   Set Drg18 =request.GetValueAt("DRG(1):DRG18")    
   $$$TRACE("DRG-18 : " _Drg18 )
@@ -281,21 +292,21 @@ BPL Definition</Description>
  if (retVal '= "") 
  {   
       set context.drgType = retVal
-      $$$TRACE("The DRG type from the lookup table: " _context.drgType) 
+      $$$TRACE("The DRG type code from the lookup table: " _context.drgType) 
  }
  else
  {
-      set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid DRG Type: " _Drg18_ " found no match in the lookup table. Skipping the record." )	  	  
+      set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid DRG Type: " _Drg18_ " found no match in the DGR Type Code lookup table. Skipping the record." )	  	  
  }
 ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.ThreeMAdtHl7ToCernBarWorkingDrg' source='request' target='response' xpos='200' ypos='1750' >
+<transform name='14. Transform' class='IHC.ITF.Transform.Dtl.ThreeMAdtHl7ToCernBarWorkingDrg' source='request' target='response' xpos='200' ypos='1750' >
 <annotation><![CDATA[translate to Cerner format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1850' >
+<trace name='15. Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1850' >
 <annotation><![CDATA[Translated output]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1950' xend='200' yend='350' >
+<foreach name='16. Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1950' xend='200' yend='350' >
 <annotation><![CDATA[Publish to each Target Configured]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -303,7 +314,7 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='2050' >
+<code name='17. Reset Error' xpos='200' ypos='2050' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
