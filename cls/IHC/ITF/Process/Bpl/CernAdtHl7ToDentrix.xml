@@ -46,7 +46,6 @@ This interface receives Adt data from LegacyPlus and sends it to Dentrix.</Descr
 <Type>%Library.CacheStorage</Type>
 <DefaultData>CernAdtHl7ToDentrixDefaultData</DefaultData>
 <Data name="CernAdtHl7ToDentrixDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"CernAdtHl7ToDentrix"</Subscript>
 <Value name="1">
 <Value>AllowedEventTypes</Value>
@@ -71,7 +70,7 @@ This interface receives Adt data from LegacyPlus and sends it to Dentrix.</Descr
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2650' width='2000' >
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2750' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -141,9 +140,24 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='15' />
 </parameters>
 </property>
+<property name='nk17context' type='%String' initialexpression='527148879' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pid17context' type='%String' initialexpression='6490387' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='Gt111value' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2400' >
-<scope xpos='200' ypos='250' xend='200' yend='2300' >
+<sequence xend='200' yend='2500' >
+<scope xpos='200' ypos='250' xend='200' yend='2400' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -304,8 +318,15 @@ BPL Definition</Description>
 <code name='Check MedicalService NCID' xpos='200' ypos='1050' >
 <annotation><![CDATA[- Get medical service NCID (ZZ1.16)
 - See if this is one we send to DENTRIX
-- if not sent, write filter message to log & skip]]]]><![CDATA[></annotation>
-<![CDATA[  
+- if not sent, write filter message to log & skip 
+Facility "199" with eventyoe "A34" MERG is allowed to pass.]]]]><![CDATA[></annotation>
+<![CDATA[  // Allow facility (199) MERG (A34) records to process
+ 
+ if ((context.Facility = "199") && (context.EventType = "A34")) {
+   }
+   else
+   { 
+  
  // get ZZ1.16  (Medical Service NCID sent from iCentra)
  set context.MedServiceNCID = request.GetValueAt("ZZ1:ZZ116HospServiceNcid")
   
@@ -358,6 +379,7 @@ BPL Definition</Description>
        Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Medical Service NCID ["_context.MedServiceNCID_"] not sent to DENTRIX. Skipping the record.") 
     }
  }
+ }
  ]]]]><![CDATA[>
 </code>
 <code name='set HddTargetConfigName' xpos='200' ypos='1150' >
@@ -372,7 +394,7 @@ BPL Definition</Description>
  if ($$$ISOK(pstatus)){
  	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
  }else{
-        $$$TRACE("Steve - did not get target config name")
+        $$$TRACE("Error - did not get target config name")
 	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
  } 
  
@@ -459,7 +481,35 @@ BPL Definition</Description>
   // Subtract 1 from k1 to get the correct number of NCID's
   set k1 = k1 - 1
   $$$TRACE("Retrieved "_k1_" InsuredRelationToPatient NCID's")
- ]]]]><![CDATA[>
+ 
+ //-------------------------------------------------------------------------------------
+  //
+  set ncidCR = request.GetValueAt("NK1(1):ContactRole.identifierST")
+ 
+  
+     $$$TRACE("contact role NCID : "_ncidCR)
+ 
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ncidCR,  context.nk17context, "Nk17")  
+     
+  
+  //-------------------------------------------------------------------------------------
+  //
+  set ncidREL = request.GetValueAt("PID:Religion.identifierST")
+ 
+  
+     $$$TRACE("contact role NCID : "_ncidREL)
+ 
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ncidREL,  context.pid17context, "PID17")  
+     
+     //-------------------------------------------------------------------------------------
+  //
+  set ncidGR = request.GetValueAt("ZGI:PatientRelationship")
+ 
+  
+     $$$TRACE("guarantor type NCID : "_ncidGR)
+ 
+     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , ncidGR,  context.nk17context, "ZGI3")  
+  ]]]]><![CDATA[>
 </code>
 <code name='GetHddRepFromNcid ' xpos='200' ypos='1550' >
 <annotation><![CDATA[- Load hddRepResponse with all the NCIDs used in HDD lookup call performed in DTL 
@@ -476,14 +526,18 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 <trace name='HDD return count' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='200' ypos='1650' />
-<transform name='DENTRIX Data Transformation' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToDentrix' source='request' target='response' xpos='200' ypos='1750' >
+<code name='determine GT1-11' xpos='200' ypos='1750' >
+<![CDATA[ set Gt111 = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.hddRepResponse, "ZGI3")
+ set context.Gt111value = Gt111.Rep]]]]><![CDATA[>
+</code>
+<transform name='DENTRIX Data Transformation' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToDentrix' source='request' target='response' xpos='200' ypos='1850' >
 <annotation><![CDATA[DENTRIX Data Transformation]]]]><![CDATA[></annotation>
 </transform>
-<code name='Write outgoing record to log' xpos='200' ypos='1850' >
+<code name='Write outgoing record to log' xpos='200' ypos='1950' >
 <annotation><![CDATA[Write outgoing record to log]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Outbound: " _response.RawContent)]]]]><![CDATA[>
 </code>
-<foreach name='For Each target' property='context.targetList' key='context.cntr' xpos='200' ypos='1950' xend='200' yend='450' >
+<foreach name='For Each target' property='context.targetList' key='context.cntr' xpos='200' ypos='2050' xend='200' yend='450' >
 <annotation><![CDATA[For Each target]]]]><![CDATA[></annotation>
 <call name='for each target' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <annotation><![CDATA[For each target]]]]><![CDATA[></annotation>
@@ -495,13 +549,13 @@ BPL Definition</Description>
 <annotation><![CDATA[Trace message sent]]]]><![CDATA[></annotation>
 </trace>
 </foreach>
-<code name='RESETERROR' xpos='200' ypos='2050' >
+<code name='RESETERROR' xpos='200' ypos='2150' >
 <![CDATA[   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 
 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2150' xend='200' yend='350' >
+<catchall xpos='200' ypos='2250' xend='200' yend='350' >
 <code name='process' xpos='200' ypos='250' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
 ]]]]><![CDATA[>
