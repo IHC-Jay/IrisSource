@@ -34,184 +34,191 @@ If 'true' the inbound HL7 message is routed to Bridge component based on the las
 <FormalSpec>pDocIn:EnsLib.HL7.Message,*pDocOut:EnsLib.HL7.Message</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	// Added to identify record and send to QA service
-	set b351Qualifier = ..LastNameQualifier
-	set qaComponnentPrefix = ..BridgeComponnentPrefix
-	
-	Set (tSC,tSCVal)=$$$OK, pDocOut=$$$NULLOREF
-	$$$TRACE("In IHC.ITF.ITFCOMMON.Service.Hl7TcpRouteOnLastName " )
-	if ( ..RouteOnLastName = 1)
+	if ( ..RouteOnLastName '= 1)
 	{
-		if ( ($L(..LastNameQualifier) = 0) || ($L(..BridgeComponnentPrefix) = 0))
+		set tSC = ##super()
+	}
+	else
+	{
+		// Added to identify record and send to QA service
+		set b351Qualifier = ..LastNameQualifier
+		set qaComponnentPrefix = ..BridgeComponnentPrefix
+		
+		Set (tSC,tSCVal)=$$$OK, pDocOut=$$$NULLOREF
+		$$$TRACE("In IHC.ITF.ITFCOMMON.Service.Hl7TcpRouteOnLastName " )
+		if ( ..RouteOnLastName = 1)
 		{
-			
-			$$$LOGERROR("Settings are not correct, check LastNameQualifier and BridgeComponnentPrefix")
-			$$$sysTRACE("Message "_pDocIn_" / "_pDocIn.%Id())
-			Set tMSH=pDocIn.getSegmentByIndex(1,.tSC)
-			Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; get a new code since we have a new error
-			set tSC = $$$ERROR("Settings are not correct, check LastNameQualifier and BridgeComponnentPrefix")
-			Quit tSC
-		}
-	}
-	$$$ASSERT($$$IsdefObject(pDocIn) && pDocIn.%IsA("EnsLib.HL7.Message"))
-	$$$sysTRACE("Got Message "_pDocIn_" / "_pDocIn.%Id())
-	Set tMSH=pDocIn.getSegmentByIndex(1,.tSC)
-	If $$$ISOK(tSC) {
-		If $Case(tMSH.Name,"FHS":1,"BHS":1,:0) { Set tMSH=$$$NULLOREF }
-		ElseIf $Case(tMSH.GetValueAt("9.1"),"ACK":1,"ADR":1,:0) {
-			Quit:..OnInboundAck(pDocIn,tMSH,.tSC) tSC
-		}
-		Set tSCVal=..resolveAndIndex(pDocIn,tMSH)
-	}
-	
-	Set qaRoute = 0
-	Set pidSegInd = 1
-	Set newHl7msg = ""
-	Set prodNm = ##class(Ens.Director).GetActiveProductionName()
-
-	Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0), tResponse=$$$NULLOREF
-	If $$$ISOK(tSC)&&$$$ISOK(tSCVal)&&(""'=..TargetConfigNames) {
-		Set pDocIn.IsMutable=0
-		If $Case(..AckMode,"Never":1,"Immed":1,"Byte":1,"Msh":'$IsObject(tMSH)||$Case(tMSH.GetValueAt(16),"AL":0,"SU":0,"ER":0,:1),:0) { ; ApplicationAcknowledgmentType="NEver"
-			#; Send Async; no reply required
-			$$$SyncCommitSet(tSyncCommit)
-			if ( ..RouteOnLastName = 1)
+			if ( ($L(..LastNameQualifier) = 0) || ($L(..BridgeComponnentPrefix) = 0))
 			{
-				$$$TRACE("# of segments: " _ pDocIn.SegCount)
-				// Find PID segment
-				for pidSegInd=1:1:pDocIn.SegCount
-				{
-					Set tSeg=pDocIn.getSegmentByIndex(pidSegInd,.tSC)
-					$$$TRACE("Segment Name: " _ tSeg.Name _", stat: " _ tSC)
-					if ($FIND(tSeg.Name, "PID") > 0)
-					{
-						$$$TRACE("Found PID")
-						quit
-					}					
-				}
-				set nm = tSeg.GetValueAt("5.1") // Get  name
-				set lastNm = tSeg.GetValueAt("5.1.1") // Get last name
-				$$$TRACE("PID 5.1: " _ nm _ ", last name: " _lastNm)
-				if ( ($F(nm, b351Qualifier) -1) = $L(nm)) // Last name ending with b351Qualifier
-				{
-					$$$TRACE("Message to be sent to QA route, Found " _ b351Qualifier _ " at: " _ $F(nm, b351Qualifier) _ ", Original value PID 5.1: " _ nm )
-
-					set qaRoute = 1
-					Set newHl7msg = pDocIn.%ConstructClone(1)
-						
-					Set tPID=newHl7msg.getSegmentByIndex(pidSegInd,.tSC)
-					Set stat = tPID.SetValueAt($E(nm, 1, *-$L(b351Qualifier)), "5.1") 		
-					
-					Set statRemove = newHl7msg.RemoveSegmentAt(pidSegInd)
-					Set statInsert = newHl7msg.InsertSegmentAt(tPID, pidSegInd)
-					$$$TRACE("PID SetValueAt " _ stat _", New PID Name: " _ tPID.GetValueAt("5.1") _ ", PID RemoveSegmentAt " _ statRemove _ ", PID InsertSegmentIdAt " _ statInsert)
-				}
-			}
-			For iTarget=1:1:$L(..TargetConfigNames, ",") { Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
-				$$$sysTRACE("Sending HL7 Message "_pDocIn_" / "_pDocIn.%Id()_" from "_pDocIn.Source_" to '"_tOneTarget_"'")
-				if (qaRoute = 0)
-				{
-					Set tSC1 =..SendRequestAsync(tOneTarget,pDocIn)  Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
-				}
-				else
-				{
-					set tOneTarget = qaComponnentPrefix _ tOneTarget
-					//Check if component exists
-					set configNm = tOneTarget
-					Set:(tOneTarget '[ "||") configNm = prodNm_"||"_ tOneTarget
-	    
-	  			 	Set configItem = ##class(Ens.Config.Production).OpenItemByConfigName(configNm)
-	    
-	   				If $IsObject(configItem)
- 					{
-	 					Set tSC1 =..SendRequestAsync(tOneTarget,newHl7msg)  Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
-						$$$TRACE("SendRequestAsync to QA route component: " _ tOneTarget _ ", stat: " _ tSC)
-
- 					}
- 					else
- 					{
-	 					$$$LOGERROR("SKIP routing, QA routing component is not an valid object: " _ tOneTarget)	 					
- 					}
-				}
 				
+				$$$LOGERROR("Settings are not correct, check LastNameQualifier and BridgeComponnentPrefix")
+				$$$sysTRACE("Message "_pDocIn_" / "_pDocIn.%Id())
+				Set tMSH=pDocIn.getSegmentByIndex(1,.tSC)
+				Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; get a new code since we have a new error
+				set tSC = $$$ERROR("Settings are not correct, check LastNameQualifier and BridgeComponnentPrefix")
+				Quit tSC
 			}
-			$$$SyncCommitClear(tSyncCommit)
-			If $$$ISOK(tSC) { $$$sysTRACE("After async forwarding HL7 Message "_pDocIn.%Id()_", reply code='"_tReplyCode_"'") }
-			ElseIf ""'=tReplyCode { Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0) } ; get a new code since we have a new error
+		}
+		$$$ASSERT($$$IsdefObject(pDocIn) && pDocIn.%IsA("EnsLib.HL7.Message"))
+		$$$sysTRACE("Got Message "_pDocIn_" / "_pDocIn.%Id())
+		Set tMSH=pDocIn.getSegmentByIndex(1,.tSC)
+		If $$$ISOK(tSC) {
+			If $Case(tMSH.Name,"FHS":1,"BHS":1,:0) { Set tMSH=$$$NULLOREF }
+			ElseIf $Case(tMSH.GetValueAt("9.1"),"ACK":1,"ADR":1,:0) {
+				Quit:..OnInboundAck(pDocIn,tMSH,.tSC) tSC
+			}
+			Set tSCVal=..resolveAndIndex(pDocIn,tMSH)
+		}
+		
+		Set qaRoute = 0
+		Set pidSegInd = 1
+		Set newHl7msg = ""
+		Set prodNm = ##class(Ens.Director).GetActiveProductionName()
 
+		Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0), tResponse=$$$NULLOREF
+		If $$$ISOK(tSC)&&$$$ISOK(tSCVal)&&(""'=..TargetConfigNames) {
+			Set pDocIn.IsMutable=0
+			If $Case(..AckMode,"Never":1,"Immed":1,"Byte":1,"Msh":'$IsObject(tMSH)||$Case(tMSH.GetValueAt(16),"AL":0,"SU":0,"ER":0,:1),:0) { ; ApplicationAcknowledgmentType="NEver"
+				#; Send Async; no reply required
+				$$$SyncCommitSet(tSyncCommit)
+				if ( ..RouteOnLastName = 1)
+				{
+					$$$TRACE("# of segments: " _ pDocIn.SegCount)
+					// Find PID segment
+					for pidSegInd=1:1:pDocIn.SegCount
+					{
+						Set tSeg=pDocIn.getSegmentByIndex(pidSegInd,.tSC)
+						$$$TRACE("Segment Name: " _ tSeg.Name _", stat: " _ tSC)
+						if ($FIND(tSeg.Name, "PID") > 0)
+						{
+							$$$TRACE("Found PID")
+							quit
+						}					
+					}
+					set nm = tSeg.GetValueAt("5.1") // Get  name
+					set lastNm = tSeg.GetValueAt("5.1.1") // Get last name
+					$$$TRACE("PID 5.1: " _ nm _ ", last name: " _lastNm)
+					if ( ($F(nm, b351Qualifier) -1) = $L(nm)) // Last name ending with b351Qualifier
+					{
+						$$$TRACE("Message to be sent to QA route, Found " _ b351Qualifier _ " at: " _ $F(nm, b351Qualifier) _ ", Original value PID 5.1: " _ nm )
+
+						set qaRoute = 1
+						Set newHl7msg = pDocIn.%ConstructClone(1)
+							
+						Set tPID=newHl7msg.getSegmentByIndex(pidSegInd,.tSC)
+						Set stat = tPID.SetValueAt($E(nm, 1, *-$L(b351Qualifier)), "5.1") 		
+						
+						Set statRemove = newHl7msg.RemoveSegmentAt(pidSegInd)
+						Set statInsert = newHl7msg.InsertSegmentAt(tPID, pidSegInd)
+						$$$TRACE("PID SetValueAt " _ stat _", New PID Name: " _ tPID.GetValueAt("5.1") _ ", PID RemoveSegmentAt " _ statRemove _ ", PID InsertSegmentIdAt " _ statInsert)
+					}
+				}
+				For iTarget=1:1:$L(..TargetConfigNames, ",") { Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+					$$$sysTRACE("Sending HL7 Message "_pDocIn_" / "_pDocIn.%Id()_" from "_pDocIn.Source_" to '"_tOneTarget_"'")
+					if (qaRoute = 0)
+					{
+						Set tSC1 =..SendRequestAsync(tOneTarget,pDocIn)  Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+					}
+					else
+					{
+						set tOneTarget = qaComponnentPrefix _ tOneTarget
+						//Check if component exists
+						set configNm = tOneTarget
+						Set:(tOneTarget '[ "||") configNm = prodNm_"||"_ tOneTarget
+		    
+		  			 	Set configItem = ##class(Ens.Config.Production).OpenItemByConfigName(configNm)
+		    
+		   				If $IsObject(configItem)
+	 					{
+		 					Set tSC1 =..SendRequestAsync(tOneTarget,newHl7msg)  Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+							$$$TRACE("SendRequestAsync to QA route component: " _ tOneTarget _ ", stat: " _ tSC)
+
+	 					}
+	 					else
+	 					{
+		 					$$$LOGERROR("SKIP routing, QA routing component is not an valid object: " _ tOneTarget)	 					
+	 					}
+					}
+					
+				}
+				$$$SyncCommitClear(tSyncCommit)
+				If $$$ISOK(tSC) { $$$sysTRACE("After async forwarding HL7 Message "_pDocIn.%Id()_", reply code='"_tReplyCode_"'") }
+				ElseIf ""'=tReplyCode { Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0) } ; get a new code since we have a new error
+
+				If ..ImmediateByteAck {
+					#; $$$ASSERT(..AckMode'="Byte") : would result in double Ack, but the 2 settings should never coincide
+					Set tReplyCode1=$S(""'=tReplyCode:tReplyCode, 1:..getReplyCode(tMSH,tSC,tSCVal,-1)) ; force a code
+					Do ..reportReply(pDocIn,tReplyCode1,.tSC,-1)
+				}
+			} Else {
+				#; Send Synchronous; reply required - for Application ACK mode (either explicit or MSH-requested)
+				If ""'=tReplyCode||..ImmediateByteAck {
+					$$$sysTRACE("forcing early Commit ACK; waiting for Application reply")
+					$$$SyncCommitSet(tSyncCommit)
+					Set tSC=pDocIn.%Save() ; save the message because we're going to ACK it.
+					$$$SyncCommitClear(tSyncCommit)
+					If $$$ISERR(tSC) {
+						$$$LOGERROR("Failed to save message "_pDocIn_" / "_pDocIn.%Id()_" : "_$$$StatusDisplayString(tSC))
+						Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0) ; get a new code since we have a new error
+					}
+					Set:""=tReplyCode tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; force a code
+					Do ..reportReply(pDocIn,tReplyCode,.tSC,1-(2*..ImmediateByteAck))
+					Set tReplyCode=""
+				}
+				If $$$ISOK(tSC) {
+					If 1'=$L(..TargetConfigNames, ",") $$$LOGWARNING("More than one target config name specified for synchronous forwarding: "_..TargetConfigNames)
+					$$$sysTRACE("Sending "_pDocIn_"/"_pDocIn.%Id()_" from "_pDocIn.Source_" to '"_..TargetConfigNames_"'")
+					Set tSC=..SendRequestSync(..TargetConfigNames,pDocIn,.tResponse)
+				}
+				If '$IsObject(tResponse) { ; no reply message - we must construct one
+					Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,1) ; get an App reply code to construct
+					Set tTxt="Constructing ACK with code "_tReplyCode_" because SendRequestSync() of "_pDocIn_"/"_pDocIn.%Id()_" returned with no response object and status: "_$$$StatusDisplayString(tSC)
+					If $$$ISERR(tSC) { $$$LOGWARNING(tTxt) } Else { $$$sysTRACE(tTxt) }
+				} Else {
+					If "Msh"=..AckMode&&$IsObject(tMSH)&&
+						$Case(tMSH.GetValueAt(16), ; ApplicationAcknowledgmentType
+							"SU":"A"'=$E(tResponse.GetValueAt("2:1"),2),
+							"ER":"A"=$E(tResponse.GetValueAt("2:1"),2),
+							:0) { ; Don't return Ack if MSH-mode MSH values restrict it
+								Set tResponse=$$$NULLOREF
+					}
+					If '$IsObject(tResponse) { $$$sysTRACE("Not returning Application ACK for message "_pDocIn_"; AckMode="_..AckMode_"; tReplyCode='"_tReplyCode_"', MSH:AccAckTyp='"_$S($IsObject(tMSH):tMSH.GetValueAt(15),1:"null")_"'") }
+					Else { $$$sysTRACE("Returning reply message "_tResponse.%Id()_" ("_tResponse.Name_") received from message "_pDocIn.%Id()_" forwarded to "_..TargetConfigNames) }
+				}
+			}
+		} Else { ; not forwarding due to error or no target
+			If ""=tReplyCode {
+				Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,1) ; see if we need an App reply code - if so we have to fake it because we didn't call the app
+			}
+			If (""'=tReplyCode||..ImmediateByteAck)&&$$$ISOK(tSC)&&$$$ISOK(tSCVal) {
+				$$$SyncCommitSet(tSyncCommit)
+				Set pDocIn.IsMutable=0, tSC=pDocIn.%Save() ; save the message because we're going to ACK it.
+				$$$SyncCommitClear(tSyncCommit)
+				If $$$ISERR(tSC) {
+					$$$LOGERROR("Failed to save message "_pDocIn_" / "_pDocIn.%Id()_" : "_$$$StatusDisplayString(tSC))
+					Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; get a new code since we have a new error
+				}
+			}
 			If ..ImmediateByteAck {
 				#; $$$ASSERT(..AckMode'="Byte") : would result in double Ack, but the 2 settings should never coincide
 				Set tReplyCode1=$S(""'=tReplyCode:tReplyCode, 1:..getReplyCode(tMSH,tSC,tSCVal,-1)) ; force a code
 				Do ..reportReply(pDocIn,tReplyCode1,.tSC,-1)
 			}
-		} Else {
-			#; Send Synchronous; reply required - for Application ACK mode (either explicit or MSH-requested)
-			If ""'=tReplyCode||..ImmediateByteAck {
-				$$$sysTRACE("forcing early Commit ACK; waiting for Application reply")
-				$$$SyncCommitSet(tSyncCommit)
-				Set tSC=pDocIn.%Save() ; save the message because we're going to ACK it.
-				$$$SyncCommitClear(tSyncCommit)
-				If $$$ISERR(tSC) {
-					$$$LOGERROR("Failed to save message "_pDocIn_" / "_pDocIn.%Id()_" : "_$$$StatusDisplayString(tSC))
-					Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,0) ; get a new code since we have a new error
-				}
-				Set:""=tReplyCode tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; force a code
-				Do ..reportReply(pDocIn,tReplyCode,.tSC,1-(2*..ImmediateByteAck))
-				Set tReplyCode=""
-			}
-			If $$$ISOK(tSC) {
-				If 1'=$L(..TargetConfigNames, ",") $$$LOGWARNING("More than one target config name specified for synchronous forwarding: "_..TargetConfigNames)
-				$$$sysTRACE("Sending "_pDocIn_"/"_pDocIn.%Id()_" from "_pDocIn.Source_" to '"_..TargetConfigNames_"'")
-				Set tSC=..SendRequestSync(..TargetConfigNames,pDocIn,.tResponse)
-			}
-			If '$IsObject(tResponse) { ; no reply message - we must construct one
-				Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,1) ; get an App reply code to construct
-				Set tTxt="Constructing ACK with code "_tReplyCode_" because SendRequestSync() of "_pDocIn_"/"_pDocIn.%Id()_" returned with no response object and status: "_$$$StatusDisplayString(tSC)
-				If $$$ISERR(tSC) { $$$LOGWARNING(tTxt) } Else { $$$sysTRACE(tTxt) }
-			} Else {
-				If "Msh"=..AckMode&&$IsObject(tMSH)&&
-					$Case(tMSH.GetValueAt(16), ; ApplicationAcknowledgmentType
-						"SU":"A"'=$E(tResponse.GetValueAt("2:1"),2),
-						"ER":"A"=$E(tResponse.GetValueAt("2:1"),2),
-						:0) { ; Don't return Ack if MSH-mode MSH values restrict it
-							Set tResponse=$$$NULLOREF
-				}
-				If '$IsObject(tResponse) { $$$sysTRACE("Not returning Application ACK for message "_pDocIn_"; AckMode="_..AckMode_"; tReplyCode='"_tReplyCode_"', MSH:AccAckTyp='"_$S($IsObject(tMSH):tMSH.GetValueAt(15),1:"null")_"'") }
-				Else { $$$sysTRACE("Returning reply message "_tResponse.%Id()_" ("_tResponse.Name_") received from message "_pDocIn.%Id()_" forwarded to "_..TargetConfigNames) }
-			}
+			If ""=tReplyCode { $$$sysTRACE("Not returning ACK for message "_pDocIn_"/"_pDocIn.%Id()_"; AckMode="_..AckMode_"; tReplyCode='"_tReplyCode_"', MSH:AccAckTyp='"_$S($IsObject(tMSH):tMSH.GetValueAt(15),1:"null")_"'"_$S($$$ISERR(tSC):" status "_$$$StatusDisplayString(tSC),1:"")) }
+			Else { $$$sysTRACE("Returning ACK code "_tReplyCode_" but not forwarding message "_pDocIn_"/"_pDocIn.%Id()_$S($$$ISERR(tSC):" status "_$$$StatusDisplayString(tSC),1:"")) }
 		}
-	} Else { ; not forwarding due to error or no target
-		If ""=tReplyCode {
-			Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,1) ; see if we need an App reply code - if so we have to fake it because we didn't call the app
+		If $IsObject(tResponse) {
+			Set pDocOut=..reportReply(pDocIn,tResponse,.tSC)
+			Set tReplyCode=tResponse.GetValueAt("2:1")
+		} ElseIf ""'=tReplyCode {
+			Set tSC=$$$ADDSC(tSC,tSCVal)
+			Set pDocOut=..reportReply(pDocIn,tReplyCode,.tSC)
 		}
-		If (""'=tReplyCode||..ImmediateByteAck)&&$$$ISOK(tSC)&&$$$ISOK(tSCVal) {
-			$$$SyncCommitSet(tSyncCommit)
-			Set pDocIn.IsMutable=0, tSC=pDocIn.%Save() ; save the message because we're going to ACK it.
-			$$$SyncCommitClear(tSyncCommit)
-			If $$$ISERR(tSC) {
-				$$$LOGERROR("Failed to save message "_pDocIn_" / "_pDocIn.%Id()_" : "_$$$StatusDisplayString(tSC))
-				Set tReplyCode=..getReplyCode(tMSH,tSC,tSCVal,-1) ; get a new code since we have a new error
-			}
+		#; Increment SequenceNumber if not a rejection ACK and not a query for the SequenceNumber (ie. 0)
+		If $Case($E(tReplyCode,2),"R":(..NackErrorCode'="ContentR"),"E":(..NackErrorCode'="ContentE"),:1)&&$G($$$ExpectedSequenceNumber)&&$IsObject(tMSH)&&tMSH.GetValueAt(13) {
+			Set $$$ExpectedSequenceNumber = $$$ExpectedSequenceNumber+1
+			$$$catTRACE("protocol","Incremented ESN to "_$$$ExpectedSequenceNumber)
 		}
-		If ..ImmediateByteAck {
-			#; $$$ASSERT(..AckMode'="Byte") : would result in double Ack, but the 2 settings should never coincide
-			Set tReplyCode1=$S(""'=tReplyCode:tReplyCode, 1:..getReplyCode(tMSH,tSC,tSCVal,-1)) ; force a code
-			Do ..reportReply(pDocIn,tReplyCode1,.tSC,-1)
-		}
-		If ""=tReplyCode { $$$sysTRACE("Not returning ACK for message "_pDocIn_"/"_pDocIn.%Id()_"; AckMode="_..AckMode_"; tReplyCode='"_tReplyCode_"', MSH:AccAckTyp='"_$S($IsObject(tMSH):tMSH.GetValueAt(15),1:"null")_"'"_$S($$$ISERR(tSC):" status "_$$$StatusDisplayString(tSC),1:"")) }
-		Else { $$$sysTRACE("Returning ACK code "_tReplyCode_" but not forwarding message "_pDocIn_"/"_pDocIn.%Id()_$S($$$ISERR(tSC):" status "_$$$StatusDisplayString(tSC),1:"")) }
-	}
-	If $IsObject(tResponse) {
-		Set pDocOut=..reportReply(pDocIn,tResponse,.tSC)
-		Set tReplyCode=tResponse.GetValueAt("2:1")
-	} ElseIf ""'=tReplyCode {
-		Set tSC=$$$ADDSC(tSC,tSCVal)
-		Set pDocOut=..reportReply(pDocIn,tReplyCode,.tSC)
-	}
-	#; Increment SequenceNumber if not a rejection ACK and not a query for the SequenceNumber (ie. 0)
-	If $Case($E(tReplyCode,2),"R":(..NackErrorCode'="ContentR"),"E":(..NackErrorCode'="ContentE"),:1)&&$G($$$ExpectedSequenceNumber)&&$IsObject(tMSH)&&tMSH.GetValueAt(13) {
-		Set $$$ExpectedSequenceNumber = $$$ExpectedSequenceNumber+1
-		$$$catTRACE("protocol","Incremented ESN to "_$$$ExpectedSequenceNumber)
 	}
 	Quit tSC
 ]]></Implementation>
