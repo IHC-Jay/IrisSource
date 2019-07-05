@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.PatientService">
+<Description>
+Calls Patient Service - to check mrn#, add/update in Initiate</Description>
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65190,49024.06863</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="mylist">
+<Type>%Collection.ArrayOfObj</Type>
+</Property>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+	
+	$$$TRACE("Access Token: "_pRequest.accessToken) 
+	$$$TRACE("Operation Type: "_pRequest.operationType)
+	$$$TRACE("IHC mrn#: "_pRequest.identifier)
+	
+	if (pRequest.operationType="CHKMRN"){
+		set tSC = ..CallPatientServiceCheckMrn(pRequest,.chkMrnResp)
+		set pResponse = chkMrnResp
+	}	
+	if (pRequest.operationType="UPDATE"){
+		set tSC = ..CallPatientServiceUpdate(pRequest,.updateServiceResp)
+		set pResponse = updateServiceResp
+	}
+
+    if (pRequest.operationType="ADD"){
+		set tSC = ..CallPatientServiceAdd(pRequest,.addServiceResp)
+		set pResponse = addServiceResp
+	}
+	
+    quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CallPatientServiceAdd">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method CallPatientServiceAdd")
+	
+	Set token=pRequest.accessToken
+	Set jsonStreamObject = pRequest.streamObject
+	
+	
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonStreamObject.StringValue)		
+	Set tStr = tStream.Read()
+	$$$TRACE("Data string: " _ tStr)	
+	Do tStream.Rewind()
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.ContentType="application/json"
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	set url = ..Adapter.URL_"/patient"
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Do httprequest.EntityBody.Write() ;
+	do httprequest.EntityBody.CopyFrom(tStream)
+	
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status "_sc)
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+	 Set mylist = ##class(%Collection.ArrayOfObj).%New()
+	try	{
+		set postStatus = httprequest.Post(url)
+		$$$TRACE("Resp Status:  "_postStatus)
+		Set writer=##class(%Net.MIMEWriter).%New()
+        Set status=writer.OutputToStream(httprequest.EntityBody)
+        set len = httprequest.HttpResponse.ContentLength     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA11 ???? "_respData) 
+		if (postStatus =1){
+			  $$$TRACE(" Patient Service..Post Operation OK")  
+	         
+    	     set response=httprequest.HttpResponse        
+       		$$$TRACE("StatusLine: "_response.StatusLine) 
+       		set statusLine = response.StatusLine 
+       		set statusCode = ""
+       		set statusDesc = ""
+       		if (statusLine'=""){
+				set statusCode=$piece(statusLine," ",2)
+				set statusDesc=$piece(statusLine," ",3)			
+      		}      
+      		$$$TRACE("StatusCode: "_statusCode)  	     
+      		$$$TRACE("StatusDesc: "_statusDesc)  	         	
+    		if (statusCode'="200"){
+	    		if (statusCode="401"){
+		    		$$$TRACE("  CheckError... ")
+		    		//set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(..%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE","Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    	} 
+		    	if (statusCode="400"){
+			    	$$$TRACE("  In Status Code 400... ")
+			    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE","Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+			    } 	
+    		
+			    	$$$TRACE("  DisableMsgError.... ")
+          			set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"," Response from Patient Service Post Operation: "_respData) 
+		  	
+        	} else {
+          		$$$TRACE("PatientService-ADD call status 200 OK !!! :")
+          		set respJSONstring = respData          		
+          		
+          		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)          		
+          		set iterator =  consumedJSONobj.%GetIterator()
+                 while iterator.%GetNext(.key,.value) { 
+                 	$$$TRACE(" Key: "_key_" Value: "_value)
+                 	if (key="status"){
+	                 	 if (value="SUCCESS"){
+	                 	   Do pResponse.Attributes.SetAt("Y","ADD")
+	                 	 }else{
+		                 	Do pResponse.Attributes.SetAt("N","ADD")
+		                 	Do pResponse.Attributes.SetAt(respData,"ERRTXT")
+		                 }
+	                }
+                 	if $isObject(value) {
+	                 	set iter =  value.%GetIterator()
+	                 	while iter.%GetNext(.key,.fieldVal) { 
+	                 	   if (key="mrn"){
+		                 	   Do pResponse.Attributes.SetAt(fieldVal,"MRN")	
+		                   }
+	                 	}
+                 	}
+                } 
+        	}        
+		}else{
+			set errTxt = " Patient service post request failed."    
+			$$$TRACE(" Post Failed.. " _ errTxt) 			              
+            Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE",errTxt)	                        	            
+		}
+	}catch e
+	{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Patient service POST operation, creating a new patient in Initiate "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE",errTxt)	  		 		  		 		 
+	}
+	    
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CallPatientServiceUpdate">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method CallPatientServiceUpdate")
+	
+	Set token=pRequest.accessToken
+	Set jsonStreamObject = pRequest.streamObject
+	Set mrn=pRequest.identifier
+		
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonStreamObject.StringValue)		
+	Set tStr = tStream.Read()
+	$$$TRACE("Data string: " _ tStr)	
+	Do tStream.Rewind()
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.ContentType="application/json"
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	set url = ..Adapter.URL_"/patient/mrns/"_mrn
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Do httprequest.EntityBody.Write() ;
+	do httprequest.EntityBody.CopyFrom(tStream)
+	
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status "_sc)
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+	try	{
+		set status = httprequest.Put(url)
+		$$$TRACE("Update operation status "_status)		
+		
+        set response=httprequest.HttpResponse        
+       	$$$TRACE("StatusLine: "_response.StatusLine) 
+       	set statusLine = response.StatusLine 
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}      
+      	$$$TRACE("StatusCode: "_statusCode)  	     
+      	$$$TRACE("StatusDesc: "_statusDesc)  	     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA --> ["_respData_"]")   
+    	if (statusCode'="200"){
+	    		if (statusCode="401"){
+		    		$$$TRACE("  CheckError... ")
+		    		//set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(..%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE","Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    	} 
+		    	if (statusCode="400"){
+			    	$$$TRACE("  In Status Code 400... ")
+			    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE","Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+			    } 	
+    		
+			    	$$$TRACE("  DisableMsgError.... ")
+          			set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"," Response from Patient Service put(update) Operation: "_respData) 
+		  	
+        } else {
+          $$$TRACE("PatientService-UPDATE call status 200 OK !!! :")
+          set respJSONstring = respData          		
+          		
+          		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)          		
+          		set iterator =  consumedJSONobj.%GetIterator()
+                 while iterator.%GetNext(.key,.value) { 
+                 	$$$TRACE(" Key: "_key_" Value: "_value)
+                 	if (key="status"){
+	                 	 if (value="SUCCESS"){
+	                 	   Do pResponse.Attributes.SetAt("Y","UPDATE")
+	                 	 }else{
+		                 	Do pResponse.Attributes.SetAt("N","UPDATE")
+		                 	Do pResponse.Attributes.SetAt(respData,"ERRTXT")
+		                 }
+	                }
+                 	if $isObject(value) {
+	                 	set iter =  value.%GetIterator()
+	                 	while iter.%GetNext(.key,.fieldVal) { 
+	                 	   if (key="mrn"){
+		                 	   Do pResponse.Attributes.SetAt(fieldVal,"MRN")	
+		                   }
+	                 	}
+                 	}
+                }   
+        }     
+    }catch e{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Patient service PUT(Update) operation in Initiate "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE",errTxt)	  		 		  		 		 
+	}
+	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CallPatientServiceCheckMrn">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method CallPatientServiceCheckMrn")
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set mrn=pRequest.identifier
+	Set token=pRequest.accessToken
+	Set httprequest.ContentType="application/json"
+	Do httprequest.SetParam("mrn",mrn)
+	set url = ..Adapter.URL_"/patient?mrn="_mrn
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status "_sc)
+	   
+    
+	set status = httprequest.Get(url)	
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()	
+	if $$$ISERR(status) {
+         do $system.OBJ.DisplayError()
+         Quit status
+    } else {
+        set response=httprequest.HttpResponse        
+       	$$$TRACE("StatusLine: "_response.StatusLine) 
+       	set statusLine = response.StatusLine 
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}      
+      	$$$TRACE("StatusCode: "_statusCode)  	     
+      	$$$TRACE("StatusDesc: "_statusDesc)  	     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA --> ["_respData_"]")   
+    	if (statusCode'="200"){
+	    	if (statusCode="401"){
+		    	$$$TRACE("  CheckError... ")
+		    	//set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(..%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE","Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    }else{
+			    $$$TRACE("  DisableMsgError.... ")
+          		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"," Response from Patient Service GET Operation: "_respData) 
+		    }
+        } else {
+          $$$TRACE("PatientService-CheckMRN call is Success!!! :")
+          set respJSONstring = respData
+          set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+          set iter = consumedJSONobj.%GetIterator()
+          set statusVal = consumedJSONobj.%Get("status")
+          $$$TRACE(" Value of Status "_statusVal)             
+          
+          if statusVal="SUCCESS"{
+	          Do pResponse.Attributes.SetAt("Y","MRNEXISTS")
+	      }else{
+		      Do pResponse.Attributes.SetAt("N","MRNEXISTS")
+		  }
+        }
+    }            
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
