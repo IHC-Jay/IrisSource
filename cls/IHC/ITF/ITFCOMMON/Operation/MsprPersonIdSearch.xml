@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.MsprPersonIdSearch">
+<Description>
+Search for Person ID by passing in the mspr number</Description>
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65192,33471.074536</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+	
+	$$$TRACE("Access Token: "_pRequest.accessToken)
+	$$$TRACE("Operation Type: "_pRequest.operationType)
+	$$$TRACE("Mspr#: "_pRequest.identifier)
+	
+	
+		set tSC = ..CallMsprPersonIdSearch(pRequest,.chkMsprResp)
+		set pResponse = chkMsprResp
+	
+
+    quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CallMsprPersonIdSearch">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method CallMsprPersonIdSearch")
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set msprNum =pRequest.identifier
+	Set token=pRequest.accessToken
+	Set httprequest.ContentType="application/json"
+	set url = ..Adapter.URL_"/provider/mspr/"_msprNum
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status "_sc)
+	//Set writer=##class(%Net.MIMEWriter).%New()
+    //Set status=writer.OutputToStream(httprequest.ReturnHeaders())
+    $$$TRACE("Ret Headers "_httprequest.ReturnHeaders())
+    $$$TRACE("Ret Params "_httprequest.ReturnParams())
+    
+	set status = httprequest.Get(url)
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New() 		
+	if $$$ISERR(status) {
+         do $system.OBJ.DisplayError()
+         Quit status
+    } else {
+        set response=httprequest.HttpResponse        
+       	$$$TRACE("StatusLine: "_response.StatusLine) 
+       	set statusLine = response.StatusLine 
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}      
+      	$$$TRACE("StatusCode: "_statusCode)  	     
+      	$$$TRACE("StatusDesc: "_statusDesc)  	     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA --> ["_respData_"]")   
+    	if (statusCode'="200"){
+	    	if (statusCode="401"){
+		    	$$$TRACE("  CheckError... ") 
+		    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token.  Response: "_respData) 
+		    }else{
+			    $$$TRACE("  DisableMsgError.... ")
+          		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"REST service response with code: "_statusCode_"  Response: "_respData) 
+		    }
+        } else {
+          $$$TRACE("MsprPersonIdSearch call successful!!! :")
+          set respJSONstring = respData
+          set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+          
+          set iterator =  consumedJSONobj.%GetIterator()
+                 while iterator.%GetNext(.key,.value) { 
+                 	$$$TRACE(" Key: "_key_" Value: "_value)
+                 	if (key="status"){
+	                 	 if (value="SUCCESS"){
+	                 	   Do pResponse.Attributes.SetAt("Y","STATUS")
+	                 	 }else{
+		                 	Do pResponse.Attributes.SetAt(respData,"ERRTXT")
+		                 }
+	                }
+                 	if $isObject(value) {
+	                 	set iter =  value.%GetIterator()
+	                 	while iter.%GetNext(.key,.fieldVal) { 
+	                 	   if (key="personId"){
+		                 	   Do pResponse.Attributes.SetAt(fieldVal,"pid")	
+		                   }
+	                 	}
+                 	}
+                } 
+          
+        }
+    }            
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
