@@ -12,43 +12,23 @@
 <Implementation><![CDATA[
     Set reader = ##class(%XML.Reader).%New()
 	set stat = reader.OpenString(obj) 
-	WRITE !, "OpenString status: " _ stat	
+	$$$TRACE( "OpenString status: " _ stat)	
 
     //step 2 - extract the %XML.Document 
     Do reader.Rewind()
     #dim doc As %XML.Document
     set doc = reader.Document
     
-    
+    #dim node As %XML.Node
     set node = doc.GetDocumentElement()
-    /*
-
-    WRITE !, "Document Node: " _ node
-    Set count=doc.CountNamespace()
-    
-    Write !, "Number of namespaces in document: "_count
-    For i=1:1:count { 
-        Write !, "Namespace "_i_" is "_doc.GetNamespace(i)
-    }
-
-    // Show nodes in XML
-     Write !,"LocalName="_node.LocalName
-    If node.NodeType=$$$xmlELEMENTNODE  {
-        Write !,"Namespace="_node.Namespace
-    }
-    If node.NodeType=$$$xmlELEMENTNODE {
-        Write !,"NamespaceIndex="_node.NamespaceIndex
-     }
-    Write !,"Nil="_node.Nil,", NodeData="_node.NodeData," NodeId="_node.NodeId," NodeType="_node.NodeType," QName="_node.QName," HasChildNodes returns "_node.HasChildNodes()," GetNumberAttributes returns "_node.GetNumberAttributes()
-    */
-	Write !, "First NODE: " _ node.NodeData
+	$$$TRACE( "First NODE: " _ node.NodeData)
 	if ($DATA(listArr) = 0)
 	{
 		set listArr = $LISTBUILD(NULL)
 	}
 	 set dynObject1 = ..ParseAllNodes(node, 1, listArr)
 	 
- Write !, dynObject1.%ToJSON()
+ $$$TRACE( dynObject1.%ToJSON())
  return dynObject1.%ToJSON()
 ]]></Implementation>
 </Method>
@@ -59,53 +39,48 @@
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	set daObj = ##class(%DynamicObject).%New()
+
+	
 	set prevNode = ""
 	set dcObj = ""
 	DO
 	 {
 		 set stat = $$$OK
+		// Remove While elements
 		while ((stat) && (node.NodeType = $$$xmlWHITESPACENODE))
     	{
 	    	set stat = node.MoveToNextSibling()
     	}
     	if (stat)
     	{
-			Write !, "- ParseAllNodes: NodeData="_node.NodeData," NodeId="_node.NodeId," NodeType="_node.NodeType," QName="_node.QName," HasChildNodes returns "_node.HasChildNodes()," GetNumberAttributes returns "_node.GetNumberAttributes()
+			$$$TRACE( "- ParseAllNodes: NodeData="_node.NodeData _ " NodeType="_node.NodeType_" QName="_node.QName_" HasChildNodes returns "_node.HasChildNodes()_" GetNumberAttributes returns "_node.GetNumberAttributes())
 	  
 			 Set count=node.GetNumberAttributes()
 			 if (count >= 1)
 			 {
-			    Write !, "Number of attributes: ", count
-			    Set first=node.FirstAttributeName()
-			    Write !, "First attribute is: ", first
-			    Write !, "   Its value is: ",node.GetAttributeValue(first)
-			    Do daObj.%Set("@" _ first, node.GetAttributeValue(first))
-			    Set next=node.NextAttributeName(first)
-
-			    For i=1:1:count-2 {
-			        Write !, "Next attribute is: ", next
-			        Write !, "   Its value is: ",node.GetAttributeValue(next)
-			        Do daObj.%Set("@" _ next, node.GetAttributeValue(next))
+				
+			    $$$TRACE( " -- NodeData="_node.NodeData _ "_ Number of attributes: "_ count)
+			    Set next=node.FirstAttributeName()
+			
+			    For i=1:1:count {
+				    set val = node.GetAttributeValue(next)
+			        $$$TRACE( "  -- Attribute " _ i _ ". "_ next _ "_ value is: "_ val)
+			        set attrArray("@"_next) = val
 			        Set next=node.NextAttributeName(next)
-			        }
-			    Set last=node.LastAttributeName()
-			    Write !, "Last attribute is: ", last
-			    Write !, "   Its value is: ",node.GetAttributeValue(last)
-			    Do daObj.%Set("@" _ last, node.GetAttributeValue(last))
+			    }
 			}
-	 	 
 	        if (node.NodeType = $$$xmlELEMENTNODE)
 	        {
 		    	Set status=node.GetText(.text)
 		    	If status {
-		        	Write !, "  -- ParseAllNodes:xmlELEMENTNODE: " _ node.NodeData _ ", text of the node is "_text	        
+		        	$$$TRACE( "  -- ParseAllNodes:xmlELEMENTNODE: " _ node.NodeData _ ", text of the node is "_text	)        
 		        	// Do daObj.%Set(, text)
 		    	}
 	        }
 	        if (node.HasChildNodes())
 		    {
 		    	set dcObj = ..ParseChildNode(node, first, listArr )
-		    	Write !, "   =From ParseChildNode= Node: " _ node.NodeData _ ", " _ dcObj
+		    	$$$TRACE( "   =From ParseChildNode= Node: " _ node.NodeData _ ", " _ dcObj)
 	  	
 		    	
 		    }
@@ -117,7 +92,7 @@
 		    {
 			    
 			    set prevObj = daObj.%Get(prevNode)
-			    WRITE !, "  === CREATE ARRAY: " _ prevNode _ ", " _ prevObj.%ClassName
+			    $$$TRACE( "  === CREATE ARRAY: " _ prevNode _ ", " _ prevObj.%ClassName)
 			    IF ($$$IsdefObject(prevObj) && prevObj.%IsA("%Library.DynamicArray") )
 				{
 					set dynArray = prevObj
@@ -130,28 +105,46 @@
 				}
 
 			    Do dynArray.%Push(dcObj)
-			    WRITE !, dynArray
+			    $$$TRACE( dynArray)
 			    set iter = dynArray.%GetIterator()
 		   			while iter.%GetNext(.key , .value ) {
-		      		write !, "Array: key = "_key_" , value = "_value,!
+		      		$$$TRACE( "Array: key = "_key_" , value = "_value)
 		   		}
 		   		Do daObj.%Set(node.NodeData, dynArray)
 		    }
 		    elseif ($LISTFIND(listArr, node.NodeData) >= 1)
 		    {
-			    WRITE !, "  === CREATE ARRAY: " _ node.NodeData _ " -LF: " _ $LISTFIND(listArr, node.NodeData)
+			    // Calling function sent names of nodes that should be created as ARRAY
+			    $$$TRACE( "  === CREATE ARRAY: " _ node.NodeData _ " -LF: " _ $LISTFIND(listArr, node.NodeData))
 			    set dynArray = ##class(%DynamicArray).%New()
 			    Do dynArray.%Push(dcObj)
 			    Do daObj.%Set(node.NodeData, dynArray)
 		    }
 		    else
 		    {
+			    $$$TRACE( "  -- SET else " _ node.NodeData )
 			    Do daObj.%Set(node.NodeData, dcObj)
+
+
+ 				set key = $ORDER(attrArray(""))
+   				while (key '= "") 
+   				{ 
+   					$$$TRACE( "Add Attribute element:"_key_"=/"_attrArray(key))
+   					Do dcObj.%Set(key, attrArray(key))
+   					set key = $ORDER(attrArray(key))
+   				}
+				  
+			    kill attrArray
+			    
 		    }
+		    
+		    
+
 		    set prevNode = node.NodeData
     	}
 	 } WHILE (node.MoveToNextSibling())
-	 Write !, "ParseAllNodes: " _ daObj.%ToJSON()
+	 $$$TRACE( "ParseAllNodes: " _ daObj.%ToJSON())
+	 
 	Quit daObj
 ]]></Implementation>
 </Method>
@@ -162,10 +155,10 @@
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	
-	Write !, "   -- ParseChildNode: NodeData="_node.NodeData
+	$$$TRACE( "   -- ParseChildNode: NodeData="_node.NodeData)
     set stat = node.MoveToFirstChild()
 
-	Write !, "   --- First Child NODE: NodeData="_node.NodeData," NodeId="_node.NodeId," NodeType="_node.NodeType," QName="_node.QName," HasChildNodes returns "_node.HasChildNodes()," GetNumberAttributes returns "_node.GetNumberAttributes()
+	$$$TRACE("   --- First Child NODE: NodeData="_node.NodeData_" NodeId="_node.NodeId_" NodeType="_node.NodeType_" QName="_node.QName_" HasChildNodes returns "_node.HasChildNodes()_" GetNumberAttributes returns "_node.GetNumberAttributes())
 	
 	while(node.NodeType = $$$xmlWHITESPACENODE)
     {
@@ -176,7 +169,7 @@
     {
 
 		set dcObj = ..ParseAllNodes(node, 0, listArr)
-		Write !, "   *** ParseChildNode: -- from ParseAllNodes: " _ node.NodeData _ " , " _ dcObj.%ToJSON()
+		$$$TRACE( "   *** ParseChildNode: -- from ParseAllNodes: " _ node.NodeData _ " , " _ dcObj.%ToJSON())
 
     }
     else
@@ -185,7 +178,7 @@
 	    set dcObj = node.NodeData
     }
 	Do node.MoveToParent()
-	Write !, "   ---- ParseChildNode Output: " _ dcObj _ ", Parent NodeData="_node.NodeData
+	$$$TRACE( "   ---- ParseChildNode Output: " _ dcObj _ ", Parent NodeData="_node.NodeData)
 	Quit dcObj
 ]]></Implementation>
 </Method>
