@@ -22,40 +22,9 @@ Patient Service Operation to add/update demographics into Initiate, Check mrn</D
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
-<Property name="XmlToJsonTargetConfigName">
-<Description>
-Translate XML to JSON</Description>
-<Type>%String</Type>
-<InitialExpression>"Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"</InitialExpression>
-<Parameter name="MAXLEN" value="100"/>
-</Property>
-
 <Parameter name="SETTINGS">
-<Default>XmlToJsonTargetConfigName:Additional,PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,XmlToJsonTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
-
-<Method name="ConvertXmlToJson">
-<ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[response:Ens.Response,pConfigName:%String,&process1:Ens.BusinessProcess]]></FormalSpec>
-<ReturnType>Ens.StringContainer</ReturnType>
-<Implementation><![CDATA[
-		#dim status AS %Status=$$$OK
-   $$$TRACE("Converting XML to JSON Operation.. ")
-  set xmlStr=response.OutputToString()  
-  if ($LENGTH(xmlStr) > 100) {
-    set xmlStrRequest = ##class(Ens.StringContainer).%New()
-    set xmlStrRequest.StringValue = ##class(Ens.Util.FunctionSet).SubString(xmlStr, 34, $LENGTH(xmlStr)-35)
-    $$$TRACE("XML STR(Add-Substring): "_xmlStrRequest.StringValue)
-    set status = process1.SendRequestSync(process1.XmlToJsonTargetConfigName,xmlStrRequest,.xmlToJsonResp)
-    $$$TRACE("Call XmlToJson operation Ok")    
-    $$$TRACE("XML to JSON call response: "_xmlToJsonResp.StringValue)
-    set jsonProcessRequest=##class(Ens.StringContainer).%New()
-    set jsonProcessRequest.StringValue="{""application"": ""AMWELL"",""patient"":"_xmlToJsonResp.StringValue_"}"
-  }
-  
-  quit jsonProcessRequest
-]]></Implementation>
-</Method>
 
 <Method name="CallPatientServices">
 <ClassMethod>1</ClassMethod>
@@ -136,9 +105,7 @@ BPL Definition</Description>
 <property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 <property name='restPatientServiceHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 <property name='isMrnExistsinInitiate' type='%String' instantiate='0' />
-<property name='xmlStrRequest' type='Ens.StringContainer' instantiate='0' />
 <property name='pingDirSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
-<property name='jsonProcessRequest' type='Ens.StringContainer' instantiate='0' />
 <property name='updatedResponse' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='6100' >
@@ -158,22 +125,17 @@ BPL Definition</Description>
 <code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
 <annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
- $$$TRACE("Max Errors: " _ maxErr)
- 
+ $$$TRACE("Max Errors: " _ maxErr) 
    //Read TargetConfigNames
  set configValue = "" 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
-
- if ( ($$$ISERR(pstatus)) || (configValue = "") )
- {
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ) {
    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetConfigNames  found in the Settings.")
  }else{
       $$$TRACE("TargetConfigNames: " _configValue )
  }
-  
-   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
-    $$$TRACE("TargetConfigNames: " _context.targetList)
-    $$$TRACE("Count: " _ context.targetList.Count())
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+ $$$TRACE("TargetConfigNames: " _context.targetList)    
  ]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='650' >
@@ -296,7 +258,7 @@ BPL Definition</Description>
 <![CDATA[  
  if ($ISVALIDNUM(context.AmWellMrn)'="1"){	  
 	  $$$TRACE("AmWell Mrn# is NOT a VALID number or empty. ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "MRN# from AmericanWell/Connect care :["_context.AmWellMrn_"] is empty or not valid, Skipping the record." )
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MRN# from AmericanWell/Connect care :["_context.AmWellMrn_"] is empty or not valid, Skipping the record." )
  } 
  ]]]]><![CDATA[>
 </code>
@@ -315,7 +277,11 @@ BPL Definition</Description>
         Set text = text_tcharStream.Read($$$MaxStringLength)
       } 
       set context.accessToken = text
-      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)      
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
     }
     else {
 	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
@@ -356,12 +322,20 @@ BPL Definition</Description>
 </transform>
 <code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='1010' ypos='2400' >
 <![CDATA[  
-    $$$TRACE("Call XML to JSON Operation for Update Patient service")    
-    set context.jsonProcessRequest =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).ConvertXmlToJson(response,process.%ConfigName,.process)
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)             
+    
     $$$TRACE("Calling Update Patient service") 
     $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
     set operType = "UPDATE"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,context.ihcEmpiNum,context.jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,context.ihcEmpiNum,jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
     if (status=$$$OK){
 	    $$$TRACE("MRN ret "_mrnRet)
 	    set context.PatientEmpi = mrnRet
@@ -389,11 +363,19 @@ BPL Definition</Description>
 </transform>
 <code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2150' >
 <![CDATA[  
-    $$$TRACE("Call XML to JSON Operation for Add Patient service")    
-    set context.jsonProcessRequest =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).ConvertXmlToJson(response,process.%ConfigName,.process)
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+  	
     $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
     set operType = "ADD"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",context.jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
     if (status=$$$OK){
 	    $$$TRACE("MRN ret "_mrnRet)
 	    set context.PatientEmpi = mrnRet
@@ -439,10 +421,18 @@ BPL Definition</Description>
 <code name='PatientServiceAddForGuarantors' xpos='1280' ypos='3800' >
 <![CDATA[  
     $$$TRACE("Call XML to JSON Operation for Add Patient service for Guarantors")    
-    set context.jsonProcessRequest =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).ConvertXmlToJson(response,process.%ConfigName,.process)
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+    
     $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
     set operType = "ADD"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",context.jsonProcessRequest,process.%ConfigName,.process, .mrnRet)        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process, .mrnRet)        
     if (status=$$$OK){
 	    $$$TRACE("MRN ret "_mrnRet)
 	    set context.GuarantorEmpi = mrnRet
@@ -494,10 +484,19 @@ BPL Definition</Description>
 <code name='PatientServiceAddForInsuranceSubscribers' xpos='1280' ypos='4800' >
 <![CDATA[  
     $$$TRACE("Call XML to JSON Operation for Add Patient service for Insurance Subscribers")    
-    set context.jsonProcessRequest =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).ConvertXmlToJson(response,process.%ConfigName,.process)
+    
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)               
+    
     $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
     set operType = "ADD"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",context.jsonProcessRequest,process.%ConfigName,.process,.mrnRet)        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)        
     if (status=$$$OK){
 	    $$$TRACE("MRN ret "_mrnRet)
 	    set context.InsSubscriberEmpi = mrnRet
