@@ -1,0 +1,810 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr">
+<Description>
+Translates Cerner Adt hl7 to Initiate demographics</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65224,50507.22137</TimeCreated>
+
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Ping Service Operation to get the Access Token</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="PatientServiceTargetConfigName">
+<Description>
+Patient Service Operation to add/update demographics into Initiate, Check mrn</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="MergeTargetConfigName">
+<Description>
+EMPI20 Soap Service Operation for Merge</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Initiate-Demogr-XML-Soap-MERGE"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="Empi20TargetConfigName">
+<Description>
+EMPI20 Soap Service Operation</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Initiate-Demogr-Xml-Soap-FROMCERN-0"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="AllowedNameTypes">
+<Description>
+allowedNameTypes : Custom setting which contains allowed Name Types</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="Empi20ServiceCall">
+<Description>
+Call EMPI20 soap service or not. If not, hie patient service is called.</Description>
+<Type>%Boolean</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,MergeTargetConfigName:Additional,AllowedNameTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
+</Parameter>
+
+<Method name="CallPatientServices">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[opType:%String,token:%String,mrn:%String,jsonReq:Ens.StringContainer,pConfigName:%String,&process1:Ens.BusinessProcess,&mrnPar]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		#dim status AS %Status=$$$OK
+		set mrnFromResp=""
+      $$$TRACE(" Operation Type: " _ opType) 
+     $$$TRACE(" Target Operation: " _ process1.PatientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = token
+     set httpPingServiceRequestObj.operationType = opType  
+     set httpPingServiceRequestObj.identifier = mrn 
+     set httpPingServiceRequestObj.streamObject = jsonReq
+     $$$TRACE(" Calling Patient Service "_opType_" - BEGIN ")
+     set status = process1.SendRequestSync(process1.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     $$$TRACE(" Calling Patient Service "_opType_" - END ")
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService "_opType_" Operation OK status.")      
+      set restPatientServiceHttpResponse=patientServiceResponse  
+      set isOperDone = restPatientServiceHttpResponse.Attributes.GetAt(opType)       
+      if (isOperDone ="N"){
+	      $$$TRACE("### Failed to "_opType_" the patient :"_mrn_" ####")           
+	      set errTxt = restPatientServiceHttpResponse.Attributes.GetAt("ERRTXT")
+	      set errMsg = "Failed to "_opType_" this record in Initiate thru Patient Service. Skpping the record. Error Response: "_errTxt
+	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process1.%ConfigName,   errMsg)
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,errMsg)
+	  }else{
+      	$$$TRACE("### Operation "_opType_" Done:: "_isOperDone_" ####")           
+      	set mrnFromResp = restPatientServiceHttpResponse.Attributes.GetAt("MRN")
+      	$$$TRACE("### MRN#:: "_mrnFromResp_" ####")           
+	  }   
+    }else {
+	    $$$TRACE("Unexpected error while calling PatientService. "_$SYSTEM.Status.GetOneErrorText(status))     
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,"Unexpected error while calling PatientService. "_$SYSTEM.Status.GetOneErrorText(status))     
+	}   
+	 set mrnPar = mrnFromResp      
+     quit status
+]]></Implementation>
+</Method>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='ihcEmpiNum' type='%String' instantiate='0' />
+<property name='MsgType' type='%String' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='allowedNameTypes' type='%String' instantiate='0' />
+<property name='isMrnExistsinInitiate' type='%String' instantiate='0' />
+<property name='operType' type='%String' instantiate='0' />
+<property name='gender' type='%String' initialexpression='""' instantiate='0' />
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='mergeTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='empi20TargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pid116' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddContextHelp' type='%String' initialexpression='"6490387"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters>
+</property>
+<property name='PatientEmpi' type='%String' instantiate='0' />
+<property name='iniMergeRequest' type='IHC.ITF.ITFCOMMON.Request.mergePersonRequest' instantiate='0' >
+</property>
+<property name='iniMergeResponse' type='IHC.ITF.ITFCOMMON.Response.mergePersonResponse' instantiate='0' >
+</property>
+<property name='pid15' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='pid341' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='pid17' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='pid10' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='pid16' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='empi20ServiceFlag' type='%Boolean'/>
+<property name='evn5' type='%String' instantiate='0' />
+
+<property name='pid22' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='pid30' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='msh4' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='empi20Request' type='IHC.ITF.ITFCOMMON.Request.insertUpdatePersonRequest' instantiate='0' >
+</property>
+<property name='iniInsertUpdateResponse' type='IHC.ITF.ITFCOMMON.Response.insertUpdatePersonResponse' instantiate='0' >
+</property>
+
+</context>
+<sequence xend='200' yend='1450' >
+<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)     
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+
+
+<code name='initializeTargets' xpos='200' ypos='750' >
+<![CDATA[ 
+
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.hddTargetConfigName '="")){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
+ }
+ 
+ set context.mergeTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MergeTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.mergeTargetConfigName '="")){
+ 	$$$TRACE("MergeTargetConfigName " _ context.mergeTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No MergeTargetConfigName found.")   	
+ }
+  
+  set context.empi20TargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Empi20TargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.empi20TargetConfigName '="")){
+ 	$$$TRACE("EMPI20TargetConfigName " _ context.empi20TargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No Empi20TargetConfigName found.")   	
+ }
+ 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='CheckForLookupTables' xpos='470' ypos='1000' >
+<annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
+<![CDATA[
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr.GenderMapping")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr.GenderMapping not exists")  
+  }
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr.NameTypeMapping")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr.NameTypeMapping not exists")  
+  } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='loadLookupTables' xpos='470' ypos='1100' >
+<annotation><![CDATA[Gender Mapping for patient]]]]><![CDATA[></annotation>
+<![CDATA[
+ set context.gender=request.GetValueAt("PID:AdministrativeSex")
+ $$$TRACE("Value of Gender from iCentra Adt message:"_context.gender)
+ if ($L(context.gender)>0){ 	
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr.GenderMapping",context.gender,.retVal) 
+ 	$$$TRACE("Value of Gender from Lookup table:"_retVal)
+ 	if ($$$ISOK(pstatus)){    
+    	if (retVal '=""){
+    		set context.gender=retVal
+    	}else{
+	    	$$$TRACE("Value of Gender from iCentra message:"_context.gender_" is not defined in the lookup table.")
+	    	set context.gender=""
+	}
+ 	} else{
+		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, Unable to get the mapping value of gender from the lookup table.")
+ 	} 
+ }
+ ]]]]><![CDATA[>
+ </code>
+ 
+ <code name='validateEmpiNumber' xpos='200' ypos='650' >
+<annotation><![CDATA[Get EMPI(CMRN)]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(CMRN)...") 
+  set context.ihcEmpiNum=""  
+  set k1=""
+  For { 
+     Set k1=request.GetNextIndex("PID:3()",k1,.tSCTrans)  Quit:k1=""          
+     If (request.GetValueAt("PID:3("_k1_").4.1")="EMPI") {
+         Set context.ihcEmpiNum=request.GetValueAt("PID:3("_k1_").1.1")         
+         quit
+     }
+  } 
+ $$$TRACE("EMPI: " _ context.ihcEmpiNum) 
+ if ($ISVALIDNUM(context.ihcEmpiNum)'="1"){	  
+	  $$$TRACE("Empi# is NOT a VALID number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid empi number: ["_context.ihcEmpiNum_"]. Skipping the record.")
+ } 
+ ]]]]><![CDATA[>
+</code>
+
+<code name='validateSendingFacility' xpos='200' ypos='750' >
+<![CDATA[ $$$TRACE("Validate Sending Facility...") 
+ set context.msh4=request.GetValueAt("MSH:SendingFacility.namespaceID")
+ $$$TRACE("Facility ID: " _ context.msh4) 
+ if ($ISVALIDNUM(context.msh4)'="1"){	  
+	  $$$TRACE("FacilityId is NOT a number ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.msh4, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record." )	  	  
+ }
+]]]]><![CDATA[>
+</code>
+<code name='setContextVariables' xpos='470' ypos='1300' >
+<![CDATA[  
+    Set context.MsgType = request.GetValueAt("MSH:9.2")     
+    set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedNameTypes",.retNameTypes) 
+    $$$TRACE("Returned Name Types: " _ retNameTypes)
+    set context.allowedNameTypes = retNameTypes   
+         
+    set context.empi20ServiceFlag=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Empi20ServiceCall",.pstatus)
+    $$$TRACE("Empi20ServiceCall: " _ context.empi20ServiceFlag)
+      
+ ]]]]><![CDATA[>
+</code>
+
+<code name='validateNamesInPid5' xpos='470' ypos='1300' >
+<![CDATA[  
+ set i1=""  
+ for {
+	 set i1 = request.GetNextIndex(" PID:PatientName()",i1,.tSC)  quit:i1=""
+	 if (request.GetValueAt("PID:PatientName("_i1_").familyname") = "") {		 
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.1 Patient LastName is empty, skip message.")
+    	 quit
+	 }
+	 if (request.GetValueAt("PID:PatientName("_i1_").givenname") = "") {
+		 set fName = request.GetValueAt("PID:PatientName("_i1_").givenname")		 
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.2 Patient FirstName is empty, skip message.")
+    	 quit
+	 }
+ }
+]]]]><![CDATA[>
+</code>
+
+<code name='HddNcidToRep' xpos='470' ypos='1300' >
+<![CDATA[  
+  set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("PID:11()",k1,.tSCTrans)  Quit:k1=""   
+     set pid117AddressTypeNcid = request.GetValueAt("PID:11("_k1_").7")
+     $$$TRACE(" PID-11.7 AddressType Ncid: " _ pid117AddressTypeNcid)
+     if ( ($ISVALIDNUM(pid117AddressTypeNcid)= "1") && (pid117AddressTypeNcid="199") ){			  	
+	    set pid116CountryNcid = request.GetValueAt("PID:11("_k1_").6")
+        $$$TRACE(" PID-11.6 Country Ncid: " _ pid116CountryNcid)
+        set context.pid116 =  ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid116CountryNcid, context.hddContextHelp, context.hddTargetConfigName, .process)
+        $$$TRACE("PID-11.6(Country) is " _ context.pid116)	
+        quit		
+	 }		
+  }
+  
+  set pid15LanguageNcid = request.GetValueAt("PID:PrimaryLanguage.identifierST") 
+  $$$TRACE("PID-15.1 is " _ pid15LanguageNcid)		  	
+  	if (pid15LanguageNcid '= "" && $ISVALIDNUM(pid15LanguageNcid)= "1"){		
+		set context.pid15=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid15LanguageNcid, context.hddContextHelp, context.hddTargetConfigName, .process)
+		$$$TRACE("Hdd Request PID-15.1 is " _ pid15LanguageNcid)		
+	}
+	
+	set pid17ReligionNcid = request.GetValueAt("PID:Religion.identifierST") 
+     $$$TRACE("PID-17 is " _ pid17ReligionNcid)		  	
+  	if (pid17ReligionNcid '= "" && $ISVALIDNUM(pid17ReligionNcid)= "1"){		
+		set context.pid17=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid17ReligionNcid, context.hddContextHelp, context.hddTargetConfigName, .process)
+		$$$TRACE("Hdd Request PID-17 is " _ pid17ReligionNcid)		
+	}
+	
+	set k1="",tSC=1 
+    For { 
+     Set k1=request.GetNextIndex("PID:10()",k1,.tSCTrans)  Quit:k1=""          
+     set pid10RaceNcid = request.GetValueAt("PID:10("_k1_").1")
+     $$$TRACE(" Race Ncid: " _ pid10RaceNcid)
+     if (pid10RaceNcid '= "" && $ISVALIDNUM(pid10RaceNcid)= "1"){
+        do context.pid10.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid10RaceNcid, context.hddContextHelp, context.hddTargetConfigName, .process))
+        $$$TRACE("PID-10(Race) is " _context.pid10.GetAt(k1))
+     }	   	
+  }
+  
+   set pid16MaritalStatusNcid = request.GetValueAt("PID:MaritalStatus.identifierST") 
+	$$$TRACE("PID-16 is " _ pid16MaritalStatusNcid)		  	
+  	if (pid16MaritalStatusNcid '= "" && $ISVALIDNUM(pid16MaritalStatusNcid)= "1"){		
+		set context.pid16=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid16MaritalStatusNcid, context.hddContextHelp, context.hddTargetConfigName, .process)
+		$$$TRACE("Hdd Request PID-16 is " _ pid16MaritalStatusNcid)		
+	}
+	
+ ]]]]><![CDATA[>
+</code>
+
+<code name='HddNcidToRepFaciltiesPid3' xpos='470' ypos='1300' >
+<![CDATA[
+  	$$$TRACE(" GetRepfromNcid Hdd Requests for PID3 facilities..") 
+  	
+  	set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("PID:PatientIdentifierList()",k1,.tSCTrans)  Quit:k1=""   
+     set pid3FacilityMrn = request.GetValueAt("PID:3("_k1_").1")
+     if ( ($ISVALIDNUM(pid3FacilityMrn)= "1") ){
+     	set pid3FacilityNcid = request.GetValueAt("PID:3("_k1_").4.1")
+     	$$$TRACE(" PID-3.4.1 facility Ncid: " _ pid3FacilityNcid)
+     	if ( ($ISVALIDNUM(pid3FacilityNcid)= "1") ){			  	
+	    	do context.pid341.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid3FacilityNcid, context.hddContextHelp, context.hddTargetConfigName, .process))
+        	$$$TRACE("PID-3.4.1(Facility Ncid) is " _ context.pid341)	      	
+	 	}
+     }	else{
+	    $$$TRACE(" Not a valid fcaility MRN: "_pid3FacilityMrn)    
+	 }	
+  }
+   	   	
+ 	
+ ]]]]><![CDATA[>
+</code>
+
+
+<if name='Empi20SoapService' condition='context.empi20ServiceFlag = 1' xpos='200' ypos='950' xend='200' yend='1300' >
+<true>
+  <trace name='Empi20AddUpdateAndMerge' value='"Calling EMPI20 service"' xpos='335' ypos='1000' />
+  
+  <code name='GetNcidFromRepEVn5' xpos='470' ypos='1400' >
+<![CDATA[
+  	$$$TRACE(" Calling getNcidFromRep...")  	
+  	set evn5OperatorIdRep = request.GetValueAt("EVN:OperatorID(1).IDnumberST")     	  	
+  	if (evn5OperatorIdRep '= "" && $ISVALIDNUM(evn5OperatorIdRep)= "1"){		
+		set context.evn5=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(evn5OperatorIdRep, "1000000000", "1309", context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid EVN;5 is " _ context.evn5)		
+	}  		
+]]]]><![CDATA[>
+</code>
+
+<code name='GetRepForPid22' xpos='470' ypos='1400' >
+<![CDATA[
+  set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("PID:22()",k1,.tSCTrans)  Quit:k1=""          
+     set pid22EthnicityNcid = request.GetValueAt("PID:22("_(k1)_").1")
+     $$$TRACE(" PID-22.1 Ethnicity Ncid: " _ pid22EthnicityNcid)
+     if (pid22EthnicityNcid '= "" && $ISVALIDNUM(pid22EthnicityNcid)= "1"){		
+		do context.pid22.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid22EthnicityNcid, context.hddContextHelp, context.hddTargetConfigName, .process))
+		$$$TRACE("Hdd Request PID-22.1(Ethnicity Ncid) is " _ pid22EthnicityNcid)		
+	}	   	
+  }
+
+]]]]><![CDATA[>
+</code>
+
+<code name='GetRepForPid30' xpos='470' ypos='1400' >
+<![CDATA[
+  set pid30PatientDeathIndNcid = request.GetValueAt("PID:PatientDeathIndicator") 	 
+	$$$TRACE("PID-30 is " _ pid30PatientDeathIndNcid) 	
+  	if (pid30PatientDeathIndNcid '= "" && $ISVALIDNUM(pid30PatientDeathIndNcid)= "1"){		
+		set context.pid30=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid30PatientDeathIndNcid, context.hddContextHelp, context.hddTargetConfigName, .process)
+		$$$TRACE("Hdd Request PID-30 is " _ pid30PatientDeathIndNcid)		
+	}
+
+ ]]]]><![CDATA[>
+</code>
+	  
+<code name='GetRepForPid8' xpos='470' ypos='1400' >
+<![CDATA[
+	  set pid8GenderNcid = request.GetValueAt("PID:AdministrativeSex")   	  	
+  	if (pid8GenderNcid '= "" && $ISVALIDNUM(pid8GenderNcid)= "1"){
+		set context.gender=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid8GenderNcid, context.hddContextHelp, context.hddTargetConfigName, .process)	
+		$$$TRACE("Hdd Request PID;8 is " _ pid8GenderNcid)		
+	}
+ ]]]]><![CDATA[>
+</code>
+
+<code name='GetRepForMsh4' xpos='470' ypos='1400' >
+<![CDATA[
+  set context.msh4 =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(context.msh4, context.hddContextHelp, context.hddTargetConfigName, .process) 
+ ]]]]><![CDATA[>
+</code>
+  	
+   		
+  <if name='CheckMerge' condition='context.MsgType="A34"' xpos='200' ypos='1950' xend='200' yend='3150' >
+<true>
+  <trace name='MergePerson' value='"Calling Initiate MergePerson"' xpos='335' ypos='1000' />
+  <transform name='TransformMergeEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrMerge' source='request' target='context.iniMergeRequest' xpos='335' ypos='1100' >
+    <annotation><![CDATA[DTL for EMPI2.0 merge call]]]]><![CDATA[></annotation>
+  </transform>
+ <trace name='Transform Output' value='"Message after Merge Transform: " _ context.iniMergeRequest' xpos='335' ypos='1200' />
+ 
+ 
+ <code name='Call InitiateMerge' xpos='200' ypos='350' >
+<![CDATA[ 
+
+  set tStatus=process.SendRequestSync(context.mergeTargetConfigName,context.iniMergeRequest,.initiateMergeResponse)
+  
+   $$$TRACE(" Status after EmpiMerge " _ tStatus)
+  if ('tStatus) {	 
+	 $$$TRACE(" Status Error text: " _ $SYSTEM.Status.GetOneErrorText(tStatus))
+	 set errText = $SYSTEM.Status.GetOneErrorText(tStatus)
+	 if ((errText["#6246")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to MergePerson into Initiate. empi#: ["_context.ihcEmpiNum_".]. Skipping the record." _errText)
+		 quit
+	 }
+	 if ((errText["INITIATE_ENOREC")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["INITIATE_EEXISTS")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to MergePerson into Initiate. Record already Exists. empi#: ["_context.ihcEmpiNum_".Skipping the record."_errText )
+		 quit
+	 }	 
+	 if ((errText["#7201")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data length (MAXLEN) greater than expected. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["#5802")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["#5803")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_". Error Details: "_errText )
+		 quit
+	 }
+	 if ((errText["#5659")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_". Skipping the record. Error Details: "_errText )
+		 quit
+	 }
+	 if ((errText["#5661")){
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_" ]. Skipping the record. Error Details: "_errText )
+		 quit
+	 }
+	 $$$TRACE(" Status ItfGeneralError " _ tStatus)
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," MergePerson call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)          
+     kill errText
+ } else {	      
+        set context.iniMergeResponse = initiateMergeResponse       
+	       
+ }
+ ]]]]><![CDATA[>
+</code>
+
+<trace name='Call Output' value='"Message after Merge Webservice Call "_context.iniMergeResponse_" "' xpos='335' ypos='1500' />
+</true>
+<false>
+  <transform name='TransformAddUpdateEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrAddUpdate' source='request' target='context.empi20Request' xpos='335' ypos='1100' >
+    <annotation><![CDATA[DTL for EMPI2.0 Add/Update call]]]]><![CDATA[></annotation>
+  </transform>
+ <trace name='Transform Output' value='"Message after EMPI20 Transform(Add/Update): " _ context.empi20Request' xpos='335' ypos='1200' />
+ 
+ <code name='Call InitiateInsertUpdate' xpos='200' ypos='350' >
+<![CDATA[ 
+  $$$TRACE(" Target COnfig Name:  " _ context.empi20TargetConfigName)
+  set tStatus=process.SendRequestSync(context.empi20TargetConfigName,context.empi20Request,.initiateInsertUpdateResponse)
+   $$$TRACE(" Status after EmpiInsertUpdate " _ tStatus)
+ if ('tStatus) {	 
+	 $$$TRACE(" Status Error text: " _ $SYSTEM.Status.GetOneErrorText(tStatus))
+	 set errText = $SYSTEM.Status.GetOneErrorText(tStatus)
+	 if ((errText["#6246")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to Insert into Initiate. empi#: ["_context.ihcEmpiNum_"]. Skipping the record." _errText)
+		 quit
+	 }
+	 if ((errText["INITIATE_ENOREC")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["INITIATE_EEXISTS")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to Insert into Initiate. Record already Exists. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }	 
+	 if ((errText["#7201")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data length (MAXLEN) greater than expected. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["#5802")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["#5803")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_"]. Error Details: "_errText )
+		 quit
+	 }
+	 if ((errText["#5659")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_"]. Skipping the record.Error Details: "_errText )
+		 quit
+	 }
+	 if ((errText["#5661")){
+		 set context.iniInsertUpdateResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_"]. Skipping the record. Error Details: "_errText )
+		 quit
+	 }
+	 $$$TRACE(" Status ItfGeneralError " _ tStatus)
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," InitiateAddUpdate call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)          
+     kill errText
+ } else { 
+        set context.iniInsertUpdateResponse = initiateInsertUpdateResponse        
+ }
+ ]]]]><![CDATA[>
+</code>
+<trace name='Call Output' value='"Message after Insert Update Webservice Call " _ context.iniInsertUpdateResponse' xpos='605' ypos='1400' />
+
+</false>
+</if>
+</true>
+<false>
+<if name='CheckMerge' condition='context.MsgType="A34"' xpos='200' ypos='1950' xend='200' yend='3150' >
+<true>
+  <trace name='MergePerson' value='"Calling Initiate MergePerson"' xpos='335' ypos='1000' />
+  <transform name='TransformMergeEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrMerge' source='request' target='context.iniMergeRequest' xpos='335' ypos='1100' >
+    <annotation><![CDATA[DTL for EMPI2.0 merge call]]]]><![CDATA[></annotation>
+  </transform>
+ <trace name='Transform Output' value='"Message after Merge Transform: " _ context.iniMergeRequest' xpos='335' ypos='1200' />
+
+</true>
+<false>
+   <code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='1700' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+
+<code name='CallPatientServiceCheckMrn' xpos='740' ypos='1950' >
+<![CDATA[ 
+     $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
+     $$$TRACE(" Target Operation to Patient service " _ process.PatientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = context.accessToken
+     set httpPingServiceRequestObj.operationType = "CHKMRN"   
+     set httpPingServiceRequestObj.identifier = context.ihcEmpiNum  
+     $$$TRACE(" Calling Patient Service - CheckMrn ")
+     set status = process.SendRequestSync(process.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService-CheckMrn Operation OK status.")      
+      set restPatientServiceHttpResponse=patientServiceResponse  
+      set context.isMrnExistsinInitiate = restPatientServiceHttpResponse.Attributes.GetAt("MRNEXISTS")
+      $$$TRACE("### isMrnExistsInInitiate: "_context.isMrnExistsinInitiate_" ####") 
+      if (context.isMrnExistsinInitiate="Y"){
+	      set context.operType ="UPDATE"
+	  }else{
+		  set context.operType ="ADD"
+      }     
+    }else {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-CheckMrn") 
+    }    
+   ]]]]><![CDATA[>
+</code>
+
+<transform name='TransformPatientService' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogr' source='request' target='response' xpos='1010' ypos='2300' >
+<annotation><![CDATA[translates iCentra Adt Hl7 to Patient Service(Initiate)]]]]><![CDATA[></annotation>
+</transform>
+
+  <code name='CallConvertXmlToJSonAndPatientServiceAddUpdate' xpos='1010' ypos='2400' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                       
+    set status =##class(IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogr).CallPatientServices(context.operType,context.accessToken,context.ihcEmpiNum,jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.PatientEmpi = mrnRet
+    }else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</false>
+</if>
+
+
+<code name='RESETERROR' xpos='470' ypos='2700' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' />
+<code name='Skip message' xpos='200' ypos='1000' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToInitiateDemogrDefaultData</DefaultData>
+<Data name="CernAdtHl7ToInitiateDemogrDefaultData">
+<Subscript>"CernAdtHl7ToInitiateDemogr"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+<Value name="4">
+<Value>MergeTargetConfigName</Value>
+</Value>
+<Value name="5">
+<Value>Empi20TargetConfigName</Value>
+</Value>
+<Value name="6">
+<Value>AllowedNameTypes</Value>
+</Value>
+<Value name="7">
+<Value>Empi20ServiceCall</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
