@@ -27,12 +27,11 @@ HDD Operation: The target name used for HDD calls</Description>
 ]]></Content>
 </UDLText>
 
-<UDLText name="T">
-<Content><![CDATA[
-// Property MergeTargetConfigName As %String(MAXLEN = 100) [ InitialExpression = "Out-Initiate-Demogr-XML-Soap-MERGE" ];
-
-]]></Content>
-</UDLText>
+<Property name="MergeTargetConfigName">
+<Type>%String</Type>
+<InitialExpression>"Out-Initiate-Demogr-XML-Soap-MERGE"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
 
 <Property name="Empi20TargetConfigName">
 <Description>
@@ -66,7 +65,7 @@ Call EMPI20 soap service or not. If not, hie patient service is called.</Descrip
 </UDLText>
 
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedNameTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
+<Default>HddTargetConfigName:Additional,AllowedNameTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,MergeTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
 </Parameter>
 
 <Method name="CallPatientServices">
@@ -353,7 +352,8 @@ BPL Definition</Description>
  $$$TRACE("Facility ID: " _ context.msh4) 
  if ($ISVALIDNUM(context.msh4)'="1"){	  
 	  $$$TRACE("FacilityId is NOT a number ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.msh4, "Facility Id in MSH_4 from iCentra Adt is NOT a number. Skipping the record." )	  	  
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Facility Id in MSH_4 ["_context.msh4_"] from iCentra Adt is invalid. Skipping the record." )	 
+	  $$$TRACE( "STATUS:--> " _$$$ISOK(status))
  }
 ]]]]><![CDATA[>
 </code>
@@ -374,16 +374,19 @@ BPL Definition</Description>
 <![CDATA[  
  set i1=""  
  for {
-	 set i1 = request.GetNextIndex(" PID:PatientName()",i1,.tSC)  quit:i1=""
-	 if (request.GetValueAt("PID:PatientName("_i1_").familyname") = "") {		 
-         set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.1 Patient LastName is empty, skip message.")
-    	 quit
-	 }
-	 if (request.GetValueAt("PID:PatientName("_i1_").givenname") = "") {
-		 set fName = request.GetValueAt("PID:PatientName("_i1_").givenname")		 
-		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.2 Patient FirstName is empty, skip message.")
-    	 quit
-	 }
+	 set i1 = request.GetNextIndex("PID:PatientName()",i1,.tSC)  quit:i1=""
+	 $$$TRACE("Last Name: " _ request.GetValueAt("PID:5("_i1_").1.1"))	
+	 set nameType = request.GetValueAt("PID:5("_i1_").7")	 
+	 	if (request.GetValueAt("PID:5("_i1_").1.1") = "") {		 	 
+        	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.1.1 Patient LastName is empty, skip message. EMPI# "_context.ihcEmpiNum)
+    	 	quit
+	 	}
+	 	$$$TRACE("First Name: " _ request.GetValueAt("PID:5("_i1_").2"))
+	 	if (request.GetValueAt("PID:5("_i1_").2") = "") {
+			set fName = request.GetValueAt("PID:5("_i1_").2")		 
+		 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-5.2 Patient FirstName is empty, skip message. EMPI# "_context.ihcEmpiNum)
+    	 	quit
+	 	}	 
  }
 ]]]]><![CDATA[>
 </code>
@@ -530,64 +533,81 @@ BPL Definition</Description>
   <transform name='TransformMergeEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrMerge' source='request' target='context.iniMergeRequest' xpos='335' ypos='1100' >
     <annotation><![CDATA[DTL for EMPI2.0 merge call]]]]><![CDATA[></annotation>
   </transform>
- <trace name='Transform Output' value='"Message after Merge Transform: " _ context.iniMergeRequest' xpos='335' ypos='1200' />
- 
- 
+   
  <code name='Call InitiateMerge' xpos='200' ypos='350' >
 <![CDATA[ 
 
-  set tStatus=process.SendRequestSync(context.empi20TargetConfigName,context.iniMergeRequest,.initiateMergeResponse)
+  set tStatus=process.SendRequestSync(context.mergeTargetConfigName,context.iniMergeRequest,.initiateMergeResponse)
   
    $$$TRACE(" Status after EmpiMerge " _ tStatus)
   if ('tStatus) {	 
 	 $$$TRACE(" Status Error text: " _ $SYSTEM.Status.GetOneErrorText(tStatus))
 	 set errText = $SYSTEM.Status.GetOneErrorText(tStatus)
+	 if ((errText["INITIATE_EINVAL")){
+		  $$$TRACE(" ERROR - INITIATE_EINVAL " )
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " Merge Failed. Empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }
+	 if ((errText["INITIATE_ENOREC")){
+		 $$$TRACE(" ERROR - INITIATE_ENOREC " )
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " Merge Failed. EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
+		 quit
+	 }
 	 if ((errText["#6246")){
+		 $$$TRACE(" ERROR - #6246 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to MergePerson into Initiate. empi#: ["_context.ihcEmpiNum_".]. Skipping the record." _errText)
 		 quit
 	 }
 	 if ((errText["INITIATE_ENOREC")){
+		 $$$TRACE(" ERROR - INITIATE_ENOREC " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["INITIATE_EEXISTS")){
+		 $$$TRACE(" ERROR - INITIATE_EEXISTS " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to MergePerson into Initiate. Record already Exists. empi#: ["_context.ihcEmpiNum_".Skipping the record."_errText )
 		 quit
 	 }	 
 	 if ((errText["#7201")){
+		 $$$TRACE(" ERROR - #7201 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data length (MAXLEN) greater than expected. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["#5802")){
+		 $$$TRACE(" ERROR - #5802 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["#5803")){
+		 $$$TRACE(" ERROR - #5803 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_". Error Details: "_errText )
 		 quit
 	 }
 	 if ((errText["#5659")){
+		 $$$TRACE(" ERROR - #5659 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_". Skipping the record. Error Details: "_errText )
 		 quit
 	 }
 	 if ((errText["#5661")){
+		 $$$TRACE(" ERROR - #5661 " )
 		 set context.iniMergeResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_" ]. Skipping the record. Error Details: "_errText )
 		 quit
 	 }
 	 $$$TRACE(" Status ItfGeneralError " _ tStatus)
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," MergePerson call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)          
-     kill errText
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," MergePerson call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)          
  } else {	      
         set context.iniMergeResponse = initiateMergeResponse       
-	       
+       
  }
  ]]]]><![CDATA[>
 </code>
@@ -598,59 +618,72 @@ BPL Definition</Description>
   <transform name='TransformAddUpdateEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrAddUpdate' source='request' target='context.empi20Request' xpos='335' ypos='1100' >
     <annotation><![CDATA[DTL for EMPI2.0 Add/Update call]]]]><![CDATA[></annotation>
   </transform>
- <trace name='Transform Output' value='"Message after EMPI20 Transform(Add/Update): " _ context.empi20Request' xpos='335' ypos='1200' />
- 
+   
  <code name='Call InitiateInsertUpdate' xpos='200' ypos='350' >
 <![CDATA[ 
-  $$$TRACE(" Target COnfig Name:  " _ context.empi20TargetConfigName)
+  $$$TRACE(" Target Config Name:  " _ context.empi20TargetConfigName)
   set tStatus=process.SendRequestSync(context.empi20TargetConfigName,context.empi20Request,.initiateInsertUpdateResponse)
    $$$TRACE(" Status after EmpiInsertUpdate " _ tStatus)
  if ('tStatus) {	 
 	 $$$TRACE(" Status Error text: " _ $SYSTEM.Status.GetOneErrorText(tStatus))
 	 set errText = $SYSTEM.Status.GetOneErrorText(tStatus)
 	 if ((errText["#6246")){
+		 $$$TRACE(" ERROR #6246 ")
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to Insert into Initiate. empi#: ["_context.ihcEmpiNum_"]. Skipping the record." _errText)
 		 quit
 	 }
 	 if ((errText["INITIATE_ENOREC")){
+		 $$$TRACE(" ERROR INITIATE_ENOREC ")
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["INITIATE_EEXISTS")){
+		 $$$TRACE(" ERROR INITIATE_EEXISTS ")
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to Insert into Initiate. Record already Exists. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
 		 quit
 	 }	 
+	 if ((errText["INITIATE_EINVAL")){
+		  $$$TRACE(" ERROR - INITIATE_EINVAL " )
+		 set context.iniMergeResponse = ""
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " Unable to Insert into Initiate. Empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
+		 quit
+	 }
 	 if ((errText["#7201")){
-		 set context.iniInsertUpdateResponse = ""
+		  $$$TRACE(" ERROR - #7201 " )
+		  set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data length (MAXLEN) greater than expected. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["#5802")){
+		 $$$TRACE(" ERROR - #5802 " )
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_"]. Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["#5803")){
+		 $$$TRACE(" ERROR - #5803 " )
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName, "Data Type Validation failed. empi#: ["_context.ihcEmpiNum_"]. Error Details: "_errText )
 		 quit
 	 }
 	 if ((errText["#5659")){
+		 $$$TRACE(" ERROR - #5659 " )
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_"]. Skipping the record.Error Details: "_errText )
 		 quit
 	 }
 	 if ((errText["#5661")){
+		 $$$TRACE(" ERROR - #5661 " )
 		 set context.iniInsertUpdateResponse = ""
 		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "May be required element missing. Invalid Soap Request. empi#: ["_context.ihcEmpiNum_"]. Skipping the record. Error Details: "_errText )
 		 quit
 	 }
 	 $$$TRACE(" Status ItfGeneralError " _ tStatus)
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," InitiateAddUpdate call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)          
-     kill errText
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," InitiateAddUpdate call failure. empi#: ["_context.ihcEmpiNum_"]. ErrorText: "_errText)               
+     
  } else { 
         set context.iniInsertUpdateResponse = initiateInsertUpdateResponse        
  }
@@ -774,7 +807,8 @@ BPL Definition</Description>
 <catchall xpos='200' ypos='1200' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
-<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+<![CDATA[ 
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError) 
 ]]]]><![CDATA[>
 </code>
 </catchall>
@@ -801,6 +835,9 @@ BPL Definition</Description>
 </Value>
 <Value name="4">
 <Value>Empi20ServiceCall</Value>
+</Value>
+<Value name="5">
+<Value>MergeTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
