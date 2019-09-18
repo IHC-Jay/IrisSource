@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.OutCdrDemogrCffUpdate">
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
+<TimeCreated>65267,38103.705369</TimeCreated>
+
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service for Update operation</Description>
+<Type>%String</Type>
+<InitialExpression>"MMIUPDATE"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="LockService">
+<Description>
+Mode of communication to Tuxedo Service for Lock operation</Description>
+<Type>%String</Type>
+<InitialExpression>"MMIREADUPDATE"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="UnlockService">
+<Description>
+Mode of communication to Tuxedo Service for Unlock operation</Description>
+<Type>%String</Type>
+<InitialExpression>"MMILOCKREL"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="CDRMaxRetries">
+<Description>
+MaxRetries to try locking the CDR </Description>
+<Type>%String</Type>
+<InitialExpression>"5"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="RetryTimeoutSeconds">
+<Description>
+RetryTimeoutSeconds to try locking the CDR</Description>
+<Type>%String</Type>
+<InitialExpression>"20"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="JarFiles">
+<Description>
+JarFile which has the java code </Description>
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/IhcItfCdrMmiOperations.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>JarFiles:Additional,LockService:Additional,TuxedoService:Additional,UnlockService:Additional,CDRMaxRetries:Additional,RetryTimeoutSeconds:Additional</Default>
+</Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	 try{
+		 do ##super()
+		$$$TRACE("Connect to " _ ..ApplicationAddress)
+		$$$TRACE("OnInit..ApplicationAddress "_ ..ApplicationAddress)
+		$$$TRACE("OnInit..TuxedoService "_ ..TuxedoService _ ", MMIREADUPDATE" _ ", MMILOCKREL")
+ 		$$$TRACE("Log file: " _ ..LogDirectory _"/" _$$$JobConfigName _".log" _", DEBUG: " _ $$$ConfigTrace($$$JobConfigName))
+ 		set numRetries = (..FailureTimeout / ..RetryInterval)
+
+
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.svc.CdrMmiUpdate).%New(..JavaGateway,..ApplicationAddress,  "MMIUPDATE", "MMIREADUPDATE", "MMILOCKREL", 5, 20, ..LogDirectory _"/" _$$$JobConfigName _".log", 1)
+		//set ..objCdrTuxService = ##class(org.ihc.itf.cdr.svc.CdrMmiUpdate).%New(..JavaGateway, ..ApplicationAddress, "MMIUPDATE", "MMIREADUPDATE", "MMILOCKREL", 5, 20, ..LogDirectory _"/" _$$$JobConfigName _".log", 1)
+     	set status = ..CheckObject()
+	}catch err{
+		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
+		   	 	     set errTxt = $System.Status.GetErrorText(%objlasterror)
+			 $$$LOGERROR("Last error: " _ errTxt)
+			 $$$LOGERROR("ERROR Status="_$$$StatusDisplayString(%objlasterror))
+	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName," Exception while initializing Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	}
+	
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #dim status as %Status
+	 set status = $$$OK
+	 $$$TRACE("Inside OnMessage method")	 
+	 
+	 try {		 
+	 
+		
+		if (..CheckObject() '= $$$OK) {
+		 	$$$TRACE("**** Object does not exists ****")
+		 	// Try to re intialize
+		 	set result = ..OnInit()
+			if (result '= $$$OK)
+			{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Cdr-Adt-Cff-UPDATE", "UpdateMMI failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+				return status
+			}
+	 	}
+	
+	     $$$TRACE("HL7 Msg:: "_ pRequest.RawContent)	
+		 set result = ..objCdrTuxService.updateMMI(pRequest.RawContent)		
+		$$$TRACE("Call Response: " _ result)
+		
+		
+		if ("1" = result){
+			$$$TRACE("Update Sucessful!!! MMI#: " _ pRequest.GetValueAt("PID:PatientIdentifierList(1).ID"))
+			set pResponse = ##class(Ens.StringResponse).%New("")
+		    set pResponse.StringValue = result
+		}else{		
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Cdr-Adt-Cff_Update", "MMIUpdate failed. MMI#: " _ pRequest.GetValueAt("PID:PatientIdentifierList(1).ID") _ " ; Reason: " _ result)					
+		}
+	
+	 } catch err {	 
+	 	 Set status = ..ExceptionHandler(err, "OnMessage")
+	 }  
+	 return status
+]]></Implementation>
+</Method>
+</Class>
+</Export>
