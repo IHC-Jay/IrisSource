@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.XML.Service.FileService">
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.EDI.XML.Service.Standard</Super>
+<System>4</System>
+<TimeCreated>61804,58100.920316</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.InboundAdapter</Default>
+</Parameter>
+
+<Property name="ReplyTargetConfigNames">
+<Description>
+ConfigName(s) of the operations or processes to which reply messages should be forwarded.</Description>
+<Type>%String</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[ReplyTargetConfigNames::selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<FormalSpec>pInput:%Stream.Object,pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	If pInput.%Extends("%FileBinaryStream") {
+		$$$sysTRACE("creating document from XML file "_pInput.Filename)
+		Set tDocIn=##class(EnsLib.EDI.XML.Document).%New(pInput.Filename)
+	} Else {
+		$$$sysTRACE("creating document from XML file stream "_pInput.Filename_" with TranslateTable='"_pInput.TranslateTable_"'")
+		set indx=165
+		set recHd=pInput.Read(indx,.sc)
+		$$$TRACE("Record Head: "_recHd)
+		set fStr=""
+		set fStrCnt=1
+		set hasBC=0
+		For { Set tchar=pInput.Read(1,.sc)  Quit:tchar=""
+           if (($ASCII(tchar) < 7) || ($ASCII(tchar) > 126)) {
+              $$$TRACE("Found a special character at "_indx)
+          	  set hasBC=1
+              Quit
+           }
+           else {
+              set indx=indx+1
+              if (fStrCnt<20) {
+	              set fStr=fStr_tchar
+	              set fStrCnt=fStrCnt+1
+              }
+              else {
+	              set fStr=##class(Ens.Util.FunctionSet).SubString(fStr,2)_tchar
+              }
+           }
+        }
+        if (hasBC=1) {
+	       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName, "Record with header: "_recHd_", has a special character after this text: >>"_fStr_"<<")       
+           quit status
+        }
+        else {
+           do pInput.Rewind()
+		   Set tDocIn=##class(EnsLib.EDI.XML.Document).%New(pInput)
+        }
+	}
+	if tDocIn="" Quit %objlasterror
+	Quit ..standardOnProcessInput(tDocIn)
+]]></Implementation>
+</Method>
+
+<Method name="SendReply">
+<FormalSpec>pReplyDocument:EnsLib.EDI.Document,pOriginalDoc:EnsLib.EDI.Document=$$$NULLOREF</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	If ""=..ReplyTargetConfigNames {
+		$$$sysTRACE("Reply "_$S($IsObject(pReplyDocument):"/"_pReplyDocument.%Id(),1:"")_" not sent because no Reply Target Config Name is configured")
+		Quit $$$OK
+	}
+	Set pReplyDocument.IsMutable=0
+	Set tSC=$$$OK  For iTarget=1:1:$L(..ReplyTargetConfigNames, ",") { Set tOneTarget=$ZStrip($P(..ReplyTargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+		Set tSC1=..SendRequestAsync(tOneTarget,pReplyDocument) Quit:$$$ISERR(tSC)
+		Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("ReplyTargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
