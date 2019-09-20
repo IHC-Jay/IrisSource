@@ -157,6 +157,45 @@ BPL Definition</Description>
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='5750' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+
+<code name='ValidatePatientAddress' xpos='470' ypos='1000' >
+<annotation><![CDATA[ValidatePatientAddress]]]]><![CDATA[></annotation>
+<![CDATA[
+        set address=request.GetValueAt("PID:PatientAddress(1).streetaddressSAD.streetormailingaddress")
+        if ($L(address)>0){
+	        $$$TRACE("Patient Address Exists..")
+	        set zipCode=request.GetValueAt("PID:11(1).5")
+	        if (L(zipCode)>0){
+		        $$$TRACE("Patient Address PostalCode Exists..")
+		    }else{
+			    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Patient Address postal code doesn't exists :["_context.ihcEmpiNum_"] is empty or not valid, Skipping the record." )
+			}
+	    }else{
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Patient Address doesn't exists :["_context.ihcEmpiNum_"] is empty or not valid, Skipping the record." )
+		}
+  ]]]]><![CDATA[>
+</code>
+
+<code name='ValidateGuarantorAddress' xpos='470' ypos='1000' >
+<annotation><![CDATA[ValidateGuarantorAddress]]]]><![CDATA[></annotation>
+<![CDATA[
+        set address=request.GetValueAt("GT1(1):5(1).1.1")
+        if ($L(address)>0){
+	        $$$TRACE("Guarantor Address Exists..")
+	        set zipCode=request.GetValueAt("GT1(1):5(1).5")
+	        if (L(zipCode)>0){
+		        $$$TRACE("Guarantor Address PostalCode Exists..")
+		    }else{
+			    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Guarantor Address postal code doesn't exists Empty or not valid, Skipping the record." )
+			}
+	    }else{
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Guarantor Address doesn't exists.  Empty or not valid, Skipping the record." )
+		}
+  ]]]]><![CDATA[>
+</code>
+
+
+
 <code name='CheckForLookupTables' xpos='470' ypos='1000' >
 <annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
 <![CDATA[
@@ -363,9 +402,36 @@ BPL Definition</Description>
 <trace name='IhcMrnFromAmWellNotExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,but not in Initiate"' xpos='740' ypos='2200' >
 <annotation><![CDATA[Ihc Mrn exists in AmWell message,but not in Initiate]]]]><![CDATA[></annotation>
 </trace>
-<code name='Skip message' xpos='200' ypos='1000' >
-<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Ihc Mrn exists in AmWell message,but not in Initiate. Skipping the record.")
-]]]]><![CDATA[>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='470' ypos='2050' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2150' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+  	
+    $$$TRACE(" IHC mrn# exists in AmWell Message, but not in Initiate ")     
+    set operType = "ADD"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.PatientEmpi = mrnRet
+    }else{
+	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    if (statusTxt["POSTSTATUS:0"){
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,statusTxt)  
+		}else{
+	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
+		}   	   
+    }
+  ]]]]><![CDATA[>
 </code>
 </false>
 </if>
