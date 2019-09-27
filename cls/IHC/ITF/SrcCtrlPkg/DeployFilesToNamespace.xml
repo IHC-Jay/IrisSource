@@ -21,7 +21,7 @@
 </Property>
 
 <Method name="DeployFiles">
-<FormalSpec>compNm:%String,deployType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String,depCls:%Boolean,depConf:%Boolean</FormalSpec>
+<FormalSpec>compNm:%String,deployType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String,depCls:%Boolean,depConf:%Boolean,changeCls:%Boolean</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 #dim tSC As %Status 
@@ -116,7 +116,7 @@
  if $$$ISOK(tSC)
  {
 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Deploy Config file")
-   if (deployType = "NEW" || (deployType = "UPDATE" && depConf = 1)) 
+   if ( (deployType = "NEW") || ( (deployType = "UPDATE") && ((depConf = 1) || (changeCls = 1)) ) )
    {
 	 Set fileName = ..DeployDirectory_"Deployment_CONFIG_" _compNm_".xml"
  
@@ -127,11 +127,27 @@
 	 	Set comment = comment _ ##class(IHC.ITF.ITFCOMMON.Utility).getErrorMsg(tSC, " CONFIG File not found, checkout failed. " _ tSC)
 	 	return comment
  	 }
- 	 try {
-	   set tSC = ..DeployComponent(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env, deployType)
- 	 } catch err
+ 	 if ( (deployType = "UPDATE") && (changeCls = 1))
  	 {
-	 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exception in DeployComponent")
+	 	 try {
+		   set tSC = ..ChangeComponentClass(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env, deployType)
+	 	 } catch err
+	 	 {
+		 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exception in ChangeComponentClass")
+		 	 set tSC = $$$ERROR("Exception in ChangeComponentClass")
+	 	 }
+
+ 	 }
+ 	 else
+ 	 {
+   
+	 	 try {
+		   set tSC = ..DeployComponent(compNm, fileName, rev, nmSp, tProductionName, usrNm, passwd, env, deployType)
+	 	 } catch err
+	 	 {
+		 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exception in DeployComponent")
+		 	 set tSC = $$$ERROR("Exception in DeployComponent")
+	 	 }
  	 }
 	 if $$$ISERR(tSC)
 	 {
@@ -200,6 +216,140 @@
 	 if ($ZCVT(parseFl.itemsInfo.GetAt(1).itemName, "U") = $ZCVT(compNm, "U") )
 	 {
  		set tSC = ..Deploy(compNm, fileName, "Config", tProductionName, usrNm)
+ 		if $$$ISOK(tSC)
+ 		{
+	 		// Update Database
+	 		set dt = $ZDATETIME($HOROLOG,3, 1)
+	 		set tSC = ..updateImpl(usrNm, passwd, compNm, nmSp, fileName, rev, parseFl.itemsInfo.GetAt(1).itemInfo, env, dt)
+ 		}
+	 }
+	 else
+	 {
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "File does not have config for " _ compNm)
+  		 Quit $$$ERROR($$$GeneralError, "File does not have config for " _ compNm)
+	 }
+  }
+  else
+  {
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Parsing the file failed " _ tSC)
+	 Quit $$$ERROR($$$GeneralError, "Parsing the file failed " _ tSC _ " for " _ compNm)
+  }
+  return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ChangeComponentClass">
+<FormalSpec>compNm:%String,fileName:%String,rev:%String,nmSp:%String,tProductionName:%String,usrNm:%String,passwd:%String,env:%String,deployType:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+#dim tSC As %Status = $$$OK
+ if (compNm '[ "||") 
+ {
+  set ItemByConfigName = tProductionName_"||"_compNm
+ }
+ else
+ {
+	 set ItemByConfigName = compNm
+ }
+	
+ Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(ItemByConfigName)
+ If $IsObject(tItem)
+ {
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, ItemByConfigName _ " already exists") 
+
+	 if (deployType = "NEW")
+	 {
+		 Quit $$$ERROR($$$GeneralError, ItemByConfigName _ " already exists")
+	 }
+ }
+	
+ set parseFl = ##class(IHC.ITF.SrcCtrlPkg.parseXmlFile).%New()
+ set tSC = parseFl.ParseFile(fileName, compNm)
+ 
+ 
+
+ if ( ($$$ISOK(tSC)) && (parseFl.IsItfExportFile()) && (parseFl.IsConfigFile()) )
+  {
+	 if ($ZCVT(parseFl.itemsInfo.GetAt(1).itemName, "U") = $ZCVT(compNm, "U") )
+	 {
+		
+ 		Set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+	   		
+   		
+   		Set item = ##class(Ens.Config.Production).OpenItemByConfigName(compNm)
+ 		If $IsObject(item)
+ 		{				
+					
+				Set production = item.Production
+				set pClassName = parseFl.GetClass()
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Item: " _ item _ ", " _ item.Production _ ", Exisiting Class: " _ item.ClassName _ ", New class: " _ pClassName)
+				
+				
+				// Set the new classname
+				Set item.ClassName = pClassName
+
+				// Remove settings that do not belong in the new class/adapter
+				Set settings = item.Settings
+				
+				Set modified = 0
+				set getSet = "GetClassSettings: " _ pClassName
+				Try {
+					
+					Do $ClassMethod(pClassName,"GetSettings",.tClassSettings)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "Adapter: " _ item.AdapterClassName())
+ 
+					If (item.AdapterClassName()'="") 
+					{
+						set getSet = "GetAdapterSettings " _ item.AdapterClassName()
+						Do $ClassMethod(item.AdapterClassName(),"GetSettings",.tAdapterSettings)
+					}
+				} Catch {
+					set tSC = $$$ERROR(" Error in getting setting: " _ getSet)
+				}
+				If ($$$ISOK(tSC)) {
+					For i = 1:1 {
+						Quit:i>settings.Count()
+						Set sett = settings.GetAt(i)
+						Set type = sett.Target
+						Set name = sett.Name
+						Set val = sett.Value
+						// WRITE !, sett _", " _ type _ ", " _ name _ ", " _ val
+						Set remove = 1
+						Try {
+							If type="Host" {
+								Set tSC = $ClassMethod(pClassName, name_"IsValid", val)
+								Set remove = $S($$$ISERR(tSC):1,1:'$D(tClassSettings(":",name)))
+							}
+							ElseIf type="Adapter" {
+								Set tSC = $ClassMethod(item.AdapterClassName(), name_"IsValid", val)
+								Set remove = $S($$$ISERR(tSC):1,1:'$D(tAdapterSettings(":",name)))
+							}
+						}
+						Catch {
+							set tSC = $$$ERROR(" Error in finding class settings")
+							
+						}
+						If remove {
+							
+							Do settings.RemoveAt(i)
+							Set i = i-1
+							Set modified = 1
+						}
+					}
+					If ( ($$$ISOK(tSC)) && modified) {
+						Set item.Settings = settings
+					}
+				}
+				If ($$$ISOK(tSC)) {
+
+					// Save and update the Production's XData block
+					Set tSC = item.%Save()
+					If ($$$ISOK(tSC)) {
+						Set tSC = production.SaveToClass(item)
+					}
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Save and updated class " _ tSC)
+				}
+	 		}
  		if $$$ISOK(tSC)
  		{
 	 		// Update Database
