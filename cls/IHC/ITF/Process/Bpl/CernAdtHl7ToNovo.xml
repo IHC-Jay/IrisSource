@@ -31,9 +31,14 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='pv144AdmitTime' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2150' >
-<scope xpos='200' ypos='250' xend='200' yend='2050' >
+<sequence xend='200' yend='2250' >
+<scope xpos='200' ypos='250' xend='200' yend='2150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -79,7 +84,10 @@ BPL Definition</Description>
     set context.ValidationPassed=0    
     }]]]]><![CDATA[>
 </code>
-<code name='Check Facility' xpos='200' ypos='750' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1900' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<code name='Check Facility' xpos='470' ypos='1000' >
 <![CDATA[ $$$TRACE("Filter out any facility if on the list.")
  set sendingFacility = request.GetValueAt("MSH:4.1")
  $$$TRACE("MSH:4.1 facility is:  " _sendingFacility)
@@ -87,22 +95,11 @@ BPL Definition</Description>
  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToNovo.Lookup.FilterOutFacilityCodeTable", sendingFacility, .retVal )
  $$$TRACE("facility Code lookup call returned value: " _ retVal)
     
- if (retVal = 1) {   
-         set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Facility code found in the list. Filter out and skip the record.")
+ if (retVal = "1") {   
+         set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Facility code in MSH-4 found no match in the lookup table. Filter out the record.")
     }]]]]><![CDATA[>
 </code>
-<code name='getEmpiNumber' xpos='200' ypos='850' >
-<annotation><![CDATA[GetEmpiNumber]]]]><![CDATA[></annotation>
-<![CDATA[
-    Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID") 
-    $$$TRACE("EMPI#:[" _context.empiNumber _"]")
-    if ((context.empiNumber = "") ||($ISVALIDNUM(context.empiNumber)=0)){         
-              set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***The patient EMPI number in PID-3 is invalid: ["_context.empiNumber _"]. Skip the message with error-out.")
-    }
-]]]]><![CDATA[>
-</code>
-<code name='CheckEventType' xpos='200' ypos='950' >
-<annotation><![CDATA[ Check Message Event Type is valid or not ]]]]><![CDATA[></annotation>
+<code name='Check Event Type' xpos='470' ypos='1100' >
 <![CDATA[
  set context.eventType = request.GetValueAt("MSH:MessageType.triggerevent")  
   $$$TRACE("context.eventType:[" _ context.eventType _"]") 
@@ -111,49 +108,59 @@ BPL Definition</Description>
  $$$TRACE("context.eventType:[" _ context.eventType _"]. Return Value: ["_retVal _"]") 
 
  if (retVal '="1") {      
-	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid EventType:["_context.eventType_"]. EMPI:["_context.empiNumber _"]. Skipping the record." )	  	  
+	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Event Type Trigger in MSH-9.2 found no match in the lookup table. Filter out the record.")  	  
 	 }
 ]]]]><![CDATA[>
 </code>
-<code name='get Acct Number' xpos='200' ypos='1050' >
-<![CDATA[
-    Set context.acctNumber=request.GetValueAt("PID:18.1") 
+<code name='Check Admit Date&amp;Time' xpos='470' ypos='1200' >
+<![CDATA[    Set context.pv144AdmitTime =request.GetValueAt("PV1:AdmitDateTime.timeofanevent") 
+    $$$TRACE("PV1-44 AdmitDateTime from source:[" _context.pv144AdmitTime _"]")
+  
+    if (context.pv144AdmitTime = ""){   
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***PV1-44.1 (Admit Date and Time) is blank: ["_context.pv144AdmitTime_"]. Skipping the record.")          
+    }
+]]]]><![CDATA[>
+</code>
+<code name='Check PID' xpos='470' ypos='1300' >
+<![CDATA[    Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID") 
+    $$$TRACE("EMPI#:[" _context.empiNumber _"]")
+    if ((context.empiNumber = "") ||($ISVALIDNUM(context.empiNumber)=0)){         
+              set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***The patient EMPI number in PID-3 is invalid: ["_context.empiNumber _"]. Skip the message with error.")
+    }]]]]><![CDATA[>
+</code>
+<code name='Check Account Num' xpos='470' ypos='1400' >
+<![CDATA[    Set context.acctNumber=request.GetValueAt("PID:18.1") 
     $$$TRACE("ACCT#:[" _context.acctNumber _"]")
   
     if ((context.acctNumber = "") ||($ISVALIDNUM(context.acctNumber)=0)){   
-        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***The patient account number in PID-18.1 is invalid: ["_context.acctNumber_"]. Error out this message and notify the source system for fix.")          
-    }
-
-]]]]><![CDATA[>
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***The patient account number in PID-18.1 is invalid: ["_context.acctNumber_"]. Skip the message with error.")          
+    }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='1150' xend='200' yend='1800' >
-<true>
-<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1300' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToNovo' source='request' target='response' xpos='470' ypos='1400' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToNovo' source='request' target='response' xpos='470' ypos='1500' >
 <annotation><![CDATA[Translates iCentra Adt to Novo Hl7]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1500' xend='200' yend='350' >
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1600' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='470' ypos='1600' />
-<code name='ResetError' xpos='470' ypos='1700' >
+<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='470' ypos='1700' />
+<code name='ResetError' xpos='470' ypos='1800' >
 <![CDATA[  
     Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='1300' >
-<annotation><![CDATA[Write the code in this path to Skip error or Check Error. If Check error is used then reset error should be used]]]]><![CDATA[></annotation>
-</trace>
+<code name='Msg Validation Failed' xpos='200' ypos='900' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed.")]]]]><![CDATA[>
+</code>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1900' xend='200' yend='350' >
+<catchall xpos='200' ypos='2000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
