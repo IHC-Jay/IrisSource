@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.SalesForceUpdateClient">
+<ProcedureBlock>1</ProcedureBlock>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>64917,71387.957105</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SOAP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Adapter">
+<Type>EnsLib.SOAP.OutboundAdapter</Type>
+</Property>
+
+<Property name="usrNm">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="pswrd">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Method name="updateSalesForceContact">
+<FormalSpec>pRequest:Ens.StringRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+ $$$TRACE("web service login...")
+ if pRequest.StringValue="" {
+	 $$$TRACE("Empty reuest, ignored...")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName, " Request is empty... ")       
+     Quit %objlasterror
+ }
+ Set tSC = ..Adapter.InvokeMethod("login",.result,..usrNm,..pswrd)  Quit:$$$ISERR(tSC) tSC
+ $$$TRACE("get response...") 
+ set lq = ##class(Request.loginRequest).%New()
+ Set tSC = lq.NewResponse(.pResp)  Quit:$$$ISERR(tSC) tSC
+ Set pResp.result=$get(result)
+ set pResponse = ##class(Ens.StringResponse).%New()
+ set pResponse.StringValue=pResp.result.sessionId
+ if ('$$$ISERR(tSC)) {
+	$$$TRACE("Server Url: "_pResp.result.serverUrl)
+	set ss=##class(SF.tns.SessionHeader).%New()
+	set ss.sessionId=pResp.result.sessionId
+	set ss.mustUnderstand=1
+	//set ath=##class(SF.tns.AllowFieldTruncationHeader).%New()
+	//set ath.allowFieldTruncation=1
+	//set ash=##class(SF.tns.AssignmentRuleHeader).%New()
+	//set ash.useDefaultRule=1
+	//set sdt=##class(%Library.TimeStamp).DisplayToLogical("2019-09-11 00:00:00")
+	//set edt=##class(%Library.TimeStamp).DisplayToLogical("2019-10-01 00:00:00")
+	set ..Adapter.WebServiceURL=pResp.result.serverUrl
+	set iCnt= ..Adapter.%Client.HeadersIn.Count()
+    //do ..Adapter.%Client.HeadersOut.SetAt(ath,"AllowFieldTruncationHeader")
+    //do ..Adapter.%Client.HeadersOut.SetAt(ash,"AssignmentRuleHeader")
+    do ..Adapter.%Client.HeadersOut.SetAt(ss,"SessionHeader")
+    //do ..Adapter.%Client.HeadersOut.SetAt(ss,"SessionHeader")
+    //do ..Adapter.%Client.HeadersOut.SetAt("Wololo","SOAPAction")
+	set oCnt= ..Adapter.%Client.HeadersOut.Count()
+	$$$TRACE("Header Count: "_iCnt_":"_oCnt)
+	  set updateContact = ##class(SF.ens.sObject).%New()
+	  $$$TRACE("Set sObject type to Contact: ")
+	  set updateContact.type="Contact"
+	  set id=##class(Ens.Util.FunctionSet).Piece(pRequest.StringValue,";",1)
+	  set msprId=##class(Ens.Util.FunctionSet).Piece(pRequest.StringValue,";",2)
+	  set usrNm=##class(Ens.Util.FunctionSet).Piece(pRequest.StringValue,";",3)
+	  set updateContact.Id=id
+	  $$$TRACE("set MSPR_ID__c="_msprId)
+	  $$$TRACE("set Employee_User_Name__c="_usrNm)
+	  //set fieldMid=##class(%XML.String).%New()
+	  //set fieldMid="<MSPR_ID__c>550011546</MSPR_ID__c>"
+	  do updateContact.any.Insert("<MSPR_ID__c>"_msprId_"</MSPR_ID__c>")
+	  do updateContact.any.Insert("<Employee_User_Name__c>"_usrNm_"</Employee_User_Name__c>")
+	  set contacts=##class(%ListOfObjects).%New()
+	  $$$TRACE("Insert updateContact to the object list...")
+	  do contacts.Insert(updateContact)
+  
+      $$$TRACE("Invoke Method...: ")
+
+      Set tSC = ..Adapter.InvokeMethod("update",.qresult,contacts)  Quit:$$$ISERR(tSC) tSC
+      $$$TRACE("Getting records... ")
+      set qReq=##class(Request.updateRequest).%New() 
+      Set tSC = qReq.NewResponse(.qRep)  Quit:$$$ISERR(tSC) tSC
+      Set qRep.result=$get(qresult)
+      
+      $$$TRACE("Result Count: "_qRep.result.Count())
+ 
+      set rCnt=qRep.result.Count()
+      for i=1:1:rCnt {
+	 	set tRes=qRep.result.GetAt(i)
+        if (tRes.success) {
+	      $$$TRACE("Updated id: "_tRes.id_" successfully!")
+       	  set pResponse.StringValue="Update id: "_tRes.id_" with mspr_id and user name successfully!"
+        }
+        else {
+          $$$TRACE("Error Count: "_tRes.errors.Count())
+          set recCnt=tRes.errors.Count()
+          set emsg="ERROR: "
+          for j=1:1:recCnt {
+		 	set tRec=tRes.errors.GetAt(j)
+		 	set emsg=emsg_tRec.message_", "
+		 	$$$TRACE("Error message: "_tRec.message)
+          }
+       	  set pResponse.StringValue="Update id: "_tRes.id_" failed, "_emsg
+       	}
+      }
+	  Set tSC = ..Adapter.InvokeMethod("logout")  
+	  $$$TRACE("Logout successful...")
+ }
+ else {
+	$$$TRACE("login failed ...")
+	set pResponse.StringValue="Failed"
+ }
+
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+    Set ..Adapter.WebServiceClientClass = "SF.Soap"
+    set ..usrNm = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Username")
+    set ..pswrd = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Password")
+
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.StringRequest">
+		<Method>updateSalesForceContact</Method>
+	</MapItem>	
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
