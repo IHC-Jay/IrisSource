@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.VeratoService">
+<Description>
+Calls Verato service - post identity operation - to update/add demographics into Initiate using https</Description>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>65302,59501.908388</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:IHC.ITF.Request.httpsRequestForVerato,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+	
+	Set ihcMrn=pRequest.ihcMrn
+	Set jsonStreamObject = pRequest.jsonStreamObject
+	Set msgType=pRequest.msgType
+	
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonStreamObject.StringValue)		
+	Set tStr = tStream.Read()
+	$$$TRACE("Data string: " _ tStr)	
+	Do tStream.Rewind()
+	
+	
+	if (msgType="A34"){
+		set URL = ..Adapter.URL_"/mergeIdentities"
+	}else{
+		set URL = ..Adapter.URL_"/postIdentity"
+	}
+	$$$TRACE("Location: "_URL)
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)	
+	Set httprequest.Https="1"
+	Set httprequest.ContentType="application/json"
+	Set credSettings = ..Adapter.Credentials
+	Set cred=##class(Ens.Config.Credentials).%OpenId(credSettings)
+    Set httprequest.Username= cred.Username
+    Set httprequest.Password= cred.Password
+	set httprequest.Timeout=..Adapter.ResponseTimeout
+	$$$TRACE("Resp Timeout: "_httprequest.Timeout)	
+	
+	Do httprequest.EntityBody.Write() ;
+	do httprequest.EntityBody.CopyFrom(tStream)
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+	try	{
+				
+		$$$TRACE("Calling Verato Post/merge identity Service.....")
+		    
+		set postStatus = httprequest.Post(URL)		
+		set postStatusTxt = $SYSTEM.Status.GetOneErrorText(postStatus)
+		$$$TRACE("postStatusTxt-->  "_postStatusTxt)
+		if (postStatus =1){
+	    	$$$TRACE(" Verato service..Post/merge status 1")   
+	    	set len = httprequest.HttpResponse.ContentLength     
+    		set respData = httprequest.HttpResponse.Data.Read()
+    		$$$TRACE("RESP DATA ???? "_respData)   
+    		
+    		set respJSONstring = respData
+            set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+            set iter = consumedJSONobj.%GetIterator()
+            set statusVal = consumedJSONobj.%Get("success")
+            $$$TRACE(" Value of Success "_statusVal)             
+          
+          	if statusVal="1"{
+	          $$$TRACE(" Post/Merge operation successful!!! ") 
+	      	}else{
+		      set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Verato-Demogr-Json-Wsrc"," Response from Patient Service Post Operation: "_respData)
+		  	}
+		  
+		}else{
+			set errTxt = " RETRY. Verato service post request failed."    
+            $$$TRACE(" Post Failed.. " _ errTxt) 
+            set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Verato-Demogr-Json-Wsrc"," Response from Patient Service Post Operation: "_respData)     	
+          
+		}		 
+	}catch e{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Patient service POST operation to verato service "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Out-Verato-Demogr-Json-Wsrc",errTxt)	  		 		  		 		 
+	}
+	
+	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.httpsRequestForVerato">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
