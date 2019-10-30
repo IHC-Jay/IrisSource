@@ -12,8 +12,15 @@
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AllowedEventTypes:Additional</Default>
+<Default>HddTargetConfigName:Additional,AllowedEventTypes:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -45,9 +52,19 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='xtractDomain' type='%String' initialexpression='529771531' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1750' >
-<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -94,10 +111,42 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1400' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1600' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
-<code name='FilterByEventID' xpos='470' ypos='1000' >
+<code name='initializeHddTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+  
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+<code name='IsMember- Facility' xpos='470' ypos='1100' >
+<![CDATA[  
+   set msh4Ncid = request.GetValueAt("ZZ1:ZZ12SendFacilityNcid")
+  
+   $$$TRACE("Facility NCID : " _msh4Ncid)
+   
+  set ismember = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.xtractDomain, msh4Ncid, context.hddTargetConfigName, .process)	
+  
+
+  $$$TRACE("isMember : " _ismember)
+ 
+ if ismember = 0
+ {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Xtract", "Facility :["_request.GetValueAt("MSH:SendingFacility.namespaceID")_"] not allowed . Skipping the record.") 
+   
+ }
+ else
+ {
+    $$$TRACE("Facility :["_request.GetValueAt("MSH:SendingFacility.namespaceID")_"] is allowed.")
+ }]]]]><![CDATA[>
+</code>
+<code name='FilterByEventID' xpos='470' ypos='1200' >
 <![CDATA[ set AcceptedEvents=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEventTypes",.AcceptedEvents) 
  if ($$$ISOK(pstatus)&&(AcceptedEvents'=""))
@@ -111,7 +160,7 @@ BPL Definition</Description>
         }
         else
         {
-         Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Xtract", "Invalid EventID:["_request.GetValueAt("MSH:MessageType.triggerevent")_"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]") 
+         Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Xtract", "Invalid EventID:["_request.GetValueAt("MSH:MessageType.triggerevent")_"]. Skipping the record.") 
        }
         
    
@@ -121,15 +170,15 @@ BPL Definition</Description>
 	 
 	 }]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToXtract' source='request' target='response' xpos='470' ypos='1100' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToXtract' source='request' target='response' xpos='470' ypos='1300' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1400' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='1300' >
+<code name='RESETERROR' xpos='470' ypos='1500' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 	]]]]><![CDATA[>
 </code>
@@ -143,7 +192,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1500' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
