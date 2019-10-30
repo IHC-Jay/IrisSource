@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.R1SchedHl7ToCern">
+<Description>
+Translates R1/Phreesia Scheduling to Cerner specific</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64638,57522.918063</TimeCreated>
+
+<Property name="AllowedEventTypes">
+<Description>
+Allowed SIU(Scheduling) event types. Separated by Comma.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="AllowedApptStatus">
+<Description>
+Allowed SIU(Scheduling) Appointment Status. Separated by Comma.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>AllowedEventTypes:Additional,AllowedApptStatus:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>R1SchedHl7ToCernDefaultData</DefaultData>
+<Data name="R1SchedHl7ToCernDefaultData">
+<Subscript>"R1SchedHl7ToCern"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>AllowedEventTypes</Value>
+</Value>
+<Value name="3">
+<Value>AllowedApptStatus</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2400' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='pid15' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='20' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1750' >
+<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+   ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1400' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<code name='getMessageType.TriggerEvent' xpos='470' ypos='1000' >
+<annotation><![CDATA[get Message type and Status]]]]><![CDATA[></annotation>
+<![CDATA[     
+     Set msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+     $$$TRACE("Trigger Event: " _ msgType) 
+     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEventTypes",.AllowedSiuEvents) 
+     if ($$$ISOK(pstatus)&&(AllowedSiuEvents '="")){    	
+    	$$$TRACE("Value of allowed SIU events="_AllowedSiuEvents)
+    	if ($LISTFIND($LISTFROMSTRING(AllowedSiuEvents,","), msgType) = 0) {	     
+	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found an event type: ["_msgType_"] that does not match a value from the Allowed list of event types :["_AllowedSiuEvents_"]")
+     	}else{
+	     	Set apptStatus =request.GetValueAt("SCH:25.1")
+     		$$$TRACE("Appointment Status: " _ apptStatus) 
+     		set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedApptStatus",.allowedApptStatus) 
+     		if ($$$ISOK(pstatus)&&(allowedApptStatus '="")){  
+     		  $$$TRACE("Value of allowed appt status ="_allowedApptStatus) 	
+     		  if ($LISTFIND($LISTFROMSTRING(allowedApptStatus,","), apptStatus) = 0) {	     
+	     		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found an Appointment Status: ["_apptStatus_"] that does not match a value from the Allowed list of appt status :["_allowedApptStatus_"]")
+     		  }		       		
+     		}
+	    }     	
+ 	 } else {
+    	$$$TRACE("Config setting for AllowedSiuEvents not available")
+    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No configuration for AllowedEventTypes found in the Additional Settings.")
+ 	 }
+    ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.R1SchedHl7ToCern' source='request' target='response' xpos='470' ypos='1100' >
+<annotation><![CDATA[translates R1/Phreesia Scheduling to Cerner Hl7]]]]><![CDATA[></annotation>
+</transform>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='RESETERROR' xpos='470' ypos='1300' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Skip the invalid message' xpos='200' ypos='900' >
+<![CDATA[    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.") ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1500' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
