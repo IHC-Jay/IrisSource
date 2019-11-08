@@ -1,0 +1,397 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.GenericDemogrCffToGenericJson">
+<Description>
+</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65323,56488.884163</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Ping Service Operation to get the Access Token</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="PatientServiceTargetConfigName">
+<Description>
+Patient Service Operation to add/update demographics into Initiate, Check mrn</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Method name="GetValues">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>respJSONstring:%String,respArray:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	  set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+          set iter = consumedJSONobj.%GetIterator()
+
+         set iterator =  consumedJSONobj.%GetIterator()
+         while iterator.%GetNext(.key,.value) { 
+         	// WRITE !, " Key: "_key_" Value: "_value
+         	IF ( ($isObject(value)) && (value.%Extends("%Library.DynamicAbstractObject")) )
+			{
+				Do ..ParseDynamicAbstractObject(value,  respArray)	
+			}
+         }
+]]></Implementation>
+</Method>
+
+<Method name="ParseDynamicAbstractObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%Library.DynamicAbstractObject,respArray:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	 set iterator =  obj.%GetIterator()
+     while iterator.%GetNext(.key,.value) {
+	      WRITE !, "ParseDynamicAbstractObject Key: "_key _ ": " _ obj.%Get("status")
+	     
+	     	
+	     	IF ( ($isObject(value)) && (value.%Extends("%Library.DynamicAbstractObject")) )
+			{
+				Do ..ParseDynamicAbstractObject(value, respArray)	
+			}
+			elseif ( respArray.IsDefined(key)  )
+			{
+				WRITE !, " Key: "_key_" Value: "_value
+				if ( $ZCONVERT(key, "U") [ "NAME")
+				{
+					if ($ZCONVERT(obj.%Get("status"), "U") = "CURRENT")
+					{
+						do respArray.SetAt(value, key)
+					}
+				}
+				elseif ( $MATCH($ZCONVERT(key, "U"), "LINE1|LINE2|ZIP|COUNTRY|CITY|STATE") )
+				{
+					if ($ZCONVERT(obj.%Get("type"), "U") = "HOMEADDR")
+					{
+						do respArray.SetAt(value, key)
+					}
+				}
+				else
+				{
+					do respArray.SetAt(value, key)
+				}
+			}
+			
+	}
+]]></Implementation>
+</Method>
+
+<Method name="CallPatientServices">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[opType:%String,token:%String,mrn:%String,jsonReq:Ens.StringContainer,pConfigName:%String,&process1:Ens.BusinessProcess,&mrnPar]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		#dim status AS %Status=$$$OK
+		set mrnFromResp=""
+      $$$TRACE(" Operation Type: " _ opType) 
+     $$$TRACE(" Target Operation: " _ process1.PatientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = token
+     set httpPingServiceRequestObj.operationType = opType  
+     set httpPingServiceRequestObj.identifier = mrn 
+     set httpPingServiceRequestObj.streamObject = jsonReq
+     $$$TRACE(" Calling Patient Service "_opType_" - BEGIN ")
+     set status = process1.SendRequestSync(process1.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     $$$TRACE(" Calling Patient Service "_opType_" - END ")
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService "_opType_" Operation OK status.")      
+      set restPatientServiceHttpResponse=patientServiceResponse  
+      set isOperDone = restPatientServiceHttpResponse.Attributes.GetAt(opType)       
+      if (isOperDone ="N"){
+	      $$$TRACE("### Failed to "_opType_" the patient :"_mrn_" ####")           
+	      set errTxt = restPatientServiceHttpResponse.Attributes.GetAt("ERRTXT")
+	      set errMsg = "Failed to "_opType_" this record in Initiate thru Patient Service. Skpping the record. Error Response: "_errTxt
+	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process1.%ConfigName,   errMsg)
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,errMsg)
+	  }else{
+      	$$$TRACE("### Operation "_opType_" Done:: "_isOperDone_" ####")           
+      	set mrnFromResp = restPatientServiceHttpResponse.Attributes.GetAt("MRN")
+      	$$$TRACE("### MRN#:: "_mrnFromResp_" ####")           
+	  }   
+    }else {
+	    $$$TRACE("Unexpected error while calling PatientService. "_$SYSTEM.Status.GetOneErrorText(status))    
+        set errorMsg = $SYSTEM.Status.GetOneErrorText(status)
+       if (errorMsg ["ERRTOKEN"){
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"Possible invalid or expired access token. Contact HIE service team for access token issue."_errorMsg) 
+       }else{
+	       if (errorMsg ["POSTSTATUS:0"){
+		       set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName," No response from the Hie patient service. Contact HIE service team."_errorMsg) 
+	       }else{
+           	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,"Unexpected error while calling PatientService. "_errorMsg)
+	       }     
+       }
+	}   
+	 set mrnPar = mrnFromResp      
+     quit status
+]]></Implementation>
+</Method>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='IHC.ITF.Demographics.DStruc.Record.DemogrInputFixed.Record' height='3500' width='2000' >
+<context>
+<property name='initiateZip' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='tStatus' type='%Integer' instantiate='0' />
+<property name='WrongAppend' type='%String' initialexpression='"WRONG"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='SendingApp' type='%String' initialexpression='"PCSAddrUpd"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='ReceivingFacility' type='%String' initialexpression='"IMTN"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='jsonRespArray' type='%Library.ArrayOfDataTypes' instantiate='0' />
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='restPatientServiceHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='initiatePersonJson' type='%String' instantiate='0' />
+<property name='pingDirSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='ihcEmpiNum' type='%String' instantiate='0' />
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1850' >
+<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _ ", req: " _ request' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<if name='request.MMINumber i nor empty' condition='request.MMINumber &apos;= ""' xpos='200' ypos='550' xend='200' yend='1500' >
+<true>
+<code name='initializeAccessTokenTarget' xpos='470' ypos='700' >
+<![CDATA[ 
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='800' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+<code name='CallPatientServiceCheckMrn' xpos='470' ypos='900' >
+<![CDATA[ 
+     $$$TRACE(" Initiate mrn# exists " _ request.MMINumber) 
+     $$$TRACE(" Target Operation to Patient service " _ process.PatientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = context.accessToken
+     set httpPingServiceRequestObj.operationType = "READ"   
+     set httpPingServiceRequestObj.identifier = request.MMINumber  
+     $$$TRACE(" Calling Patient Service - GetPatientService")
+     set status = process.SendRequestSync(process.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService-GetPatientService Operation OK status. ")
+      set context.restPatientServiceHttpResponse = patientServiceResponse
+      set context.initiatePersonJson = context.restPatientServiceHttpResponse.Attributes.GetAt("Person")      
+      
+      $$$TRACE("Json: " _ context.initiatePersonJson  )
+
+    }else {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-GetPatientService") 
+    }    
+   ]]]]><![CDATA[>
+</code>
+<code name='Parse Json' xpos='470' ypos='1000' >
+<![CDATA[ //Get values from response
+ if (context.initiatePersonJson [ "ENOREC")
+ {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Record not found in Initiate for MRN: " _ request.MMINumber _" Skipping this record. ")
+ }
+ else
+ {
+          // setting array with values to be returned by the method
+          set context.jsonRespArray =##class(%Library.ArrayOfDataTypes).%New()
+          Do context.jsonRespArray.SetAt("", "line1")
+          Do context.jsonRespArray.SetAt("", "line2")
+          Do context.jsonRespArray.SetAt("", "city")
+          Do context.jsonRespArray.SetAt("", "state")
+          Do context.jsonRespArray.SetAt("", "country")
+          Do context.jsonRespArray.SetAt("", "zip")
+          Do context.jsonRespArray.SetAt("", "dateOfBirth")
+          Do context.jsonRespArray.SetAt("", "givenName")
+          Do context.jsonRespArray.SetAt("", "familyName")
+ 	  Do ##class(IHC.ITF.Process.Bpl.GenericDemogrCffToGenericJson).GetValues(context.initiatePersonJson, context.jsonRespArray)
+          // Values in JSON
+          $$$TRACE("Value from Json line1 " _ context.jsonRespArray.GetAt( "line1"))
+          $$$TRACE("Value from Json line2 " _ context.jsonRespArray.GetAt( "line2"))
+          $$$TRACE("Value from Json city " _ context.jsonRespArray.GetAt( "city"))
+          $$$TRACE("Value from Json state " _ context.jsonRespArray.GetAt( "state"))
+          $$$TRACE("Value from Json country " _ context.jsonRespArray.GetAt( "country"))
+          $$$TRACE("Value from Json zip " _ context.jsonRespArray.GetAt( "zip"))
+          $$$TRACE("Value from Json dateOfBirth" _ context.jsonRespArray.GetAt( "dateOfBirth"))
+          $$$TRACE("Value from Json familyName " _ context.jsonRespArray.GetAt( "familyName"))
+   }
+          ]]]]><![CDATA[>
+</code>
+<code name='Compare Old addr in rec with initiate' xpos='470' ypos='1100' >
+<![CDATA[ set line1Str = context.jsonRespArray.GetAt( "line1")
+ set extAdd = $EXTRACT(line1Str ,1,$LENGTH(context.WrongAppend))
+ $$$TRACE("EXTRACT of " _ line1Str  _ " in line1: " _extAdd)
+ 
+ if ( $ZCONVERT(extAdd, "U") '= $ZCONVERT(context.WrongAppend, "U") )
+ {
+    $$$TRACE("line 1 in Initiate record is not WRONG, compare fields")
+   
+    
+    set initiateZip =  $ZSTRIP(context.jsonRespArray.GetAt( "zip"), "*P") 
+    set reqZip = $ZSTRIP(request.OldZip, "*P")
+    $$$TRACE("The Zip after removing hyphon : " _ initiateZip ) 
+ 
+    if ( (context.jsonRespArray.GetAt( "familyName") = request.LastName) && 
+     (context.jsonRespArray.GetAt( "dateOfBirth")  = request.OldBirthdate) && 
+     (line1Str = request.OldAddress1)  && 
+     (context.jsonRespArray.GetAt("line2") = request.OldAddress2) && 
+     (context.jsonRespArray.GetAt("state") = request.OldState) && 
+     (context.jsonRespArray.GetAt( "city") = request.OldCity) && 
+     (initiateZip = reqZip ) 
+     )   
+    {
+      $$$TRACE("initiate Address 1 will be updated with Wrong initiateTempAddress1: " _ line1Str)
+    }
+    else
+    {
+      $$$TRACE("Values in inbound and Initiate do not match")
+      $$$TRACE(context.jsonRespArray.GetAt( "familyName") _ ", " _ request.LastName)
+      $$$TRACE(line1Str  _ ", " _request.OldAddress1)  
+      $$$TRACE(context.jsonRespArray.GetAt("line2") _ ", " _request.OldAddress2) 
+      $$$TRACE(context.jsonRespArray.GetAt("state") _ ", " _request.OldState) 
+      $$$TRACE(context.jsonRespArray.GetAt( "city") _ ", " _request.OldCity) 
+      $$$TRACE(initiateZip  _ ", " _ reqZip )
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Values in inbound record and Initiate do not match. Skipping this record. " _ request.MMINumber)
+   } 
+  }  
+  else
+  {
+        
+         set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"MMI Record is already in WRONG status. Skipping this record. "_ request.MMINumber)
+  }
+
+  
+         ]]]]><![CDATA[>
+</code>
+<trace name='IhcMrnFromARMExistsInInitiate' value=' " Ihc Mrn exists in ARM message,also in Initiate. Calling Transform and patient service update service"' xpos='470' ypos='1200' >
+<annotation><![CDATA[Ihc Mrn exists in ARM message,also in Initiate. Calling ArmDemogrCffToGenericJson ]]]]><![CDATA[></annotation>
+</trace>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.GenericDemogrCffToGenericJson' source='request' target='response' xpos='470' ypos='1300' >
+<annotation><![CDATA[translates ARM Cff Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='470' ypos='1400' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)             
+    
+    $$$TRACE("Calling Update Patient service mrn#  " _ request.MMINumber) 
+    set operType = "UPDATE"        
+    set status =##class(IHC.ITF.Process.Bpl.GenericDemogrCffToGenericJson).CallPatientServices(operType,context.accessToken,request.MMINumber,jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("CallPatientServices updated MRN # "_mrnRet)
+
+    }else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Skip' xpos='200' ypos='700' >
+<![CDATA[ set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"MMI Record not available. Hence, skipping this record. ")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<code name='Error' xpos='200' ypos='250' >
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>GenericDemogrCffToGenericJsonDefaultData</DefaultData>
+<Data name="GenericDemogrCffToGenericJsonDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"GenericDemogrCffToGenericJson"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
