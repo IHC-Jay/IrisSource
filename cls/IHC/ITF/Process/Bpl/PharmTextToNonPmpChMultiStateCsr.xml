@@ -7,6 +7,10 @@ Use this template to start your BPL</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63568,52877.689417</TimeCreated>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -22,15 +26,20 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-<property name='response' type='IHC.ITF.ITFCOMMON.DataStructure.StreamWithFilePath' instantiate='1' />
+<property name='response' type='Ens.StreamContainer' instantiate='1' />
 <property name='destination' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='NewFilePath' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='1300' >
-<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<sequence xend='200' yend='1200' >
+<scope xpos='200' ypos='250' xend='200' yend='1100' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -67,32 +76,39 @@ BPL Definition</Description>
 
  	  ]]]]><![CDATA[>
 </code>
-<code name='Store the message' xpos='200' ypos='650' >
+<code name='Store the message, set destination' xpos='200' ypos='650' >
 <annotation><![CDATA[Save in DB]]]]><![CDATA[></annotation>
 <![CDATA[ //Create a global stream to persist file content
 	set stream=##class(%Stream.GlobalCharacter).%New()
 
-	Set status = stream.CopyFromAndSave(request.Stream)
+	Set status= stream.CopyFromAndSave(request.Stream)
+	
+	if $$$ISERR(status)
+	{
+	   $$$TRACE("Skip message, stream copy failed")
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skip the record.")
+	   Quit
+	}
 
 	$$$TRACE(request.OriginalFilename_" (ID "_request.%Id()_") has been successfully saved to database. Stream OID is "_stream.%Oid()_"; Stream ID is "_stream.%Id()_".")
-	set context.response=##class(IHC.ITF.ITFCOMMON.DataStructure.StreamWithFilePath).%New(stream)
+	set context.response=##class(Ens.StreamContainer).%New(stream)
 	
-	set context.response.NewFilePath = $PIECE(request.OriginalFilename, "/",*-1)
+	set context.NewFilePath = $PIECE(request.OriginalFilename, "/",*-1)
 	
-	set context.response.OriginalFilename = $PIECE(request.OriginalFilename, "/",*)
-	$$$TRACE("Destination: " _ context.response.NewFilePath _ ", " _ context.response.OriginalFilename )
+	set context.response.OriginalFilename = request.OriginalFilename
+	set context.destination = "Out-MultiStateCsr-Text-Sftp-STATEOF" _ context.NewFilePath   _ "CSR"
+	$$$TRACE("Destination: " _ context.destination _ ", " _ context.response.OriginalFilename )
 	
-]]]]><![CDATA[>
+	]]]]><![CDATA[>
 </code>
-<assign name="set destination" property="context.destination" value="&quot;Out-MultiStateCsr-Text-Sftp-STATEOF&quot; _ context.response.NewFilePath   _ &quot;CSR&quot;" action="set" xpos='200' ypos='750' />
-<trace value='"Destination: " _ context.destination' xpos='200' ypos='850' />
-<call name='Out-MultiStateCsr-Text-Sftp-STATEOFCACSR' target='@context.destination' async='1' xpos='200' ypos='950' >
-<request type='IHC.ITF.ITFCOMMON.DataStructure.StreamWithFilePath' >
+<call name='call context.destination' target='@context.destination' async='1' xpos='200' ypos='750' >
+<request type='Ens.StreamContainer' >
 <assign property="callrequest" value="context.response" action="set" />
 </request>
 </call>
+<trace value='"Return from BPL"' xpos='200' ypos='850' />
 <faulthandlers>
-<catchall xpos='200' ypos='1050' xend='200' yend='350' >
+<catchall xpos='200' ypos='950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -105,9 +121,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
