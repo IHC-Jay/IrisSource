@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.FilePassthroughOperationWithLineFeed">
+<Super>EnsLib.File.PassthroughOperation</Super>
+<TimeCreated>65358,56172.374204</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Filename">
+<Description><![CDATA[
+Name of file to output the document(s) to. May include timestamp specifiers. The %f specifier if present will be 
+replaced with the name of the document's original source filename (stripped of characters illegal in target filenames).<p>
+See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping options.]]></Description>
+<Type>%String</Type>
+<InitialExpression>"%f_%Q%!+(_a)"</InitialExpression>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+<Parameter name="MINLEN" value="1"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>Filename:Basic</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:%Persistent</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Quit:'$IsObject(pRequest.Stream) $$$ERROR($$$EnsErrGeneral,"No Stream contained in StreamContainer Request")
+	If "@"'=$E(..Adapter.FilePath) {
+		Set tFilename=..Adapter.CreateFilename(##class(%File).GetFilename(pRequest.OriginalFilename),..Filename)
+		
+		Set tSC=..Adapter.PutStream(tFilename, pRequest.Stream)
+		do ..Adapter.PutLine(tFilename,"")
+	
+		
+		Do pRequest.%Save() ; re-save in case PutStream() optimization changed the Stream filename
+	
+	
+		
+	} Else {
+		#; Forward to agent
+		If pRequest.Stream.%Extends("%Library.FileStreamAdaptor") {
+			#; copy to a global stream in a new container
+			Set tStream=##class(%FileBinaryStream).%New()
+			Merge tStream.Attributes=pRequest.Stream.Attributes
+			Set tSC=tStream.CopyFrom(pRequest.Stream)
+			// Adding Line feed to the end
+			do tStream.WriteLine("nana")
+			Set tSC=tStream.SaveStream()  Quit:$$$ISERR(tSC) tSC
+			Set tMsg=##class(Ens.StreamContainer).%New(tStream)
+		} Else {
+			Set tMsg=pRequest
+		}
+		Set tFilename=##class(Ens.Util.File).CreateTimestamp(##class(%File).GetFilename(pRequest.OriginalFilename),..Filename)
+		Set tAgent=$P(..Adapter.FilePath,":"), tTimeout=+$P(tAgent,"(",2), tAgent=$P(tAgent,"(")  Set:'tTimeout tTimeout=-1
+		Set tSC=..EnQueueToService(tAgent,tMsg,..%RequestHeader,,tFilename) ; !!! Sync(...,,tTimeout,..%RequestHeader.Description)
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
