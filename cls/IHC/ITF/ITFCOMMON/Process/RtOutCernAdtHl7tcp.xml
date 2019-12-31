@@ -6,20 +6,29 @@ Router to bridge records from UAT to QA</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>65374,52155.634585</TimeCreated>
 
-<Property name="BridgeToQATargetConfigName">
+<Property name="DFDTargetConfigName">
 <Description>
-Bridge To QA: The target name to bridge to QA from UAT</Description>
+Bridge To DFD: The target name to bridge to QA from UAT</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
 <Property name="LastNamesMatch">
+<Description>
+LastNames Match</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="20"/>
+</Property>
+
+<Property name="LastNamesExtRemove">
+<Description>
+Last Names Extensions Remove</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="20"/>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>LastNamesMatch:Additional,BridgeToQATargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>LastNamesMatch:Additional,LastNamesExtRemove:Additional,DFDTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -47,7 +56,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 
-<property name='bridgeToQATargetConfigName' type='%String' instantiate='0'  initialexpression='"QA_BRIDGE_Out-Cern-Adt-Hl7tcp"'>
+<property name='lastNamesExtRemove' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+
+
+<property name='dfdTargetConfigName' type='%String' instantiate='0'  initialexpression='"QA_BRIDGE_Out-Cern-Adt-Hl7tcp"'>
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -55,7 +71,7 @@ BPL Definition</Description>
 
 
 
-<property name='bridgeToQA' type='%String' instantiate='0' >
+<property name='bridgeToDFD' type='%String' instantiate='0' initialexpression="0">
 <parameters>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
@@ -104,11 +120,11 @@ BPL Definition</Description>
 
 <code name='initializeBridgeToQATargetConfigName' xpos='200' ypos='750' >
 <![CDATA[ 
- set context.bridgeToQATargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","BridgeToQATargetConfigName",.pstatus)
- if ($$$ISOK(pstatus) &&(context.bridgeToQATargetConfigName '="")){
- 	$$$TRACE("BridgeToQATargetConfigName: " _ context.bridgeToQATargetConfigName)
+ set context.dfdTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DFDTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.dfdTargetConfigName '="")){
+ 	$$$TRACE("dfdTargetConfigName " _ context.dfdTargetConfigName)
  }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No BridgeToQATargetConfigName found.")   	
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No dfdTargetConfigName found.")   	
  } 
   ]]]]><![CDATA[>
 </code>
@@ -138,11 +154,12 @@ BPL Definition</Description>
  $$$TRACE("lastNameinPID5.1: " _ pid5LastName)  
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"LastNamesMatch",.LastNamesMatch) 
  if ($$$ISOK(pstatus)&&(LastNamesMatch '="")){    	
-    	$$$TRACE("LastNames that ends with ["_LastNamesMatch_"] will be bridged to QA.")
-    	if ($LISTFROMSTRING(LastNamesMatch,",")[pid5LastName) {	     
-	     set context.bridgeToQA = "1"
+    	$$$TRACE("LastNames that has ["_LastNamesMatch_"] will be sent to DFD in QA Ensmeble environment.")
+    	if ($LISTFROMSTRING(LastNamesMatch,",")[ pid5LastName) {	     
+	     set context.bridgeToDFD = "1"
         }else{
-	        set context.bridgeToQA = "0"
+	        set qstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"lastNamesExtRemove",.lastNamesExtRemove) 
+	        set context.bridgeToDFD = "0"
 	        set lenLastName = $L(pid5LastName)
 	        if ($E(pid5LastName,lenLastName-2,lenLastName)="_D"){
 		        set lastName = $E(pid5LastName,1,lenLastName-2)
@@ -151,13 +168,13 @@ BPL Definition</Description>
 		    Do context.updatedPayload.SetValueAt(lastName, "PID:5(1).1.1") 
 		}
  	 } 
- $$$TRACE("bridgeToQA--> " _ bridgeToQA) 
+ $$$TRACE("bridgeToDFD--> " _ bridgeToDFD) 
  ]]]]><![CDATA[>
 </code>
 
 
 <switch name='BridgeToQA' xpos='200' ypos='2250' xend='200' yend='2750' >
-<case condition='context.bridgeToQA = "0"' name='DoNotBridge' >
+<case condition='context.bridgeToDFD = "0"' name='NonDFD' >
 <foreach name='Send To Each Live Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='2550' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -166,8 +183,8 @@ BPL Definition</Description>
 </call>
 </foreach>
 </case>
-<case condition='context.bridgeToQA = "1"' name='Bridge' >
-<call name='CallTargetConfigNames' target='@context.bridgeToQATargetConfigName' async='1' xpos='200' ypos='250' >
+<case condition='context.bridgeToDFD = "1"' name='DFD' >
+<call name='CallTargetConfigNames' target='@context.dfdTargetConfigName' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
 </request>
@@ -199,10 +216,13 @@ BPL Definition</Description>
 <Data name="RtOutCernAdtHl7tcpDefaultData">
 <Subscript>"RtOutCernAdtHl7tcp"</Subscript>
 <Value name="1">
-<Value>LastNamesMatch</Value>
+<Value>DFDTargetConfigName</Value>
 </Value>
 <Value name="2">
-<Value>BridgeToQATargetConfigName</Value>
+<Value>LastNamesMatch</Value>
+</Value>
+<Value name="3">
+<Value>LastNamesExtRemove</Value>
 </Value>
 </Data>
 </Storage>
