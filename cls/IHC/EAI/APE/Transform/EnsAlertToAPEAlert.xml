@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.APE.Transform.EnsAlertToAPEAlert">
+<Super>Ens.DataTransform</Super>
+<TimeCreated>64573,37891.564326</TimeCreated>
+
+<Method name="Transform">
+<Description>
+Transform from Ens AlertRequest to an JSON APE message</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pSource:Ens.AlertRequest,&pTarget:EnsLib.HTTP.GenericMessage]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tResultSet As %SQL.StatementResult
+	#Dim tAPEInfo As IHC.ITF.ITFCOMMON.ApeInformation
+	
+	Set tStatus = $$$OK
+	Try {
+		Set pTarget = ##class(EnsLib.HTTP.GenericMessage).%New()
+		
+		#; Create the APE Info object
+		Set tStatus = ..CreateAPEInfo(pSource,.tAPEInfo)
+		$$$ThrowOnError(tStatus)
+		
+		Set tStatus = ..GetInputData(pSource,.tAPEInfo)
+		$$$ThrowOnError(tStatus)
+		
+  		Set tStatus = ..CreateJSONStream(tAPEInfo,.tJSONStream)
+  		$$$ThrowOnError(tStatus)
+  		
+  		Set tStatus = pTarget.HTTPHeaders.SetAt("application/json","content-type")
+  		$$$ThrowOnError(tStatus)
+  
+    	Set tStatus = pTarget.HTTPHeaders.SetAt(tJSONStream.Size,"content-length")
+    	$$$ThrowOnError(tStatus)
+    	
+    	Set pTarget.Stream = tJSONStream
+    
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="CreateAPEInfo">
+<Description>
+Get the input data from the message header/body</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pSource:Ens.AlertRequest,*pAPEInfo:IHC.ITF.ITFCOMMON.ApeInformation</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		Set pAPEInfo = ##class(IHC.ITF.ITFCOMMON.ApeInformation).%New()
+   		Set pAPEInfo.hostname = $SYSTEM.INetInfo.LocalHostName()
+   		//Set pAPEInfo.applicationname = "Ensemble"	// Not included yet in APE info obj
+   		Set pAPEInfo.groupname = $NAMESPACE
+		Set pAPEInfo.comment = pSource.AlertDestination
+		Set pAPEInfo.messagedata = pSource.AlertText
+		Set pAPEInfo.msgtimestamp = pSource.AlertTime
+		//":"2014-04-25 16:17:46.774"
+		Set pAPEInfo.msgtimestampformat = "yyyy-mm-dd hh24:mi:ss.ms"
+		Set pAPEInfo.processname = pSource.SourceConfigName
+		Set pAPEInfo.sessionId = pSource.SessionId
+		
+		// Determine error type
+		Set tErrorType = ..GetErrorType(pSource.AlertText,.tStatus)
+		$$$ThrowOnError(tStatus)
+		
+		$$$TRACE(pSource.AlertText)
+		Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(pSource.SourceConfigName)
+		If ' $IsObject(tItem)
+		{
+			$$$LOGERROR("Can't open object: " _pSource.SourceConfigName) 	
+		}
+		else
+		{
+				
+			// find sub error id
+			If (tErrorType = "ITFCOMMON") {
+				Set itfErr = "ITFCOMMON:"
+	   			Set ind = $FIND(pSource.AlertText,itfErr)
+				Set ind2 = $FIND(pSource.AlertText,":",ind)
+				Set pAPEInfo.issuecode = $EXTRACT(pSource.AlertText,ind-$L(itfErr),ind2-2)
+				Set emailMsg = "SendEmailSuccess|SendEmailError"
+				Set ind = $LOCATE(pSource.AlertText,emailMsg)
+				If (ind > 0) {
+					$$$TRACE("Send email message")
+					Set emailSub = "emailSubject:"
+					Set emailBody = "emailBody:"
+					Set ind2 = $FIND(pSource.AlertText,emailSub)
+					Set ind3 = $FIND(pSource.AlertText,emailBody)
+					If (ind3 > ind2) {
+						Set pAPEInfo.emailSubject = $EXTRACT(pSource.AlertText,ind2,ind3-($L(emailBody)+1) )
+						Set pAPEInfo.emailBody = $EXTRACT(pSource.AlertText,ind3,*) 
+					} Else {
+						Set pAPEInfo.emailSubject = $EXTRACT(pSource.AlertText,ind2,*)
+					}
+					If (ind2 > 1) {
+						Set pAPEInfo.messagedata = $EXTRACT(pSource.AlertText,1,ind2-($L(emailSub)+1))
+					}
+				}
+				else
+				{
+					Set tStatus = ##class(Ens.Director).GetHostSettings(pSource.SourceConfigName,.tHostSettings)
+					If ($DATA(tHostSettings) = 10) {
+						set replStr = tHostSettings( "ReplyCodeActions")
+						$$$TRACE(  pSource.SourceConfigName _ " - ReplyCodeActions === " _ replStr)
+					}
+					$$$TRACE("Process issuecode: " _ pAPEInfo.issuecode)
+					SET delim=","
+					SET countdown=$LENGTH(replStr,delim)
+					SET countup=1
+					FOR reps=countdown:-1:1 {
+						      SET extract=$PIECE(replStr,delim,countup)
+						      
+						      set errText = $PIECE(extract, "=", 1)
+						      set pAPEInfo.actioncode = $PIECE(extract, "=", 2)
+						      $$$TRACE(countup_ " " _ errText)
+						      if ((errText [ "*" ) || (errText [ "#"))
+						      {
+							    // search regular expression
+						      	set regInd = $LOCATE(alertTxt, errText)
+						      	if (regInd > 0) 
+						      	{
+						      		$$$TRACE( "Set generic error: " _ errText)
+						      		set pAPEInfo.issuecode = $REPLACE(errText, " ", "_")
+						      		QUIT
+						      	}
+						      	Set ind = $FIND(errText,pAPEInfo.issuecode)
+						      	$$$TRACE(" ::: " _ regInd _ ", " _ ind)
+						      	if (ind > 0)
+						      	{
+						      		$$$TRACE( "Set ITFCOMMON error: " _ pAPEInfo.issuecode)
+						      		QUIT
+						      	}
+						      }
+						      SET countup=countup+1
+					}
+			}
+				
+			} ElseIf (tErrorType = "EAI") {
+				// Parse
+				Set tErrorPrefix = "EAI:"
+				Set pAPEInfo.issuecode = $PIECE(pSource.AlertText," ",1)
+			} Else {
+				// Intersystem error
+				Set intSysErr = "ERROR #"
+				Set ind = $FIND(pSource.AlertText, intSysErr )
+				If (ind > 0) {
+					Set ind2 = $FIND(pSource.AlertText,":",ind)
+					Set pAPEInfo.issuecode = $EXTRACT(pSource.AlertText,ind-$L(intSysErr),ind2-2)
+				} Else {
+					Set intSysErr = "ERROR"
+					Set ind = $FIND(pSource.AlertText,intSysErr)
+					If (ind > 0) {
+						Set ind2 = $FIND(pSource.AlertText,":")
+						If (ind2 > 0) {
+							Set pAPEInfo.issuecode = $EXTRACT(pSource.AlertText,ind-$LENGTH(intSysErr),ind2-2)
+							Set pAPEInfo.issuecode = $REPLACE(pAPEInfo.issuecode,$CHAR(92)_"u003c","<")
+							Set pAPEInfo.issuecode = $REPLACE(pAPEInfo.issuecode, $CHAR(92)_"u003e",">")
+						} Else {
+							Set pAPEInfo.issuecode = "Unknown"
+						}
+					} Else {
+						$$$TRACE("Search error from Global: ITFCOMMON|IHC.ITF.AlertErrorCodes")
+						Set pAPEInfo.issuecode = "Unknown"
+						Set issFound  = 0
+						If ($DATA(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes) = 0) { 
+							Set ^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes = $LISTBUILD("InactivityTimeoutAlert","QueueCountAlert","QueueWaitAlert")
+						}
+						For i=1:1:$LISTLENGTH(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes) {
+							Set value = $LIST(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes,i)
+
+							Set issFound = $F(pSource.AlertText, value)
+							If (issFound  > 0) {
+								Set pAPEInfo.issuecode = value
+							}   
+						}
+						If (issFound <= 0) {
+							$$$LOGERROR("Issue NOT FOUND in Global IHC.ITF.AlertErrorCodes")
+						}
+					}
+				}
+				
+			}
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GetErrorType">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pAlertText:%String,*pStatus:%Status=$$$OK</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	Set tErrorType = "ISC"
+	Try {
+		Set:($FIND(pAlertText,"ITFCOMMON:")) tErrorType = "ITFCOMMON"
+		Set:($FIND(pAlertText,"EAI")) tErrorType = "EAI"
+	} Catch eException {
+		Set pStatus = eException.AsStatus()
+	}
+	Quit tErrorType
+]]></Implementation>
+</Method>
+
+<Method name="GetInputData">
+<Description>
+Get the input data from the message header/body</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pSource:%RegisteredObject,&pAPEInfo:IHC.ITF.ITFCOMMON.ApeInformation]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		#; Query for original message body
+		Set tQuery = 	"SELECT MessageBodyId,MessageBodyClassName " _
+						"FROM Ens.MessageHeader " _
+                		"WHERE Type = ? AND TargetConfigName = ? AND SessionId = ?"
+		Set tStatement = ##class(%SQL.Statement).%New()
+  		Set tStatus = tStatement.%Prepare(tQuery)
+  		$$$ThrowOnError(tStatus)
+  		
+  		Set tResultSet = tStatement.%Execute(1,pSource.SourceConfigName,pSource.SessionId)
+  		
+  		If (tResultSet.%SQLCODE = 0) {
+	  		While (tResultSet.%Next(.tStatus)) {
+		  		$$$ThrowOnError(tStatus)
+		  		
+		  		Set tMessageBodyId = tResultSet.%GetData(1)
+		  		Set tMessageBodyClassName = tResultSet.%GetData(2)
+		  		//$$$LOGINFO( "Data: " _ tMessageBodyId _ ", type: " _ tMessageBodyClassName)
+		  		
+		  		If (tMessageBodyClassName = "EnsLib.HL7.Message") {	// @TODO Adjust this to be anything that inherits from HL7 message
+			  		// Extract first 2k chars of HL7 message
+			  		Set tTmpObject = ##class(EnsLib.HL7.Message).%OpenId(tMessageBodyId,,.tStatus)
+			  		$$$ThrowOnError(tStatus)
+	 				Set pAPEInfo.inputData  = $EXTRACT(tTmpObject.OutputToString(),1,2000)
+	     		} ElseIf(tMessageBodyClassName = "Ens.StreamContainer") {
+	     		    // Extract original filename of stream container
+	     		    Set tStreamContainer = ##class(Ens.StreamContainer).%OpenId(tMessageBodyId,,.tStatus)
+	     		    $$$ThrowOnError(tStatus)
+	     			Set pAPEInfo.inputData  = "OriginalFilename: " _ tStreamContainer.OriginalFilename
+	     		} ElseIf (tMessageBodyClassName = "Ens.StringRequest") {
+	     		    // Extract first 2k chars of string request   
+	     		    Set tStringReq = ##class(Ens.StringRequest).%OpenId(tMessageBodyId,,.tStatus)
+	     		    $$$ThrowOnError(tStatus)
+	     			Set pAPEInfo.inputData = $EXTRACT(tStringReq.StringValue, 1, 2000)
+	     		} ElseIf(tMessageBodyClassName = "Ens.StringContainer") {
+	     		    // Extract first 2k chars of string request   
+	     		    Set tStringContainer = ##class(Ens.StringContainer).%OpenId(tMessageBodyId,,.tStatus)
+	     		    $$$ThrowOnError(tStatus)
+	     			Set pAPEInfo.inputData  = $EXTRACT(tStringContainer.StringValue, 1, 2000)
+	     		} Else {
+	     		   Set pAPEInfo.inputData  = "MessageBodyClassName: " _tMessageBodyClassName _ ", MessageBodyId: " _ tMessageBodyId
+	     		}
+	     	    
+	     	    //$$$LOGINFO("Copied Input message: " _ apeInfo.inputData)
+	  		}
+			$$$ThrowOnError(tStatus)
+	  		
+	  		Kill tResultSet, tStatement
+  		} Else {
+	  		Set pAPEInfo.inputData  = "Could not get input record for session: " _ pSource.SessionId _ " for component: " _ pSource.SourceConfigName	
+  		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="CreateJSONStream">
+<Description>
+Create the APE REST message data stream</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&pAPEInfo:IHC.ITF.ITFCOMMON.ApeInformation,*pJSONStream:%Stream.GlobalBinary]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK, pJSONStream = ""
+	Try {
+  		// create data stream
+		Set pJSONStream = ##class(%Stream.GlobalBinary).%New()
+		
+  		Set tStatus = ##class(%ZEN.Auxiliary.jsonProvider).%WriteJSONStreamFromObject(.pJSONStream,pAPEInfo)
+  		$$$ThrowOnError(tStatus)
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
