@@ -28,6 +28,7 @@
     #dim doc As %XML.Document
     set doc = reader.Document
     set ^||arrList(1) = 1
+    set ^||eleArrList(1) = 1
     #dim node As %XML.Node
     set node = doc.GetDocumentElement()
 	$$$TRACE( "First NODE: " _ node.NodeData)
@@ -36,7 +37,8 @@
 		set listArr = $LISTBUILD(NULL)
 	}
 	 set dynObject1 = ..ParseAllNodes("", node, 1, listArr)
- kill ^||arrList	 
+ kill ^||arrList
+ kill ^||eleArrList	 
  $$$TRACE( dynObject1.%ToJSON())
  return dynObject1.%ToJSON()
 ]]></Implementation>
@@ -53,6 +55,7 @@
 	set prevNode = ""
 	set dcObj = ""
 	set arrInd = 1
+	set eleArrInd = 1
 	DO
 	 {
 		 set stat = $$$OK
@@ -104,7 +107,7 @@
 			    	// $$$TRACE( "Call ParseChildNode" _ node
 			    	
 		    		set dcObj = ..ParseChildNode(parentNode, node, first, listArr )
-		    		$$$TRACE( "   =From ParseChildNode= Node: " _ node.NodeData _ ", " _ dcObj)
+		    		// $$$TRACE( "   =From ParseChildNode= Node: " _ node.NodeData _ ", " _ dcObj)
 				}
 				else
 				{
@@ -116,10 +119,10 @@
 		    {
 			    set dcObj = ""
 		    }
-		    $$$TRACE( prevNode _ " = " _ node.NodeData)
+		    $$$TRACE( "Check in the inbound List = " _ node.NodeData)
 		    if ($LISTFIND(listArr, node.NodeData) >= 1)
 		    {
-			    			    // Calling function sent names of nodes that should be created as ARRAY
+			    // Calling function sent names of nodes that should be created as ARRAY
 			    $$$TRACE( "  === CREATE ARRAY: " _ node.NodeData _ " Found in List, Index: " _ $LISTFIND(listArr, node.NodeData))
 			    $$$TRACE( $Query(^||arrList("")))
 
@@ -135,35 +138,98 @@
 			    }
 			    set arrInd = arrInd + 1
 			    
-			    // --- Add array ---
+			    // --- Add Duplicate array ---
 			    set key = $Query(^||arrList(""))
-		   		set newDynArr = ##class(%DynamicArray).%New()
-		   		While (key '= "") {
-  				   // Write out contents
-     				$$$TRACE( "New array #" _ key _ ", " _ @key)
-     				if ((key [ parentNode) && (key [ node.NodeData))
-     				{
-	     				set obj = @key
-	     				
-	     				try
+			    if (key '= "") {
+			   		set newDynArr = ##class(%DynamicArray).%New()
+			   		While (key '= "") {
+				   		set delInd = 1
+	  				   // Write out contents
+	     				$$$TRACE( "arrList array #" _ key _ ", " _ @key)
+	     				if ((key [ parentNode) && (key [ node.NodeData))
 	     				{
-		     				$$$TRACE( "Try to add object: " _ obj)
-	     					set multiObj = {}.%FromJSON(obj)
-	     				
-	     					Do newDynArr.%Push(multiObj)
-	     				} catch exp
-	     				{
-		     				$$$TRACE("Add String " _ obj)
-		     				Do newDynArr.%Push(obj)
+		     				set obj = @key
+		     				SET delArr(delInd) = key
+		     				set delInd = delInd + 1
+		     				try
+		     				{
+			     				$$$TRACE( "Try to add object: " _ obj)
+		     					set multiObj = {}.%FromJSON(obj)
+		     				
+		     					Do newDynArr.%Push(multiObj)
+		     				} catch exp
+		     				{
+			     				$$$TRACE("Add String " _ obj)
+			     				Do newDynArr.%Push(obj)
+		     				}
 	     				}
-     				}
 
-     				// Find next node
-     				Set key = $Query(@key)
- 				}
-		   		
-		   		Do daObj.%Set(node.NodeData, newDynArr)
+	     				// Find next node
+	     				Set key = $Query(@key)
+	 				}
+			   		
+			   		Do daObj.%Set(node.NodeData, newDynArr)
+			   		
+			   		SET key=$ORDER(delArr(""))
+				    WHILE (key'="") {
+				      kill ^||arrList(delArr(key))
+				      $$$TRACE("Delete key: " _  delArr(key))
+				      SET key = $ORDER(delArr(key))
+				   }
+			    }
+		    		    		   		
+		   		// -- Check Element array
+		   		set key = $Query(^||eleArrList(""))
+		   		if (key '= "") {
+			   		set newDynArr = ##class(%DynamicArray).%New()
+			   		
+			   		While (key '= "") {
+	  				   // Write out contents
+	     				$$$TRACE(  "eleArrList - node.NodeData: " _ node.NodeData _ ", array #" _ key _ ", " _ @key)
+	     				if ((key [ "element") && (key [ node.NodeData))
+	     				{
+		     				set obj = @key
+		     				
+		     				try
+		     				{
+			     				$$$TRACE(  "Try to add object: " _ obj)
+		     					set multiObj = {}.%FromJSON(obj)
+		     				
+		     					Do newDynArr.%Push(multiObj)
+		     				} catch exp
+		     				{
+			     				$$$TRACE( "Add String " _ obj)
+			     				Do newDynArr.%Push(obj)
+		     				}
+	     				}
+
+	     				// Find next node
+	     				Set key = $Query(@key)
+	 				}
+			   		
+			   		Do daObj.%Set(node.NodeData, newDynArr)
+			   		
+				      kill ^||eleArrList
+				      
+		   		}
 		    }
+		    elseif ( ($LISTFIND(listArr, parentNode) >= 1)  &&(node.NodeData = "element"))
+			{
+		         $$$TRACE( "  === CREATE ARRAY for parent: " _ parentNode _ ", element name: " _ node.NodeData)
+		      
+			    if ($$$IsdefObject(dcObj))
+			    {
+			    	$$$TRACE(  " eleArrList: " _ parentNode _" arrList: " _ eleArrInd _ ", " _ dcObj.%ToJSON())
+			    	set ^||eleArrList(parentNode, node.NodeData, eleArrInd) = dcObj.%ToJSON()
+			    }
+			    else
+			    {
+				    $$$TRACE(  " eleArrList: " _ parentNode _ " arrList: " _ eleArrInd _ ", " _ dcObj)
+			    	set ^||eleArrList(parentNode, node.NodeData, eleArrInd) = dcObj
+			    }
+			    set eleArrInd = eleArrInd + 1
+		    }
+
 		    else
 		    {
 			    $$$TRACE( "  -- SET New node, not in LIST " _ node.NodeData )
