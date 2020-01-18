@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.File.Operation.FileDescrypt">
+<Description>
+Accepts objects of type Ens.StreamContainer and saves the encapsulated stream data to a file using the File OutboundAdapter.</Description>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65395,59922.793024</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Filename">
+<Description><![CDATA[
+Name of file to output the document(s) to. May include timestamp specifiers. The %f specifier if present will be 
+replaced with the name of the document's original source filename (stripped of characters illegal in target filenames).<p>
+See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping options.]]></Description>
+<Type>%String</Type>
+<InitialExpression>"%f_%Q%!+(_a)"</InitialExpression>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+<Parameter name="MINLEN" value="1"/>
+</Property>
+
+<Property name="DecryptCommand">
+<Description>
+Decrypt %1 %2  [Decrypt the file %2 into  %1]</Description>
+<Type>%String</Type>
+<InitialExpression>"gpg --output %1 --decrypt %2"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="STDOUT">
+<Description>
+Property WorkingDirectory As %String(MAXLEN = 200) [ InitialExpression = {##class(%File).NormalizeDirectory($zu(12)_"Temp/Encrypt")} ];
+/STDOUT=filename: I/O redirection standard data output file of the command on the host operating system</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="STDERR">
+<Description>
+/STDERR=filename: I/O redirection standard error output file of the command on the host operating system</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>Filename:Basic, DecryptCommand:Basic,STDOUT:Basic, STDERR:Basic</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:%Persistent</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tFilename=..Filename
+	Quit:'$IsObject(pRequest.Stream) $$$ERROR($$$EnsErrGeneral,"No Stream contained in StreamContainer Request")
+	If "@"'=$E(..Adapter.FilePath) {
+		Set tFilename=..Adapter.CreateFilename(##class(%File).GetFilename(pRequest.OriginalFilename),tFilename)
+		Set tSC=..Adapter.PutStream(tFilename, pRequest.Stream)
+		Do pRequest.%Save() ; re-save in case PutStream() optimization changed the Stream filename
+	} Else {
+		#; Forward to agent
+		If pRequest.Stream.%Extends("%Library.FileStreamAdaptor") {
+			#; copy to a global stream in a new container
+			Set tStream=##class(%FileBinaryStream).%New()
+			Merge tStream.Attributes=pRequest.Stream.Attributes
+			Set tSC=tStream.CopyFrom(pRequest.Stream)
+			Set tSC=tStream.SaveStream()  Quit:$$$ISERR(tSC) tSC
+			Set tMsg=##class(Ens.StreamContainer).%New(tStream)
+		} Else {
+			Set tMsg=pRequest
+		}
+		Set tFilename=##class(Ens.Util.File).CreateTimestamp(##class(%File).GetFilename(pRequest.OriginalFilename),tFilename)
+		Set tAgent=$P(..Adapter.FilePath,":"), tTimeout=+$P(tAgent,"(",2), tAgent=$P(tAgent,"(")  Set:'tTimeout tTimeout=-1
+		Set tSC=..EnQueueToService(tAgent,tMsg,..%RequestHeader,,tFilename) ; !!! Sync(...,,tTimeout,..%RequestHeader.Description)
+	}
+	if $$$ISOK(tSC) {
+	#; Decrypt the file to the directory
+		set fullFileNm=..Adapter.FilePath_"/" _tFilename
+		Set tCMD = ##class(Ens.Util.FunctionSet).replace(..DecryptCommand,"%2",fullFileNm)
+		set tCMD=##class(Ens.Util.FunctionSet).replace(tCMD,"%1",fullFileNm_".decrypted")	
+		$$$TRACE("CMD: " _ tCMD)
+		$$$TRACE("Encrypted file: " _ fullFileNm)
+		Set tStatus= ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(tCMD, ..STDOUT, ..STDERR) 
+
+
+			If ##class(%File).Exists(fullFileNm) {
+				$$$TRACE("Delete File: " _ fullFileNm )
+				Set tSC = ##class(%File).Delete(fullFileNm)
+			}
+			else {
+			    Set tSC=$$$ERROR($$$GeneralError,"Unable to Decrypt: "_tCMD) 
+			}
+	 }
+	 else {
+        Set tSC=$$$ERROR($$$GeneralError,"Unable to Save Encrypted file to the file path. "_tCMD) 
+	 }
+		
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="EnQueueToService">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTargetQueueName:%String,pRequest:%RegisteredObject,pOriginalHeader:Ens.MessageHeader,*pNewHeader:Ens.MessageHeader,pDescription:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC = ##class(Ens.MessageHeader).NewRequestMessage(.pNewHeader,pRequest,pOriginalHeader.SessionId) Quit:$$$ISERR(tSC) tSC
+	Set pNewHeader.CorrespondingMessageId = pOriginalHeader.%Id()
+	Set pNewHeader.SourceConfigName = pOriginalHeader.TargetConfigName
+	Set pNewHeader.TargetConfigName = $P(pTargetQueueName,":")
+	Set pNewHeader.SourceBusinessType = $$$eHostTypeOperation
+	Set pNewHeader.TargetBusinessType = $$$eHostTypeService
+	Set pNewHeader.TargetQueueName = pTargetQueueName
+	Set pNewHeader.Description = pDescription
+	Quit ##class(Ens.Queue).EnQueue(pNewHeader)
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+Return an array of connections for drawing lines on the config diagram</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("FilePath",.tValue) {
+		If "@"=$E(tValue) {
+			Set tAgent=$E($P(tValue,":"),2,*)
+			#; if agent package is installed, call it to find the appropriate agent Service connection.
+			try {
+				Set tSC=$classmethod("EnsLib.Agent.Interface","GetAgentService",tAgent,pItem.Name,.tAgentService)
+				Set:""'=tAgentService&&$$$ISOK(tSC) pArray(tAgentService)=""
+			} catch {  }
+		}
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
