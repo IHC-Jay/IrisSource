@@ -54,7 +54,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-
 <property name='HddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -85,9 +84,10 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='fileStream' type='Ens.StreamContainer' instantiate='0' />
 </context>
-<sequence xend='200' yend='1500' >
-<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
 <trace name='1. Incoming Message' value=' "1. Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
 <code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[
@@ -115,30 +115,48 @@ BPL Definition</Description>
     $$$TRACE("4.2 TargetListCount: " _ context.targetList.Count())   
  }]]]]><![CDATA[>
 </code>
-<code name='Get HddTargetConfigName' xpos='200' ypos='750' >
-<![CDATA[ 
- set context.HddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("HddTargetConfigName: " _ context.HddTargetConfigName)
- }else{
-	 Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No HddTargetConfigName found") 	 
- } 
-  ]]]]><![CDATA[>
-</code>
+<code name='Get OBX-5' xpos='200' ypos='750' >
+<![CDATA[ set obx5 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(1).OBX:ObservationValue()")
+ $$$TRACE("OBX5 length: " _ $L(obx5))
+ set context.fileStream = ##class(Ens.StreamContainer).%New()
 
-<transform name='12. Transform' class='IHC.ITF.Transform.Dtl.R1ResultsPdfHl7ToCern' source='request' target='response' xpos='200' ypos='950' />
-<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
+ 
+ set pid18 = request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientAccountNumber.ID")				 
+ set obr2 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:PlacerOrderNumber")
+ set obr3 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:FillerOrderNumber.entityidentifier")
+ set obr4 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceID.identifier")
+ set obr7 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:ObservationDateTime.timeofanevent")
+ $$$TRACE("HL7 values: " _ pid18 _ ", " _ obr2 _ ", " _ obr3_ ", " _ obr4_ ", " _ obr7)
+ 
+ set context.fileStream.OriginalFilename = pid18 _"-" _ obr2 _"-" _ obr3 _"-" _ obr4 _"-" _ obr7 _ ".pdf"
+ 
+ if ($L(obx5) > 0)
+ {
+    Set fbStream=##class(%Stream.FileBinary).%New()
+    set pdfTxt = $PIECE(obx5, "^", 5)
+    Do fbStream.Write(pdfTxt)
+    
+    Set context.fileStream.Stream = fbStream
+    $$$TRACE("Set stream")
+    set context.fileStream.OriginalFilename = pid18 _ "-" _ obr3 _"-" _ obr4 _"-" _ obr7 _ ".pdf"
+    $$$TRACE("Stream save: file " _ context.fileStream.OriginalFilename)
+      Do context.fileStream.%Save()
+      
+ }
+ ]]]]><![CDATA[>
+</code>
+<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='850' xend='200' yend='350' >
 <call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
-<assign property="callrequest" value="response" action="set" />
+<assign property="callrequest" value="context.fileStream" action="set" />
 </request>
 </call>
 </foreach>
-<code name='14.  reset error count' xpos='200' ypos='1150' >
+<code name='14.  reset error count' xpos='200' ypos='950' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='15. Call ProcessError' xpos='200' ypos='1250' xend='200' yend='350' >
+<catchall name='15. Call ProcessError' xpos='200' ypos='1050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
