@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToInformaticaMdmJsonPatient">
+<Description>
+Business process for iCentra Adt LegacyPlus hl7 to Patient Informatica MDM</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65391,72284.164834</TimeCreated>
+
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="PatientMdmServiceTargetConfigName">
+<Description>
+iCentra Adt LegacyPlus to patient MDM</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-InformaticaMdm-Json-Wsrc-PATIENT"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,PatientMdmServiceTargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2000' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='patientMdmServiceResp' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='patientMdmServiceRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+
+<property name='personId' type='%String' instantiate='0' initialexpression=""/>
+
+<property name='patientMdmServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddDomainAddressTypeFilterIn' type='%String' initialexpression='"529784622"' instantiate='0' >
+ <parameters>
+<parameter name='MAXLEN'  value='20' />
+</parameters>
+</property>
+
+<property name='hddDomainAssignAuthPID44FilterIn' type='%String' initialexpression='"529784626"' instantiate='0' >
+ <parameters>
+<parameter name='MAXLEN'  value='20' />
+</parameters>
+</property>
+
+</context>
+<sequence xend='200' yend='1450' >
+<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found in the Ensemble settings.")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr) 
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ) {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No TargetConfigNames  found in the Settings.")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+ $$$TRACE("TargetConfigNames: " _context.targetList)    
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1100' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+
+<code name='initializeHddTarget' xpos='470' ypos='1100' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='initializePatientMdmServiceTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set context.patientMdmServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","PatientMdmServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PatientMdmServiceTargetConfigName--> " _ context.patientMdmServiceTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No PatientMdmServiceTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='SetPersonIdFromOBX' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set k1="",tSC=1
+ For { 
+     Set k1=request.GetNextIndex("OBX()",k1,.tSCTrans)  Quit:k1="" 
+     Set obx5Value = request.GetValueAt("OBX("_k1_"):5(1)")
+     set obx31= request.GetValueAt("OBX("_k1_"):3.1")     
+     if (obx31 = "PERSON ID") {
+        set context.personId = obx5Value 
+     }
+  }
+  $$$TRACE(" context.personId --> "_context.personId )
+  if (context.personId=""){
+     	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " PERSON ID ["_ context.personId_"] is blank out of iCentra Adt. Filtering out the record..")                
+     }
+  ]]]]><![CDATA[>
+</code>
+
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInformaticaMdmJsonPatient' source='request' target='response' xpos='470' ypos='1500' >
+  <annotation><![CDATA[translates iCentra Adt LegacyPlus Hl7 to Patient MDM request]]]]><![CDATA[></annotation>
+</transform>
+<code name='ConvertVeratoXmlToJSON and Call Patient MDM' xpos='470' ypos='1600' >
+<![CDATA[  
+   $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: ")
+    if ($L(xmlStr)>2400){
+		  $$$TRACE($E(xmlStr,1,1200))
+		  $$$TRACE($E(xmlStr,1201,2400))
+		  $$$TRACE($E(xmlStr,2401,$L(xmlStr)))
+	}elseif($L(xmlStr)>1200){
+		$$$TRACE($E(xmlStr,1,1200))
+		$$$TRACE($E(xmlStr,1201,$L(xmlStr)))
+	}else{
+	      $$$TRACE(xmlStr)
+	}
+	
+    set myList = $LISTBUILD("item")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)      
+    
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 22, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue) 
+    
+    
+    // Create the target
+	Set httpObj = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonProcessRequest.StringValue)
+	Do tStream.Rewind()
+
+	Do httpObj.HTTPHeaders.SetAt("application/json","content-type")
+	Do httpObj.HTTPHeaders.SetAt("application/json","accept")
+	
+	Do httpObj.HTTPHeaders.SetAt(tStream.Size,"content-length")
+	Set httpObj.Stream = ##class(%Stream.GlobalBinary).%New()
+	Set tStatus = httpObj.Stream.CopyFrom(tStream)
+	if (tStatus'=$$$OK){
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while converting JSON to http.")
+	}
+	Do tStream.Rewind()
+	Set datStr = tStream.Read()
+	$$$TRACE("JSON Request: " )
+	if ($L(datStr)>2400){
+		  $$$TRACE($E(datStr,1,1200))
+		  $$$TRACE($E(datStr,1201,2400))
+		  $$$TRACE($E(datStr,2401,$L(datStr)))
+	}elseif ($L(datStr)>1200){
+		  $$$TRACE($E(datStr,1,1200))
+		  $$$TRACE($E(datStr,1201,$L(datStr)))
+	}else{
+	      $$$TRACE(datStr)
+	}
+			
+    $$$TRACE("Call REST Operation")
+  if (datStr'="") {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync(context.patientMdmServiceTargetConfigName,httpObj,.httpPatientServiceResponse)
+    if ($$$ISOK(status)){
+	    $$$TRACE("RESPONSE from patent MDM :-- "_httpPatientServiceResponse.Stream.Read())
+	    
+	    Set respStream = ##class(%GlobalCharacterStream).%New()
+        Set respStatus = respStream.CopyFrom(httpPatientServiceResponse.Stream)
+        set respText =""
+        While 'respStream.AtEnd {
+          Set respText = respText_respStream.Read()
+        } 
+        $$$TRACE("Patient MDM service response: "_respText)
+        
+	    set statusLine=httpPatientServiceResponse.HTTPHeaders.GetAt("StatusLine")
+        $$$TRACE(" Status Line: --> "_statusLine)	
+        if statusLine [ "200"{
+	        $$$TRACE(" Successful Response from Patient Service MDM ")
+	        Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+	    }else{
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Successful Response from Patient service: ["_respText_"]")
+		     
+		}	
+    }else{
+	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error calling the Patient MDM service.")
+	}
+  }
+    
+	                              
+ ]]]]><![CDATA[>
+</code>
+
+
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' />
+<code name='SkipValidationFailed' xpos='200' ypos='1000' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<trace value='"in catchall faulthandler"'/>
+          <trace value=
+            '"%LastError "_            
+            $System.Status.GetErrorCodes(..%Context.%LastError)_
+            " : "_
+            $System.Status.GetOneStatusText(..%Context.%LastError)_
+             " : "_
+             $System.Status.GetErrorText(..%Context.%LastError)'
+            
+            />
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+
+
+<![CDATA[ 
+    $$$TRACE(" $$$$$$ In ProcessError $$$$$ ")    
+        
+    Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToInformaticaMdmJsonPatientDefaultData</DefaultData>
+<Data name="CernAdtHl7ToInformaticaMdmJsonPatientDefaultData">
+<Subscript>"CernAdtHl7ToInformaticaMdmJsonPatient"</Subscript>
+<Value name="1">
+<Value>PatientMdmServiceTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
