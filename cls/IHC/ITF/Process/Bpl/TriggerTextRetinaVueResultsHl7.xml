@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.TriggerTextRetinaVueResultsHl7">
+<Description>
+BPL process for RetinaVue QBP request</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65322,17498.046014</TimeCreated>
+
+<Property name="RdqRetinaVuePollTargetConfigName">
+<Description>
+RetinaVue RDQ target config name operation component to poll the result</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-RetinaVue-Results-Hl7tcp"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>RdqRetinaVuePollTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.StringRequest' response='Ens.Response' height='2300' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='rdqResponse' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='rdqOkResponse' type='%Boolean' instantiate='0' initialexpression='0'/>
+
+<property name='rdqRetinaVuePollTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+</context>
+<sequence xend='200' yend='1650' >
+<scope xpos='200' ypos='250' xend='200' yend='1550' >
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) {
+	 Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No ReplyCodeActions found")	  	
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ) {
+	 Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No TargetConfigNames found")	  	   
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+   $$$TRACE("TargetConfigNames: " _context.targetList)
+   $$$TRACE("Count: " _ context.targetList.Count())
+ ]]]]><![CDATA[>
+</code>
+
+<code name='initializeRetinaVueTarget' xpos='470' ypos='1200' >
+<![CDATA[ 
+ set context.rdqRetinaVuePollTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RdqRetinaVuePollTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("RDQ RetinaVuePollTargetConfigName: " _ context.rdqRetinaVuePollTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No RdqRetinaVuePollTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.TriggerTextRetinaVueResultsHl7' source='request' target='retinaVueResultRequest' xpos='470' ypos='1000' />
+<code name='Send to RetinaVue to request results message' xpos='740' ypos='2400' >
+<![CDATA[	
+ $$$TRACE("CallingRetinaVue Request Operation.."_context.rdqRetinaVuePollTargetConfigName) 
+  set tStatus = process.SendRequestSync(context.rdqRetinaVuePollTargetConfigName,retinaVueResultRequest,.retinaVueResponse)
+  if (tStatus = $$$OK){
+	  $$$TRACE("RESPONSE: " _ retinaVueResponse.RawContent)   
+	  set context.rdqResponse = retinaVueResponse
+	  set indexMSA = $F(retinaVueResponse.RawContent, "MSA|AA")    	  
+   	  if (indexMSA > 0){
+ 		$$$TRACE("SUCCESS!!!..Ack received from RetinaVue RDQ request "_retinaVueResponse.RawContent) 		
+     	  set context.rdqOkResponse = 1         			
+   	  }else{	   		  
+	     $$$TRACE(" NACK received from RetinaVue RDQ request "_retinaVueResponse.RawContent) 	     
+	     set context.rdqOkResponse = 1		     
+         set hl7=##class(EnsLib.HL7.Message).ImportFromString(retinaVueResponse.RawContent,.sc) $$$ThrowOnError(sc)
+         set hl7.DocType="RetinaVueResultsRDQ:RSP_Q11"         
+   	  }
+   	 
+  }else{
+	   $$$TRACE(" Call to request RetinaVue request failed..") 
+	    set errorMsg = $SYSTEM.Status.GetOneErrorText(tStatus)
+	    set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName," No response from the RetinaVue RDQ result request. ERROR: "_errorMsg)
+  }		
+]]]]><![CDATA[>
+</code>
+<if name='ACKRsponse' condition='context.rdqOkResponse' xpos='200' ypos='850' xend='200' yend='1500' >
+<true>
+  <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1400' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.rdqResponse" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+</if>
+
+<code name='RESETERROR' xpos='470' ypos='1200' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+	]]]]><![CDATA[>
+</code>
+
+<faulthandlers>
+<catchall xpos='200' ypos='1400' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>TriggerTextRetinaVueResultsHl7DefaultData</DefaultData>
+<Data name="TriggerTextRetinaVueResultsHl7DefaultData">
+<Subscript>"TriggerTextRetinaVueResultsHl7"</Subscript>
+<Value name="1">
+<Value>RdqRetinaVuePollTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
