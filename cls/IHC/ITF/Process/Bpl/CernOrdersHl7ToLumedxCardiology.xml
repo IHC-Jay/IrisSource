@@ -6,6 +6,13 @@ Lumedx BPL pulling from Ensemble AGFA business process</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64078,47242.051654</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="AllowedLocations">
 <Type>%String</Type>
 <InitialExpression>"128,154,130,132,144,118,126,146"</InitialExpression>
@@ -13,7 +20,7 @@ Lumedx BPL pulling from Ensemble AGFA business process</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>AllowedLocations:Additional</Default>
+<Default>AllowedLocations:Additional,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -37,6 +44,25 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+
+
+<property name='hddIsMemberDomainNcid' type='%String' initialexpression='528574651' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='15' />
+</parameters></property>
+
+<property name='obr4ncid' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+
+
 </context>
 <sequence xend='200' yend='1850' >
 <scope xpos='200' ypos='250' xend='200' yend='1750' >
@@ -70,6 +96,18 @@ BPL Definition</Description>
  	$$$TRACE("TargetConfigNames: " _configValue)
   }]]]]><![CDATA[>
 </code>
+
+<code name='initializeHddTarget' xpos='200' ypos='550' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = $$$ERROR("Initialization error, No HddTargetConfigName found")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
 <code name='VerifyOrderType' xpos='200' ypos='650' >
 <annotation><![CDATA[Only allowing Cardio Rad Orders]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have Lumedx specific radiology order... ")
@@ -80,8 +118,20 @@ BPL Definition</Description>
  if (getFirstChar="C"){
    $$$TRACE("We have a Cardiology Order!")
  }else{
- $$$TRACE("We don't have a Cardology Order, filtering out and skipping record. Order: "_ orderObrFillerNumber)
- Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Cern-OrdersCardiology-Hl7_Lumedx", "PHI - Order type OBR-3 is not expected. Order value is: ["_orderObrFillerNumber_"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]") 
+     $$$TRACE("We don't have a Cardology Order, Checking for other types  "_ orderObrFillerNumber)
+     
+     set context.obr4ncid = request.GetValueAt("ORCgrp(1).OBRuniongrp.OBRunion.OBR:UniversalServiceID.identifier")  	
+     $$$TRACE("Hdd isMember request OBR-4 " _ context.obr4ncid)
+     if (context.obr4ncid '= "") {
+	     try {
+	       set isObrExisits = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.hddIsMemberDomainNcid, context.obr4ncid, context.hddTargetConfigName, .process)		     
+	     }CATCH exceptionvar{
+		     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Cern-OrdersCardiology-Hl7_Lumedx", " Unknown error while calling the isMember Hdd method. OBR-4.1: ["_context.obr4ncid_"] Domain Ncid: ["_context.hddIsMemberDomainNcid_ "]")
+ 		 } 
+	    if (isObrExisits = "0") {   		   
+   		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError("Cern-OrdersCardiology-Hl7_Lumedx", " Skipping the record.. Member is not valid Nucli or MRI cardio record: OBR-4.1: ["_context.obr4ncid_"] Domain Ncid: ["_context.hddIsMemberDomainNcid_ "]")
+   		}         
+     }
  }
  ]]]]><![CDATA[>
 </code>
@@ -161,6 +211,9 @@ BPL Definition</Description>
 <Subscript>"CernOrdersCardiologyHl7ToLumedx"</Subscript>
 <Value name="1">
 <Value>AllowedLocations</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
