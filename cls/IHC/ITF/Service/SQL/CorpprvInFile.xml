@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Service.SQL.CorpprvInFile">
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.EDI.XML.Service.Standard</Super>
+<System>4</System>
+<TimeCreated>65414,63455.694259</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.InboundAdapter</Default>
+</Parameter>
+
+<Property name="ReplyTargetConfigNames">
+<Description>
+ConfigName(s) of the operations or processes to which reply messages should be forwarded.</Description>
+<Type>%String</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[ReplyTargetConfigNames::selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<FormalSpec>pInput:%Stream.Object,pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	If pInput.%Extends("%FileBinaryStream") {
+		$$$TRACE("CorpprvInFile creating document from XML file "_pInput.Filename)
+		Set tDocIn=##class(EnsLib.EDI.XML.Document).%New(pInput.Filename)
+	} Else {
+		$$$sysTRACE("creating document from XML file stream "_pInput.Filename_" with TranslateTable='"_pInput.TranslateTable_"'")
+		set indx=186
+		set recHd=pInput.Read(indx,.sc)
+		$$$TRACE("Record Head: "_recHd)
+		set fStr=""
+		set fStrCnt=1
+		set hasBC=0
+		For { Set tchar=pInput.Read(1,.sc)  Quit:tchar=""
+           if (($ASCII(tchar) < 7)) {
+              $$$TRACE("Found a special character:"_$ASCII(tchar)_" at "_indx)
+          	  set hasBC=1
+              Quit
+           }
+           else {
+              set indx=indx+1
+              if (fStrCnt<90) {
+	              set fStr=fStr_tchar
+	              set fStrCnt=fStrCnt+1
+              }
+              else {
+	              set fStr=##class(Ens.Util.FunctionSet).SubString(fStr,2)_tchar
+              }
+           }
+        }
+        if (hasBC=1) {
+	       set pid=##class(Ens.Util.FunctionSet).Piece(recHd,"<id>",2)
+	       set pid=##class(Ens.Util.FunctionSet).Piece(pid,"</id>",1)
+	       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName, " Record with provider id: "_pid_", has at least one special character after this text: >>"_fStr_"<<")       
+           Quit %objlasterror
+        }
+        else {
+           do pInput.Rewind()
+		   Set tDocIn=##class(EnsLib.EDI.XML.Document).%New(pInput)
+        }
+	}
+	if tDocIn="" Quit %objlasterror
+	 do{
+	    Set reader = ##class(%XML.Reader).%New()
+	    Set sc=reader.OpenString(tDocIn.RawContent)
+ 		if '$$$ISOK(sc){
+     		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(.%ConfigName,"Error Processing Response Back From MSPR"_$SYSTEM.Status.GetOneErrorText(sc))  
+     		quit
+  		} 
+ 	   Else {
+     	 Do reader.Correlate("CORPPRV_PROVIDER","IHC.ITF.DStruc.Schema.CORPPRVProviderRequest.CORPPRVPROVIDER")
+     	 do reader.Next(.pRequest,.sc)
+     	 If $$$ISOK(sc){
+	     	 $$$TRACE("Send IHC.ITF.DStruc.Schema.CORPPRVProviderRequest.CORPPRVPROVIDER")
+	 	    do ..SendRequestAsync(..TargetConfigNames,pRequest)
+     	 }Else
+     	 {     
+            set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,"Error Processing Response Back From MSPR"_$SYSTEM.Status.GetOneErrorText(sc))  
+     	}    
+  	}
+  	
+  }while(0)  
+ 
+  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+Return an array of connections for drawing lines on the config diagram</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
