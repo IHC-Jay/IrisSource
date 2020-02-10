@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.CleanTranTrackingGlobals">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65419,31218.871551</TimeCreated>
+
+<Property name="ComponentName">
+<Type>%String</Type>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		
+	 // Script to clean the Globals which are used by two components
+	 // Sh-Ttc-Delim_Text-TRANSTRACKCLAIMDBLOAD and Sh-Ttc-Demin_Text_TRANSTRACK_RETRY
+	 // ^TransTrackingLoad contains entries with date as value
+	 // ^TransTrackingNotFound contains number of retries
+	 // Delete based on date
+	 $$$TRACE("Start IHC.ITF.ITFCOMMON.Task.CleanTranTrackingGlobals OnTask")
+	   	set cnt = 0
+  		set loadCnt = 0
+  		set nfCnt = 0
+	   SET k=$ORDER(^TransTrackingLoad(""))
+	   WHILE (k'="") {
+		 set cnt = cnt + 1
+		 set val = ^TransTrackingLoad(k)
+	     // WRITE k _ ", " _ val _ "Diff: " _ $PIECE($HOROLOG,",",1) - $PIECE($ZDATETIMEH(val,5),",",1), !
+	     // Get next subscript 
+	     if ($L(val) > 5)
+	     {
+	     	 // Check if entry is older than 1 day
+		     if ( ($PIECE($HOROLOG,",",1) - $PIECE($ZDATETIMEH(val,5),",",1)) > 1)
+		     {
+			     // Write !, "Found the key: " _ k _ ", delete"
+			     KILL ^TransTrackingLoad(k)
+			     set loadCnt = loadCnt + 1
+		     }
+		     if ($GET(^TransTrackingNotFound(k)) '= "")
+		     {
+		     	// WRITE !, "TransTrackingNotFound: "  _ $GET(^TransTrackingNotFound(k))
+		     	kill ^TransTrackingNotFound(k)
+		     	set nfCnt = nfCnt + 1
+		     }
+	     }
+	     SET k=$ORDER(^TransTrackingLoad(k))
+	   }
+	   set nfCnt2 = ..CleanNotFoundGlobal(..ComponentName)
+	   set retStr = "# of entries: " _ cnt _ ", # deleted from ^TransTrackingLoad: " _ loadCnt _", deleted from ^TransTrackingNotFound: " _ nfCnt _", " _ nfCnt2
+	   $$$TRACE(retStr)
+	   return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CleanNotFoundGlobal">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>compNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set nfCnt = 0 
+	set maxErr = 10
+	&sql(Select ID,Name	Into :xID,:name
+		From Ens_Config.Item 
+		Where Name=:compNm)
+ 
+	if (SQLCODE = 0)
+	{
+		
+		set cnt = 0  
+	    set itm = ##class(Ens.Config.Item).%OpenId(xID)
+	    if ( (itm.GetSetting("MaxErrors", .pval) = 1) && ($GET(pval) > 0) )
+	    {
+		    $$$TRACE( compNm _ ": GetSetting(MaxErrors): " _ $GET(pval))
+	    	set maxErr = pval
+	    }
+	 	SET k=$ORDER(^TransTrackingNotFound(""))
+	   	WHILE (k'="") {
+		 set cnt = cnt + 1
+		 set val = ^TransTrackingNotFound(k)
+	     if (val > maxErr)
+	     {      
+	     	kill ^TransTrackingNotFound(k)
+		    set nfCnt = nfCnt + 1
+	     }
+	     SET k=$ORDER(^TransTrackingNotFound(k))
+	   }
+	   $$$TRACE("# of entries: " _ cnt _ ", deleted from ^TransTrackingNotFound: " _ nfCnt)
+
+	}
+	else
+	{
+		$$$LOGERROR("Cound not find component: " _ compNm)
+	}
+	return nfCnt
+]]></Implementation>
+</Method>
+</Class>
+</Export>
