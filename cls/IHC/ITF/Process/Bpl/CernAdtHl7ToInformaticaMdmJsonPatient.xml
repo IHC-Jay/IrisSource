@@ -23,8 +23,29 @@ iCentra Adt LegacyPlus to patient MDM</Description>
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="UnknownErrors">
+<Description>
+Unknown Errors : Disable the component</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50000"/>
+</Property>
+
+<Property name="RetrySameDisableErrorCodes">
+<Description>
+RetrySameAndDisable Errors : Retry same message and disable the component</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50000"/>
+</Property>
+
+<Property name="InputDataErrorCodes">
+<Description>
+Input Data Errors : Retry same message and disable the component</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50000"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,PatientMdmServiceTargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+<Default>UnknownErrors:Additional,RetrySameDisableErrorCodes:Additional,InputDataErrorCodes:Additional,HddTargetConfigName:Additional,PatientMdmServiceTargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -64,11 +85,36 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='hddDomainGenderNcidFilterIn' type='%String' initialexpression='"529784619"' instantiate='0' >
+ <parameters>
+<parameter name='MAXLEN'  value='20' />
+</parameters>
+</property>
+
 <property name='hddDomainAssignAuthPID44FilterIn' type='%String' initialexpression='"529784626"' instantiate='0' >
  <parameters>
 <parameter name='MAXLEN'  value='20' />
 </parameters>
 </property>
+
+<property name='unknownErrors' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50000' />
+</parameters>
+</property>
+
+<property name='retrySameDisableErrorCodes' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50000' />
+</parameters>
+</property>
+
+<property name='inputDataErrorCodes' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50000' />
+</parameters>
+</property>
+
 
 </context>
 <sequence xend='200' yend='1450' >
@@ -124,6 +170,26 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 
+
+<code name='initializeErrorCodes' xpos='470' ypos='1100' >
+<![CDATA[ 
+ set context.unknownErrors=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","UnknownErrors",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("UnknownErrors: " _ context.unknownErrors)
+ } 
+ 
+ set context.retrySameDisableErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RetrySameDisableErrorCodes",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("RetrySameDisableErrorCodes: " _ context.retrySameDisableErrorCodes)
+ }
+ 
+ set context.inputDataErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","InputDataErrorCodes",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("InputDataErrorCodes: " _ context.inputDataErrorCodes)
+ }
+  ]]]]><![CDATA[>
+</code>
+
 <code name='initializePatientMdmServiceTarget' xpos='470' ypos='1000' >
 <![CDATA[ 
  set context.patientMdmServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","PatientMdmServiceTargetConfigName",.pstatus)
@@ -157,7 +223,7 @@ BPL Definition</Description>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInformaticaMdmJsonPatient' source='request' target='response' xpos='470' ypos='1500' >
   <annotation><![CDATA[translates iCentra Adt LegacyPlus Hl7 to Patient MDM request]]]]><![CDATA[></annotation>
 </transform>
-<code name='ConvertVeratoXmlToJSON and Call Patient MDM' xpos='470' ypos='1600' >
+<code name='Convert XmlToJSON and Call Patient MDM' xpos='470' ypos='1600' >
 <![CDATA[  
    $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -233,7 +299,27 @@ BPL Definition</Description>
 	        $$$TRACE(" Successful Response from Patient Service MDM ")
 	        Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 	    }else{
-		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Successful Response from Patient service: ["_respText_"]")
+		    if statusLine [ "500"{
+			    set respJSONstring = respText
+           		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+                set iter = consumedJSONobj.%GetIterator()
+                set errorCode = consumedJSONobj.%Get("errorCode")
+                $$$TRACE(" errorCode: "_errorCode) 
+                set errorMessage = consumedJSONobj.%Get("errorMessage")
+                $$$TRACE(" errorMessage: "_errorMessage)
+                $$$TRACE(" context.unknownErrors --> "_context.unknownErrors)
+                $$$TRACE(" context.retrySameDisableErrorCodes --> "_context.retrySameDisableErrorCodes)
+                $$$TRACE(" inputDataErrorCodes --> "_context.inputDataErrorCodes)
+                if context.unknownErrors [ errorCode {
+	                Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Successful Response from Patient service: ["_respText_"]. Disabling the component.")
+		        }
+                if context.retrySameDisableErrorCodes [ errorCode  {
+	                Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName," No Successful Response from Patient service: ["_respText_"]. Retried same record max times and disabling the component.")
+		        }
+		        if context.inputDataErrorCodes [ errorCode   {
+	                Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," InputDataError: ["_respText_"]. Filtering out the record.")
+		        }		  
+		    }
 		     
 		}	
     }else{
@@ -295,6 +381,15 @@ BPL Definition</Description>
 </Value>
 <Value name="2">
 <Value>HddTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>UnknownErrors</Value>
+</Value>
+<Value name="4">
+<Value>RetrySameDisableErrorCodes</Value>
+</Value>
+<Value name="5">
+<Value>InputDataErrorCodes</Value>
 </Value>
 </Data>
 </Storage>
