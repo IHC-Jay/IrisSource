@@ -61,7 +61,8 @@ BPL Definition</Description>
 </property>
 <property name='OutMsg' type='Ens.StringContainer' instantiate='0' />
 <property name='req' type='IHC.ITF.DStruc.Schema.CORPPRVProviderRequest.CORPPRVPROVIDER' instantiate='1' />
-<property name='jsonStr' type='Ens.StringRequest' instantiate='1' />
+<property name='orgJsonStrReq' type='Ens.StringRequest' instantiate='1' />
+<property name='provJsonStrReq' type='Ens.StringRequest' instantiate='1' />
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -118,10 +119,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='facInd' type='%Integer' initialexpression='1' instantiate='0' />
-<property name='row' type='IHC.ITF.DStruc.Request.CORPPRV.MdmExtraFields' instantiate='0' />
+<property name='facRow' type='IHC.ITF.DStruc.Request.CORPPRV.CorpprvFacilities' instantiate='0' />
 </context>
-<sequence xend='200' yend='2950' >
-<scope xpos='200' ypos='250' xend='200' yend='2850' >
+<sequence xend='200' yend='2750' >
+<scope xpos='200' ypos='250' xend='200' yend='2650' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", inp class: " _ request.%ClassName()' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -150,7 +151,15 @@ BPL Definition</Description>
  set context.genderCd = request.PROVIDERDEMOGRAPHIC.ADVPROVIDERGENDERCD.content
  
  $$$TRACE("context.inpData.providerId: " _ context.inpData.providerId)
- set stat = ##class(IHC.ITF.ITFCOMMON.Util.MdmRules).ApplyCommonRules(context.inpData)]]]]><![CDATA[>
+ set context.inpData.title = $ZCONVERT($ZSTRIP(context.inpData.title,  "<>WC"), "U")
+
+   // CORPPRV may have both title and suffix in one field
+ if ( $FIND(context.inpData.title, ",") > 0) 
+ {
+ 	set temp = context.inpData.title
+ 	set context.inpData.suffix = $Piece(temp,",")
+ 	set context.inpData.title = $Piece(temp,",",2)
+ }]]]]><![CDATA[>
 </code>
 <code name='get CONFIG operation names' xpos='200' ypos='750' >
 <![CDATA[ 
@@ -175,7 +184,7 @@ BPL Definition</Description>
 <![CDATA[ set context.genderCd = $ZSTRIP(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERGENDERCD.content,  "<>WC")
   ]]]]><![CDATA[>
 </code>
-<code name='Get CORPPRV extra fields' xpos='200' ypos='950' >
+<code name='Get CORPPRV Extra fields' xpos='200' ypos='950' >
 <![CDATA[ set context.corpprvRequest.StringValue = context.inpData.providerId
  $$$TRACE("Call CORPPRV operation to get values for: " _ context.corpprvRequest.StringValue )
  set tStatus=process.SendRequestSync(context.corpprvTargetConfigName,context.corpprvRequest,.corpprvResponse)
@@ -187,22 +196,35 @@ BPL Definition</Description>
  }
  set mdmListCount = 1
  
- IF (($ISOBJECT(context.corpprvResponse)) && ($ISOBJECT(context.corpprvResponse.mdmList))){
-    set mdmListCount = context.corpprvResponse.mdmList.Count()
-    $$$TRACE("context.corpprv List count: " _  mdmListCount  )
+ IF (($ISOBJECT(context.corpprvResponse)) && ($ISOBJECT(context.corpprvResponse.specList))){
+    set specListCount = context.corpprvResponse.specList.Count()
+    $$$TRACE("context.corpprv specList count: " _  specListCount  )
    
  }
+
+ 
+    
+ set insertNew = 1
  for i=1:1:request.PROVIDERDEMOGRAPHIC.ADVPRVDRSPCLTYSPCLTYID.Count() {
      set val = $ZSTRIP(request.PROVIDERDEMOGRAPHIC.ADVPRVDRSPCLTYSPCLTYID.GetAt(1).content,  "<>WC")
-     set dataRow = ##class(IHC.ITF.DStruc.Request.CORPPRV.MdmExtraFields).%New()
-     set dataRow.PRVDRID = context.inpData.providerId
-     set dataRow.CADVSPSPCLTYID = val
-     set dataRow.CADVSPPRIMARYFLG = "Y"
-     DO context.corpprvResponse.mdmList.Insert(dataRow)
-     $$$TRACE("Insert ADVPRVDRSPCLTYSPCLTYID")
+     
+     for num=1:1:context.corpprvResponse.specList.Count() {
+       if (context.corpprvResponse.specList.GetAt(num).CADVSPSPCLTYID = val) {
+         set insertNew = 0
+       }
+     }
+     if (insertNew = 1) {
+       set dataRow = ##class(IHC.ITF.DStruc.Request.CORPPRV.CorpprvSpecialities).%New()
+       set dataRow.PRVDRID = context.inpData.providerId
+       set dataRow.CADVSPSPCLTYID = val
+       set dataRow.CADVSPPRIMARYFLG = "Y"
+       DO context.corpprvResponse.specList.Insert(dataRow)
+       $$$TRACE("Insert ADVPRVDRSPCLTYSPCLTYID: " _val)
+     }
    }
-   $$$TRACE("New context.corpprv List count: " _  context.corpprvResponse.mdmList.Count()  )
-   ]]]]><![CDATA[>
+   $$$TRACE("New context.corpprv specList count: " _  context.corpprvResponse.specList.Count() ) 
+   
+   	 ]]]]><![CDATA[>
 </code>
 <trace name='HDD For inbound values' value='"Making HDD Calls"' xpos='200' ypos='1050' />
 <code name='Get NCIDs' xpos='200' ypos='1150' >
@@ -234,10 +256,10 @@ BPL Definition</Description>
  
   
   
-  IF (($ISOBJECT(context.corpprvResponse)) && ($ISOBJECT(context.corpprvResponse.mdmList))){
-    for i=1:1:context.corpprvResponse.mdmList.Count() {
-      #dim row As IHC.ITF.DStruc.Request.CORPPRV.MdmExtraFields
-      set row = context.corpprvResponse.mdmList.GetAt(i)
+  IF (($ISOBJECT(context.corpprvResponse)) && ($ISOBJECT(context.corpprvResponse.specList))){
+    for i=1:1:context.corpprvResponse.specList.Count() {
+      #dim row As IHC.ITF.DStruc.Request.CORPPRV.CorpprvSpecialities
+      set row = context.corpprvResponse.specList.GetAt(i)
       $$$TRACE("row.CADVSPSPCLTYID: " _ row.CADVSPSPCLTYID)
       if (row.CADVSPSPCLTYID '= "")
       {
@@ -262,7 +284,7 @@ BPL Definition</Description>
     }
    */
    $$$TRACE("Call IDQ operation to clean Data " )
-   set tStatus=process.SendRequestSync("OpMdmCleanseProviderData",context.cleanseProviderData,.resp)
+   set tStatus=process.SendRequestSync("Op-InformaticaMdm-Wssc-CLEANSEPROVIDER", context.cleanseProviderData, .resp)
    if ('tStatus) {     
       set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected IDQ response returned or failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
      
@@ -272,21 +294,21 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<if name='if facilities are found' condition='context.corpprvResponse.mdmList.Count() &gt; 0' xpos='200' ypos='1450' xend='200' yend='2000' >
+<if name='if facilities are found' condition='context.corpprvResponse.facList.Count() &gt; 0' xpos='200' ypos='1450' xend='200' yend='1800' >
 <true>
-<foreach property='context.corpprvResponse.mdmList' key='context.facInd' xpos='201' ypos='1563' xend='187' yend='760' >
-<trace value='"Sending Data to MDM Organization #" _ context.facInd' xpos='203' ypos='275' />
-<code name='Get each row' xpos='597' ypos='237' >
+<foreach property='context.corpprvResponse.facList' key='context.facInd' xpos='335' ypos='1600' xend='200' yend='1000' >
+<trace value='"Sending Data to MDM Organization #" _ context.facInd' xpos='200' ypos='250' />
+<code name='Get each row' xpos='200' ypos='350' >
 <![CDATA[ 
-      set context.row = context.corpprvResponse.mdmList.GetAt(context.facInd)
-      $$$TRACE("facility: " _ context.row.FACIFCILITYNM)]]]]><![CDATA[>
+      set context.facRow = context.corpprvResponse.facList.GetAt(context.facInd)
+      $$$TRACE("facility: " _ context.facRow.FACIFCILITYNM)]]]]><![CDATA[>
 </code>
-<if name='if facility name is not null' condition='context.row.FACIFCILITYNM &apos;= ""' xpos='676' ypos='305' xend='412' yend='675' >
+<if name='if facility name is not null' condition='context.facRow.FACIFCILITYNM &apos;= ""' xpos='200' ypos='450' xend='200' yend='900' >
 <true>
-<transform name='create organization XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmOrgXml' source='context.corpprvResponse' target='context.orgXml' xpos='517' ypos='495' />
-<code name='Converting XML to JSON Operation' xpos='194' ypos='547' >
+<transform name='create organization XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmOrgXml' source='context.corpprvResponse' target='context.orgXml' xpos='335' ypos='600' />
+<code name='Converting XML to JSON Operation' xpos='335' ypos='700' >
 <![CDATA[ $$$TRACE("Converting MDMOrgRestOperation XML to JSON Operation.. ")
- 	       
+    set orgJsonStrReq = ##class(Ens.StringRequest).%New()	       
     set myList = $LISTBUILD("item")
     set xmlStr = $ZSTRIP(context.orgXml.RawContent, "*C")
     set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
@@ -302,11 +324,11 @@ BPL Definition</Description>
        set jsonProcessRequest.StringValue= json
     }
       
-    set context.jsonStr.StringValue  = jsonProcessRequest.StringValue
-    $$$TRACE("MDMOrgRestOperation JSON for ORG: "_context.jsonStr.StringValue )     ]]]]><![CDATA[>
+    set context.orgJsonStrReq.StringValue  = jsonProcessRequest.StringValue
+    $$$TRACE("MDMOrgRestOperation JSON for ORG: "_context.orgJsonStrReq.StringValue )     ]]]]><![CDATA[>
 </code>
-<code name='Call MDM organization to store data' xpos='635' ypos='624' >
-<![CDATA[ set tStatus=process.SendRequestSync("MDMOrgRestOperation", context.jsonStr ,.mdmResponse)
+<code name='Call MDM organization to store data' xpos='335' ypos='800' >
+<![CDATA[ set tStatus=process.SendRequestSync("Out-InformaticaMdm-Json-Wsrc-ORG", context.orgJsonStrReq ,.mdmResponse)
    if ('tStatus) {     
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected MDM response returned or failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
      
@@ -317,16 +339,16 @@ BPL Definition</Description>
 </true>
 </if>
 </foreach>
-<trace value='"MDM Org calls done"' xpos='203' ypos='1623' />
+<trace value='"MDM Org calls done"' xpos='335' ypos='1700' />
 </true>
 </if>
-<transform name='Transform to MDM XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmXml' source='request' target='response' xpos='200' ypos='2100' />
-<code name='convert to json' xpos='200' ypos='2200' >
+<transform name='Transform to MDM XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmXml' source='request' target='response' xpos='200' ypos='1900' />
+<code name='convert to json' xpos='200' ypos='2000' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
     $$$TRACE("DTL Output: "_xmlStr)  	       
-    set myList = $LISTBUILD("item", "Qualification")
+    set myList = $LISTBUILD("item")
     set xmlStr = $ZSTRIP(xmlStr, "*C")
     set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
     $$$TRACE("JSON string: "_json)             
@@ -341,21 +363,21 @@ BPL Definition</Description>
        set jsonProcessRequest.StringValue= json
     }
       
-    set context.jsonStr.StringValue  = jsonProcessRequest.StringValue
-    $$$TRACE("JSON Ens.StringRequest.StringValue: "_context.jsonStr.StringValue )         
+    set context.provJsonStrReq.StringValue  = jsonProcessRequest.StringValue
+    $$$TRACE("Provider JSON Ens.StringRequest.StringValue: "_context.provJsonStrReq.StringValue )         
     
    ]]]]><![CDATA[>
 </code>
-<trace name='TraceValidate' value='"Validating MSPR Response " _ response' xpos='200' ypos='2300' />
-<code name='GetTargetConfigList' xpos='200' ypos='2400' >
+<trace name='TraceValidate' value='"Validating MSPR Response " _ response' xpos='200' ypos='2100' />
+<code name='GetTargetConfigList' xpos='200' ypos='2200' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Target count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<code name='Call MDM operation to store data' xpos='200' ypos='2500' >
+<code name='Call MDM operation to store data' xpos='200' ypos='2300' >
 <![CDATA[ for i=1:1:context.targetList.Count()
  {
    $$$TRACE( i _ ". call MDM operation " _ context.targetList.GetAt(i))
-   set tStatus=process.SendRequestSync(context.targetList.GetAt(i), context.jsonStr ,.mdmResponse)
+   set tStatus=process.SendRequestSync(context.targetList.GetAt(i), context.provJsonStrReq ,.mdmResponse)
    if ('tStatus) {     
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected MDM response returned or failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
      
@@ -364,11 +386,11 @@ BPL Definition</Description>
    }
  }]]]]><![CDATA[>
 </code>
-<code name='reset error count' xpos='200' ypos='2600' >
+<code name='reset error count' xpos='200' ypos='2400' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2700' xend='200' yend='350' >
+<catchall xpos='200' ypos='2500' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
