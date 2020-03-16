@@ -44,6 +44,29 @@ Add or Remove Extension in the source record</Description>
 <Default>LastNamesMatch:Additional,LastNamesExtAddOrRemove:Additional,AddExtFlag:Additional,LastNameHl7Structure:Additional,DFDTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>RtMultiEnvSupportDefaultData</DefaultData>
+<Data name="RtMultiEnvSupportDefaultData">
+<Subscript>"RtMultiEnvSupport"</Subscript>
+<Value name="1">
+<Value>DFDTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>LastNamesMatch</Value>
+</Value>
+<Value name="3">
+<Value>LastNamesExtAddOrRemove</Value>
+</Value>
+<Value name="4">
+<Value>LastNameHl7Structure</Value>
+</Value>
+<Value name="5">
+<Value>AddExtFlag</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -67,7 +90,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
-
 <property name='lastNameHl7Structure' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='100' />
@@ -90,9 +112,14 @@ BPL Definition</Description>
 </property>
 <property name='updatedPayload' type='Ens.Request' instantiate='0' />
 <property name='addExtFlag' type='%Boolean' instantiate='0' />
+<property name='dfdTargetConfigList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1950' >
-<scope xpos='200' ypos='250' xend='200' yend='1850' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -123,9 +150,11 @@ BPL Definition</Description>
 </code>
 <code name='initializeBridgeToQATargetConfigName' xpos='200' ypos='750' >
 <![CDATA[ 
- set context.dfdTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DFDTargetConfigName",.pstatus)
+ set dfdTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DFDTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus) &&(context.dfdTargetConfigName '="")){
- 	$$$TRACE("dfdTargetConfigName " _ context.dfdTargetConfigName)
+ 	$$$TRACE("dfdTargetConfigName " _ dfdTargetConfigName)
+ 	set context.dfdTargetConfigList= $LISTFROMSTRING(dfdTargetConfigName, ",")
+ 	
  }else{
 	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No dfdTargetConfigName found.")   	
  } 
@@ -248,17 +277,27 @@ BPL Definition</Description>
  $$$TRACE("bridgeToDFD--> " _ context.bridgeToDFD) 
  ]]]]><![CDATA[>
 </code>
-<switch name='BridgeToQA' xpos='200' ypos='1150' xend='200' yend='1500' >
+<switch name='BridgeToQA' xpos='200' ypos='1150' xend='200' yend='1850' >
+<case condition='context.bridgeToDFD = "1"' name='DFD' >
+<trace name='context.bridgeToDFD' value='"context.bridgeToDFD is 1 (For DFD) "' xpos='335' ypos='1300' />
+<foreach name='SendToEachTargetconfig' property='context.dfdTargetConfigList' key='context.targetConfigIndex' xpos='335' ypos='1400' xend='200' yend='350' >
+<call name='CallDfdTargetConfig' target='@context.dfdTargetConfigList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="request" action="set" />
+</request>
+</call>
+</foreach>
+</case>
 <case condition='context.bridgeToDFD = "0"' name='NonDFD' >
-<trace name='context.bridgeToDFD' value='"context.bridgeToDFD is 0 (NonDFD) "' xpos='335' ypos='1300' />
-<switch name='AddExtFlagSwitch' xpos='200' ypos='1150' xend='200' yend='1500' >
+<trace name='context.bridgeToDFD' value='"context.bridgeToDFD is 0 (NonDFD) "' xpos='605' ypos='1300' />
+<switch name='AddExtFlagSwitch' xpos='605' ypos='1400' xend='605' yend='1750' >
 <case condition='context.addExtFlag = 1' name='AddFlagONNonDFD' >
-<call name='CallTargetConfigNames' target='@context.dfdTargetConfigName' async='1' xpos='200' ypos='250' >
+<call name='CallTargetConfigNames' target='@context.dfdTargetConfigName' async='1' xpos='740' ypos='1550' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.updatedPayload" action="set" />
 </request>
 </call>
-<foreach name='AddFlagON' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1400' xend='200' yend='350' >
+<foreach name='AddFlagON' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1650' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="request" action="set" />
@@ -267,10 +306,8 @@ BPL Definition</Description>
 </foreach>
 </case>
 <case condition='context.addExtFlag = 0' name='AddFlagOffNonDFD' >
-<trace name='addExtFlag' value='"addExtFlagis 0 (AddFlagOffNonDFD) "' xpos='335' ypos='1300' />
-
-<foreach name='AddFlagON' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1400' xend='200' yend='350' >
-
+<trace name='addExtFlag' value='"addExtFlagis 0 (AddFlagOffNonDFD) "' xpos='1010' ypos='1550' />
+<foreach name='AddFlagON' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='1650' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.updatedPayload" action="set" />
@@ -278,25 +315,17 @@ BPL Definition</Description>
 </call>
 </foreach>
 </case>
+<default/>
 </switch>
-
-</case>
-<case condition='context.bridgeToDFD = "1"' name='DFD' >
-<trace name='context.bridgeToDFD' value='"context.bridgeToDFD is 1 (For DFD) "' xpos='605' ypos='1300' />
-<call name='CallTargetConfigNames' target='@context.dfdTargetConfigName' async='1' xpos='605' ypos='1400' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="request" action="set" />
-</request>
-</call>
 </case>
 <default/>
 </switch>
-<code name='Reset Error' xpos='200' ypos='1600' >
+<code name='Reset Error' xpos='200' ypos='1950' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1700' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -309,28 +338,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>RtMultiEnvSupportDefaultData</DefaultData>
-<Data name="RtMultiEnvSupportDefaultData">
-<Subscript>"RtMultiEnvSupport"</Subscript>
-<Value name="1">
-<Value>DFDTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>LastNamesMatch</Value>
-</Value>
-<Value name="3">
-<Value>LastNamesExtAddOrRemove</Value>
-</Value>
-<Value name="4">
-<Value>LastNameHl7Structure</Value>
-</Value>
-<Value name="5">
-<Value>AddExtFlag</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
