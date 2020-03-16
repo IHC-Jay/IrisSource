@@ -516,7 +516,7 @@ Get the information about classes from Audit table into the source control table
 </Method>
 
 <Method name="Checkout">
-<FormalSpec>nmSp:%String,Selectedfiles:%String,usrNm:%String,passwd:%String,rev:%String,recMap:%Boolean</FormalSpec>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
    
@@ -628,55 +628,16 @@ Get the information about classes from Audit table into the source control table
 	  		   {
 		  		   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($NAMESPACE _ " _ File load failed: " _ fileNm)
 	  		   }
-	  		  if (recMap)
+	  		   set tStatus= ..GenerateRecordMaps(fileNm, .tGenList)
+	  		   if (tStatus)
 	        	{
-		        	// check last part of the file name
-		        	if ( $F(relativeFileNm, "Record.xml") = ($LENGTH(relativeFileNm) + 1) )
-		        	{
-			        	set tStatus = $$$ERROR(100, relativeFileNm _ " should not be checked out, Use it's RecordMap class")
-		        	}
-		        	else {
-			        	
-			        	// Get class name from file name: replace / with .
-			        	// remove cls. from start and .xml from end
-			        	set intNm = $REPLACE(relativeFileNm,"/", ".")
- 
- 						if ( $F($ZCVT(intNm, "U"), "CLS.") = 5)
- 						{
-    						set recCls = $EXTRACT(intNm, 5, ($F($ZCVT(intNm, "U"), "XML") - 5))
-    						Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "CLASS name: " _ recCls)
- 						
-			        		Set tStatus = ##class(EnsLib.RecordMap.Generator).GenerateObject(recCls,,1,,2,0,"ck",0,.tGenList,0)
-							If $$$ISERR(tStatus) {
-	    						Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GenerateObject " _ $System.Status.GetErrorText( tStatus))
-	    					
-    						}
-							// Get all generated classes
-							Set tClass = ""
-							For {
-								Set tClass = $order(tGenList(tClass))
-								Quit:(tClass = "")
-								Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Generated Class: " _ tClass)
-							}
-			        	
-			       
-		        			if (##class(EnsLib.RecordMap.RecordMap).Exists(recCls))
-		        			{
-			        			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "RecordMap: " _ recCls _ ": created")
-		        			}
-		        			else
-		        			{
-    					 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( " Could not generate EnsLib.RecordMap.Generator " _ recCls _ ", filename: "_ relativeFileNm)
-    					 		set tStatus = $$$ERROR(100, "Class name " _  " Could not generate EnsLib.RecordMap.Generator " _ recCls _ ", filename: "_ relativeFileNm)
-		        	   		}
- 						}
-		        	
-			        	else
-		        		{
-    					 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Class name " _ intNm _ " Could not generate valid class name for " _ relativeFileNm)
-    					 set tStatus = $$$ERROR(100, "Class name " _ intNm _ " Could not generate valid class name for " _ relativeFileNm)
-		        	   }
-		        	}
+						// Get all generated classes
+						Set tClass = ""
+						For {
+							Set tClass = $order(tGenList(tClass))
+							Quit:(tClass = "")
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Generated Class: " _ tClass)
+						}					        	
 	        	}
 	           Set $NAMESPACE = origNmSp
 			}
@@ -1578,6 +1539,63 @@ If needed, create and add all directories from root to SVN</Description>
 	     Quit $$$ERROR(100, "User SVN directory could not be created: " _ svnBaseDir)
      }
      Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GenerateRecordMaps">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>file:%String,*tGenList:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set complexType = "EnsLib.RecordMap.ComplexBatch"	
+    set recMapType = "EnsLib.RecordMap.RecordMap"
+    set classNm = "Class name"
+    set tStatus = $$$OK
+ 	set tGenList = ""	
+    set newSrcObj = ""
+    Set fileObj=##class(%Library.File).%New(file)
+    set recMap = 0
+	if $$$ISERR( fileObj.Open("RS")) ; Read mode and as stream
+	{
+		 Quit $$$ERROR($$$GeneralError, "Could not open the file")
+	}
+	else
+	{
+     	While 'fileObj.AtEnd 
+        {
+	        	set line = fileObj.ReadLine(,.sc,.eol)
+	        	if line [ classNm
+	        	{
+		        	set recCls =  $PIECE(line, """", 2)
+		        	
+	        	}
+	        	if ((line [ complexType) && (recCls '= ""))
+	        	{
+		        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Complex RecordMap: " _ line)
+		        	set recMap = 1
+		        	Set tStatus = ##class(EnsLib.RecordMap.ComplexGenerator).Generate(recCls,1,2,0,"ck",0,.tGenList,1)
+		        	
+ 					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "(EnsLib.RecordMap.ComplexGenerator).Generate: " _ tStatus) 
+		        	QUIT 
+	        	}
+	        	elseif ((line [ recMapType) && (recCls '= ""))
+	        	{
+		        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Record Map: " _ line _", class: " _ recCls)
+					set recMap = 1
+		        	Set tStatus = ##class(EnsLib.RecordMap.Generator).GenerateObject(recCls,,1,,2,2,"ck",0,.tGenList,0)
+ 					
+ 					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "(EnsLib.RecordMap.Generator).GenerateObject: " _ tStatus) 
+ 					
+		        	QUIT 
+	        	}
+        }
+        Do fileObj.Close()
+        if (recMap = 0)
+        {
+	        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GenerateRecordMaps: Not a record Map file: " _ file)
+        }
+	}
+    QUIT tStatus
 ]]></Implementation>
 </Method>
 
