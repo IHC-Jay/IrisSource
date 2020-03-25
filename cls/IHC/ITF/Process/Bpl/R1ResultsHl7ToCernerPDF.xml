@@ -6,15 +6,8 @@ BPL for R1 PDF Results to Cerner...</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64196,45224.822136</TimeCreated>
 
-<Property name="HddTargetConfigName">
-<Description>
-HDD Operation: The target name used for HDD calls</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="50"/>
-</Property>
-
 <Parameter name="SETTINGS">
-<Default><![CDATA[-NextOperation,HddTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+<Default><![CDATA[-NextOperation:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -24,9 +17,6 @@ HDD Operation: The target name used for HDD calls</Description>
 <Subscript>"R1ResultsHl7ToCernerPDF"</Subscript>
 <Value name="1">
 <Value>TargetConfigNameiCentraEdgeService</Value>
-</Value>
-<Value name="2">
-<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -54,11 +44,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='HddTargetConfigName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='msh4' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -79,15 +64,10 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='hddContextCernerToIhcLocation' type='%String' initialexpression='"526003992"' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='fileStream' type='Ens.StreamContainer' instantiate='0' />
 </context>
-<sequence xend='200' yend='1300' >
-<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<sequence xend='200' yend='1100' >
+<scope xpos='200' ypos='250' xend='200' yend='1000' >
 <trace name='1. Incoming Message' value=' "1. Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
 <code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[
@@ -99,11 +79,7 @@ BPL Definition</Description>
     $$$TRACE("2. ReplyCodeActions: " _ replyCodeActions)
  }]]]]><![CDATA[>
 </code>
-<code name='3. Max Errors Check' xpos='200' ypos='550' >
-<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
- $$$TRACE("3. Max Errors: " _ maxErr)]]]]><![CDATA[>
-</code>
-<code name='4. Check TargetConfigNames' xpos='200' ypos='650' >
+<code name='4. Check TargetConfigNames' xpos='200' ypos='550' >
 <![CDATA[ 
  //TargetConfigNames validation
  set targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
@@ -115,7 +91,7 @@ BPL Definition</Description>
     $$$TRACE("4.2 TargetListCount: " _ context.targetList.Count())   
  }]]]]><![CDATA[>
 </code>
-<code name='Get OBX-5' xpos='200' ypos='750' >
+<code name='Get Hl7 values and create the file' xpos='200' ypos='650' >
 <![CDATA[ set obx5 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(1).OBX:ObservationValue()")
  $$$TRACE("OBX5 length: " _ $L(obx5))
  set context.fileStream = ##class(Ens.StreamContainer).%New()
@@ -126,11 +102,12 @@ BPL Definition</Description>
 
  set obx24 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:DiagnosticServSectID")
  set Obr7 = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:ObservationDateTime.timeofanevent")
+ set aliasId = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceID")
  
  if ($L(obx5) > 0)
  {
     set obx52 = $PIECE(obx5, "^", 2)
-    $$$TRACE("HL7 values: " _ pid31 _ ", " _ pid18 _ ", " _ obx52 _ ", " _ obx24 _ ", " _ Obr7 )
+    $$$TRACE("HL7 values: " _ pid31 _ ", " _ pid18 _ ", " _ obx52 _ ", " _ obx24 _ ", " _ Obr7 _ ", UniversalServiceID: " _ aliasId )
  
     
     Set fbStream=##class(%Stream.FileBinary).%New()
@@ -141,7 +118,8 @@ BPL Definition</Description>
     
     Set context.fileStream.Stream = fbStream
     $$$TRACE("Set stream")
-    set context.fileStream.OriginalFilename = pid31 _"-" _ pid18 _"-" _ obx52 _"-" _ obx24 _"-" _ Obr7 _ ".pdf"
+    // BATCH_CLASS^BATCH_NAME^MRN^FIN^ALIAS^DOS^TOS^PROVIDER^UNIQUEID.PDF
+    set context.fileStream.OriginalFilename = "Phreesia^" _ Obr7  _ "^" _ pid31 _"^" _ pid18 _"^" _ aliasId _ "^" _ Obr7 _ "^00-00-00^CPDI^" _ obx52 _"-"  _ Obr7 _ ".PDF"
   
     
     Do context.fileStream.%Save()
@@ -149,18 +127,15 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='850' xend='200' yend='350' >
+<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='750' xend='200' yend='350' >
 <call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.fileStream" action="set" />
 </request>
 </call>
 </foreach>
-<code name='14.  reset error count' xpos='200' ypos='950' >
-<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
-</code>
 <faulthandlers>
-<catchall name='15. Call ProcessError' xpos='200' ypos='1050' xend='200' yend='350' >
+<catchall name='15. Call ProcessError' xpos='200' ypos='850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
