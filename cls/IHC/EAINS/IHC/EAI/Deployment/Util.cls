@@ -1,0 +1,382 @@
+Include EAI.Deploy
+
+Class IHC.EAI.Deployment.Util extends %RegisteredObject {
+
+Parameter WSLocation = "http://lp-itfprdfs01:23974/csp/healthshare/itfcommon/IHC.ITF.SrcCtrlPkg.SrcCtrlDeploymentWS.cls";
+
+ClassMethod SetupSVN(pUsername As %String, pPassword As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,"Setup SVN for user: " _ pUsername _ "|" _ $Username)
+	
+		Set tStatus = ##class(IHC.EAI.Common.Util).GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+		$$$ThrowOnError(tStatus)
+		
+		Set tStatus = ##class(IHC.EAI.Deployment.Util).CreateOtherDeployDirs(pUsername)
+		$$$ThrowOnError(tStatus)
+		
+		Set tUserSVNExportBaseDir = $$$USEREXPORTDIR(tInstanceType,pUsername)
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,"tUserSVNExportBaseDir: " _ tUserSVNExportBaseDir)
+	 	Set tStatus = ..CreateSVNDirectories(pUsername, tUserSVNExportBaseDir, .tUserSVNExportTrunkDir)
+	 	$$$ThrowOnError(tStatus)
+	 	
+	 	// Checkout complete source tree
+	 	Set tUserSVNExportTrunkCLSDirectory = tUserSVNExportTrunkDir _ "/" _ "cls" // cls directory should exists when checkout is successful
+	 	If ('##class(%File).DirectoryExists(tUserSVNExportTrunkCLSDirectory)) {
+	 		Set tSVNCmd = $$$SVNCHECKOUT _ " --username " _ pUsername _ " --password '" _ pPassword _ "' " _ $$$SVNSRCURL _ " " _ tUserSVNExportBaseDir
+	 		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$REPLACE(tSVNCmd,pPassword,"xxx"))
+	 		Set tOSReturnValue = $ZF(-1, tSVNCmd)
+	 		If (tOSReturnValue '= 0) {
+	 			Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNCHECKOUT _ " failed for " _ $$$SVNSRCURL)
+	 			$$$ThrowStatus($$$ERROR($$$GeneralError, $$$SVNCHECKOUT _  " failed for user: " _ pUsername _ ", SVN URL:" _ $$$SVNSRCURL))
+			}
+			Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNCHECKOUT _ " of " _ $$$SVNSRCURL _ " OSReturnValue: " _ tOSReturnValue)
+		}
+		
+		Set tSVNCmd = $$$SVNUPDATEALL _ " --username " _ pUsername _ " --password '" _ pPassword _ "' " _ $$$SVNSRCURL _ " " _ tUserSVNExportBaseDir 
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$REPLACE(tSVNCmd,pPassword,"xxx"))
+		Set tOSReturnValue = $ZF(-1, tSVNCmd)
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNUPDATEALL _ " " _ tUserSVNExportBaseDir _ ", OSReturnValue: " _ tOSReturnValue)
+	 
+		// Release files
+		Set tUserSVNDeployBaseDir = $$$USERDEPLOYDIR(tInstanceType,pUsername)
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,"tUserSVNDeployBaseDir: " _ tUserSVNDeployBaseDir)
+		Set tStatus = ..CreateSVNDirectories(pUsername,tUserSVNDeployBaseDir,.tUserSVNDeployTrunkDir)
+		$$$ThrowOnError(tStatus)
+		Set tUserSVNDeployTrunkSVNDirectory = tUserSVNDeployTrunkDir _ "/" _ ".svn" // .svn directory should exists when checkout is successful
+
+		If ('##class(%File).DirectoryExists(tUserSVNDeployTrunkSVNDirectory)) {
+
+			Do ##class(%File).CreateDirectory(tUserSVNDeployTrunkDir)
+			
+			Set tSVNCmd = $$$SVNCHECKOUT _ " --username " _ pUsername _ " --password '" _ pPassword _ "'  " _ $$$SVNRELEASEURL _ " " _ tUserSVNDeployTrunkDir 
+			Set tOSReturnValue = $ZF(-1, tSVNCmd)
+			If (tOSReturnValue '= 0) {
+				Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNCHECKOUT _ " failed for " _ $$$SVNRELEASEURL)
+				$$$ThrowStatus($$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ pUsername _ ", SVN URL:" _ $$$SVNRELEASEURL))
+			}
+			Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNCHECKOUT _ " " _ $$$SVNRELEASEURL _ " " _ tUserSVNDeployBaseDir _ " OSReturnValue:" _ tOSReturnValue)
+		}
+		
+		Set tSVNCmd = $$$SVNUPDATEALL _ " --username " _ pUsername _ " --password '" _ pPassword _ "' " _ tUserSVNDeployTrunkDir 
+		Set tOSReturnValue = $ZF(-1, tSVNCmd)
+		Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,$$$SVNUPDATEALL _ " of " _ tUserSVNDeployBaseDir _ ", OSReturnValue: " _ tOSReturnValue)
+	 
+		// Setup Log Dir
+		Set tDeployLogDir = $$$USERDEPLOYLOGDIR(tInstanceType,pUsername)
+		If ('##class(%File).DirectoryExists(tDeployLogDir)) {
+			Do ##class(%File).CreateDirectory(tDeployLogDir)
+		}
+ 
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	 	Set tErrorMessage = $System.Status.GetErrorText(tStatus)
+	 	Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,"SetupSVN ERROR: " _ tErrorMessage)
+	}
+ 	Quit tStatus
+}
+
+ClassMethod CreateOtherDeployDirs(pUsername As %String) {
+	 
+	Set tStatus = $$$OK
+	Try {
+		
+		Set tStatus = ##class(IHC.EAI.Common.Util).GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+		$$$ThrowOnError(tStatus)
+		
+		// Rollback dir
+		
+		Set tRollbackDir = ##class(%File).NormalizeDirectory($$$USERDEPLOYROLLBACKDIR(tInstanceType,pUsername))
+		If ('##class(%File).DirectoryExists(tRollbackDir)) {
+			Do ##class(IHC.EAI.Deployment.Util).Log($Username,"CreateOtherDeployDirs: Create rollback directory " _ tRollbackDir)
+			Set tReturnValue = ##class(%File).CreateDirectoryChain(tRollbackDir)
+			If ('tReturnValue) {
+				$$$ThrowStatus($$$ERROR($$$GeneralError, "Rollback directory could not be created: " _ tRollbackDir))
+			}
+		}
+		
+		// Log dir
+		Set tLogDir = ##class(%File).NormalizeDirectory($$$USERDEPLOYLOGDIR(tInstanceType,pUsername))
+		If ('##class(%File).DirectoryExists(tRollbackDir)) {
+			Do ##class(IHC.EAI.Deployment.Util).Log($Username,"CreateOtherDeployDirs: Create log directory " _ tLogDir)
+			Set tReturnValue = ##class(%File).CreateDirectoryChain(tLogDir)
+			If ('tReturnValue) {
+				$$$ThrowStatus($$$ERROR($$$GeneralError, "Log directory could not be created: " _ tLogDir))
+			}
+		}
+		
+	} Catch eException {
+	 	Set tStatus = eException.AsStatus()
+	 	Set tErrorMessage = $System.Status.GetErrorText(tStatus)
+	 	Do ##class(IHC.EAI.Deployment.Util).Log(pUsername,"CreateOtherDeployDirs ERROR: " _ tErrorMessage)
+	 }
+     Quit tStatus
+}
+
+ClassMethod CreateSVNDirectories(pUsername As %String, pUserSVNBaseDir As %String, Output pUserSVNTrunkDir As %String) {
+	 
+	Set tStatus = $$$OK
+	Try {
+		 // check for the parent directory
+		
+		 If ('##class(%File).DirectoryExists(pUserSVNBaseDir)) {
+			 //Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile()
+			 Do ##class(IHC.EAI.Deployment.Util).Log($Username,"CreateSVNDirectories: Create User Home directory: " _ pUserSVNBaseDir)
+			 Set tReturnValue = ##class(%File).CreateDirectoryChain(pUserSVNBaseDir)
+			 If ('tReturnValue) {
+			 	//$$$ERROR(100, "User SVN base directory could not be created: " _ pUserSVNBaseDir)
+			 	$$$ThrowStatus($$$ERROR($$$GeneralError, "User SVN base directory could not be created: " _ pUserSVNBaseDir))
+			 }
+	     }
+	     
+	     Set pUserSVNTrunkDir = pUserSVNBaseDir _ $$$SVNSRCTRUNK
+		 If ('##class(%File).DirectoryExists(pUserSVNTrunkDir)) {
+			 Do ##class(IHC.EAI.Deployment.Util).Log($Username,"CreateSVNDirectories: Create " _ pUserSVNTrunkDir)
+	
+	         Set tReturnValue = ##class(%File).CreateDirectoryChain(pUserSVNTrunkDir)
+	         If ('tReturnValue) {
+			 	$$$ThrowStatus($$$ERROR($$$GeneralError, "User SVN directory could not be created: " _ pUserSVNTrunkDir))
+			 }
+		 }
+		     
+		 // Sanity check
+	     If ('##class(%File).DirectoryExists(pUserSVNTrunkDir)) {
+		     $$$ThrowStatus($$$ERROR($$$GeneralError, "User SVN directory could not be created: " _ pUserSVNTrunkDir))
+	     }
+	     
+	     
+	     
+	 } Catch eException {
+	 	Set tStatus = eException.AsStatus()
+	 	Set tErrorMessage = $System.Status.GetErrorText(tStatus)
+	 	Do ##class(IHC.EAI.Deployment.Util).Log($Username,"CreateSVNDirectories ERROR: " _ tErrorMessage)
+	 }
+     Quit tStatus
+}
+
+ClassMethod CheckoutFile(pFilename As %String, pUsername As %String, pPassword As %String, pRevision As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+		If (pRevision '= "") {
+			Set tStatus = ##class(IHC.EAI.Common.Util).GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+			$$$ThrowOnError(tStatus)
+			
+			Set tFilename = $$$USERDEPLOYDIR(tInstanceType,pUsername) _ $$$SVNSRCTRUNK _ "/" _ pFilename
+			Set tIsDeleted = ##class(%File).Delete(pFilename) // Ignore return value
+			
+			Set tCommand = $$$SVNUPDATE _ " --revision " _ pRevision _ " --username " _ pUsername _ " --password " _ pPassword _ " " _  tFilename 
+		
+			Set tOSReturnValue = $ZF(-1,tCommand)
+			
+			//Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(pUsername, $$$SVNUPDATE _ ", user: " _ pUsername _ ", file: " _ pFilename _ ", rev:" _ pRevision _ " , status: " _ status)
+			
+			If (tOSReturnValue '= 0) {
+				$$$ThrowStatus($$$ERROR($$$GeneralError, $$$SVNUPDATE _ " --revision " _ pRevision _ " failed"))
+			}
+			
+			If (##class(%File).Exists(tFilename)) {
+				//Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(pUsername,   "Checked out by SVNUPDATE " _ pFilename _ ", version: " _ pRevision)
+			} Else {
+				Set tCommand = $$$SVNCHECKOUT _ " --revision " _ pRevision _ " --username " _ pUsername _ " --password " _ pPassword _ " " _  tFilename 
+		
+			    Set tOSReturnValue = $ZF(-1,tCommand)
+			    //Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(pUsername, $$$SVNCHECKOUT _ ", file: " _ pFilename _ ", rev:" _ pRevision _ " , status: " _ status)
+	
+			    If (##class(%File).Exists(tFilename)) {
+				    //Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(pUsername,   "Checked out " _ pFilename _ ", version: " _ pRevision)
+			    } Else {
+	  			   //Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(pUsername,   "Could not checkout file " _ pFilename)
+	  			   $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not checkout file " _ tFilename))
+			    }
+	 		}
+		} Else {		
+		  Set tStatus = $$$ERROR($$$GeneralError, "Checkout: Revision number is required") 
+		  $$$ThrowOnError(tStatus)
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+		// Customize error message?
+	}
+ 	Quit tStatus
+}
+
+ClassMethod UpdateDeploymentHistory(pFilename As %String, pUsername As %String, pNamespace As %String, pComponentName As %String, pRevision As %String, pEnvironment As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+	
+		Set tStatus = ##class(IHC.EAI.Common.Util).GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+		$$$ThrowOnError(tStatus)
+		
+		Set tFilename = $$$USERDEPLOYDIR(tInstanceType,pUsername) _ $$$SVNSRCTRUNK _ "/" _ pFilename
+	
+		Set tXMLParser = ##class(IHC.EAI.Deployment.XMLParser).%New()
+		
+		Set tStatus = tXMLParser.ParseFile(tFilename,pComponentName)
+		$$$ThrowOnError(tStatus)
+		
+		If (tXMLParser.IsItfExportFile())  {
+	  
+			/* Not sure I understand why this check is included...misplaced in this re-write because it only applies to class exports not component only exports
+			If (tXMLParser.itemsInfo.Count() < 2) {
+				//Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "File does not have config for any class in file" _ compNm)
+				$$$ThrowStatus($$$ERROR($$$GeneralError, "File does not have config for any class in file " _ pComponentName))
+			}
+			*/
+			
+			// First item is always the component
+			If ($ZCVT(tXMLParser.itemsInfo.GetAt(1).itemName, "U") = $ZCVT(pComponentName, "U")) {
+				Set tDateTime = $ZDATETIME($HOROLOG,3,1)
+	
+		 		Set tStatus = ##class(IHC.EAI.Deployment.Util).UpdateComponentImpl(pUsername, pComponentName, pNamespace, tFilename, pRevision, 
+		 																		tXMLParser.itemsInfo.GetAt(1).itemInfo, pEnvironment, tDateTime)
+		 		$$$ThrowOnError(tStatus)
+ 		
+		 		// Update Deployment History for each class (2nd item and beyond?)
+		 		For i=2:1:tXMLParser.itemsInfo.Count() {
+			 	   Set tStatus = ##class(IHC.EAI.Deployment.Util).UpdateClassItem(pUsername, tXMLParser.itemsInfo.GetAt(i).itemName, pComponentName, pNamespace, tFilename, 
+			 	   																tXMLParser.itemsInfo.GetAt(i).versionNum, tXMLParser.itemsInfo.GetAt(i).itemInfo, 
+			 	   																pEnvironment, tDateTime)
+		 		   $$$ThrowOnError(tStatus)
+		 		}
+		 	}
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+
+ClassMethod UpdateComponentImpl(pUsername As %String, pComponentName As %String, pNamespace As %String, pFilename As %String, pRevision As %String, pFileInfo As %String, pEnvironment As %String, pImplementionDate As %String) As %Status
+{
+	Set tStatus = $$$OK
+	Try {
+	 	New $NAMESPACE
+ 		Set $NAMESPACE = "EAI"
+ 		
+ 		// Use the ITF_Services user
+ 		Set tStatus = ##class(Ens.Config.Credentials).GetCredentialsObj(.tCredObj,..%ClassName(1),"Ens.Config.Credentials","ITF_Services")
+ 		$$$ThrowOnError(tStatus)
+ 		Set tWSUsername = tCredObj.Username
+ 		Set tWSPassword = tCredObj.Password
+ 		
+ 		Set tDeploymentInfoWS = ##class(IHC.EAI.Deployment.SrcCtrlInfoWS.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+ 		Set tDeploymentInfoWS.Username = tWSUsername
+	 	Set tDeploymentInfoWS.Password = tWSPassword
+	 	Set tDeploymentInfoWS.Location = $GET(^EAI.Deployment("WSLocation"),..#WSLocation)
+ 		Set tStatus = tDeploymentInfoWS.UpdateComponentImpl(pComponentName, pNamespace, pFilename, pRevision, pFileInfo, pEnvironment, pImplementionDate, pUsername)
+ 		$$$ThrowOnError(tStatus)
+ 		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+ 		If $ZERROR["<ZSOAP>" {
+        	//Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  %objlasterror)
+        	//Set tSC=$$$ERROR($$$GeneralError, "Error in updating Component in DB: " _ depCl.SoapFault.Reason.Text)
+ 		} Else {
+    		//Set tSC=$$$ERROR($$$CacheError,$ZERROR)
+ 		}
+	}
+	Quit tStatus
+}
+
+ClassMethod UpdateClassItem(pUsername As %String, pClassName As %String, pComponentName As %String, pNamespace As %String, pDeploymentFile As %String, pRevision As %String, pFileInfo As %String, pEnvironment As %String, pImplementionDate As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+		 	 
+	 	New $NAMESPACE
+ 		Set $NAMESPACE = "EAI"
+ 		
+ 		// Use the ITF_Services user
+ 		Set tStatus = ##class(Ens.Config.Credentials).GetCredentialsObj(.tCredObj,..%ClassName(1),"Ens.Config.Credentials","ITF_Services")
+ 		$$$ThrowOnError(tStatus)
+ 		Set tWSUsername = tCredObj.Username
+ 		Set tWSPassword = tCredObj.Password
+ 		
+ 		Set tDeploymentInfoWS = ##class(IHC.EAI.Deployment.SrcCtrlInfoWS.SrcCtrlDeploymentInfoWebServiceSoap).%New()
+ 		Set tDeploymentInfoWS.Username = tWSUsername
+	 	Set tDeploymentInfoWS.Password = tWSPassword
+	 	Set tDeploymentInfoWS.Location = $GET(^EAI.Deployment("WSLocation"),..#WSLocation)
+ 		Set tStatus = tDeploymentInfoWS.UpdateClassItem(pClassName, pComponentName, pNamespace, pDeploymentFile, pRevision, pFileInfo, pEnvironment, pImplementionDate, pUsername)
+ 		$$$ThrowOnError(tStatus)
+ 		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+ 		/*If $ZERROR["<ZSOAP>" {
+        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  %objlasterror)
+        	Set tSC=$$$ERROR($$$GeneralError, "Error in Web service: "  _ depCl.SoapFault.Reason.Text)
+ 		} Else {
+    		Set tSC=$$$ERROR($$$CacheError,$ZERROR)
+ 		}*/
+	}
+	Quit tStatus
+}
+
+/// Deploy code
+ClassMethod DeployCode(pLDAPUsername As %String, pNamespace As %String, pFilename As %String, pTargetProduction As %String, pCreateRollback As %Integer, pRollbackFilename As %String, pLogFile As %String, pUsername As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+		Set tStatus = ##class(IHC.EAI.Common.Util).GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+		$$$ThrowOnError(tStatus)
+		
+		Set tDeployFilename = ##class(%File).NormalizeDirectory($$$USERDEPLOYDIR(tInstanceType,pLDAPUsername) _ $$$SVNSRCTRUNK) _ pFilename
+		Set tRollbackFilename = ##class(%File).NormalizeDirectory($$$USERDEPLOYROLLBACKDIR(tInstanceType,pLDAPUsername)) _ pRollbackFilename
+		Set tLogFilename = ##class(%File).NormalizeDirectory($$$USERDEPLOYLOGDIR(tInstanceType,pLDAPUsername)) _ pLogFile
+		
+		// Delete the rollback and log files if it currently exists
+		Set tIsDeleted = ##class(%File).Delete(tRollbackFilename)
+		Set tIsDeleted = ##class(%File).Delete(tLogFilename)
+		
+		// Deploy to the specified namespace
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		
+		// Logging?
+		Set tStatus = ##class(Ens.Deployment.Deploy).DeployCode(tDeployFilename,pTargetProduction,pCreateRollback,tRollbackFilename,"L",tLogFilename,1)
+ 		//pDeploymentFile,pTargetProduction,pCreateRollback,pRollbackFilename,pWhereToLog,pLogFile,pAllowDeployToSource,pAutoRevert,pTempPortalNode
+ 		$$$ThrowOnError(tStatus)
+		
+
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+		// Customize the error message?
+	}
+	Quit tStatus
+}
+
+ClassMethod Log(pUsername As %String, pMessage As %String) As %Status {
+	Set tStatus = $$$OK
+	Try {
+		// Change to EAI NS
+		New $NAMESPACE
+		Set $NAMESPACE = "EAI"
+		
+		Set tDateTime = $ZDT($H,3)
+		
+		If ($DATA(^EAI.Deployment.Log($Username,tDateTime)) '= 0) {
+			Set ^EAI.Deployment.Log($Username,tDateTime) = $GET(^EAI.Deployment.Log($Username,tDateTime)) _ "||" _ pMessage
+		} Else {
+			Set ^EAI.Deployment.Log($Username,tDateTime) = pMessage
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+ClassMethod GetTargetProduction(pNamespace As %String, Output pStatus As %Status = { $$$OK }) As %String {
+	Set tProduction = ""
+	Try {
+		
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		
+		Set tProduction = ##class(Ens.Director).GetActiveProductionName()
+		
+	} Catch eException {
+		Set pStatus = eException.AsStatus()
+	}
+	Quit tProduction
+}
+}

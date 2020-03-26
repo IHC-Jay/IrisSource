@@ -1,0 +1,48 @@
+/// Component Count KPI Metric
+Class IHC.EAI.KPI.Cube.ComponentCount Extends %DeepSee.CubeDefinition [ DependsOn = IHC.EAI.KPI.Schema.ComponentCount, ProcedureBlock ]
+{
+
+Parameter DOMAIN;
+
+/// Cube definition from Architect.
+XData Cube [ XMLNamespace = "http://www.intersystems.com/deepsee" ]
+{
+<cube xmlns="http://www.intersystems.com/deepsee" name="EAI_KPI_ComponentCount" displayName="EAI_KPI_ComponentCount" description="Component Count KPI Metric" disabled="false" abstract="false" sourceClass="IHC.EAI.KPI.Schema.ComponentCount" countMeasureName="%COUNT" bucketSize="8" bitmapChunkInMemory="false" precompute="0">
+  <dimension name="Application" disabled="false" hasAll="false" allCaption="All Name" allDisplayName="Name" type="data" iKnowType="entity" hidden="false" showHierarchies="default">
+    <hierarchy name="H1" disabled="false">
+      <level sourceProperty="Application.Name" name="ApplicationName" disabled="false" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+    </hierarchy>
+  </dimension>
+  <dimension name="ApplicationGroup" disabled="false" hasAll="false" allCaption="All ApplicationGroup" allDisplayName="ApplicationGroup" type="data" iKnowType="entity" hidden="false" showHierarchies="default">
+    <hierarchy name="H1" disabled="false">
+      <level sourceProperty="ApplicationGroup.Name" name="Name" disabled="false" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+    </hierarchy>
+  </dimension>
+  <dimension name="ValueDate" disabled="false" hasAll="false" allCaption="All ValueDate" allDisplayName="ValueDate" sourceProperty="ValueDate" type="time" hidden="false" showHierarchies="default">
+    <hierarchy name="H1" disabled="false">
+      <level name="ValueDateWeekYear" disabled="false" timeFunction="WeekYear" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+      <level name="ValueDateMonthYear" disabled="false" timeFunction="MonthYear" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+    </hierarchy>
+  </dimension>
+  <dimension name="Type" disabled="false" hasAll="false" allCaption="All Type" allDisplayName="Type" type="data" hidden="false" showHierarchies="default">
+    <hierarchy name="H1" disabled="false">
+      <level sourceProperty="Type" name="Type" disabled="false" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+    </hierarchy>
+  </dimension>
+  <dimension name="Qualifier" disabled="false" hasAll="false" allCaption="All Qualifier" allDisplayName="Qualifier" type="data" hidden="false" showHierarchies="default">
+    <hierarchy name="H1" disabled="false">
+      <level sourceProperty="Qualifier" name="Qualifier" disabled="false" list="false" useDisplayValue="true" useAsFilter="true">
+      </level>
+    </hierarchy>
+  </dimension>
+  <measure sourceProperty="Value" name="ValueSUM" disabled="false" aggregate="SUM" type="integer" hidden="false" searchable="false"></measure>
+  <measure sourceProperty="Value" name="ValueAVG" disabled="false" aggregate="AVG" type="number" hidden="false" searchable="false"></measure>
+</cube>
+}
+
+}

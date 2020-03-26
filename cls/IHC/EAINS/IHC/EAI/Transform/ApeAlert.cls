@@ -1,0 +1,162 @@
+Class IHC.EAI.Transform.ApeAlert Extends Ens.DataTransform [ DependsOn = (Ens.AlertRequest, EnsLib.HTTP.GenericMessage) ] {
+
+ClassMethod Transform(pSource As Ens.AlertRequest, ByRef pTarget As EnsLib.HTTP.GenericMessage, ByRef pAux = "") As %Status {
+	Set tStatus = $$$OK
+	Try {
+	
+		$$$TRACE("In ApeAlert Transform")
+		
+		// Create the target
+		Set pTarget = ##class(EnsLib.HTTP.GenericMessage).%New()
+		
+		// Create APE object
+		Set tApeInfo = ##class(%DynamicObject).%New()
+		Set tApeInfo.hostname = $SYSTEM.INetInfo.LocalHostName()
+		Set tApeInfo.groupname = $NAMESPACE
+		Set tApeInfo.inputData = ""
+		
+		// Find the message body
+		Set tQuery = 	"SELECT MessageBodyId, MessageBodyClassName " _
+						"FROM Ens.MessageHeader " _
+						"WHERE Type = ? AND TargetConfigName = ? AND sessionId = ?"
+		Set tStatement = ##class(%SQL.Statement).%New()
+		Set tStatus = tStatement.%Prepare(tQuery)
+		$$$ThrowOnError(tStatus)
+		Set tResultSet = tStatement.%Execute(1,pSource.SourceConfigName,pSource.SessionId)
+		
+		If (tResultSet.%SQLCODE = 0) {
+			While (tResultSet.%Next(.tStatus)) {
+				$$$ThrowOnError(tStatus)
+				
+				$$$LOGINFO( "Data: " _ tResultSet.MessageBodyId _ ", type: " _ tResultSet.MessageBodyClassName)
+				
+	     		If (tResultSet.MessageBodyClassName = "EnsLib.HL7.Message" ) {
+	     			Set tTmpObject = ##class(EnsLib.HL7.Message).%OpenId(tResultSet.MessageBodyId,,.tStatus)
+	     			$$$ThrowOnError(tStatus)
+	     			Set tApeInfo.inputData  = $EXTRACT(tTmpObject.OutputToString(),1,2000)
+	     		} ElseIf (tResultSet.MessageBodyClassName = "Ens.StreamContainer" ) {
+	     			Set tStreamObj = ##class(Ens.StreamContainer).%OpenId(tResultSet.MessageBodyId,,.tStatus)
+	     			$$$ThrowOnError(tStatus)
+	     			Set tApeInfo.inputData  = "OriginalFilename: " _ tStreamObj.OriginalFilename
+	     		} ElseIf (tResultSet.MessageBodyClassName = "Ens.StringRequest" ) {
+	     			Set tStrReq = ##class(Ens.StringRequest).%OpenId(tResultSet.MessageBodyId,,.tStatus)
+	     			$$$ThrowOnError(tStatus)
+	     			Set tApeInfo.inputData  = $EXTRACT(tStrReq.StringValue, 1, 2000)
+	     		} ElseIf (tResultSet.MessageBodyClassName = "Ens.StringContainer" ) {
+	     			Set tStrConReq = ##class(Ens.StringContainer).%OpenId(tResultSet.MessageBodyId,,.tStatus)
+	     			$$$ThrowOnError(tStatus)
+	     			Set tApeInfo.inputData  = $EXTRACT(tStrConReq.StringValue, 1, 2000)
+	     		} Else {
+	     		   Set tApeInfo.inputData  = "MessageBodyClassName: " _ tResultSet.MessageBodyClassName _ ", MessageBodyId: " _ tResultSet.MessageBodyId
+	     		}
+	     	    $$$LOGINFO("Copied Input message: " _ tApeInfo.inputData)
+			}
+			$$$ThrowOnError(tStatus)
+			
+			Do tResultSet.%Close()
+		} Else {
+			$$$LOGWARNING("Error in Execute: " _ tResultSet.%SQLCODE)
+			Set tApeInfo.inputData  = "Could not get input record for session: " _ pSource.SessionId _ " for component: " _ pSource.SourceConfigName
+		}
+		/*If (tApeInfo.inputData = "") {
+			$$$LOGWARNING("Error in Execute: " _ tResultSet.%SQLCODE)
+			Set tApeInfo.inputData  = "Could not get input record for session: " _ pSource.SessionId _ " for component: " _ pSource.SourceConfigName
+		}*/
+		
+		// create data stream
+		Set tStream = ##class(%Stream.GlobalBinary).%New()
+ 
+		Set tApeInfo.comment = pSource.AlertDestination
+		Set tApeInfo.messagedata = pSource.AlertText
+		Set tApeInfo.msgtimestamp = pSource.AlertTime
+		Set tApeInfo.msgtimestampformat = "yyyy-mm-dd hh24:mi:ss.ms"
+		//msgtimestamp example ":"2014-04-25 16:17:46.774"
+   
+		Set tApeInfo.processname = pSource.SourceConfigName
+		Set tApeInfo.sessionId = pSource.SessionId
+  
+		// find sub error id
+		Set itfErr = "ITFCOMMON:"
+		Set ind = $FIND(pSource.AlertText,itfErr)
+		If (ind > 0) {
+			Set ind2 = $FIND(pSource.AlertText, ":", ind)
+			Set tApeInfo.issuecode = $EXTRACT(pSource.AlertText,ind - $L(itfErr),ind2 -2 )
+			Set emailMsg = "SendEmailSuccess|SendEmailError"
+			Set ind = $LOCATE(pSource.AlertText,emailMsg)
+			If (ind > 0) {
+				$$$TRACE("Send email message")
+				Set emailSub = "emailSubject:"
+				Set emailBody = "emailBody:"
+				Set ind2 = $FIND(pSource.AlertText,emailSub)
+				Set ind3 = $FIND(pSource.AlertText,emailBody)
+				If (ind3 > ind2) {
+					Set tApeInfo.emailSubject = $EXTRACT(pSource.AlertText,ind2,ind3 - ($L(emailBody) +1))
+					Set tApeInfo.emailBody = $EXTRACT(pSource.AlertText, ind3,*) 
+				} Else {
+					Set tApeInfo.emailSubject = $EXTRACT(pSource.AlertText,ind2,*)
+				}
+				If (ind2 > 1) {
+					Set tApeInfo.messagedata = $EXTRACT(pSource.AlertText,1,ind2 - ($L(emailSub) +1))
+				}
+			}
+		} Else {
+			// Intersystem error
+			Set intSysErr = "ERROR #"
+			Set ind = $FIND(pSource.AlertText,intSysErr)
+			If (ind > 0) {
+				Set ind2 = $FIND(pSource.AlertText,":",ind)
+				Set tApeInfo.issuecode = $EXTRACT(pSource.AlertText,ind - $L(intSysErr),ind2 -2)
+			} Else {
+				Set intSysErr = "ERROR"
+				Set ind = $FIND(pSource.AlertText,intSysErr)
+				If (ind > 0) {
+					Set ind2 = $FIND(pSource.AlertText, ":")
+					If (ind2 > 0) {
+						Set tApeInfo.issuecode = $EXTRACT(pSource.AlertText, ind - $LENGTH(intSysErr), ind2 - 2 )
+						Set tApeInfo.issuecode = $REPLACE(tApeInfo.issuecode, $CHAR(92) _ "u003c", "<")
+						Set tApeInfo.issuecode = $REPLACE(tApeInfo.issuecode, $CHAR(92) _"u003e", ">")
+					} Else {
+						Set tApeInfo.issuecode = "Unknown"
+					}
+				} Else {
+					$$$TRACE("Search error from Global: ITFCOMMON|IHC.ITF.AlertErrorCodes")
+					Set tApeInfo.issuecode = "Unknown"
+					Set issFound  = 0
+					If ($DATA(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes) = 0) { 
+						Set ^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes = $LISTBUILD("InactivityTimeoutAlert", "QueueCountAlert", "QueueWaitAlert")
+					}
+					For i=1:1:$LISTLENGTH(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes) {
+						Set value = $LIST(^|"ITFCOMMON"|IHC.ITF.AlertErrorCodes,i)
+
+						Set issFound = $F(pSource.AlertText,value)
+						If (issFound > 0) {
+							Set tApeInfo.issuecode = value 
+							Quit
+						}   
+					}
+					If (issFound <= 0) {
+						$$$LOGWARNING("Issue NOT FOUND in Global IHC.ITF.AlertErrorCodes")
+					}
+				}
+			}
+		}
+  
+		// Assign the HTTP info and copy the data stream to target
+		Do tApeInfo.%ToJSON(.tStream)
+		Do pTarget.HTTPHeaders.SetAt("application/json","content-type")
+		Do pTarget.HTTPHeaders.SetAt(tStream.Size,"content-length")
+		Set pTarget.Stream = ##class(%Stream.GlobalBinary).%New()
+		Set tStatus = pTarget.Stream.CopyFrom(tStream)
+		$$$ThrowOnError(tStatus)
+		
+		// Trace some data
+		Do tStream.Rewind()
+		Set tStr = tStream.Read()
+		$$$TRACE("Data string: " _ tStr)
+ 
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+}

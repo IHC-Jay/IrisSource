@@ -1,0 +1,194 @@
+Class IHC.EAI.Report.AuditLog.Controller Extends IHC.EAI.Report.Util
+{
+
+Parameter REPORTNAME = "EAI.Audit";
+
+/// Do ##class(IHC.EAI.Report.AuditLog.Controller).RunReport()
+ClassMethod RunReport(pBeginDateTime As %TimeStamp = { $ZDT($ZDTH($ZD($H,3),3),3)}, pEndDateTime As %TimeStamp = { $ZDT($H,3)}, pEventSource As %String = "", pEventType As %String = "", pEventName As %String = "", pUsername As %String = "", pDescriptionKey As %String = "", pEventDataKey As %String = "", pDelimiter As %String = {$C(9)}) As %Status
+{
+	#Dim tResultSet As %SQL.StatementResult
+	
+	Set tStatus = $$$OK
+	Try {
+		
+		// Clean out the report data table
+		Set tStatus = ..ClearExistingData()
+		$$$ThrowOnError(tStatus)
+		
+		// Extract and load ens production setting data into DB tables
+		Set tStatus = ..ExtractData(pBeginDateTime,pEndDateTime,pEventSource,pEventType,pEventName,pUsername,pDescriptionKey,pEventDataKey)
+		$$$ThrowOnError(tStatus)
+		
+		// Write out to report file
+		Set tStatus = ..WriteReport(pDelimiter)
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+ClassMethod ExtractData(pBeginDateTime As %TimeStamp = { $ZDT($ZDTH($ZD($H,3),3),3)}, pEndDateTime As %TimeStamp = { $ZDT($H,3)}, pEventSource As %String = "", pEventType As %String = "", pEventName As %String = "", pUsername As %String = "", pDescriptionKey As %String = "", pEventDataKey As %String = "") As %Status
+{
+	#Dim tResultSet As %SQL.StatementResult
+	
+	Set tStatus = $$$OK
+	Try {
+		
+		New $NAMESPACE
+		Set $NAMESPACE = "%SYS"
+		
+		Set tCreatedOn = $ZDATETIME($H,3)
+		
+		Set tUTCBeginDateTime = ##class(%SYS.Audit).ConvertLocalHToUTC($ZDTH(pBeginDateTime,3))
+		Set tUTCEndDateTime = ##class(%SYS.Audit).ConvertLocalHToUTC($ZDTH(pEndDateTime,3))
+		
+		Set tQuery =	"SELECT " _
+							"ID, " _
+							"EventSource, " _
+							"EventType, " _
+							"Event, " _
+							"UTCTimeStamp, " _
+							"EventData, " _
+							"Description AS Description, " _ 
+							"Namespace AS Namespace, " _ 
+							"Username AS Username, " _ 
+							"Pid AS Pid " _ 
+						"FROM %SYS.Audit"
+		Set tWhereClause = " WHERE (UTCTimeStamp BETWEEN ? AND ?)"
+						
+		If (pEventSource '= "") {
+			Set tWhereClause = tWhereClause _ " AND EventSource = '" _ pEventSource _  "'"
+		}
+		If (pEventType '= "") {
+			Set tWhereClause = tWhereClause _ " AND EventType = '" _ pEventType _  "'"
+		}
+		If (pEventName '= "") {
+			Set tWhereClause = tWhereClause _ " AND Event = '" _ pEventName _  "'"
+		}
+		If (pUsername '= "") {
+			Set tWhereClause = tWhereClause _ " AND Username = '" _ pUsername _  "'"
+		}
+		If (pDescriptionKey '= "") {
+			Set tWhereClause = tWhereClause _ " AND Description [ '" _ pDescriptionKey _  "'"
+		}
+		If (pEventDataKey '= "") {
+			Set tWhereClause = tWhereClause _ " AND EventData [ '" _ pEventDataKey _  "'"
+		}
+		
+		Set tQuery = tQuery _ tWhereClause			
+    	
+		Set tStatement = ##class(%SQL.Statement).%New()
+		Set tStatus = tStatement.%Prepare(tQuery)
+		$$$ThrowOnError(tStatus)
+		Set tResultSet = tStatement.%Execute(tUTCBeginDateTime,tUTCEndDateTime)
+		
+		While (tResultSet.%Next(.tStatus)) {
+			$$$ThrowOnError(tStatus)
+			
+			Set tAuditLogId = tResultSet.%GetData(1)
+			Set tEventSource = tResultSet.%GetData(2)
+			Set tEventType = tResultSet.%GetData(3)
+			Set tEvent = tResultSet.%GetData(4)
+			Set tUTCTimeStamp = tResultSet.%GetData(5)
+			Set tEventData = tResultSet.%GetData(6)
+			Set tDescription = tResultSet.%GetData(7)
+			Set tNamespace = tResultSet.%GetData(8)
+			Set tUsername = tResultSet.%GetData(9)
+			Set tPid = tResultSet.%GetData(10)
+			
+			Set tNewItem = ##class(IHC.EAI.Report.AuditLog.Data).%New()
+			Set tNewItem.CreatedOn = tCreatedOn
+			Set tNewItem.AuditLogId = tAuditLogId
+			Set tNewItem.Description = tDescription
+			Set tNewItem.DescriptionKey = pDescriptionKey
+			Set tNewItem.EventData = tEventData
+			Set tNewItem.EventName = tEvent
+			Set tNewItem.EventSource = tEventSource
+			Set tNewItem.EventType = tEventType
+			Set tNewItem.Pid = tPid
+			Set tNewItem.Username = tUsername
+			Set tNewItem.Namespace = tNamespace
+			Set tNewItem.EventDataKey = pEventDataKey
+			
+			Set tNewItem.LocalTimeStamp = ##class(%SYS.Audit).ConvertUTCHToLocal($ZDTH(tUTCTimeStamp,3))
+			
+			Set tStatus = tNewItem.%Save()
+			$$$ThrowOnError(tStatus)
+		}
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+ClassMethod ClearExistingData() As %Status
+{
+	Set tStatus = $$$OK
+	Try {
+		// Clear existing report data
+		Set SQLCODE = ""
+		&sql(DELETE FROM IHC_EAI_Report_AuditLog.Data)
+		If ((SQLCODE '= 0) && (SQLCODE '= 100)) {
+			$$$ThrowStatus($$$ERROR($$$GeneralError, "Failed to clear report data."))	
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+ClassMethod WriteReport(pDelimiter As %String = {$C(9)}) As %Status
+{
+	#Dim tResultSet As %SQL.StatementResult
+	
+	Set tStatus = $$$OK
+	Try {
+		
+		Set tQuery = 	"SELECT AuditLogId,EventSource,EventType,EventName,EventData,Namespace,Username,Description,Pid,LocalTimeStamp " _
+						"FROM IHC_EAI_Report_AuditLog.Data " _ 
+						"ORDER BY LocalTimeStamp ASC"
+		
+		Set tStatement = ##class(%SQL.Statement).%New()
+		Set tStatus = tStatement.%Prepare(tQuery)
+		$$$ThrowOnError(tStatus)
+		Set tResultSet = tStatement.%Execute()
+		
+		While (tResultSet.%Next(.tStatus)) {
+			$$$ThrowOnError(tStatus)
+			
+			Set tAuditLogId = tResultSet.%GetData(1)
+			Set tEventSource = tResultSet.%GetData(2)
+			Set tEventType = tResultSet.%GetData(3)
+			Set tEventName = tResultSet.%GetData(4)
+			Set tEventData = tResultSet.%GetData(5)
+			Set tNamespace = tResultSet.%GetData(6)
+			Set tUsername = tResultSet.%GetData(7)
+			Set tDescription = tResultSet.%GetData(8)
+			Set tPid = tResultSet.%GetData(9)
+			Set tLocalTimeStamp = tResultSet.%GetData(10)
+			
+			Set tLine = tLocalTimeStamp _ pDelimiter _ tEventSource _ pDelimiter _ tEventType _ 
+						pDelimiter _ tEventName _ pDelimiter _ tNamespace _ pDelimiter _ tDescription _
+						pDelimiter _ tUsername _ pDelimiter _ $ZSTRIP(tEventData,"*C") _ pDelimiter _ tPid
+
+			Do ..Report(.tReportFile,tLine)
+			$$$ThrowOnError(tStatus)
+		}
+		$$$ThrowOnError(tStatus)
+		
+		// Close the report
+		Do ..Report(.tReportFile,"",1)
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+}
+
+}
