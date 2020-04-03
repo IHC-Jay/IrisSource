@@ -46,36 +46,22 @@ These are not results LAB wants sent to any end system. The OBX will be skipped 
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2250' width='2000' >
+<process language='objectscript' request='Ens.Request' height='2500' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
-<property name='targetList' type='%String' collection='list' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='2500' />
-</parameters>
-</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' />
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-<property name='Facility' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
-<property name='Room' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
-<property name='MessageType' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
+<property name='Facility' type='%String' instantiate='0' />
+<property name='Room' type='%String' instantiate='0' />
+<property name='MessageType' type='%String' instantiate='0' />
 <property name='ProcessRecord' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='SkipObx9' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='StandardLabToSendIndex' type='%Integer' instantiate='0' />
+<property name='StandardLabToSend' type='%String' collection='array' instantiate='0' />
 </context>
-<sequence xend='200' yend='2000' >
-<scope xpos='200' ypos='250' xend='200' yend='1900' >
+<sequence xend='200' yend='2250' >
+<scope xpos='200' ypos='250' xend='200' yend='2150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -124,7 +110,7 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1650' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1900' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='Setup filtering' xpos='470' ypos='1000' >
@@ -172,17 +158,53 @@ BPL Definition</Description>
  }
  $$$TRACE("context.Facility: " _ context.Facility)]]]]><![CDATA[>
 </code>
-<if name='Process Record' condition='context.ProcessRecord' xpos='470' ypos='1100' xend='470' yend='1550' >
+<if name='Process Record' condition='context.ProcessRecord' xpos='470' ypos='1100' xend='470' yend='1800' >
 <true>
-<transform name='Transform Data' class='IHC.ITF.Transform.Dtl.SunquestResultsHl7ToNovoHl725' source='request' target='response' xpos='740' ypos='1250' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1350' xend='200' yend='350' >
+<if name='is micro?' condition='request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:DiagnosticServSectID") = "MC"' xpos='740' ypos='1250' xend='740' yend='1600' >
+<true>
+<transform name='Transform Data' class='IHC.ITF.Transform.Dtl.SunquestResultsHl7ToNovoHl725MicroLab' source='request' target='response' xpos='1010' ypos='1400' />
+<foreach name='Send To Each Target for micro lab' property='context.targetList' key='context.targetConfigIndex' xpos='1010' ypos='1500' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='740' ypos='1450' >
+</true>
+<false>
+<transform name='Transform Data' class='IHC.ITF.Transform.Dtl.SunquestResultsHl7ToNovoHl725StdLab' source='request' target='response' xpos='740' ypos='1400' />
+<foreach name='Send to each target for std lab' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1500' xend='200' yend='350' >
+<foreach name='for each obr to send' property='context.StandardLabToSend' key='context.StandardLabToSendIndex' xpos='200' ypos='250' xend='200' yend='650' >
+<assign name="assign index" property="index" value="context.StandardLabToSendIndex" action="set" xpos='200' ypos='250' />
+<trace value='"In send record, index: "_index_". Record: "_context.StandardLabToSend.GetAt(index)' xpos='200' ypos='350' />
+<code name='setup record to send' xpos='200' ypos='450' >
+<![CDATA[ try {
+    #Dim sc as %Status
+    // Create HL7 message object
+    set pHL7=##class(EnsLib.HL7.Message).ImportFromString(context.StandardLabToSend.GetAt(index),.sc) $$$ThrowOnError(sc)
+        
+    // Determine DocType from MSH
+    set tDocType=##class(EnsLib.HL7.Schema).ResolveSchemaTypeToDocType("SunquestOrdersAndResultsToCerner22","ORU_R01", sc) $$$ThrowOnError(sc)
+      
+    // Set DocType and build map
+    set pHL7.DocType=tDocType
+    set sc=pHL7.BuildMap() $$$ThrowOnError(sc)
+    
+ }catch ex {
+    set status =##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error creating standard lab record to send, shutting down. Record: "_context.StandardLabToSend.GetAt(index))
+ 
+ }]]]]><![CDATA[>
+</code>
+<call name='send record' target='@context.targetList.GetAt(context.targetConfigIndex )' async='1' xpos='200' ypos='550' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="pHL7" action="set" />
+</request>
+</call>
+</foreach>
+</foreach>
+</false>
+</if>
+<code name='Reset Error' xpos='740' ypos='1700' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
@@ -204,7 +226,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1750' xend='200' yend='350' >
+<catchall xpos='200' ypos='2000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
