@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.Uptime.Operation.Events">
+<Super>EnsLib.REST.Operation</Super>
+
+<Method name="OnMessage">
+<Description>
+This is the default message handler.  All request types not declared in the message map are delivered here</Description>
+<FormalSpec>pRequest:%Library.Persistent,*pResponse:%Library.Persistent</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		If (pRequest.%IsA("IHC.EAI.Uptime.Message.Request")) {
+			Set tStatus = ..SendRequest(pRequest,.pResponse)
+			$$$ThrowOnError(tStatus)
+		} Else {
+			$$$ThrowStatus($$$ERROR($$$EnsErrRequestNotHandled, pRequest.%ClassName(1)))
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()	
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="SendRequest">
+<Description>
+Send the request</Description>
+<FormalSpec>pRequest:IHC.EAI.Uptime.Message.Request,*pResponse:IHC.EAI.Uptime.Message.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		Set tCommand = $ZCONVERT(pRequest.Command,"U")
+		
+		If (tCommand = "GET") {
+			Set tStatus = ..SendGETRequest(pRequest,.pResponse)
+			$$$ThrowOnError(tStatus)
+		} ElseIf (tCommand = "PUT") {
+			Set tStatus = ..SendPUTRequest(pRequest,.pResponse)
+			$$$ThrowOnError(tStatus)
+		} Else {
+			$$$ThrowStatus($$$ERROR($$$EnsErrRequestNotHandled, "API does not currently support this command: " _ pRequest.Command _ "|Name: " _ pRequest.Name))		
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="SendGETRequest">
+<Description>
+Send the request</Description>
+<FormalSpec>pRequest:IHC.EAI.Uptime.Message.Request,*pResponse:IHC.EAI.Uptime.Message.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK, tHttpResponse = ""
+	Try {
+		Set pResponse = ##class(IHC.EAI.Uptime.Message.Response).%New()
+	
+		Set:(pRequest.Server '= "") ..Adapter.HTTPServer = pRequest.Server
+		Set:(pRequest.Port '= "") ..Adapter.HTTPPort = pRequest.Port
+		
+		Set tURL = ..Adapter.URL
+		Set:(pRequest.URL '= "") tURL = pRequest.URL
+		Set tStatus = ..Adapter.GetURL(tURL,.tHttpResponse,"",pRequest.JSONStream)
+		$$$ThrowOnError(tStatus)
+		
+		If ($IsObject(tHttpResponse) && $IsObject(tHttpResponse.Data) && tHttpResponse.Data.Size) {
+			Do tHttpResponse.Data.Rewind()
+			Set pResponse.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+			Do pResponse.JSONStream.CopyFrom(tHttpResponse.Data)
+		} Else {
+			Set tErrorResponseStream = ..CreateJSONErrorResponse("Empty/Null response object.",.tStatus)
+			$$$ThrowOnError(tStatus)
+			Set pResponse.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+			Do pResponse.JSONStream.CopyFrom(tErrorResponseStream)
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+		
+		Set tErrorMessage = ""
+		If ($IsObject(tHttpResponse) && $IsObject(tHttpResponse.Data) && tHttpResponse.Data.Size) {
+			Set tErrorMessage = $$$StatusDisplayString(tStatus)_":"_tHttpResponse.Data.Read()
+		} Else {
+			Set tErrorMessage = $$$StatusDisplayString(tStatus)
+		}
+		Set tErrorResponseStream = ..CreateJSONErrorResponse(tErrorMessage)
+		Set pResponse.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+		Do pResponse.JSONStream.CopyFrom(tErrorResponseStream)
+		
+		Set tStatus = $$$OK	
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="SendPUTRequest">
+<Description>
+Send the request</Description>
+<FormalSpec>pRequest:IHC.EAI.Uptime.Message.Request,*pResponse:IHC.EAI.Uptime.Message.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		Set pResponse = ##class(IHC.EAI.KPI.Message.Response).%New()
+		Set tURL = ..Adapter.URL
+		Set:(pRequest.URL '= "") tURL = pRequest.URL
+		Set tStatus = ..Adapter.PutURL(tURL,.tHttpResponse,"",pRequest.JSONStream)
+		If ($$$ISERR(tStatus) && $IsObject(tHttpResponse) && $IsObject(tHttpResponse.Data) && tHttpResponse.Data.Size) {
+			Set tStatus = $$$ERROR($$$EnsErrGeneral,$$$StatusDisplayString(tStatus)_":"_tHttpResponse.Data.Read())
+		}
+		$$$ThrowOnError(tStatus)
+		If ($$$IsdefObject(tHttpResponse)) {
+			Do tHttpResponse.Data.Rewind()
+			Set pResponse.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+			Do pResponse.JSONStream.CopyFrom(tHttpResponse.Data)
+		} 
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+		
+		Set tErrorMessage = ""
+		If ($IsObject(tHttpResponse) && $IsObject(tHttpResponse.Data) && tHttpResponse.Data.Size) {
+			Set tErrorMessage = $$$StatusDisplayString(tStatus)_":"_tHttpResponse.Data.Read()
+		} Else {
+			Set tErrorMessage = $$$StatusDisplayString(tStatus)
+		}
+		Set tErrorResponseStream = ..CreateJSONErrorResponse(tErrorMessage)
+		Set pResponse.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+		Do pResponse.JSONStream.CopyFrom(tErrorResponseStream)
+		
+		Set tStatus = $$$OK	
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="CreateJSONErrorResponse">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pErrorMessage:%String,*pStatus:%Status=$$$OK</FormalSpec>
+<ReturnType>%Stream.GlobalCharacter</ReturnType>
+<Implementation><![CDATA[
+	Set tStream = ""
+	Try {
+		Set tStream = ##class(%Stream.GlobalCharacter).%New()
+		Do tStream.Write("{")
+		Do tStream.Write("""success"": false,")
+		Do tStream.Write("""message"": """ _ pErrorMessage _ """")
+		Do tStream.Write("}")
+		Do tStream.Rewind()
+	} Catch eException {
+		Set pStatus = eException.AsStatus()
+	}
+	Quit tStream
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<Description>
+This user callback method is called via initConfig() from %OnNew() or in the case of SOAP Services from OnPreSOAP()</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK, tCredObj = ""
+	Try {
+		// Determine how to configure the http endpoint
+		Set tServerHost = $GET(^EAI.Setting("ServerNodeHost"),"")
+		Set tServerPort = $GET(^EAI.Setting("ServerNodePort"),"")
+		
+		Set:(tServerHost '= "") ..Adapter.HTTPServer = tServerHost
+		Set:(tServerPort '= "") ..Adapter.HTTPPort = tServerPort
+		
+		Set tCredObj = ##class(Ens.Config.Credentials).%OpenId("ITF_Services")
+		
+		Set:($$$IsdefObject(tCredObj)) ..Adapter.Credentials = "ITF_Services"
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
