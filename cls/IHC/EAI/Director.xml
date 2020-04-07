@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.Director">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+
+<Method name="StopAll">
+<Description>
+##class(IHC.EAI.Director).StopAll()</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pForce:%Boolean=1</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tList As %ListOfDataTypes
+	
+	Set tStatus = $$$OK
+	
+	Try {
+		
+		Set tList = ..GetProductionList("",.tStatus)
+		$$$ThrowOnError(tStatus)
+		
+		Set tNamespace = ""
+		For i=1:1:tList.Count()  {
+			Set tNamespace = tList.GetAt(i)
+			
+			Set tStatus = ..StopProduction(tNamespace,30,.tInitialState,.tState,1)
+			$$$ThrowOnError(tStatus)
+		}
+	} Catch eException {
+		Set tStatus=eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GetProductionList">
+<Description>
+Get the list of production names</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pOrder:%String,*pStatus:%Status=$$$OK</FormalSpec>
+<ReturnType>%ListOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	Try {
+	
+		Set tProductionList = ##class(%ListOfDataTypes).%New()
+		
+		Set tNamespace = ""
+		For {
+			Set tNamespace = $ORDER(^%SYS("Ensemble","RunningNamespace",tNamespace))
+			Quit:tNamespace=""
+			
+			Set tStatus = tProductionList.Insert(tNamespace)
+			$$$ThrowOnError(tStatus)
+		}
+	} Catch eException {
+		Set pStatus = eException.AsStatus()	
+	}
+	Quit tProductionList
+]]></Implementation>
+</Method>
+
+<Method name="StopProduction">
+<Description>
+Try to stop the Production in pNamespace (if not already stopped)
+ (we assume only one Production per namespace !)
+Result can be:
+  failure, returns %Status
+  success, returns
+     pState=1 ($$$eProductionStateRunning)
+     pState=2 ($$$eProductionStateStopped)
+     pState=3 ($$$eProductionStateSuspended)
+     pState=4 ($$$eProductionStateTroubled)
+     pState=5 ($$$eProductionStateNetworkStopped) </Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pNamespace:%String,pTimeout:%Numeric=30,&pInitialState:%Integer,&pState:%Integer,pForce:%Boolean=0]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+ 	
+ 	Try {
+	 	
+ 		New $NAMESPACE
+ 		Set $NAMESPACE = pNamespace
+ 		
+ 		Set (pInitialState,pState) = 0
+ 		
+ 		Set tStatus = ##class(Ens.Director).GetProductionStatus(.tProductionName,.pInitialState)
+ 		$$$ThrowOnError(tStatus)
+		
+		If (pInitialState '= $$$eProductionStateRunning) {
+			Set pState = $$$eProductionStateStopped
+			Quit
+		}
+ 		
+ 		Set tStatus = ##class(Ens.Director).StopProduction(pTimeout,pForce)
+ 		$$$ThrowOnError(tStatus)
+ 		
+ 		Set tStatus = ##class(Ens.Director).GetProductionStatus(.tProductionName,.pState)
+ 		$$$ThrowOnError(tStatus)
+ 		
+ 	} Catch eException {
+	 	Set tStatus = eException.AsStatus()
+ 	}
+ 	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="StartProduction">
+<Description>
+Try to start pProduction in pNamespace (if it is stopped)
+Result can be:
+  failure, returns %Status
+  success, returns
+     pState=1 ($$$eProductionStateRunning)
+     pState=2 ($$$eProductionStateStopped)
+     pState=3 ($$$eProductionStateSuspended)
+     pState=4 ($$$eProductionStateTroubled)
+     pState=5 ($$$eProductionStateNetworkStopped) </Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pNamespace:%String,pProductionName,&pState:%Integer]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		New $NAMESPACE
+ 		Set $NAMESPACE = pNamespace
+ 		
+		// Get current status
+		Set tStatus = ##class(Ens.Director).GetProductionStatus(.tProductionName,.pState)
+		$$$ThrowOnError(tStatus)
+		
+		Quit:(pState '= $$$eProductionStateStopped)
+		
+		If ($GET(pProductionName) = "") {
+			Set pProductionName = ##class(HS.Util.Installer.ConfigItem).GetPropertyValue(pNamespace,"Production",.tStatus)
+			$$$ThrowOnError(tStatus)
+		}
+		
+		Set tDisabled=##class(HS.Util.Installer.ConfigItem).GetPropertyValue(pNamespace,"Disabled",.tStatus)
+		$$$ThrowOnError(tStatus)
+		
+		If (tDisabled) {
+			$$$ThrowStatus($$$ERROR($$$GeneralError, "Production is disabled"))
+		}
+		
+		// Try to start it
+		Set tStatus = ##class(Ens.Director).StartProduction(pProductionName)
+		$$$ThrowOnError(tStatus)
+		
+		// Check if it started
+		Set tStatus = ##class(Ens.Director).GetProductionStatus(.tProductionName,.pState)
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+	 	Set tStatus = eException.AsStatus()
+ 	}
+ 	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
