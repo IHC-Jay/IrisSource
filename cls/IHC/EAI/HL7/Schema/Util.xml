@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.HL7.Schema.Util">
+<Super>IHC.EAI.Common.Util</Super>
+
+<Method name="RefreshSchemas">
+<Description>
+Write ##class(IHC.EAI.HL7.Schema.Util).RefreshSchemas()</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		// Run from EAI NS
+		If ($NAMESPACE '= "EAI") {
+			New $NAMESPACE
+			Set $NAMESPACE = "EAI"
+		}
+		
+		Set tStatus = ##class(IHC.EAI.System.Data.Namespace).Init(1)
+		$$$ThrowOnError(tStatus)
+		
+		If (pNamespace '= "") {
+			Set tStatus = ..ExportImport(pNamespace,1)
+			$$$ThrowOnError(tStatus)
+		} Else {
+			Set tStatus = ..GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+			$$$ThrowOnError(tStatus)
+			
+			Set tQuery = "SELECT DISTINCT Namespace FROM IHC_EAI_System_Data.Namespace WHERE EnvironmentType = ? AND InstanceName = ?"
+			Set tStatement = ##class(%SQL.Statement).%New()
+			Set tStatus = tStatement.%Prepare(tQuery)
+			$$$ThrowOnError(tStatus)
+			Set tResultSet = tStatement.%Execute(tEnvironment,tInstanceName)
+			
+			Set tIsFirst = 1
+			While (tResultSet.%Next(.tStatus)) {
+				$$$ThrowOnError(tStatus)
+				
+				Set tNamespace = tResultSet.%GetData(1)
+				Write !, "Refreshing namespace: " _ tNamespace
+				Set tStatus = ..ExportImport(tNamespace,1)
+				$$$ThrowOnError(tStatus)
+				Write !
+			}
+			$$$ThrowOnError(tStatus)
+		}
+	
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="ExportImport">
+<Description>
+Write ##class(IHC.EAI.HL7.Schema.Util).ExportImport()</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pCustomOnly:%Boolean=1,pExportDir:%String="/tmp/",pPurgeTempFiles:%Boolean=1</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		
+		Set tTypeCategories = ""
+		If (pCustomOnly) {
+			Set tStatus = ##class(EnsLib.HL7.Schema).TypeCategoriesExecute(.tTypeCategories,"+")
+			$$$ThrowOnError(tStatus)
+		} Else {
+			Set tStatus = ##class(EnsLib.HL7.Schema).TypeCategoriesExecute(.tTypeCategories)
+			$$$ThrowOnError(tStatus)
+		}
+		
+		If ($DATA(tTypeCategories) = 11) {
+			Set tKey = $ORDER(tTypeCategories("ver",""))
+			
+			While (tKey '= "") {
+				Set tTypeCategory = tTypeCategories("ver",tKey)
+				
+				//Write !, "Category: " _ tTypeCategory
+				Set tSchemaFile = ##class(%FileCharacterStream).%New()
+				Set tFilename = pExportDir _ tTypeCategory _ "_" _ $NAMESPACE _ "_" _ 
+											$REPLACE($REPLACE($REPLACE($ZDT($H,3)," ",""),":",""),"-","") _ ".HL7"
+				Set tSchemaFile.Filename = tFilename
+				
+				// Export
+				Write !, "Exporting schema: " _ tTypeCategory
+				Set tStatus = ##class(EnsLib.HL7.SchemaXML).Export(tTypeCategory,tSchemaFile)
+				$$$ThrowOnError(tStatus)
+				
+				// Re-Import
+				Write !, "Importing file: " _ tFilename
+				Set tStatus = ##class(EnsLib.HL7.SchemaXML).Import(tFilename,.tCatImported)
+				$$$ThrowOnError(tStatus)
+				
+				If (pPurgeTempFiles) {
+					// Remove after import
+					Kill tSchemaFile
+					Do ##class(%File).Delete(tFilename)
+				}
+				Set tKey = $ORDER(tTypeCategories("ver",tKey))
+			}
+		
+		} Else {
+			// TypeCategoriesExecute didn't return anything
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
