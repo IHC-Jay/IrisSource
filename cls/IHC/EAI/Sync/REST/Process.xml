@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.Sync.REST.Process">
+<Super>Ens.BusinessProcess</Super>
+
+<Parameter name="SETTINGS">
+<Default>TargetConfigName</Default>
+</Parameter>
+
+<Parameter name="BaseServiceURL">
+<Default>/sync/</Default>
+</Parameter>
+
+<Property name="TargetConfigName">
+<Description>
+Target Config</Description>
+<Type>Ens.DataType.ConfigName</Type>
+<InitialExpression>"IHC.EAI.Sync.REST.Operation"</InitialExpression>
+</Property>
+
+<Method name="OnRequest">
+<Description>
+Handle monitor requests</Description>
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		// Verify this is a primary mirror member
+		If (($System.Mirror.IsMember()) && ($System.Mirror.IsPrimary())) {
+		
+			// Get the sync type for this request
+			Set tSyncType = $ZCONVERT(pRequest.SyncType,"L")
+			If (tSyncType = "all") {
+				Set tStatus = ..SyncAll(pRequest)
+				$$$ThrowOnError(tStatus)
+			} ElseIf (tSyncType = "ssl") {
+				Set tStatus = ..SyncSSLConfigs(pRequest)
+				$$$ThrowOnError(tStatus)
+			} ElseIf (tSyncType = "tasks") {
+				Set tStatus = ..SyncTasks(pRequest)
+				$$$ThrowOnError(tStatus)
+			} ElseIf (tSyncType = "hl7schemas") {
+				Set tStatus = ..SyncHL7Schemas(pRequest)
+				$$$ThrowOnError(tStatus)
+			} ElseIf (tSyncType = "sqlgateway") {
+				Set tStatus = ..SyncSQLG(pRequest)
+				$$$ThrowOnError(tStatus)
+			} Else {
+				$$$ThrowStatus($$$ERROR($$$EnsErrGeneral, "Sync Type " _ pRequest.SyncType _ " not implemented"))
+			}
+		} Else {
+			$$$ThrowStatus($$$ERROR($$$GeneralError, "Not a primary mirror member."))
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="SyncAll">
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+</Method>
+
+<Method name="SyncSSLConfigs">
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tBackupMemberList As %ListOfDataTypes
+	
+	Set tStatus = $$$OK
+	Try {
+		Set tSSLConfigs = ##class(IHC.EAI.Sync.Util).GetSSLConfigs(.tStatus)
+		$$$ThrowOnError(tStatus)
+		
+		Set tJSON = tSSLConfigs.%ToJSON()
+		
+		Set tJSONContent = ##class(%Stream.GlobalCharacter).%New()
+		Set tStatus = tJSONContent.Write(tJSON)
+		$$$ThrowOnError(tStatus)
+		Do tJSONContent.Rewind()
+		
+		// Set the location info
+		Set tProperties = ""
+		Set tStatus = ##class(IHC.EAI.Sync.Util).GetBackupMemberInfo(.tBackupMemberList)
+		$$$ThrowOnError(tStatus)
+		
+		// Loop over backup members, issuing a sync call to each
+		For i=1:1:tBackupMemberList.Count() {
+			Set tBackupMemberItem = tBackupMemberList.GetAt(i)
+			Set tSSLSyncRequest = ##class(IHC.EAI.Sync.REST.Request).%New()
+			Set tSSLSyncRequest.Command = pRequest.Command
+			Set tSSLSyncRequest.SyncType = pRequest.SyncType
+			Set tSSLSyncRequest.JSONContent = tJSONContent
+			
+			
+			Set tURL = ..#BaseServiceURL
+			Set tURLLastChar = $EXTRACT(tURL,($LENGTH(tURL)-1),$LENGTH(tURL))
+			Set:(tURLLastChar '= "/") tURL = tURL _ "/"
+		
+			Set tURL = tURL _ $ZCONVERT(pRequest.SyncType,"L")
+			
+			Set tSSLSyncRequest.URL = tURL
+			Set tSSLSyncRequest.Server = $PIECE(tBackupMemberItem,"|",1)
+			Set tSSLSyncRequest.Port = $PIECE(tBackupMemberItem,"|",2)
+			
+			Set tStatus = ..SendRequestSync(..TargetConfigName,pRequest,.pResponse)
+			$$$ThrowOnError(tStatus)
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="SyncTasks">
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+</Method>
+
+<Method name="SyncHL7Schemas">
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+</Method>
+
+<Method name="SyncSQLG">
+<FormalSpec>pRequest:IHC.EAI.Sync.REST.Request,*pResponse:IHC.EAI.Sync.REST.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+</Method>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>ProcessDefaultData</DefaultData>
+<Data name="ProcessDefaultData">
+<Subscript>"Process"</Subscript>
+<Value name="1">
+<Value>TargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
