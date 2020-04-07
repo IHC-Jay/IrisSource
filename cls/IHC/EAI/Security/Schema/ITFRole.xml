@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.Security.Schema.ITFRole">
+<Super>%RegisteredObject,IHC.EAI.Log.Util,IHC.EAI.Security.Schema.Profile</Super>
+
+<Property name="GrantedSystemResources">
+<Description><![CDATA[
+List of granted system (%) resources<br/>]]></Description>
+<Type>IHC.EAI.Security.Schema.Resource</Type>
+<Collection>array</Collection>
+<SqlFieldName>GrantedSystemResources</SqlFieldName>
+</Property>
+
+<Property name="GrantedITFResources">
+<Description><![CDATA[
+List of custom ITF resources<br/>]]></Description>
+<Type>IHC.EAI.Security.Schema.Resource</Type>
+<Collection>array</Collection>
+<SqlFieldName>ITFRole_GrantedITFResources</SqlFieldName>
+</Property>
+
+<Method name="DeployITFRoles">
+<Description><![CDATA[
+Initialize the SQL privileges based on a JSON source file<br/>
+Do ##class(IHC.EAI.Security.Schema.ITFRole).DeployITFRoles("[DirToInitJSON]")]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pDir:%String,pFilename:%String,pEnvironment:%String,pInstanceType:%String,&pLogFile:%File]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		Set tRecordCount = 0
+		
+		Set tInitFile = ##class(IHC.EAI.Security.Util).fixPath(pDir) _ pFilename
+		Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployITFRoles","JSON init file: " _ tInitFile) $$$ThrowOnError(tStatus)
+		
+		If ##class(%File).Exists(tInitFile) {
+			Set tFile = ##class(%FileCharacterStream).%New()
+			Set tFile.Filename = tInitFile
+			
+			Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(tFile)
+			
+			Set tIter = tConsumedJSON.%GetIterator()
+			
+			While (tIter.%GetNext(.key,.value)) {
+				Set tName= value.Name
+				Set tDescription= value.Description
+				Set tEnvironments = value.Environment // %Library.Array
+				Set tInstanceTypes = value.InstanceType // %Library.Array	
+				Set tGrantedRoles = value.GrantedRoles // %Library.Array
+				Set tGrantedSystemResources = value.GrantedSystemResources // %Library.Array	
+				Set tGrantedITFResources = value.GrantedITFResources // %Library.Array	
+				Set tEnvironment = 0
+				Set tInstanceType = 0
+				
+				// List of environments
+				Set tEnvironmentsList = ##class(%ListOfDataTypes).%New()
+				Set tEnvIter = tEnvironments.%GetIterator()
+				While (tEnvIter.%GetNext(.tEnvKey,.tEnvValue)) {
+					Set:(tEnvValue = pEnvironment) tEnvironment = 1
+				}
+				
+				// List of instance types
+				Set tInstanceTypesList = ##class(%ListOfDataTypes).%New()
+				Set tInstIter = tInstanceTypes.%GetIterator()
+				While (tInstIter.%GetNext(.tInstKey,.tInstValue)) {
+					Set:(tInstValue = pInstanceType) tInstanceType = 1
+				}
+				
+				// List of granted roles
+				Set tGrantedRolesList = ##class(%ListOfDataTypes).%New()
+				Set tGrRolesIter = tGrantedRoles.%GetIterator()
+				While (tGrRolesIter.%GetNext(.tGrRolesKey,.tGrRolesValue)) {
+					Do tGrantedRolesList.Insert(tGrRolesValue)	
+				}
+				
+				// List of granted system resource
+				Set tGrantedSysResourcesList = ##class(%ListOfObjects).%New()
+				Set tGrSysResourceIter = tGrantedSystemResources.%GetIterator()
+				While (tGrSysResourceIter.%GetNext(.tGrSysResourceKey,.tGrSysResourceValue)) {
+					Set tGrSysResourceObj = ##class(IHC.EAI.Security.Schema.Resource).%New()
+					Set tGrSysResourceObj.Name = tGrSysResourceValue.Name
+					Set tGrSysResourceObj.Permission = tGrSysResourceValue.Permission
+					Do tGrantedSysResourcesList.Insert(tGrSysResourceObj)	
+				}
+				
+				// List of granted system resource
+				Set tGrantedITFResourcesList = ##class(%ListOfObjects).%New()
+				Set tGrITFResourceIter = tGrantedITFResources.%GetIterator()
+				While (tGrITFResourceIter.%GetNext(.tGrITFResourceKey,.tGrITFResourceValue)) {
+					Set tGrITFResourceObj = ##class(IHC.EAI.Security.Schema.Resource).%New()
+					Set tGrITFResourceObj.Name = tGrITFResourceValue.Name
+					Set tGrITFResourceObj.Permission = tGrITFResourceValue.Permission
+					Do tGrantedITFResourcesList.Insert(tGrITFResourceObj)	
+				}
+				
+				If ((tEnvironment) && (tInstanceType)) {
+					// Update role
+					Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployITFRoles","Deploying role: " _ tName) $$$ThrowOnError(tStatus)
+					Set tStatus = ..DeployITFRole(tName,tDescription,tGrantedRolesList,tGrantedSysResourcesList,tGrantedITFResourcesList)
+					$$$ThrowOnError(tStatus)
+				}
+
+				Set tRecordCount = tRecordCount + 1
+			}
+		}
+		
+		Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployITFRoles","Record count: " _ tRecordCount) $$$ThrowOnError(tStatus)
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="DeployITFRole">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pName:%String,pDescription:%String,pGrantedRoles:%ListOfDataTypes,pGrantedSystemResources:%ListOfObjects,pGrantedITFResources:%ListOfObjects</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		New $NAMESPACE
+   		Set $NAMESPACE = "%SYS"
+		
+		Set tName = pName
+		Set tDescription = pDescription
+		
+		// Build list of granted roles
+		Set tGrantedRoles = ""
+		For i=1:1:pGrantedRoles.Count() {
+			Set tGrantedRole = pGrantedRoles.GetAt(i)
+			Set:($LENGTH(tGrantedRoles) = 0) tGrantedRoles = tGrantedRole
+			Set:($LENGTH(tGrantedRoles) > 0) tGrantedRoles = tGrantedRoles _ "," _ tGrantedRole
+		}
+		
+		// Build list of granted resources
+		Set tGrantedResources = ""
+		For i=1:1:pGrantedSystemResources.Count() {
+			Set tSystemResource = pGrantedSystemResources.GetAt(i)
+			If ($LENGTH(tGrantedResources) > 0) {
+				Set tGrantedResources = tGrantedResources _ "," _ tSystemResource.Name _ ":" _ tSystemResource.Permission
+			} Else {
+				Set tGrantedResources = tSystemResource.Name _ ":" _ tSystemResource.Permission
+			}
+		}
+		For i=1:1:pGrantedITFResources.Count() {
+			Set tITFResource = pGrantedITFResources.GetAt(i)
+			If ($LENGTH(tGrantedResources) > 0) {
+				Set tGrantedResources = tGrantedResources _ "," _ tITFResource.Name _ ":" _ tITFResource.Permission
+			} Else {
+				Set tGrantedResources = tITFResource.Name _ ":" _ tITFResource.Permission
+			}
+		}
+		
+		// Check if exists
+		Set tProperties("Resources") = ""
+		Set tProperties("GrantedRoles") = ""
+		Set tExists = ##class(Security.Roles).Exists(tName)
+		If (tExists) {
+			// Clear the role
+			Set tStatus = ##class(Security.Roles).Modify(tName,.tProperties)
+			$$$ThrowOnError(tStatus)
+		} Else {
+			// Create a new role in case it doesn't already exist on the server
+			Set tStatus = ##class(Security.Roles).Create(tName,tDescription,"","")
+			$$$ThrowOnError(tStatus)
+		}
+		
+		// Update the role to reflect the configurations in the load tables
+		Set tProperties("Description") = tDescription
+		Set tProperties("Resources") = tGrantedResources
+		Set tProperties("GrantedRoles") = tGrantedRoles
+		Set tStatus = ##class(Security.Roles).Modify(tName,.tProperties)
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>

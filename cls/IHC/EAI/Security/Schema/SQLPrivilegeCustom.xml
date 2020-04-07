@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.Security.Schema.SQLPrivilegeCustom">
+<Super>%RegisteredObject,IHC.EAI.Log.Util,IHC.EAI.Security.Schema.AbstractObject</Super>
+
+<Property name="Grantee">
+<Description>
+Grantee</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="GlobalReadAccess">
+<Description><![CDATA[
+SELECT access to all SQL resources<br/>
+To achieve this, the method *MethodName* must<br/>
+be executed any time new resources are added.]]></Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Method name="DeployCustomSQLPrivileges">
+<Description><![CDATA[
+Initialize the SQL privileges based on a JSON source file<br/>
+Do ##class(IHC.EAI.Security.Schema.SQLPrivilegeCustom).DeployCustomSQLPrivileges("[Filename]")]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pDir:%String,pFilename:%String,pEnvironment:%String,pInstanceType:%String,&pLogFile:%File]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		Set tStatus = ##class(IHC.EAI.Security.Util).CheckPrivileges()
+		$$$ThrowOnError(tStatus)
+		
+		If (pInstanceType '= "MSGBK") {	// Check mirror status for all but primary
+			Set tIsPrimary = ##class(%SYSTEM.Mirror).IsPrimary()
+			If (tIsPrimary = 0) {
+				Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges","This member is not primary. Skipping deployment of custom SQL privileges.") $$$ThrowOnError(tStatus)
+				Quit
+			}
+		}
+		
+		Set tRecordCount = 0
+		
+		Set tInitFile = ##class(IHC.EAI.Security.Util).fixPath(pDir) _ pFilename
+		Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges","JSON init file: " _ tInitFile) $$$ThrowOnError(tStatus)
+		
+		If ##class(%File).Exists(tInitFile) {
+			Set tFile = ##class(%FileCharacterStream).%New()
+			Set tFile.Filename = tInitFile
+			
+			Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(tFile)
+			
+			Set tIter = tConsumedJSON.%GetIterator()
+			
+			While (tIter.%GetNext(.key,.value)) {
+				Set tGrantee = value.Grantee
+				Set tGlobalReadAccess = value.GlobalReadAccess
+				Set tEnvironments = value.Environment // %Library.Array
+				Set tInstanceTypes = value.InstanceType // %Library.Array	
+				Set tEnvironment = 0
+				Set tInstanceType = 0
+				
+				// List of environments
+				Set tEnvironmentsList = ##class(%ListOfDataTypes).%New()
+				Set tEnvIter = tEnvironments.%GetIterator()
+				While (tEnvIter.%GetNext(.tEnvKey,.tEnvValue)) {
+					Set:(tEnvValue = pEnvironment) tEnvironment = 1
+				}
+				
+				// List of instance types
+				Set tInstanceTypesList = ##class(%ListOfDataTypes).%New()
+				Set tInstIter = tInstanceTypes.%GetIterator()
+				While (tInstIter.%GetNext(.tInstKey,.tInstValue)) {
+					Set:(tInstValue = pInstanceType) tInstanceType = 1
+				}
+
+				If ((tEnvironment) && (tInstanceType)) {
+					// Deploy the custom sql privilege
+					Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges","Deploying custom SQL privileges for grantee: " _ tGrantee) $$$ThrowOnError(tStatus)
+					
+					If (($FIND(tGrantee,"-") > 0) && ($FIND(tGrantee,"""") = 0)) {
+						Set tGrantee = """" _ tGrantee _ """"
+					}
+					
+					If (tGlobalReadAccess) {
+						Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges","Deploying global read access for: " _ tGrantee) $$$ThrowOnError(tStatus)
+						Set tStatus = ..DeployGlobalReadAccess(tGrantee,pLogFile)
+						$$$ThrowOnError(tStatus)
+					}
+
+					Set tRecordCount = tRecordCount + 1
+				}
+			}
+		}
+		
+		Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges","Record count: " _ tRecordCount) $$$ThrowOnError(tStatus)
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="DeployGlobalReadAccess">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pGrantee:%String,&pLogFile:%File]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tNamespaceList As %ListOfDataTypes
+	
+	Set tStatus = $$$OK
+	Try {
+		
+		// Get the list of namespaces for this instance
+		Set tStatus = ##class(IHC.EAI.Security.Util).GetNamespaceList(.tNamespaceList)
+		$$$ThrowOnError(tStatus)
+		
+		// Add the standard non-interface namespaces
+		Do tNamespaceList.Insert("%SYS")
+		Do tNamespaceList.Insert("ITFCOMMON")
+		Do tNamespaceList.Insert("EAI")
+		
+		For i=1:1:tNamespaceList.Count() {
+			
+			Set tNamespace = tNamespaceList.GetAt(i)
+			
+			// Get the grant list
+			Set tStatus = ..GetGRAGrantList(tNamespace,pGrantee,.tGrantList)
+			$$$ThrowOnError(tStatus)
+			
+			// Execute all of the grants
+			Set tStatus = ..GrantGRASQLPrivileges(tNamespace,tGrantList,.pLogFile)
+  			$$$ThrowOnError(tStatus)
+  			
+		}
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GetGRAGrantList">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pGrantee:%String,*pGrantList:%ListOfDataTypes</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tResultSet As %SQL.StatementResult
+	
+	Set pGrantList = ##class(%ListOfDataTypes).%New()
+	  
+	Set tStatus = $$$OK
+	Try {
+	
+		Set tDBList = ##class(%ListOfDataTypes).%New()
+		
+		If (pNamespace = "%SYS") {
+			Do tDBList.Insert("CACHESYS")
+			Do tDBList.Insert("CACHEAUDIT")
+			Do tDBList.Insert("CACHELIB")
+		} Else {
+			Do tDBList.Insert(pNamespace)	
+			Do tDBList.Insert("CACHELIB")
+		}
+		
+		Set tList = ##class(%ListOfDataTypes).%New()
+		
+		// Get the local database packages
+		For i=1:1:tDBList.Count() {
+			Set tDatabase = tDBList.GetAt(i)
+			Set tStatus = ##class(IHC.EAI.Security.Util).GetLocalDatabasePackages(pNamespace,tDatabase,,.tList)
+			$$$ThrowOnError(tStatus)
+		}
+		
+		// Get the database-defined (CPF) packages and mappings
+		Set tStatus = ##class(IHC.EAI.Security.Util).GetCPFMappedPackages(pNamespace,.tList)
+		$$$ThrowOnError(tStatus)
+		
+		// Get the namespace-defined package mappings
+		Set tStatus = ##class(IHC.EAI.Security.Util).GetNamespaceMappedPackages(pNamespace,.tList)
+		$$$ThrowOnError(tStatus)
+		
+		// Create the grant statements for this namespace
+		For i=1:1:tList.Count() {
+			Set tPackageItem = tList.GetAt(i)
+			Set tGrantStatement = ##class(IHC.EAI.Security.Util).CreateGrantStatementFromPackage(tPackageItem,"SELECT",pGrantee,.tStatus)
+			$$$ThrowOnError(tStatus)
+			Do pGrantList.Insert(tGrantStatement)
+		}
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="GrantGRASQLPrivileges">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pNamespace:%String,pGrantList:%ListOfDataTypes,&pLogFile:%File]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#Dim tResultSet As %SQL.StatementResult
+	
+	Set tStatus = $$$OK
+	Try {
+		
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		
+		For j=1:1:pGrantList.Count() {
+  			Set tGrantSQL = pGrantList.GetAt(j)
+  			Set tStatus = ..Log(.pLogFile,..%ClassName(1),"DeployCustomSQLPrivileges",pNamespace _ "|" _ tGrantSQL) $$$ThrowOnError(tStatus)
+  			Set tGrantRS = ##class(%SQL.Statement).%ExecDirect(,tGrantSQL)
+			If ((tGrantRS.%SQLCODE) && (tGrantRS.%SQLCode '= 100)) {
+				Set tSQLCODE = tGrantRS.%SQLCODE
+				Set tMessage = tGrantRS.%Message
+				CONTINUE:(tMessage [ "SQLCODE=-428")	// Stored proc doesn't exist for this namespace (possibly not an ENS namespace like %SYS)
+				Set tStatus = $$$ERROR($$$GeneralError,"Failed to execute grant statement. (Namespace:" _ $NAMESPACE _ ")" _ " (SQLCODE:" _ tSQLCODE _ ")" _ " (Message:" _ tMessage _ ")")
+				$$$ThrowOnError(tStatus)
+			}
+		}
+  	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
