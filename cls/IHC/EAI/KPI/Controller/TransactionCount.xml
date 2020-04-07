@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.EAI.KPI.Controller.TransactionCount">
+<Description>
+Class that stores a snaphsot of daily transaction count data</Description>
+<Super>%RegisteredObject,Ens.Util.JSON,IHC.EAI.Common.Util</Super>
+
+<Parameter name="MetricsService">
+<Default>IHC.EAI.KPI.Service.Metrics</Default>
+</Parameter>
+
+<Parameter name="MetricsRequestName">
+<Default>TransactionCount</Default>
+</Parameter>
+
+<Parameter name="MetricsAPIURL">
+<Default>/eai/MetricsAPI/count/transaction/</Default>
+</Parameter>
+
+<Method name="CreateSnapshots">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pJSONStream:%Stream.GlobalCharacter,pCountType="",pCountDate:%Date=($ZDH($ZD($H,3),3)-1),pSendSnapshots:%Boolean=0,pDebug:%Boolean=0</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		// Run for all namespaces
+		Set tStatus = ..GetEnvironment(.tEnvironment,.tInstanceType,.tInstanceName)
+		$$$ThrowOnError(tStatus)
+		
+		// Create the JSON container stream
+		Set pJSONStream = ##class(%Stream.GlobalCharacter).%New()
+		Do pJSONStream.Write("[")
+		
+		// Loop through namespace list
+		Set tQuery = "SELECT DISTINCT Namespace FROM IHC_EAI_System_Data.Namespace WHERE EnvironmentType = ? AND InstanceName = ?"
+		Set tStatement = ##class(%SQL.Statement).%New()
+		Set tStatus = tStatement.%Prepare(tQuery)
+		$$$ThrowOnError(tStatus)
+		Set tResultSet = tStatement.%Execute(tEnvironment,tInstanceName)
+		
+		Set tIsFirst = 1
+		While (tResultSet.%Next(.tStatus)) {
+			$$$ThrowOnError(tStatus)
+			
+			Set tNamespace = tResultSet.%GetData(1)
+			
+			Set tJSONObj = ""
+			
+			Do:'(tIsFirst) pJSONStream.Write(",")
+			
+			// Create the snapshot per namespace
+			If (pCountType = "") {
+				Set tInJSONObj = ..CreateSnapshot(tNamespace,"In",pCountDate,pDebug,.tStatus)
+				$$$ThrowOnError(tStatus)
+				Set tStatus = ..ObjectToJSONStream(tInJSONObj,.tInJSONObjStream,"aiw")
+				$$$ThrowOnError(tStatus)
+				Do pJSONStream.CopyFrom(tInJSONObjStream)
+				
+				Do pJSONStream.Write(",")
+				
+				Set tOutJSONObj = ..CreateSnapshot(tNamespace,"Out",pCountDate,pDebug,.tStatus)
+				$$$ThrowOnError(tStatus)
+				Set tStatus = ..ObjectToJSONStream(tOutJSONObj,.tOutJSONObjStream,"aiw")
+				$$$ThrowOnError(tStatus)
+				Do pJSONStream.CopyFrom(tOutJSONObjStream)
+				
+			} Else {
+				Do:('tIsFirst) pJSONStream.Write(",")
+				
+				// Write JSON out to array stream
+				Set tJSONObj = ..CreateSnapshot(tNamespace,pCountType,pCountDate,pDebug,.tStatus)
+				$$$ThrowOnError(tStatus)
+				Set tStatus = ..ObjectToJSONStream(tJSONObj,.tJSONObjStream,"aiw")
+				$$$ThrowOnError(tStatus)
+				Do pJSONStream.CopyFrom(tJSONObjStream)
+			}
+			
+			Set:(tIsFirst) tIsFirst = 0
+		}
+		$$$ThrowOnError(tStatus)
+		
+		Do pJSONStream.Write("]")
+		
+		If (pSendSnapshots) {
+			// Send all snapshots to the business service
+			Set tStatus = ..SendSnapshot(pJSONStream)
+			$$$ThrowOnError(tStatus)
+		}
+			
+	} Catch eException {
+		Set tStatus = eException.AsStatus()	
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="CreateSnapshot">
+<Description><![CDATA[
+Create a Transaction Count Snapshot<br/>
+	Params:<br/>
+		pCountType:<br/>
+			Out (Default)<br/>
+			In<br/>
+		pCountDate:<br/>
+			Format is Cache internal format<br/>
+			Example: 64098<br/>
+			If empty, process count for yesterday<br/>
+Do ##class(IHC.EAI.KPI.Controller.TransactionCount).CreateSnapshot("",,,1)]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pCountType:%String="Out",pCountDate:%Date=($ZDH($ZD($H,3),3)-1),pDebug:%Boolean=0,pStatus:%Status=$$$OK</FormalSpec>
+<ReturnType>IHC.EAI.KPI.JSON.TransactionCount</ReturnType>
+<Implementation><![CDATA[
+	Set tSnapshotJSON = ""
+	Try {
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		
+		Kill:(pDebug) ^EAI.Debug.TransactionCount
+		
+		Set tCurrentDatetime = $ZDATETIME($H,3)
+		
+		Set tSnapshotJSON = ..CreateSnapshotJSON(pCountType,pCountDate,tCurrentDatetime,pDebug,.pStatus)
+		$$$ThrowOnError(pStatus)
+
+	} Catch eException {
+		Set pStatus = eException.AsStatus()
+	}
+	Quit tSnapshotJSON
+]]></Implementation>
+</Method>
+
+<Method name="CreateSnapshotJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pCountType:%String="Out",pCountDate:%Date,pCurrentDatetime:%TimeStamp,pDebug:%Boolean=0,*pStatus:%Status=$$$OK</FormalSpec>
+<ReturnType>IHC.EAI.KPI.JSON.TransactionCount</ReturnType>
+<Implementation><![CDATA[
+	#Dim tBLResultSet As %SQL.StatementResult
+	#Dim tMsgResultSet As %SQL.StatementResult
+	
+	Set tSnapshotJSON = ""
+	
+	Try {
+		
+		Set tSnapshotJSON = ##class(IHC.EAI.KPI.JSON.TransactionCount).%New()
+		Set tSnapshotJSON.createdOn = pCurrentDatetime
+		Set tSnapshotJSON.application = "Ensemble"
+		Set tSnapshotJSON.group = $NAMESPACE
+		Set tSnapshotJSON.valueDate = $ZD(pCountDate,3)
+		
+		Set tBusinessType = ""
+		If (pCountType = "In") {
+			// Count Business Service Transactions
+			Set tBusinessType = 1
+			Set tSnapshotJSON.type = pCountType
+		} ElseIf (pCountType = "Out") {
+			Set tBusinessType = 3
+			Set tSnapshotJSON.type = pCountType
+		} Else {
+			$$$ThrowStatus($$$ERROR($$$GeneralError, "Unrecognized business type: " _ tBusinessType))	
+		}
+		
+		Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,pCountDate,pCountType,"BusinessType") = tBusinessType
+		
+		// Execute query against header table
+		Set tCountDayStartTS = $ZDT($ZDTH($ZD(pCountDate,1) _ " 00:00:00"),3)
+		Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,pCountDate,pCountType,"TimeProcessedStartTime") = tCountDayStartTS
+		Set tCountDayEndTS = $ZDT($ZDTH($ZD(pCountDate,1) _ " 23:59:59"),3)
+		Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,pCountDate,pCountType,"TimeProcessedEndTime") = tCountDayEndTS
+		
+		Set SQLCODE = "", tMsgCount = 0
+		DO $SYSTEM.SQL.SetSelectMode(0)
+		If (tBusinessType = 3) {
+			&sql(SELECT COUNT(%Id) INTO :tMsgCount 
+					FROM Ens.MessageHeader AS mh
+					WHERE 
+						mh.%Id >= 
+							(SELECT TOP 1 ID FROM Ens.MessageHeader AS mh1 WHERE mh1.TimeCreated >= :tCountDayStartTS ORDER BY mh1.TimeCreated ASC) AND 
+						mh.%Id <= 
+							(SELECT TOP 1 ID FROM Ens.MessageHeader AS mh2 WHERE mh2.TimeCreated <= :tCountDayEndTS ORDER BY mh2.TimeCreated DESC) AND
+						TargetBusinessType = 3 AND 
+						TargetConfigName NOT IN ('HddInterfaceWebserviceOperation','Out-APE-Alert-REST','PagerAlert'))
+		} ElseIf (tBusinessType = 1) {
+			&sql(SELECT COUNT(%Id) INTO :tMsgCount 
+					FROM Ens.MessageHeader AS mh
+					WHERE 
+						mh.%Id >= 
+							(SELECT TOP 1 ID FROM Ens.MessageHeader AS mh1 WHERE mh1.TimeCreated >= :tCountDayStartTS ORDER BY mh1.TimeCreated ASC) AND 
+						mh.%Id <= 
+							(SELECT TOP 1 ID FROM Ens.MessageHeader AS mh2 WHERE mh2.TimeCreated <= :tCountDayEndTS ORDER BY mh2.TimeCreated DESC) AND
+						SourceBusinessType = 1 AND 
+						SourceConfigName NOT IN ('HddInterfaceWebserviceOperation','Out-APE-Alert-REST','PagerAlert'))
+		}
+		
+		If ((SQLCODE '= 0) && (SQLCODE '= 100)) {
+			$$$ThrowStatus($$$ERROR($$$GeneralError, "Failed to get transaction counts for namespace: " _ $NAMESPACE))	
+		}
+		
+		Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,pCountDate,pCountType,"TotalCount") = tMsgCount
+		
+		Set tSnapshotJSON.value = tMsgCount
+		
+	} Catch eException {
+		Set pStatus = eException.AsStatus()
+	}
+	Quit tSnapshotJSON
+]]></Implementation>
+</Method>
+
+<Method name="SendSnapshot">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pJSONStream:%Stream.GlobalCharacter</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		Set tRequest = ##class(IHC.EAI.KPI.Message.Request).%New()
+		Set tRequest.Command = "PUT"
+		Set tRequest.Name = ..#MetricsRequestName
+		Set tRequest.URL = ..#MetricsAPIURL	// CONFIG?
+		Set tRequest.JSONStream = ##class(%Stream.GlobalCharacter).%New()
+		Set tStatus = tRequest.JSONStream.CopyFrom(pJSONStream)
+		$$$ThrowOnError(tStatus)
+		
+		Set tStatus = ##class(Ens.Director).CreateBusinessService(..#MetricsService,.tBusSvc)
+		$$$ThrowOnError(tStatus)
+		
+		Set tStatus = tBusSvc.ProcessInput(tRequest,.tResponse)
+		$$$ThrowOnError(tStatus)
+		
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+
+<Method name="CreateMissingSnapshots">
+<Description><![CDATA[
+Record any snapshots that might be missing for the given month<br/>
+This will only work as far as we have message history...<br/>
+	Params:<br/>
+		pCountType:<br/>
+			OUT (Default)<br/>
+			IN<br/>
+		pCountDate:<br/>
+			Format is Cache internal format<br/>
+			Example: 64098<br/>
+			If empty, process count for yesterday<br/>
+Do ##class(IHC.EAI.KPI.Controller.TransactionCount).CreateMissingSnapshots("",,,1)]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pCountType:%String="",pCountDate:%Date="",pDebug:%Boolean=0</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		
+		Kill:(pDebug) ^EAI.Debug.TransactionCount
+		
+		Set tToday = $ZDH($ZD($H,3),3)
+		
+		Set tNextCountDate = "", tAndForward = 0
+		If (pCountDate = "") {
+			// Begin historical analysis
+			Set SQLCODE = "", tTimeCreated = ""
+			&sql(SELECT TOP 1 TimeCreated INTO :tTimeCreated FROM Ens.MessageHeader ORDER BY %Id ASC)
+			If ((SQLCODE '= 0) && (SQLCODE '= 100)) {
+				$$$ThrowStatus($$$ERROR($$$GeneralError, "Failed to query message header table for oldest known entries"))	
+			}
+			Set tNextCountDate = $ZDH(tTimeCreated,3)
+		} Else {
+			Set tNextCountDate = pCountDate
+		}
+		
+		// Is count date today?
+		If (tNextCountDate = tToday) {
+			Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,tNextCountDate,"Error") = "Count date is today. Cannot proceed."
+			Quit
+		}
+		
+		Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,tNextCountDate,"CountType") = pCountType
+		
+		Set tSafetyCount = 0
+		Do {
+			Set tSafetyCount = tSafetyCount + 1
+			Quit:(tSafetyCount > 50000)	// Kill if loop is out of control
+			
+			// Create record
+			Set:(pDebug) ^EAI.Debug.TransactionCount($NAMESPACE,tNextCountDate) = "Analyzing for date: " _ $ZD(tNextCountDate,3)
+			Set tStatus = ..CreateSnapshot(pCountType,tNextCountDate,pBusinessServiceName,pDebug)
+			$$$ThrowOnError(tStatus)
+			
+			Quit:(pCountDate '= "")	// Do only a single date if passed in
+			Set tNextCountDate = tNextCountDate + 1
+			
+		} While(tNextCountDate < tToday)	
+	} Catch eException {
+		Set tStatus = eException.AsStatus()
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
