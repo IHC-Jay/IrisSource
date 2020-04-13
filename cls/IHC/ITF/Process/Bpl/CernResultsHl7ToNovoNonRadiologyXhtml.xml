@@ -15,16 +15,37 @@ HddTargetConfigName:Custom setting to select Configuration item(s) to  request t
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="PCPServiceTargetConfigName">
+<Description>
+PCP Lookup Operation name</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional</Default>
+<Default>HddTargetConfigName:Additional,PCPServiceTargetConfigName:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernResultsHl7ToNovoNonRadiologyXhtmlDefaultData</DefaultData>
+<Data name="CernResultsHl7ToNovoNonRadiologyXhtmlDefaultData">
+<Subscript>"CernResultsHl7ToNovoNonRadiologyXhtml"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PCPServiceTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4450' width='2000' >
+<process language='objectscript' request='Ens.Request' height='4450' width='2000' >
 <context>
 <property name='targetList' type='%Library.String' collection='list' instantiate='0' >
 <parameters>
@@ -101,9 +122,34 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='htmlOut' type='Ens.StreamContainer' instantiate='0' />
+<property name='PCPServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='PCPID' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='PCPFirstName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='PCPMiddleName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='PCPLastName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='3600' >
-<scope xpos='200' ypos='250' xend='200' yend='3500' >
+<sequence xend='200' yend='3800' >
+<scope xpos='200' ypos='250' xend='200' yend='3700' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -494,13 +540,119 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 </foreach>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToNovoNonRadiologyXhtml' source='request' target='response' xpos='200' ypos='2950' >
+<code name='FetchPCPTargetConfigName' xpos='200' ypos='2950' >
+<![CDATA[  
+ set context.PCPServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","PCPServiceTargetConfigName",.pStatus)
+ if (($$$ISERR(pStatus)) || (context.PCPServiceTargetConfigName= "")){
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get PCPServiceTargetConfigName in the Ensemble settings, shutting down.")
+ } else {
+    $$$TRACE("PCPServiceTargetConfigName: " _ context.PCPServiceTargetConfigName)   
+ }]]]]><![CDATA[>
+</code>
+<code name='Fetch PCP details' xpos='200' ypos='3050' >
+<![CDATA[   
+   set txa5 = request.GetValueAt("TXA:PrimaryActivityProviderCodeN(1).IDnumberST")
+   $$$TRACE("source PCP Id value  : "_txa5)
+   
+   if txa5 = ""
+   {
+   
+   $$$TRACE("Source PCP ID is empty so need to call service to get PCP ID")
+   
+   set mrnNumber = request.GetValueAt("PID:PatientID.ID") 
+   $$$TRACE("Mrn Number  : "_mrnNumber)
+ 
+   
+   Set httpObj = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(mrnNumber)
+	Do tStream.Rewind()
+
+	Do httpObj.HTTPHeaders.SetAt("text/plain","content-type")
+
+	
+	Do httpObj.HTTPHeaders.SetAt(tStream.Size,"content-length")
+	Set httpObj.Stream = ##class(%Stream.GlobalBinary).%New()
+	Set tStatus = httpObj.Stream.CopyFrom(tStream)
+	
+	
+	set status = process.SendRequestSync(context.PCPServiceTargetConfigName,httpObj,.PcpResponse)
+   //$$$TRACE("Call to PCP Service complete.. ")
+   
+  // set respJSONstring = PcpResponse
+           // set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+           // set iter = consumedJSONobj.%GetIterator()
+            //set statusVal = consumedJSONobj.%Get("status-details")
+            //$$$TRACE(" Value of Success "_statusVal) 
+            
+     if ($$$ISOK(status)){
+	    $$$TRACE("RESPONSE from PCP Service:-- "_PcpResponse.Stream.Read())
+	    
+	    Set respStream = ##class(%GlobalCharacterStream).%New()
+        Set respStatus = respStream.CopyFrom(PcpResponse.Stream)
+        set respText =""
+        While 'respStream.AtEnd {
+          Set respText = respText_respStream.Read()
+        } 
+        $$$TRACE("PCP service response: "_respText)
+        
+		 set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respText)
+            set iter = consumedJSONobj.%GetIterator()
+            set Repstatus = consumedJSONobj.%Get("response").%Get("service-status").%Get("status")
+            $$$TRACE(" Value of response Status "_Repstatus) 
+		
+	    
+        if Repstatus [ "SUCCESS"{
+	        $$$TRACE(" Successful Response from PCP Service ")
+	        // set context.PCPID = consumedJSONobj.%Get("response").%Get("status-details")
+	         // $$$TRACE(" Value of PCPID  "_context.PCPID)
+	         
+	         set ArraySize = consumedJSONobj.%Get("response").%Get("status-details").%Size()
+	         $$$TRACE(" Value of ArraySize "_ArraySize)
+	         
+	         if ArraySize > 0
+	         { 
+	         
+	          set context.PCPID = consumedJSONobj.%Get("response").%Get("status-details").%Get(0).%Get("providerID")
+	          $$$TRACE(" Value of PCPID  "_context.PCPID)
+	         
+	         set context.PCPFirstName = consumedJSONobj.%Get("response").%Get("status-details").%Get(0).%Get("firstName")
+	          $$$TRACE(" Value of PCPFirstName   "_context.PCPFirstName)
+	          
+	          set context.PCPMiddleName = consumedJSONobj.%Get("response").%Get("status-details").%Get(0).%Get("middleName")
+	          $$$TRACE(" Value of PCPMiddleName "_context.PCPMiddleName)
+	          
+	           set context.PCPLastName = consumedJSONobj.%Get("response").%Get("status-details").%Get(0).%Get("lastName")
+	          $$$TRACE(" Value of PCPLastName "_context.PCPLastName)
+	         
+	        Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+	        
+	        }else{
+	           $$$TRACE(" Service returned empty value due to invalid MRN number" )
+	        }
+	    }else{
+		    if Repstatus [ "ERROR"{
+			    
+			$$$TRACE("No Successful Response from PCP Service. Disabling the component." )    
+	                
+		        }
+                
+                  }
+    }else{
+            $$$TRACE("Error calling the Patient MDM service." ) 
+	    
+	}  
+	
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernResultsHl7ToNovoNonRadiologyXhtml' source='request' target='response' xpos='200' ypos='3150' >
 <annotation><![CDATA[translate to Novo format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='3050' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='3250' >
 <annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='3150' xend='200' yend='350' >
+<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='3350' xend='200' yend='350' >
 <annotation><![CDATA[Publish to each Target Configured]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -508,13 +660,13 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='3250' >
+<code name='Reset Error' xpos='200' ypos='3450' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='3350' xend='200' yend='350' >
+<catchall xpos='200' ypos='3550' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -527,17 +679,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernResultsHl7ToNovoNonRadiologyXhtmlDefaultData</DefaultData>
-<Data name="CernResultsHl7ToNovoNonRadiologyXhtmlDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"CernResultsHl7ToNovoNonRadiologyXhtml"</Subscript>
-<Value name="1">
-<Value>HddTargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
