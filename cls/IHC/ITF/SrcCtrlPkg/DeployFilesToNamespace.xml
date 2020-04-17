@@ -20,7 +20,7 @@
 <InitialExpression>"/DEVSANDBOX/deploy/logs/"</InitialExpression>
 </Property>
 
-<Method name="DeployFiles">
+<Method name="DeployFile">
 <FormalSpec>compNm:%String,deployType:%String,nmSp:%String,usrNm:%String,passwd:%String,rev:%String,env:%String,depCls:%Boolean,depConf:%Boolean,changeCls:%Boolean</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -29,7 +29,7 @@
  Set comment = ""
  set clsDeployCmt = ""
  set compNm = $ZSTRIP(compNm,"*W")
-  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFiles, deploy " _compNm _ " type: " _  deployType)
+  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFile, deploy " _compNm _ " type: " _  deployType)
  
  set ..DeployDirectory = $$$USRRELEASEBASEDIR _ usrNm _ $$$SVNSRCTRUNK
  set ..DeployLogDirectory = $$$USRRELEASEBASEDIR _  usrNm _ $$$LOGDIR
@@ -176,8 +176,101 @@
  }
  
 
- Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exit DeployFiles: " _ comment)
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exit DeployFile: " _ comment)
  return comment
+]]></Implementation>
+</Method>
+
+<Method name="DeployFiles">
+<FormalSpec><![CDATA[fNm:%String,usrNm:%String,passwd:%String,env:%String,&details:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+#dim tSC As %Status 
+ set tSC = $$$OK
+ Set details = "The results of deployment(s) are logged into " _ fNm _ ".log"
+ set deployType = "NEW"
+  
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployFiles, deploy: " _fNm)
+ set oldID = $IO
+ // DeployCode line generates output to console; causes javascript to throw error
+ OPEN "/dev/null/" 
+ USE "/dev/null/"
+ if (##class(%File).Exists(fNm) )
+	{
+	   try {
+         Set fileObj=##class(%Library.File).%New(fNm)
+         Do fileObj.Open("RS") ; Read mode and as stream
+         Set origNmSp =  $NAMESPACE
+         
+         Set wFileObj=##class(%Library.File).%New(fNm _ ".log")
+         Do wFileObj.Open("WN") ; WRITE mode
+         While 'fileObj.AtEnd 
+         {
+	        set fLn = fileObj.ReadLine(,.sc,.eol)
+	        WRITE !, fLn
+	        if ($E(fLn, 1) = "#")
+	        {
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Comment line: " _ fLn)
+	        }
+	        else
+	        {
+		        SET flds=$LENGTH(fLn,",")
+		        
+		        if (flds = 3)
+		        {
+			        try {
+	        			set compNm = $ZSTRIP($PIECE(fLn, ",", 1),"<>WC")
+	        			set nmSp = $ZSTRIP($PIECE(fLn, ",", 2),"<>WC")	        			
+	        			set revNum = $ZSTRIP($PIECE(fLn, ",", 3),"<>WC")
+	        			if ($ISVALIDNUM(revNum))
+	        			{
+		        			Set $NAMESPACE = nmSp
+		        			do wFileObj.WriteLine(fLn)
+		        			set stat = ..ValidateSvnRevision(compNm, usrNm, passwd, revNum )
+							if $$$ISOK(stat)
+							{
+   		       			 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "Deploy " _ compNm _ " in NAMESPACE: " _ $NAMESPACE )
+   		       			 		set cmt = ..DeployFile(compNm, deployType, nmSp , usrNm, passwd, revNum, env, 0, 0, 0 )
+							
+								do wFileObj.WriteLine(cmt)
+								do wFileObj.WriteLine("----")
+							}
+							else
+							{
+								do wFileObj.WriteLine("SVN Revision: " _ revNum _ " is not valid, " _ stat)
+								do wFileObj.WriteLine("----")
+							}
+	        			}
+	        			
+
+			        } catch e
+			        {
+				        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Invalid namespace: " _ nmSp)
+			        }
+			        Set $NAMESPACE = origNmSp			        
+		        }
+	        }
+         }
+         Do fileObj.Close()
+         do wFileObj.Close()
+
+ 	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exit DeployFiles: " _ details)
+ 	   } catch e
+	        {
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Exception in DeployFiles " _ e)
+	        }
+	}
+	else
+	{
+		set details = "Could not open file: " _ fNm
+	}
+	CLOSE "/dev/null/"
+ 
+ 	OPEN oldID
+ 	USE oldID
+ 	
+ 	return tSC
 ]]></Implementation>
 </Method>
 
