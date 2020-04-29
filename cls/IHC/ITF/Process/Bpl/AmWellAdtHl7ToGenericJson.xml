@@ -22,8 +22,15 @@ Patient Service Operation to add/update demographics into Initiate, Check mrn</D
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="A28MessageTargetConfigName">
+<Description>
+A28 message Target</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Method name="CallPatientServices">
@@ -76,12 +83,32 @@ Patient Service Operation to add/update demographics into Initiate, Check mrn</D
 ]]></Implementation>
 </Method>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>AmWellAdtHl7ToGenericJsonDefaultData</DefaultData>
+<Data name="AmWellAdtHl7ToGenericJsonDefaultData">
+<Subscript>"AmWellAdtHl7ToGenericJson"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>XmlToJsonTargetConfigName</Value>
+</Value>
+<Value name="4">
+<Value>A28MessageTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='6350' width='2000' >
+<process language='objectscript' request='Ens.Request' height='7100' width='2000' >
 <context>
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
@@ -102,7 +129,7 @@ BPL Definition</Description>
 <property name='ihcEmpiNum' type='%String' instantiate='0' />
 <property name='MsgType' type='%String' instantiate='0' />
 <property name='PatientEmpi' type='%String' instantiate='0' />
-<property name='existsInRecordNotInInitiate' type='%String' instantiate='0' initialexpression='"0"' />
+<property name='existsInRecordNotInInitiate' type='%String' initialexpression='"0"' instantiate='0' />
 <property name='GuarantorAmWellMrn' type='%String' instantiate='0' />
 <property name='GuarantorEmpi' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
@@ -116,9 +143,14 @@ BPL Definition</Description>
 <property name='isMrnExistsinInitiate' type='%String' instantiate='0' />
 <property name='pingDirSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 <property name='updatedResponse' type='%String' instantiate='0' />
+<property name='A28TargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='6100' >
-<scope xpos='200' ypos='250' xend='200' yend='6000' >
+<sequence xend='200' yend='6950' >
+<scope xpos='200' ypos='250' xend='200' yend='6850' >
 <trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
@@ -155,11 +187,28 @@ BPL Definition</Description>
     set context.ValidationPassed=0    
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='5750' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='6600' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
-
-<code name='ValidatePatientAddress' xpos='470' ypos='1000' >
+<if name='Check if A28 Message' condition='request.GetValueAt("MSH:9.2") = "A28"' xpos='470' ypos='1000' xend='470' yend='1450' >
+<true>
+<trace name='Trace' value='"Its a A28 message. Sending a copy of the message for Audit"' xpos='605' ypos='1150' />
+<code name='initializeA28MessageTarget' xpos='605' ypos='1250' >
+<![CDATA[ set context.A28TargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","A28MessageTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("A28MessageTargetConfigName : " _ context.A28TargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError($CLASSNAME(),"No A28MessageTargetConfigName found in the Ensemble settings")
+ } ]]]]><![CDATA[>
+</code>
+<call name='Send A28 Message' target='@context.A28TargetConfigName' async='1' xpos='605' ypos='1350' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</true>
+</if>
+<code name='ValidatePatientAddress' xpos='470' ypos='1550' >
 <annotation><![CDATA[ValidatePatientAddress]]]]><![CDATA[></annotation>
 <![CDATA[
         set address=request.GetValueAt("PID:PatientAddress(1).streetaddressSAD.streetormailingaddress")
@@ -176,10 +225,7 @@ BPL Definition</Description>
 		}
   ]]]]><![CDATA[>
 </code>
-
-
-
-<code name='CheckForLookupTables' xpos='470' ypos='1000' >
+<code name='CheckForLookupTables' xpos='470' ypos='1650' >
 <annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
 <![CDATA[
   set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping")
@@ -188,7 +234,7 @@ BPL Definition</Description>
   } 
   ]]]]><![CDATA[>
 </code>
-<code name='loadLookupTables' xpos='470' ypos='1100' >
+<code name='loadLookupTables' xpos='470' ypos='1750' >
 <annotation><![CDATA[Gender Mapping for patient]]]]><![CDATA[></annotation>
 <![CDATA[
  set context.gender=request.GetValueAt("PID:AdministrativeSex")
@@ -244,7 +290,7 @@ BPL Definition</Description>
  
   ]]]]><![CDATA[>
 </code>
-<code name='initializeAccessTokenTarget' xpos='470' ypos='1200' >
+<code name='initializeAccessTokenTarget' xpos='470' ypos='1850' >
 <![CDATA[ 
  set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus)){
@@ -254,12 +300,12 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
-<code name='getMessageType' xpos='470' ypos='1300' >
+<code name='getMessageType' xpos='470' ypos='1950' >
 <![CDATA[  
     Set context.MsgType = request.GetValueAt("MSH:9.2")     
  ]]]]><![CDATA[>
 </code>
-<code name='getIhcEmpiNum' xpos='470' ypos='1400' >
+<code name='getIhcEmpiNum' xpos='470' ypos='2050' >
 <![CDATA[  
      Set context.ihcEmpiNum = request.GetValueAt("PID:2.1") 
      if ($L(context.ihcEmpiNum) > 0){ 
@@ -271,9 +317,7 @@ BPL Definition</Description>
      }
  ]]]]><![CDATA[>
 </code>
-
-
-<code name='getAmWellMrnNumbers' xpos='470' ypos='1500' >
+<code name='getAmWellMrnNumbers' xpos='470' ypos='2150' >
 <![CDATA[  
      Set context.AmWellMrn=request.GetValueAt("PID:PatientIdentifierList(1).ID")  
         
@@ -290,7 +334,7 @@ BPL Definition</Description>
 	 }
  ]]]]><![CDATA[>
 </code>
-<code name='ValidateAmWellMrn#' xpos='470' ypos='1600' >
+<code name='ValidateAmWellMrn#' xpos='470' ypos='2250' >
 <![CDATA[  
  if ($ISVALIDNUM(context.AmWellMrn)'="1"){	  
 	  $$$TRACE("AmWell Mrn# is NOT a VALID number or empty. ")
@@ -298,7 +342,7 @@ BPL Definition</Description>
  } 
  ]]]]><![CDATA[>
 </code>
-<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='1700' >
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
 <![CDATA[ 
   $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
    set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
@@ -325,9 +369,9 @@ BPL Definition</Description>
     }
    ]]]]><![CDATA[>
 </code>
-<if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='1800' xend='470' yend='2600' >
+<if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='2450' xend='470' yend='3350' >
 <true>
-<code name='CallPatientServiceCheckMrn' xpos='740' ypos='1950' >
+<code name='CallPatientServiceCheckMrn' xpos='740' ypos='2600' >
 <![CDATA[ 
      $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
      $$$TRACE(" Target Operation to Patient service " _ process.PatientServiceTargetConfigName) 
@@ -348,15 +392,15 @@ BPL Definition</Description>
     }    
    ]]]]><![CDATA[>
 </code>
-<if name='isIhcMrnFromAmWellExistsInInitiate' condition='(context.isMrnExistsinInitiate = "Y")' xpos='740' ypos='2050' xend='740' yend='2500' >
+<if name='isIhcMrnFromAmWellExistsInInitiate' condition='(context.isMrnExistsinInitiate = "Y")' xpos='740' ypos='2700' xend='740' yend='3250' >
 <true>
-<trace name='IhcMrnFromAmWellExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,also in Initiate. Calling patient servvice update service"' xpos='1010' ypos='2200' >
+<trace name='IhcMrnFromAmWellExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,also in Initiate. Calling patient servvice update service"' xpos='740' ypos='2850' >
 <annotation><![CDATA[Ihc Mrn exists in AmWell message,also in Initiate. Calling patient service update service]]]]><![CDATA[></annotation>
 </trace>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='1010' ypos='2300' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='740' ypos='2950' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
 </transform>
-<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='1010' ypos='2400' >
+<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='740' ypos='3050' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -382,18 +426,18 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='IhcMrnFromAmWellNotExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,but not in Initiate"' xpos='740' ypos='2200' >
+<trace name='IhcMrnFromAmWellNotExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,but not in Initiate"' xpos='1010' ypos='2850' >
 <annotation><![CDATA[Ihc Mrn exists in AmWell message,but not in Initiate]]]]><![CDATA[></annotation>
 </trace>
-<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2150' >
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='2950' >
 <![CDATA[  
    set context.existsInRecordNotInInitiate = "1"
  ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='470' ypos='2050' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='1010' ypos='3050' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
 </transform>
-<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2150' >
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='3150' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -425,11 +469,11 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<trace name='NoIhcMrnExistsinAmWell' value=' " No IHC Mrn exists in AmWell message: "_context.isIhcMrnExists' xpos='470' ypos='1950' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='470' ypos='2050' >
+<trace name='NoIhcMrnExistsinAmWell' value=' " No IHC Mrn exists in AmWell message: "_context.isIhcMrnExists' xpos='470' ypos='2600' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJson' source='request' target='response' xpos='470' ypos='2700' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
 </transform>
-<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2150' >
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='2800' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -459,7 +503,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='SetPatientEmpi' xpos='470' ypos='2700' >
+<code name='SetPatientEmpi' xpos='470' ypos='3450' >
 <![CDATA[  
    if ($L(context.PatientEmpi) > 0){	      	    
    		set context.updatedResponse = request.%ConstructClone(1)   		   		
@@ -468,25 +512,25 @@ BPL Definition</Description>
    	} 
 ]]]]><![CDATA[>
 </code>
-<if name='A28MsgType' condition='(context.MsgType = "A28")' xpos='470' ypos='2800' xend='470' yend='5300' >
+<if name='A28MsgType' condition='(context.MsgType = "A28")' xpos='470' ypos='3550' xend='470' yend='6050' >
 <false>
-<if name='hasPatientEmpiNumberForAmWellMrn' condition='($length(context.PatientEmpi) &gt; 0)' xpos='605' ypos='2950' xend='605' yend='5200' >
+<if name='hasPatientEmpiNumberForAmWellMrn' condition='($length(context.PatientEmpi) &gt; 0)' xpos='605' ypos='3700' xend='605' yend='5950' >
 <true>
-<trace name='TraceHasPatientEmpiNumberForAmWellMrn' value=' "hasPatientEmpiNumberForAmWellMrn: ["_context.PatientEmpi_"]"' xpos='740' ypos='3100' />
-<if name='hasGuarantorAmWellMrn' condition='($length(context.GuarantorAmWellMrn) &gt; 0)' xpos='740' ypos='3200' xend='740' yend='4100' >
+<trace name='TraceHasPatientEmpiNumberForAmWellMrn' value=' "hasPatientEmpiNumberForAmWellMrn: ["_context.PatientEmpi_"]"' xpos='740' ypos='3850' />
+<if name='hasGuarantorAmWellMrn' condition='($length(context.GuarantorAmWellMrn) &gt; 0)' xpos='740' ypos='3950' xend='740' yend='4850' >
 <true>
-<if name='isGuarantorSameAsPatient' condition='(context.GuarantorAmWellMrn=context.AmWellMrn)' xpos='1010' ypos='3350' xend='1010' yend='3900' >
+<if name='isGuarantorSameAsPatient' condition='(context.GuarantorAmWellMrn=context.AmWellMrn)' xpos='1010' ypos='4100' xend='1010' yend='4650' >
 <true>
-<trace name='GuarantorSameAsPatient' value=' "Guarantor AmWell MRN matches to Patient MRN: ["_context.GuarantorAmWellMrn_"]"' xpos='1010' ypos='3500' />
-<assign property="context.GuarantorEmpi" value="context.PatientEmpi" action="set" xpos='1010' ypos='3600' />
+<trace name='GuarantorSameAsPatient' value=' "Guarantor AmWell MRN matches to Patient MRN: ["_context.GuarantorAmWellMrn_"]"' xpos='1010' ypos='4250' />
+<assign property="context.GuarantorEmpi" value="context.PatientEmpi" action="set" xpos='1010' ypos='4350' />
 </true>
 <false>
-<trace name='GuarantorNotSameAsPatient' value=' "Guarantor AmWell MRN not matches to Patient MRN. "' xpos='1280' ypos='3500' />
-<trace name='PatientMRN' value=' "Guarantor AmWell MRN: ["_context.GuarantorAmWellMrn_"]. Patient MRN: ["_context.AmWellMrn_"]"' xpos='1280' ypos='3600' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonGuarantor' source='request' target='response' xpos='1280' ypos='3700' >
+<trace name='GuarantorNotSameAsPatient' value=' "Guarantor AmWell MRN not matches to Patient MRN. "' xpos='1280' ypos='4250' />
+<trace name='PatientMRN' value=' "Guarantor AmWell MRN: ["_context.GuarantorAmWellMrn_"]. Patient MRN: ["_context.AmWellMrn_"]"' xpos='1280' ypos='4350' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonGuarantor' source='request' target='response' xpos='1280' ypos='4450' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml for Guarantor]]]]><![CDATA[></annotation>
 </transform>
-<code name='PatientServiceAddForGuarantors' xpos='1280' ypos='3800' >
+<code name='PatientServiceAddForGuarantors' xpos='1280' ypos='4550' >
 <![CDATA[  
     $$$TRACE("Call XML to JSON Operation for Add Patient service for Guarantors")    
     set xmlStr=response.OutputToString()  
@@ -511,7 +555,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='SetGuarantorNumber' xpos='1010' ypos='4000' >
+<code name='SetGuarantorNumber' xpos='1010' ypos='4750' >
 <![CDATA[  
          $$$TRACE(" Guarantor empi# set: [" _ context.GuarantorEmpi+"]")	    			
          if ($L(context.GuarantorEmpi)>0){   	
@@ -524,16 +568,16 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='NoGuarantorAmWellMrn' value=' "No AmWell Mrn for the Guarantor present in the message "_request.RawContent' xpos='740' ypos='3350' />
+<trace name='NoGuarantorAmWellMrn' value=' "No AmWell Mrn for the Guarantor present in the message "_request.RawContent' xpos='740' ypos='4100' />
 </false>
 </if>
-<if name='hasInsSubscriberAmWellMrn' condition='($length(context.InsSubscriberAmWellMrn) &gt; 0)' xpos='740' ypos='4200' xend='740' yend='5100' >
+<if name='hasInsSubscriberAmWellMrn' condition='($length(context.InsSubscriberAmWellMrn) &gt; 0)' xpos='740' ypos='4950' xend='740' yend='5850' >
 <true>
-<trace name='InsuranceSubscriberExists' value=' "Insurance Subscriber Exists.. "_context.InsSubscriberAmWellMrn' xpos='1010' ypos='4350' />
-<if name='isInsSubscriberSameAsPatientAndGuarantor' condition='(context.isNewInsSubscriberMrn = "Y")' xpos='1010' ypos='4450' xend='1010' yend='4900' >
+<trace name='InsuranceSubscriberExists' value=' "Insurance Subscriber Exists.. "_context.InsSubscriberAmWellMrn' xpos='1010' ypos='5100' />
+<if name='isInsSubscriberSameAsPatientAndGuarantor' condition='(context.isNewInsSubscriberMrn = "Y")' xpos='1010' ypos='5200' xend='1010' yend='5650' >
 <true>
-<trace name='InsuranceSubscriberMrnExists' value='"Insurance Subscriber MRN same as Patient and Guarantor.. "' xpos='1010' ypos='4600' />
-<code name='SetSubscriberInsuranceNumber' xpos='1010' ypos='4700' >
+<trace name='InsuranceSubscriberMrnExists' value='"Insurance Subscriber MRN same as Patient and Guarantor.. "' xpos='1010' ypos='5350' />
+<code name='SetSubscriberInsuranceNumber' xpos='1010' ypos='5450' >
 <![CDATA[  
 	      if (context.InsSubscriberAmWellMrn=context.AmWellMrn){
 		 Set context.InsSubscriberEmpi=context.PatientEmpi
@@ -545,11 +589,11 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1280' ypos='4600' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonInsSubscriber' source='request' target='response' xpos='1280' ypos='4700' >
+<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1280' ypos='5350' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonInsSubscriber' source='request' target='response' xpos='1280' ypos='5450' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml for Insurance Subscribers]]]]><![CDATA[></annotation>
 </transform>
-<code name='PatientServiceAddForInsuranceSubscribers' xpos='1280' ypos='4800' >
+<code name='PatientServiceAddForInsuranceSubscribers' xpos='1280' ypos='5550' >
 <![CDATA[  
     $$$TRACE("Call XML to JSON Operation for Add Patient service for Insurance Subscribers")    
     
@@ -575,7 +619,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='SetInsuranceMrn' xpos='1010' ypos='5000' >
+<code name='SetInsuranceMrn' xpos='1010' ypos='5750' >
 <![CDATA[  
 	$$$TRACE(" Insurance Subs empi# set: [" _ context.InsSubscriberEmpi+"]")	    			
          if ($L(context.InsSubscriberEmpi)>0){   	
@@ -589,23 +633,23 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='InsuranceSubscriberNotExists' value=' "Insurance Subscriber NOT Exists.. "' xpos='740' ypos='4350' />
+<trace name='InsuranceSubscriberNotExists' value=' "Insurance Subscriber NOT Exists.. "' xpos='740' ypos='5100' />
 </false>
 </if>
 </true>
 </if>
 </false>
 </if>
-<if name='AddOrUpdateOperationSuccess' condition='($L(context.PatientEmpi) &gt; 0)' xpos='470' ypos='5400' xend='470' yend='5650' >
+<if name='AddOrUpdateOperationSuccess' condition='($L(context.PatientEmpi) &gt; 0)' xpos='470' ypos='6150' xend='470' yend='6500' >
 <true>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='605' ypos='5550' xend='200' yend='350' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='605' ypos='6300' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.updatedResponse" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='2700' >
+<code name='RESETERROR' xpos='605' ypos='6400' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
@@ -621,7 +665,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='5850' xend='200' yend='350' >
+<catchall xpos='200' ypos='6700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -634,22 +678,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>AmWellAdtHl7ToGenericJsonDefaultData</DefaultData>
-<Data name="AmWellAdtHl7ToGenericJsonDefaultData">
-<Subscript>"AmWellAdtHl7ToGenericJson"</Subscript>
-<Value name="1">
-<Value>AccessTokenTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>PatientServiceTargetConfigName</Value>
-</Value>
-<Value name="3">
-<Value>XmlToJsonTargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
