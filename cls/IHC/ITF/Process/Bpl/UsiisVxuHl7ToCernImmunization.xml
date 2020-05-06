@@ -2,12 +2,23 @@
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.Process.Bpl.UsiisVxuHl7ToCernImmunization">
 <Description>
-Usiis Immunization to Cdr</Description>
+Usiis Immunization to iCentra</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63770,48624.416482</TimeCreated>
 
+<Property name="TargetConfigNameCernEdgeWsrcIMMUNIZATION">
+<Description>
+Call CernEdge Service Operation name</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-CernEdge-Wsrc-IMMUNIZATION"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask</Default>
+<Description>
+checkMmi operation 
+Property CheckMmiTargetConfigNameOp As %String(MAXLEN = 250);</Description>
+<Default><![CDATA[-NextOperation,TargetConfigNameCernEdgeWsrcIMMUNIZATION:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -16,19 +27,7 @@ Usiis Immunization to Cdr</Description>
 <Data name="UsiisVxuHl7ToCernImmunizationDefaultData">
 <Subscript>"UsiisVxuHl7ToCernImmunization"</Subscript>
 <Value name="1">
-<Value>TargetConfigNameXMLProxy</Value>
-</Value>
-<Value name="2">
-<Value>TargetConfigNameHddWebService</Value>
-</Value>
-<Value name="3">
-<Value>CheckMmiTargetConfigNameOp</Value>
-</Value>
-<Value name="4">
-<Value>ActionInfoTargetConfigNameOp</Value>
-</Value>
-<Value name="5">
-<Value>ImmuEventIdTargetConfigNameOp</Value>
+<Value>TargetConfigNameCernEdgeWsrcIMMUNIZATION</Value>
 </Value>
 </Data>
 </Storage>
@@ -53,9 +52,18 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='jsonRequest' type='Ens.StringRequest' instantiate='0' />
+<property name='icentraSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='immuXml' type='EnsLib.EDI.XML.Document' instantiate='0' />
+<property name='ocnt' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1400' >
-<scope xpos='200' ypos='250' xend='200' yend='1300' >
+<sequence xend='200' yend='1700' >
+<scope xpos='200' ypos='250' xend='200' yend='1600' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -86,13 +94,71 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<transform name='HL7 to Cerner HL7' class='IHC.ITF.Transform.Dtl.UsiisVxuHl7ToCernImmunization' source='request' target='response' xpos='200' ypos='750' />
-<code name='GetTargetConfigList' xpos='200' ypos='850' >
+<code name='set json request string' xpos='200' ypos='750' >
+<![CDATA[
+   set context.jsonRequest=##class(Ens.StringRequest).%New()
+   set context.jsonRequest.StringValue="{"_$CHAR(34)_"empi"_$CHAR(34)_":"_context.empi_"}"
+]]]]><![CDATA[>
+</code>
+<transform name='json to http request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='200' ypos='850' />
+<code name='Call service to get IHC Immunization from iCentra' xpos='200' ypos='950' >
+<![CDATA[  $$$TRACE("Call REST Operation")
+      set statusCode=""
+      set statusDesc=""
+      
+  if (context.icentraSvcRequest'="") {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync(process.TargetConfigNameCernEdgeWsrcIMMUNIZATION,context.icentraSvcRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set context.restHttpResponse=httpRESTResponse
+      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+	set statusCode=$piece(statusLine," ",2)
+	set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+		  // If status code is 200 the check the reponse to see if it got processed correctly or not
+      if (statusCode'="200"){
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"iCentra Attending Doctor search service response with code: "_statusCode_"  Desc: "_statusDesc) 
+      }
+      else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        set text=""
+        While 'tcharStream.AtEnd {
+          Set text = text_tcharStream.Read($$$MaxStringLength)
+        } 
+        $$$TRACE("REST Service response data:"_text)
+        if (text="") {
+           set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Service returned empty string, patient empi may not exist in iCentra, Skip the record. ") 
+        }
+        else {
+	   ///set immuXmlStr="<immunizations><immunization-detail><drug-identifier>115</drug-identifier><dosage>0.5</dosage><dosage-unit>mL</dosage-unit><administered-route>C28161</administered-route><administered-site>LD</administered-site><substance-manufacturer>SKB</substance-manufacturer><substance-lot-number>G932P</substance-lot-number><administered-dt-tm>20180503</administered-dt-tm></immunization-detail><immunizations-empi>647041616</immunizations-empi></immunizations>"
+           set immuXmlStr=##class(Ens.Util.FunctionSet).SubString(text,39)
+           $$$TRACE("IHC Immu data:"_immuXmlStr)
+           set context.immuXml=##class(EnsLib.EDI.XML.Document).ImportFromString(immuXmlStr)
+           set context.immuXml.DocType="immunizationXmlNN:immunizations"    
+           Set cernEmpi=context.immuXml.GetValueAt("immunizations-empi")
+           $$$TRACE("Cern EMPI:"_cernEmpi)
+        }
+      }
+    }
+    ELse {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post iCentra Attending Doctor search service request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+  }  
+  ]]]]><![CDATA[>
+</code>
+<transform name='HL7 to Cerner HL7' class='IHC.ITF.Transform.Dtl.UsiisVxuHl7ToCernImmunization' source='request' target='response' xpos='200' ypos='1050' />
+<code name='GetTargetConfigList' xpos='200' ypos='1150' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
-   $$$TRACE("Send CDR XML msg to the target")]]]]><![CDATA[>
+   $$$TRACE("Send HL7 msg to the target")]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='950' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1250' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -104,11 +170,11 @@ BPL Definition</Description>
 </if>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
-<code name='RESET ERROR' xpos='200' ypos='1050' >
+<code name='RESET ERROR' xpos='200' ypos='1350' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1150' xend='200' yend='350' >
+<catchall xpos='200' ypos='1450' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
