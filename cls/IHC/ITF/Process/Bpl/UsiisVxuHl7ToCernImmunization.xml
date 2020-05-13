@@ -105,37 +105,55 @@ BPL Definition</Description>
 <![CDATA[  $$$TRACE("Call REST Operation")
       set statusCode=""
       set statusDesc=""
-      
+  set retryCnt=0
+  set retry=0
   if (context.icentraSvcRequest'="") {
     $$$TRACE("Call REST Service.... ")
-    set status=process.SendRequestSync(process.TargetConfigNameCernEdgeWsrcIMMUNIZATION,context.icentraSvcRequest,.httpRESTResponse)
-    if ($$$ISOK(status)){
-      $$$TRACE("Call REST Operation Ok")
-      set statusLine=""
-      set context.restHttpResponse=httpRESTResponse
-      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
-      if (statusLine'=""){
-	set statusCode=$piece(statusLine," ",2)
-	set statusDesc=$piece(statusLine," ",3)
-      }
-      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
-		  // If status code is 200 the check the reponse to see if it got processed correctly or not
-      if (statusCode'="200"){
-        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"iCentra Attending Doctor search service response with code: "_statusCode_"  Desc: "_statusDesc) 
-      }
-      else {
-        Set tcharStream = ##class(%GlobalCharacterStream).%New()
-        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
-        $$$TRACE("tcharStream size:"_tcharStream.Size)
-        set text=""
-        While 'tcharStream.AtEnd {
-          Set text = text_tcharStream.Read($$$MaxStringLength)
-        } 
-        $$$TRACE("REST Service response data:"_text)
-        if (text="") {
-           set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Service returned empty string, patient empi may not exist in iCentra, Skip the record. ") 
+    Do {
+      set status=process.SendRequestSync(process.TargetConfigNameCernEdgeWsrcIMMUNIZATION,context.icentraSvcRequest,.httpRESTResponse)
+      if ($$$ISOK(status)){
+        $$$TRACE("Call REST Operation Ok")
+        set statusLine=""
+        set context.restHttpResponse=httpRESTResponse
+        set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+        if (statusLine'=""){
+	  set statusCode=$piece(statusLine," ",2)
+	  set statusDesc=$piece(statusLine," ",3)
+        }
+        $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+        // If status code is 200 the check the reponse to see if it got processed correctly or not
+        if (statusCode'="200"){
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"iCentra Attending Doctor search service response with code: "_statusCode_"  Desc: "_statusDesc) 
         }
         else {
+          Set tcharStream = ##class(%GlobalCharacterStream).%New()
+          Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+          $$$TRACE("tcharStream size:"_tcharStream.Size)
+          set text=""
+          While 'tcharStream.AtEnd {
+            Set text = text_tcharStream.Read($$$MaxStringLength)
+          } 
+          $$$TRACE("REST Service response data:"_text)
+          if (text="") {
+            set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Service returned empty string, patient empi may not exist in iCentra, Skip the record. ") 
+            Quit
+          }
+        }
+      }
+      else {
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post iCentra immunization retrieve request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+        Quit
+      }
+      if (##class(Ens.Util.FunctionSet).Contains(text,"<retry/>")) {
+          set retry=1
+          set retryCnt=retryCnt+1
+          $$$TRACE("Service call retry cnt:"_retryCnt)
+      }
+      else {
+        set retry=0
+      }
+    } while((retry) && (retryCnt<3))
+    if ('retry) {
            set immuXmlStr=##class(Ens.Util.FunctionSet).SubString(text,39)
            $$$TRACE("IHC Immu data:"_immuXmlStr)
            set context.immuXml=##class(EnsLib.EDI.XML.Document).ImportFromString(immuXmlStr)
@@ -156,12 +174,13 @@ BPL Definition</Description>
                 Quit
 	     }
            }
-        }
-      }
-    }
-    ELse {
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post iCentra Attending Doctor search service request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
-    }
+       }
+       else {
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Pull iCentra Immunization failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc)
+       }    
+  }
+  else {
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"iCentra immunization service request is null..")
   }  
   ]]]]><![CDATA[>
 </code>
