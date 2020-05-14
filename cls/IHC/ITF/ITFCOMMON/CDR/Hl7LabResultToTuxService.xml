@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.CDR.Hl7LabResultToTuxService">
+<Description>
+Calls Tuxedo service for CDR adds/updates</Description>
+<Super>IHC.ITF.ITFCOMMON.CDR.BaseOperation</Super>
+<TimeCreated>65469,37508.52289</TimeCreated>
+
+<Property name="ApplicationAddress">
+<Type>%String</Type>
+<InitialExpression>"//tltst01:41210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>ApplicationAddress:Additional,JarFile:Additional,TuxedoService:Additional</Default>
+</Parameter>
+
+<Property name="JarFile">
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/itf-CdrTuxServices.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="TuxedoService">
+<Type>%String</Type>
+<InitialExpression>"MAIN_LAB1"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	 try{
+		do ##super()
+		$$$TRACE("Connect to " _ ..ApplicationAddress)
+		$$$TRACE("Service " _ ..TuxedoService)		
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrHl7AddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)		
+     	set status = ..CheckObject()
+	}catch err{
+		$$$LOGERROR("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
+	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName," Exception while Creating Tuxedo Service: "_err.AsSystemError()_"::"_err.Data_"::"_err.Code)
+	}
+
+	Quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #DIM status AS %Status
+	 set status = $$$OK
+	 $$$TRACE("IHC.ITF.ITFCOMMON.CDR.Hl7LabResultToTuxService..Inside OnMessage method")
+	 try{
+		 
+	    if (..CheckObject() '= $$$OK) {
+		   $$$TRACE("**** Object does not exists ****")
+		   // Try to re intialize
+		   set result = ..OnInit()
+	       if (result '= $$$OK)
+	       {
+		      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("IHC.ITF.ITFCOMMON.Operation.CdrHl7AddUpdateOperation", "Failed. MMI#: " _pRequest.StringValue_ " ; Reason: " _ result)						
+		      return status
+	       }
+	    } 
+		 		
+		$$$TRACE(" Calling Hl7 Add .."_pRequest.RawContent)
+		 		
+		set pResponse=##class(Ens.StringResponse).%New()
+		$$$TRACE("After response setup.")
+		Set pResponse.StringValue =  ..objCdrTuxService.callAddUpdate(pRequest.RawContent)
+		$$$TRACE("After call")
+		Set respData = pResponse.StringValue
+			
+		$$$TRACE(" Call after the hl7 add .."_respData)
+		set indexMSA = $F(respData, "MSA|AA")    	  
+    	if (indexMSA > 0){
+		   $$$TRACE("SUCCESS!!!..Ack received from Hl7AddUpdate. "_respData) 
+	       set indexZEX = $F(respData, "ZEX|")
+	       if (indexZEX > 0){	    			 
+	          set empiNum = $LISTGET($LISTFROMSTRING(respData,"|"),*)	    			
+	    	  $$$TRACE(" empiNum: " _ empiNum)	    			
+	       }
+    	}		 		
+	 }catch err{
+	    $$$TRACE("Exception Calling hl7 add: " _ err)
+	    set status = $$$ERROR("Exception in Hl7 add/update Operation") 
+	 }
+	 return status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	$$$TRACE(" $$$$$$$$$$$$$$$ Inside OnTearDown() method...")
+	
+	Set tSC = $$$OK
+	
+	Try {		
+		If $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			Do ..objCdrTuxService.shutdownTuxService()		
+			Set ..objCdrTuxService = $$$NULLOREF
+		}
+	}
+	Catch {
+		Set tSC = $$$EnsSystemError
+	}
+	Set tSC = ##super()
+	Quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
