@@ -462,12 +462,16 @@ Get information of the last checkin</Description>
 		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ $$$SVNCOMMIT _ " " _ files)
 		  Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN commit error")
 		  Do ##class(%Library.File).Delete(tempFile)
-		  Do ..FixCommitError(files , userNm , passwd )
-		  
-		  // Commit again
-		  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit stat: " _ stat _ " file: " _ tempFile)
-
+		  if (..FixCommitError(files , userNm , passwd ) = $$$OK)
+		  {
+		  	// Commit again
+		  	Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+          	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit stat: " _ stat _ " file: " _ tempFile)
+          	if (stat = 0)
+          	{
+	          	Set tSC = $$$OK
+          	}
+		  }
 	}
 	if stat = 0
 	{
@@ -489,13 +493,34 @@ Get information of the last checkin</Description>
 <FormalSpec>files:%String,userNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' remove --force " _ files)  
- Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn remove: " _ stat)
- Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' resolve --accept=working " _ files)  
- Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn resolve: " _ stat)
- Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' update")
- Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn update: " _ stat)
- return $$$OK
+	set tSC = $$$OK
+	Set cmd = $$$SVNINFO _ " --username " _ userNm _ " --password '" _ passwd _ "' " _ files
+	Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+	if (stat = 0)
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fullPath _ " svn info:" _ stat)
+		
+ 		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' remove --force " _ files)  
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn remove: " _ stat)
+ 		if (stat '= 0) {
+	 		QUIT $$$ERROR($$$EnsErrGeneral, "Potentail SVN server issues! Log off and try after sometime")
+	    }
+ 		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' resolve --accept=working " _ files)  
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn resolve: " _ stat)
+ 		if (stat '= 0) {
+	 		QUIT $$$ERROR($$$EnsErrGeneral, "Potentail SVN server issues! Log off and try after sometime")
+		}
+		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd("svn --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' update")
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn update: " _ stat)
+ 		if (stat '= 0) {
+	 		QUIT $$$ERROR($$$EnsErrGeneral, "Potentail SVN server issues! Log off and try after sometime")
+	    }
+	}
+	else
+	{
+			Set tSC = $$$ERROR($$$EnsErrGeneral, "Potentail SVN server issues! Log off and try after sometime, " _ $$$SVNINFO _ " for " _ files)
+	}
+	return tSC
 ]]></Implementation>
 </Method>
 
@@ -537,20 +562,26 @@ Get information of the last checkin</Description>
 			Set cmd= $$$SVNINFO _ fileNm _ " >> " _ tempFile
 	
 			Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+			if (status =0)
+			{
+	        	Set cmd=  $$$SVNLOG _" --username " _ usrNm _ " --password '" _ passwd _ "' " _ fileNm _ " >> " _ tempFile 
 	
-	        Set cmd=  $$$SVNLOG _" --username " _ usrNm _ " --password '" _ passwd _ "' " _ fileNm _ " >> " _ tempFile 
-	
-			Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+				Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	  		
-	  		if (##class(%File).Exists(tempFile) )
-	  		{
-         		// Call the function to get svn information
-         		Set fileInfo = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetFileContent(tempFile)       
-	  		}
-	  		else
-	  		{
-		  		SET fileInfo = "svn command failed: " _ $$$SVNLOG
-	  		}
+	  			if ((status =0) && (##class(%File).Exists(tempFile)) )
+	  			{
+         			// Call the function to get svn information
+         			Set fileInfo = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetFileContent(tempFile)       
+	  			}
+	  			else
+	  			{
+		  			SET fileInfo = "svn command :" _ $$$SVNLOG _ " failed: " _ $$$SVNLOG
+	  			}
+			}
+			else
+	  			{
+		  			SET fileInfo = "svn command :" _ $$$SVNINFO _ " failed: " _ $$$SVNLOG
+	  			}
 	}
 	else {
   			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Could not find file " _ fileNm)
