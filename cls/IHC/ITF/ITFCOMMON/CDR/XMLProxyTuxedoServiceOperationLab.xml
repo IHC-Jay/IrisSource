@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.CDR.XMLProxyTuxedoServiceOperationLab">
+<Description>
+Calls Tuxedo service for CDR adds/updates</Description>
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>65518,47558.810978</TimeCreated>
+
+<Property name="ApplicationAddress">
+<Type>%String</Type>
+<InitialExpression>"//tltst01:41210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>ApplicationAddress:Additional,JarFile:Additional,TuxedoService:Additional</Default>
+</Parameter>
+
+<Property name="JarFile">
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/itf-CdrTuxServicesV1.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="TuxedoService">
+<Type>%String</Type>
+<InitialExpression>"XMLPROXY"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="objCdrTuxService">
+<Type>org.ihc.itf.cdr.CdrStringAddUpdate</Type>
+</Property>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.StringRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 #DIM status AS %Status
+	 set status = $$$OK
+	 set respData =""
+	 #dim exceptionString As %String="JAVAEXCEPTION"
+	 $$$TRACE("IHC.ITF.ITFCOMMON.CDR.XMLProxyTuxedoServiceOperationLab..Inside OnMessage method")
+	 try{
+		 
+		 		
+		 		$$$TRACE(" Calling Tuxedo Service .."_pRequest.StringValue)
+		 		
+		 		set tsc = $$$OK
+		 		set pResponse=##class(Ens.StringResponse).%New()
+		 		Set pResponse.StringValue = ..objCdrTuxService.callAddUpdate(pRequest.StringValue)
+		 		$$$TRACE(" Call after the Xmlproxy Call .."_pResponse.StringValue)
+	            Set respData = pResponse.StringValue
+	            if (pResponse.StringValue[exceptionString){
+			 		
+			 	   SET ex = ##class(%Exception.General).%New("JavaException","JavaException",,
+                             pResponse.StringValue)
+                   THROW ex
+		 		}
+
+		 		$$$TRACE(" Call after the Xmlproxy Call .."_respData)
+		 		
+		 
+		 
+	 }catch err{	
+	    $$$TRACE("Exception in calling Add/Update: " _err.Name_ " _ ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _"; Zerror: "_$ZE)
+	    	 	    	     	 
+		set errText = $SYSTEM.Status.GetErrorText(err)
+	    if ((errText["CONNECTIONERROR")){
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Response1: "_errText)
+	    }Elseif errText["RESEND"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Response2: "_errText)
+	    }Elseif errText["DATAERROR"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,"Response3: "_errText)
+	    }Elseif errText["SHUTDOWN"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Response4: "_errText)
+	    }Else{
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Response5: "_errText)
+	    }
+	    if (errText'["DATAERROR"){
+		    Try {
+		    	do ..OnTearDown()
+	    	}catch{}
+	    	Set tSC = ..GetConnection(.tGateway, ..ConnectTimeout+10)
+			If $$$ISERR(tSC) {
+				set errText = $SYSTEM.Status.GetOneErrorText(tSC)
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Response6: "_errText)
+			}Else {
+				// Open the connection
+	    		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrStringAddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)
+			}
+	    }  
+	 }
+	 return status
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	do ##super()
+	$$$TRACE(" Inside OnInit() method...")
+	
+	#DIM status AS %Status
+	 set status = $$$OK
+	
+	$$$TRACE("OnInit..Inside  method1 "_ ..JarFile)
+	Do ..JavaGateway.%Import(..JarFile) 
+	 
+	 
+	 try{
+		$$$TRACE("OnInit..ApplicationAddress "_ ..ApplicationAddress)
+		$$$TRACE("OnInit..TuxedoService "_ ..TuxedoService)
+		set ..objCdrTuxService = ##class(org.ihc.itf.cdr.CdrStringAddUpdate).%New(..JavaGateway,..ApplicationAddress, ..TuxedoService)
+		
+	}catch err{
+	    	 $$$TRACE("Exception while Creating Tuxedo Service: " _err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	    	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"Service Exception while initializing Tuxedo Service. " _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+	}
+	Quit status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	$$$TRACE(" $$$$$$$$$$$$$$$ Inside OnTearDown() method...")
+	
+	Set tSC = $$$OK
+	
+	Try {		
+		If $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			Do ..objCdrTuxService.shutdownTuxService()		
+			Set ..objCdrTuxService = $$$NULLOREF
+		}
+	}
+	Catch {
+		Set tSC = $$$EnsSystemError
+	}
+	Set tSC = ##super()
+	Quit tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
