@@ -587,6 +587,11 @@ Get the information about classes from Audit table into the source control table
    				    set tStatus = ##class(%SYS.Task).ImportTasks(fileNm)
     				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(" ImportTasks stat: " _ tStatus _ ", file " _ fileNm)
 	        	}
+	        	elseif ( ($F(fileNm, "xsd") > 0) || ($F(fileNm, "XSD") > 0) )
+	        	{
+   				    set tStatus = ##class(EnsLib.EDI.XML.SchemaXSD).Import(fileNm,.tCatImported)
+    				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(" Import XSD stat: " _ tStatus _ ", file " _ fileNm _ ", imported: " _ tCatImported)
+	        	}
 	        	else
 	        	{	  
 	        		set oldID = $IO
@@ -680,7 +685,10 @@ Get the information about classes from Audit table into the source control table
 		    continue
 	    }
 	    
-	    Do ..AddDirectoriesToSvn(fileNm, usrNm, passwd)
+	    if (..AddDirectoriesToSvn(fileNm, usrNm, passwd) '= 0)
+	    {
+		    QUIT
+	    }
 	    
         // Get latest from Ensemble DB 
         
@@ -748,6 +756,22 @@ Get the information about classes from Audit table into the source control table
 		          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: file does not exits: " _ fileNm _" -d /diffexport " _InternalName)
 	        
 	        }
+        }
+        elseif (##class(%Library.File).Exists(relativeFileNm))
+        {
+	        Do ##class(%Library.File).CopyFile(relativeFileNm, fileNm)
+	        if (##class(%Library.File).Exists(fileNm))
+	        {
+	        	Do ..AddToSvn(fileNm, 0, usrNm, passwd)
+	        }
+	        else
+	        {
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: cound not copy file: " _ relativeFileNm _ " to: " _ fileNm)
+	        }
+        }
+        else
+        {
+	        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: file does not exits: " _ relativeFileNm)
         }
 	}
     
@@ -1087,7 +1111,7 @@ Update information of Ensemble classes</Description>
 	         if ((' routine.Generated) && ($E(clNm,1,3) '= "Ens") )
 	         {
     
-	             Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetIncAndRoutines: " _ clNm )
+	             // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetIncAndRoutines: " _ clNm )
 	              set stat =  ..AddToSourceControl(clNm, nmSp)	
 	              if ( stat '= $$$OK)
 	              {
@@ -1132,7 +1156,7 @@ Update information of Ensemble classes</Description>
 		 &sql(FETCH Cl)  
 	     Quit:SQLCODE 
 	     set intNm =  $NAMESPACE _ "." _ tb _ ".LOOKUP"
-	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetLookupFiles: " _ intNm _ " in namespace: " _ $NAMESPACE)
+	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Routine:GetLookupFiles: " _ intNm _ " in namespace: " _ $NAMESPACE)
 	     set stat =  ..AddToSourceControl(intNm, nmSp, 0)	
 	     if ( stat '= $$$OK)
 	     {
@@ -1173,7 +1197,7 @@ Update information of Ensemble classes</Description>
 		 &sql(FETCH CT)  
 	     Quit:SQLCODE 
 	     set intNm =  $NAMESPACE _ "." _ tsk _ ".TASK"
-	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetTasks " _ intNm _ " in namespace: " _ $NAMESPACE)
+	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetTasks " _ intNm _ " in namespace: " _ $NAMESPACE)
 	     set stat =  ..AddToSourceControl(intNm, nmSp, 0)	
 	     if ( stat '= $$$OK)
 	     {
@@ -1240,6 +1264,7 @@ Update information of Ensemble classes</Description>
 If needed, create and add all directories from root to SVN</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>fName:%String,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	// Set usrNm = $username
 	set stat = $$$ERROR(9100, "Could not add")
@@ -1257,14 +1282,20 @@ If needed, create and add all directories from root to SVN</Description>
 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddDirectoriesToSvn, create directory: " _fullPath)
 			Do ##class(%File).CreateDirectory(fullPath)
 		}
-		Do ..AddToSvn(fullPath, 1, usrNm, passwd)
+		set stat = ..AddToSvn(fullPath, 1, usrNm, passwd)
+		If stat '= 0
+		{
+			QUIT
+		}
 	}
+	return stat
 ]]></Implementation>
 </Method>
 
 <Method name="AddToSvn">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>fullPath:%String,commit:%Boolean,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set stat = 0
 	Set cmd = $$$SVNINFO _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _ fullPath
@@ -1838,7 +1869,8 @@ Return the name of this item without the prefix </Description>
 	   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("$ZF stderr: " _ errStr) 
 	   		if ( ($LENGTH(errStr) > 0) && (errStr '[ "subversion/servers"))
 	   		{
-	   			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("$ZF error: " _ errStr)
+	   			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("$ZF STDERR message: " _ errStr)
+	   			set stat = 1
 	   		}
    		}
    		If ( (##class(%File).Exists(tempOutFile)) && (##class(%File).GetFileSize(tempOutFile) > 0) )
