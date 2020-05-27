@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.OpGenericDemogrJsonDrcDuplicates">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>65400,33576.508157</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:IHC.ITF.Request.DrcRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+	Set dupId = pRequest.mrnNum
+	$$$TRACE("DuplicateID: "_dupId)
+	set URL = ..Adapter.URL
+	$$$TRACE("EndPoint URL: "_URL)
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.ContentType="text/plain"
+	Set httprequest.Https="1"
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	Set httprequest.Location = ..Adapter.URL
+	
+	Set pResponse=##class(Ens.StringResponse).%New()
+	try{
+		Do httprequest.EntityBody.Write(dupId) ;
+	
+		$$$TRACE("Calling Cern Drc DuplicateId Service.....")
+		
+		set postStatus = httprequest.Post(URL)		
+		set postStatusTxt = $SYSTEM.Status.GetOneErrorText(postStatus)
+		$$$TRACE("postStatusTxt-->  "_postStatusTxt)
+		set response=httprequest.HttpResponse        
+       	$$$TRACE("StatusLine: "_response.StatusLine) 
+       	if (postStatus =1){
+	    	$$$TRACE(" Cerner Drc DuplicateId call success!!!")   
+	    	set len = httprequest.HttpResponse.ContentLength     
+    		set respData = httprequest.HttpResponse.Data.Read()
+    		$$$TRACE("RESP DATA ???? "_respData)   
+    		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respData)
+        	set statusVal = ((consumedJSONobj.%Get("response")).%Get("service-status")).%Get("status")  
+        	$$$TRACE("  statusVal: "_statusVal)     
+      		if (statusVal="SUCCESS"){
+	      		set dupIds = ""
+    			set statusDetailsArr = ((consumedJSONobj.%Get("response")).%Get("status-details"))  
+    			$$$TRACE("  statusDetailsArr: "_statusDetailsArr)  		
+    		 	// Loop through a JSON Array
+  				Set arrObj = statusDetailsArr.%GetIterator()
+  			
+  				while arrObj.%GetNext(.key, .value) {	  			
+	  			  Set arrElemObj = value.%GetIterator()	 
+	  			  while arrElemObj.%GetNext(.key, .value) {
+		  			  $$$TRACE("  key: "_key_" Value: "_value)
+		  			  if (key = "DUPLICATE_ID"){
+		  			  	Set dupIds = value_"|"_dupIds 
+		  			  }		  			  	  			     
+	  			  }	   			 
+	   	   		}
+    		}
+    		Set pResponse.StringValue = dupIds
+
+       	}
+    			
+       	
+		
+	}catch e{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling  Cerner Drc DuplicateId call  "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Generic-Demogr-Json-DRCDUPLICATES",errTxt)	  		 		  		 		 
+	}
+	
+	
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.DrcRequest">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
