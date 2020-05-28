@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Service.wsrMhPreRegInfoJson">
+<Super>EnsLib.REST.Service</Super>
+<TimeCreated>65526,54051.531976</TimeCreated>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Parameter ADAPTER = "EnsLib.HTTP.InboundAdapter";
+
+]]></Content>
+</UDLText>
+
+<Parameter name="ADAPTER">
+</Parameter>
+
+<Parameter name="EnsServicePrefix">
+<Default>|</Default>
+</Parameter>
+
+<Property name="TargetConfigNames">
+<Type>%String</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default><![CDATA[TargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<XData name="UrlMap">
+<XMLNamespace>http://www.intersystems.com/urlmap</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/ShPreRegInfoPost" Method="POST" Call="OnProcessInput"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="OnProcessInput">
+<FormalSpec>pInput:%Library.AbstractStream,*pOutput:%Stream.Object=$$$NULLOREF</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   Set tSC= $$$OK
+   $$$TRACE(" Inside InvokePostService ")
+	 
+   try {
+	 set httpBodyData = pInput.Read(.len,.status)
+	 $$$TRACE(" httpBody : "_httpBodyData)	 
+	 set rec = ##class(%DynamicObject).%FromJSON(pInput)
+
+	 set lastName = rec.patient.lastName
+     $$$TRACE("Last Name: "_lastName)
+	 set firstName = rec.patient.firstName
+	 set middleName = rec.patient.middleName
+	 set mrn = rec.patient.mrn
+	 set sex = rec.patient.gender
+	 set dob = rec.patient.dateOfBirth
+	 set fin = rec.visit.visitNumber
+	 set vtype = rec.visit.visitType
+	 set facId = rec.visit.facilityCode
+	 set docId = rec.documents.aliasDocumentId 
+	 set docName = rec.documents.documentName 
+	 set cerDocType = rec.documents.cernerDocumentType 
+	 set docRefId = rec.documents.cernerDocumentReferenceId 
+	 set docSignedDate = rec.documents.documentSignedDate 
+	
+	 // Construct a HL7 message based on info
+	 set pHL7 = ##class(EnsLib.HL7.Message).%New()
+	 set pHL7.DocType = "R1PreRegAdt:R1ADT"
+	 set ctrlId=$zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
+	 set msgTm=##class(Ens.Util.FunctionSet).SubString(ctrlId,1,14)
+	 set tSeg1 = ##class(EnsLib.HL7.Segment).ImportFromString("MSH|^~\&|MH|ENSEMBLE|||"_msgTm_"||ADT^A08|"_ctrlId_"|T|2.3.1|")
+	 set tSeg2 = ##class(EnsLib.HL7.Segment).ImportFromString("EVN|A08|||1|")
+	 set tSeg3 = ##class(EnsLib.HL7.Segment).ImportFromString("PID|1||"_mrn_"||"_lastName_"^"_firstName_"^"_middleName_"||"_dob_"|"_sex_"||||||||||"_fin_"||||||||||||N|")
+	 set tSeg4 = ##class(EnsLib.HL7.Segment).ImportFromString("PV1|1||"_facId_"||||||||||||||||"_fin_"|")
+	 set tsc = pHL7.SetSegmentAt(tSeg1,1)
+	 set tsc = pHL7.InsertSegmentAt(tSeg2,2)	
+	 set tsc = pHL7.InsertSegmentAt(tSeg3,3)
+	 set tsc = pHL7.InsertSegmentAt(tSeg4,4)
+     set obxSegIndx=1
+     set segCnt=4
+     #dim docIter As %Iterator.Array
+	 if $isObject(rec) {
+       $$$TRACE("Loop Documents...")
+       set iterator =  rec.%GetIterator()
+       while iterator.%GetNext(.key,.value) { 
+          $$$TRACE(" Key1: "_key_" Value: "_value)
+          if (key="documents") {
+	         set docIter=value.%GetIterator()
+	         while docIter.%GetNext(.key,.value) { 
+               if $isObject(value) {
+                 set iter = value.%GetIterator()
+                 while iter.%GetNext(.key,.value) { 
+                 	if (key="aliasDocumentId"){
+                       set docId=value
+	                }
+	                elseif (key="documentName") {
+		                set docName=value
+	                }
+	                elseif (key="cernerDocumentType") {
+		                set cerDocType=value
+	                }
+	                elseif (key="cernerDocumentReferenceId") {
+		                set docRefId=value
+	                }
+
+	                elseif (key="documentSignedDate") {
+		                set docSignedDate=value
+	                }
+                  } 
+                  $$$TRACE("Create OBX segment #"_obxSegIndx)
+                  set tObxSeg = ##class(EnsLib.HL7.Segment).ImportFromString("OBX|"_obxSegIndx_"|ST|"_docId_"^"_docName_"^"_cerDocType_"||"_docRefId_"||||||F|||"_docSignedDate_"|")
+	              set cSegCnt=segCnt + obxSegIndx
+	              set tsc = pHL7.InsertSegmentAt(tObxSeg,cSegCnt)
+                  set obxSegIndx=obxSegIndx+1
+               }
+             }
+          }
+       }
+	}
+	 
+ 
+	do ..SendRequestAsync(..TargetConfigNames,pHL7)	
+	$$$TRACE("***Sent the HL7 Message ****")
+
+    set responseMsg="{"_$CHAR(34)_"MessageId"_$CHAR(34)_":"_ctrlId_"}"
+	Set pOutput=##class(%GlobalBinaryStream).%New()
+    do pOutput.Write(responseMsg)
+
+
+ }catch e
+	{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while receiving post request per Vynca role change. "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errTxt)	  
+		 set tSC = $$$OK		 		  		 		 
+	}
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="SendRequestAsync">
+<Description>
+Use this method to dispatch an Ensemble business invocation asynchronously</Description>
+<FormalSpec>pTargetDispatchName:%String,pRequest:%Library.Persistent,pDescription:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$sysTRACE("call to "_pTargetDispatchName)
+	Set tTimeCalled=$ZH
+	Set tTargetConfigName = $G($$$DispatchNameToConfigName(pTargetDispatchName))  Quit:""=tTargetConfigName $$$EnsError($$$EnsErrBusinessDispatchNameNotRegistered,pTargetDispatchName)
+	Set tTargetBusinessClass = $$$ConfigClassName(tTargetConfigName)
+	Set tSessionId = ..%SessionId
+	Set tSuperSession = ..%SuperSession
+	Set:$IsObject(..%RequestHeader)&&(""=..%RequestHeader.TimeCreated) tRequestHeader=..%RequestHeader
+	$$$SyncCommitSet(tSyncCommit)
+	Set tSC=$classmethod(tTargetBusinessClass,"acceptRequestAsync",..%ConfigName,tTargetConfigName,.pRequest,$$$eMessagePriorityAsync,"",.tSessionId,"",.tRequestHeader,pDescription,.tSuperSession)
+	$$$SyncCommitClear(tSyncCommit)
+	If $G(tSessionId)'="" Set (..%SessionId,$$$JobSessionId)=tSessionId
+	If $G(tSuperSession)'="" Set (..%SuperSession,$$$JobSuperSession)=tSuperSession
+	If $$$ISOK(tSC) {
+		Set ..%RequestHeader=tRequestHeader, $$$JobCurrentHeaderId=tRequestHeader.%Id()
+	}
+	$$$catTRACE("timing","duration of async call: "_($ZH-tTimeCalled))
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+Return an array of connections for drawing lines on the config diagram</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
