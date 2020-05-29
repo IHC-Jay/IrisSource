@@ -141,15 +141,22 @@ Hdd Lookup Operation name</Description>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
-<Property name="TargetConfigNameBridgeOperation">
+<Property name="TargetConfigNameCorpprvOp">
 <Description>
 MSPR request dump operation (Make Sure this is blank in UAT and Prod)</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
+<Property name="FilterOutEmplmntStatusTypeIds">
+<Description>
+Filter out employment type status ids</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default><![CDATA[-NextOperation,TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameBridgeOperation:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+<Default><![CDATA[-NextOperation,TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameCorpprvOp:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FilterOutEmplmntStatusTypeIds:Additional]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -165,6 +172,12 @@ MSPR request dump operation (Make Sure this is blank in UAT and Prod)</Descripti
 </Value>
 <Value name="3">
 <Value>TargetConfigNameBridgeOperation</Value>
+</Value>
+<Value name="4">
+<Value>TargetConfigNameCorpprvOp</Value>
+</Value>
+<Value name="5">
+<Value>FilterOutEmplmntStatusTypeIds</Value>
 </Value>
 </Data>
 </Storage>
@@ -197,11 +210,6 @@ BPL Definition</Description>
 <property name='MSPRResponseString' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='' />
-</parameters>
-</property>
-<property name='BridgeOperation' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
 <property name='hddTitleNameNcidResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
@@ -250,8 +258,8 @@ BPL Definition</Description>
 </property>
 <property name='OutMsg' type='Ens.StringContainer' instantiate='0' />
 </context>
-<sequence xend='200' yend='3350' >
-<scope xpos='200' ypos='250' xend='200' yend='3250' >
+<sequence xend='200' yend='2900' >
+<scope xpos='200' ypos='250' xend='200' yend='2800' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -262,17 +270,43 @@ BPL Definition</Description>
  {
  	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
  }
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterOutEmplmntStatusTypeIds",.configValue)
+ set filteroutEmplStsTpIds=configValue
+ 	
  	  ]]]]><![CDATA[>
 </code>
 <code name='Get MaxError and Custom Property' xpos='200' ypos='550' >
 <annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)
- 
-]]]]><![CDATA[>
+ ]]]]><![CDATA[>
 </code>
-<trace name='TitLeName' value='"HDD Call for TitleName"' xpos='200' ypos='650' />
-<code name='Create HDD Object /Call Hdd' xpos='200' ypos='750' >
+<code name='check employment status type id' xpos='200' ypos='650' >
+<![CDATA[ set prvdrId=$zstrip(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content,"<>W")
+ $$$TRACE("Provider ID: "_prvdrId)
+ 
+ set stringObj=##class(Ens.StringRequest).%New()
+ set stringObj.StringValue=prvdrId
+ 
+ $$$TRACE("Calling corpprv Database Operation")
+ set tStatus=process.SendRequestSync(process.TargetConfigNameCorpprvOp,stringObj,.SqlResponse)
+ if ($$$ISOK(tStatus)){ 
+   set emplmntStTypeId=SqlResponse.StringValue
+   $$$TRACE("Employment Status Type Id:"_emplmntStTypeId)
+   if (##class(Ens.Util.FunctionSet).Contains(filteroutEmplStsTpIds,emplmntStTypeId)) {
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Record's employment status type id is in the filterout list, SKIP the record. ")
+   }
+ }
+ else {
+    Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling employment status type id query operation failed, shutdown the component. Error: "_$SYSTEM.Status.GetOneErrorText(tStatus))
+
+ }
+
+ ]]]]><![CDATA[>
+</code>
+<trace name='TitLeName' value='"HDD Call for TitleName"' xpos='200' ypos='750' />
+<code name='Create HDD Object /Call Hdd' xpos='200' ypos='850' >
 <![CDATA[ // Create request
  set pNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
  
@@ -290,8 +324,8 @@ BPL Definition</Description>
  	}
  }]]]]><![CDATA[>
 </code>
-<trace name='HDD For Provider Speciality' value='"HDD Call for Provider Speciality"' xpos='200' ypos='850' />
-<code name='Create REquest/Call and Validate HDD' xpos='200' ypos='950' >
+<trace name='HDD For Provider Speciality' value='"HDD Call for Provider Speciality"' xpos='200' ypos='950' />
+<code name='Create REquest/Call and Validate HDD' xpos='200' ypos='1050' >
 <![CDATA[  //Provider speciality
   set pNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
   set specStrs=""
@@ -324,8 +358,8 @@ BPL Definition</Description>
      }         
   } ]]]]><![CDATA[>
 </code>
-<trace name='HDD State code' value='"State Code HDD Look up"' xpos='200' ypos='1050' />
-<code name='CreateHDD Request/Call/Validate' xpos='200' ypos='1150' >
+<trace name='HDD State code' value='"State Code HDD Look up"' xpos='200' ypos='1150' />
+<code name='CreateHDD Request/Call/Validate' xpos='200' ypos='1250' >
 <![CDATA[  //Professional licenseInfolicenseNo state code
   set stCodeStr=""
   set pNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
@@ -366,8 +400,8 @@ BPL Definition</Description>
      }         
   } ]]]]><![CDATA[>
 </code>
-<trace name='Hdd Call for Facility Info fields' value='"HDD Call for facility Info fields"' xpos='200' ypos='1250' />
-<code name='HDD Request/ Call' xpos='200' ypos='1350' >
+<trace name='Hdd Call for Facility Info fields' value='"HDD Call for facility Info fields"' xpos='200' ypos='1350' />
+<code name='HDD Request/ Call' xpos='200' ypos='1450' >
 <![CDATA[  //Facility INFO
   for i=1:1:request.FACILITYINFO.Count(){
 	//Entity ID NCID
@@ -389,8 +423,8 @@ BPL Definition</Description>
   set tStatus=process.SendRequestSync(process.TargetConfigNameHddWebService,pNcidRequest,.hddNcidResponse)
   set context.hddFacilityInfoNcidResponse=hddNcidResponse]]]]><![CDATA[>
 </code>
-<transform name='CreateMSPRRequest' class='IHC.ITF.Transform.Dtl.CorpprvXmlToMsprXml' source='request' target='context.msprRequest' xpos='200' ypos='1450' />
-<code name='Create MSPR Proxy Request' xpos='200' ypos='1550' >
+<transform name='CreateMSPRRequest' class='IHC.ITF.Transform.Dtl.CorpprvXmlToMsprXml' source='request' target='context.msprRequest' xpos='200' ypos='1550' />
+<code name='Create MSPR Proxy Request' xpos='200' ypos='1650' >
 <![CDATA[   //set status=context.msprRequest.%Save()
   // $$$LOGINFO("status of save "_status)
    set quote=""""
@@ -405,7 +439,7 @@ BPL Definition</Description>
       set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Issue creating XMLProxy request to be sent to MSPR - "_$SYSTEM.Status.GetOneErrorText(status))
  }]]]]><![CDATA[>
 </code>
-<code name='callXmlProxy Operation' xpos='200' ypos='1650' >
+<code name='callXmlProxy Operation' xpos='200' ypos='1750' >
 <![CDATA[  $$$TRACE("Call XML Proxy Operation")
   set status=process.SendRequestSync(process.TargetConfigNameXMLProxy,context.strXmlproxyRequest,.strXmlProxyResponse)
   //convert string to XMLclass
@@ -414,8 +448,8 @@ BPL Definition</Description>
   }ELse {
      set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status)) }]]]]><![CDATA[>
 </code>
-<trace name='TraceValidate' value='"Validating MSPR Response "' xpos='200' ypos='1750' />
-<code name='Validate XMLPRoxyCall Response' xpos='200' ypos='1850' >
+<trace name='TraceValidate' value='"Validating MSPR Response "' xpos='200' ypos='1850' />
+<code name='Validate XMLPRoxyCall Response' xpos='200' ypos='1950' >
 <![CDATA[ // Validate the response by loading it to the IHC.ITF.DStruc.Schema.XMLPROXYMSPRRESPONSE.CiwsInfo structure
  set status=$$$OK
  set replstr="<?xml version="_""""_"1.0"_""""_"?>"
@@ -448,11 +482,11 @@ BPL Definition</Description>
 	  set context.MSPRResponseString=$piece(context.strXmlProxyResponse.StringValue,"</CiwsInfo>")_"</CiwsInfo>"
   }]]]]><![CDATA[>
 </code>
-<code name='RESET ERROR' xpos='200' ypos='1950' >
+<code name='RESET ERROR' xpos='200' ypos='2050' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
-<trace name='set MSP Master request' value='" Setting MSPR Master request to me sent to Subscribes .."' xpos='200' ypos='2050' />
-<code name='SetmsprMasterRequest' xpos='200' ypos='2150' >
+<trace name='set MSP Master request' value='" Setting MSPR Master request to me sent to Subscribes .."' xpos='200' ypos='2150' />
+<code name='SetmsprMasterRequest' xpos='200' ypos='2250' >
 <![CDATA[ set context.msprMasterRequest=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO).%New()
  set context.msprMasterRequest.sourceSystem="CORPPRV"
  set tmspr=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.MSPR).%New()
@@ -469,11 +503,11 @@ BPL Definition</Description>
       set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))
   }]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='200' ypos='2250' >
+<code name='GetTargetConfigList' xpos='200' ypos='2350' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2350' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2450' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -485,63 +519,11 @@ BPL Definition</Description>
 </if>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
-<if name='check if the target bridge operation has value' condition='process.TargetConfigNameBridgeOperation&apos;=""' xpos='200' ypos='2450' xend='200' yend='2900' >
-<annotation><![CDATA[process.TargetConfigNameBridgeOperation'=""]]]]><![CDATA[></annotation>
-<true>
-<code name='raw message' xpos='335' ypos='2600' >
-<![CDATA[ $$$TRACE("get Raw msg...")
- set writer=##class(%XML.Writer).%New()
- set stream=##class(%GlobalCharacterStream).%New()
- set status=writer.OutputToStream(stream)
- if $$$ISERR(status) {
-   do $System.Status.DisplayError(status)
-   set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Failed to initiate a xml writer with a stream." )
- }
- set status=writer.RootObject(request)
- if $$$ISERR(status) {
-     do $System.Status.DisplayError(status) 
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Failed to import request." )
- }
- set text=""
- While 'stream.AtEnd {
-   Set text = text_stream.Read($$$MaxStringLength)
- }     
- set context.inputStr=text
- $$$TRACE("Raw msg: "_text)
- kill stream
- //kill writer
-]]]]><![CDATA[>
-</code>
-<code name='Set Bridge target' xpos='335' ypos='2700' >
-<![CDATA[ set context.BridgeOperation=process.TargetConfigNameBridgeOperation
-  
- set outMsgStr="<?xml version="_$Char(34)_"1.0"_$Char(34)_" encoding="_$Char(34)_"UTF-8"_$Char(34)_"?><PROVIDER_INFO sourceSystem="_$Char(34)_"CORPPRV"_$C(34)_"><MSPR>"
-
- set outMsgStr=outMsgStr_$SYSTEM.Encryption.Base64Encode(context.MSPRResponseString)_"</MSPR>"
-
- set outMsgStr=outMsgStr_"<CORPPRV>"_$SYSTEM.Encryption.Base64Encode(context.inputStr)_"</CORPPRV></PROVIDER_INFO>"
- set outMsgStr=##class(Ens.Util.FunctionSet).ReplaceStr(outMsgStr, $Char(10), "")
-
- $$$TRACE("Master data MSG: "_outMsgStr) 
- 
- set context.OutMsg = ##class(Ens.StringContainer).%New()
- set context.OutMsg.StringValue = outMsgStr
-
-   ]]]]><![CDATA[>
-</code>
-<call name='Send to Bridge operation' target='@context.BridgeOperation' async='1' xpos='335' ypos='2800' >
-<request type='Ens.StringContainer' >
-<assign property="callrequest" value="context.OutMsg" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-</true>
-</if>
-<code name='reset error count' xpos='200' ypos='3000' >
+<code name='reset error count' xpos='200' ypos='2550' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='3100' xend='200' yend='350' >
+<catchall xpos='200' ypos='2650' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
