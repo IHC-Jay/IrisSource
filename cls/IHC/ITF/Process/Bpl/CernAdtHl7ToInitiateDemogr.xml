@@ -64,6 +64,13 @@ Call EMPI20 soap service or not. If not, hie patient service is called.</Descrip
 <Type>%Boolean</Type>
 </Property>
 
+<Property name="NotifyTargetConfigName">
+<Description>
+NotifyTargetConfigName:Custom setting to select Configuration item(s) to send the notification messages</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <UDLText name="T">
 <Content><![CDATA[
 // Parameter SETTINGS = "HddTargetConfigName:Additional,MergeTargetConfigName:Additional,AllowedNameTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames";
@@ -72,7 +79,7 @@ Call EMPI20 soap service or not. If not, hie patient service is called.</Descrip
 </UDLText>
 
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedNameTypes:Additional,AllowedEventTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,MergeTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
+<Default>HddTargetConfigName:Additional,AllowedNameTypes:Additional,AllowedEventTypes:Additional,Empi20ServiceCall:Additional,Empi20TargetConfigName:Additional,MergeTargetConfigName:Additional,NotifyTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
 </Parameter>
 
 <Method name="CallPatientServices">
@@ -158,6 +165,8 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='NameTypeIndex' type='%Integer' instantiate='0' />
+
 <property name='PID5Count' type='%Integer' instantiate='0' />
 <property name='familyname' type='%String' collection='array' instantiate='0' >
 <parameters>
@@ -187,6 +196,9 @@ BPL Definition</Description>
 
 <property name='PID9Count' type='%Integer' instantiate='0' />
 
+<property name='nameTypeBlankCount' type='%Integer' instantiate='0' />
+
+<property name='curNameTypeExists' type='%Integer' instantiate='0' />
 
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
@@ -214,9 +226,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='PatientEmpi' type='%String' instantiate='0' />
-<property name='iniMergeRequest' type='IHC.ITF.ITFCOMMON.Request.mergePersonRequest' instantiate='0' >
+<property name='iniMergeRequest' type='IHC.ITF.Request.mergePersonRequest' instantiate='0' >
 </property>
-<property name='iniMergeResponse' type='IHC.ITF.ITFCOMMON.Response.mergePersonResponse' instantiate='0' >
+<property name='iniMergeResponse' type='IHC.ITF.Response.mergePersonResponse' instantiate='0' >
 </property>
 <property name='pid15' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
@@ -248,6 +260,13 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='nameTypes' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='500' />
+</parameters>
+</property>
+
+ 
 <property name='empi20ServiceFlag' type='%Boolean'/>
 <property name='evn5' type='%String' instantiate='0' />
 
@@ -269,9 +288,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 
-<property name='empi20Request' type='IHC.ITF.ITFCOMMON.Request.insertUpdatePersonRequest' instantiate='0' >
+<property name='empi20Request' type='IHC.ITF.Request.insertUpdatePersonRequest' instantiate='0' >
 </property>
-<property name='iniInsertUpdateResponse' type='IHC.ITF.ITFCOMMON.Response.insertUpdatePersonResponse' instantiate='0' >
+<property name='iniInsertUpdateResponse' type='IHC.ITF.Response.insertUpdatePersonResponse' instantiate='0' >
 </property>
 
 <property name='uofuMrnNumber' type='%String' instantiate='0' />
@@ -280,6 +299,12 @@ BPL Definition</Description>
 <property name='UofUMrnTypeNcid' type='%String' initialexpression='"520912268"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='notifyTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
 
@@ -350,6 +375,20 @@ BPL Definition</Description>
  }
  
   ]]]]><![CDATA[>
+</code>
+
+
+<code name='Check Notify Configuration' xpos='200' ypos='1050' >
+<annotation><![CDATA[Get Notify configuration from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //NotifyTargetConfigName validation
+ set context.notifyTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","NotifyTargetConfigName",.pStatus)
+ if (($$$ISERR(pstatus)) || (context.notifyTargetConfigName = "")){
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get NotifyTargetConfigName, shutting down.")
+    kill status
+ } else {
+    $$$TRACE("NotifyTargetConfigName " _ context.notifyTargetConfigName)   
+ }]]]]><![CDATA[>
 </code>
 
 <code name='CheckForLookupTables' xpos='470' ypos='1000' >
@@ -472,18 +511,60 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
+<code name='setContextVariables' xpos='200' ypos='250' >
+   <![CDATA[  
+     set context.curNameTypeExists = 0
+     set context.nameTypeBlankCount = 0
+]]]]><![CDATA[>
+</code>
+
+
+<foreach name='GetCountEmptyNameTypecodesInPID5' property='request.{PID:PatientName()}' key='context.NameTypeIndex' xpos='200' ypos='1350' xend='200' yend='350' >
+	<code name='codeCounterNameTypeEmpty' xpos='200' ypos='250' >
+   <![CDATA[  
+    	set nameTypeNcidValue= request.GetValueAt("PID:PatientName("_context.NameTypeIndex_").nametypecode")
+    	if ($ZSTRIP(nameTypeNcidValue,"*WCP")="187"){
+	    	set context.curNameTypeExists = 1
+	    }
+    	if ($L($ZSTRIP(nameTypeNcidValue,"*WCP"))=0){
+	    	set context.nameTypeBlankCount = context.nameTypeBlankCount +1
+	    }
+   ]]]]><![CDATA[>
+</code>
+</foreach>
+
 
 <foreach name='Iterate PID5' property='request.{PID:PatientName()}' key='context.PID5Count' xpos='200' ypos='1350' xend='200' yend='350' >
 <code name='Populate PID5 names' xpos='200' ypos='250' >
 <![CDATA[  
+  $$$TRACE("context.nameTypeBlankCount: "_context.nameTypeBlankCount)
+  if ((context.nameTypeBlankCount > 1) && (context.curNameTypeExists=0)){
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " More than one nametype code in PID-5 is blank AND there is no current nametype code(187). Empi#: ["_context.ihcEmpiNum_"]. Skipping the record." )
+  }
   set nameTypeNcidValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").nametypecode")
+  
   set lastNameValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").familyname") 
   $$$TRACE("Before AllowedNametypes")
   
   set AllowedNameTypesList = $LISTFROMSTRING(context.allowedNameTypes, ",")
- 
+  $$$TRACE("context.nameTypeBlankCount: "_context.curNameTypeExists)
+  $$$TRACE("Lenght of NameTypeCode:::::"_$L($ZSTRIP(nameTypeNcidValue,"*WCP")))
+  set givennameValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").givenname")
+  
+  if ((context.nameTypeBlankCount=1) && ($L($ZSTRIP(nameTypeNcidValue,"*WCP"))=0) && (context.curNameTypeExists = 0)){
+	  set nameTypeNcidValue = "187"
+  }
+  
+  if (($L(lastNameValue)=0) || ($L(givennameValue)=0)){
+	  if (nameTypeNcidValue = "187"){
+		  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " Current name type has first name:  ["_givennameValue_"] and/or last name: ["_lastNameValue_"] is empty. Empi#: ["_context.ihcEmpiNum_"]. Skipping the record." )
+	  }else{
+	      set context.nameTypes = nameTypeNcidValue_"|"				 				 	  
+	  }
+  }
+    
   ///nameTypeNcidValueis present in List and if lastNameValue is not empty and if the nameTypeNcidValue is present in list ListPid5NameTypes (which means we have already got one name with that nametype)
- if (($LENGTH(lastNameValue) '= 0) && ($LISTFIND(AllowedNameTypesList , nameTypeNcidValue) > 0) && (context.ListPid5NameTypes.Find(nameTypeNcidValue) = "")){
+ if (($LENGTH(lastNameValue) '= 0)&& ($L(givennameValue) '=0) && ($LISTFIND(AllowedNameTypesList , nameTypeNcidValue) > 0) && (context.ListPid5NameTypes.Find(nameTypeNcidValue) = "")){
     $$$TRACE("Inside accepted NameType present")
         
     ///Insert nametype ncid into the list
@@ -497,7 +578,7 @@ BPL Definition</Description>
     $$$TRACE("familyname in Array position "_context.NameArrayCount_" : "_context.familyname.GetAt(context.NameArrayCount))
 
     ///First Name
-    set givennameValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").givenname")
+    //set givennameValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").givenname")
     do context.givenname.SetAt(givennameValue,context.NameArrayCount)
     $$$TRACE("GivenName in Array position "_context.NameArrayCount_" : "_context.givenname.GetAt(context.NameArrayCount))
     
@@ -511,9 +592,10 @@ BPL Definition</Description>
     do context.suffix.SetAt(suffixValue,context.NameArrayCount)
     $$$TRACE("suffix in Array position "_context.NameArrayCount_" : "_context.suffix.GetAt(context.NameArrayCount))
     
-    ///nametypecode
-    set nametypecodeValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").nametypecode")
-    do context.nametypecode.SetAt(nametypecodeValue,context.NameArrayCount)
+    ///nametypecode    
+    //set nametypecodeValue= request.GetValueAt("PID:PatientName("_context.PID5Count_").nametypecode")
+    //do context.nametypecode.SetAt(nametypecodeValue,context.NameArrayCount)
+    do context.nametypecode.SetAt(nameTypeNcidValue,context.NameArrayCount)
     $$$TRACE("nametypecode in Array position "_context.NameArrayCount_" : "_context.nametypecode.GetAt(context.NameArrayCount))
     
     
@@ -536,9 +618,11 @@ BPL Definition</Description>
   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedNameTypes",.configValue)
   $$$TRACE("setting value of AllowedNameTypes: " _configValue)
   set AllowedNameTypesList = $LISTFROMSTRING(configValue, ",")
+  
+  set inCompletePid5NameTypesList = $LISTFROMSTRING(context.nameTypes,"|")
  
  ///nameTypeNcidValueis present in List and if lastNameValue is not empty and if the nameTypeNcidValue is present in list ListPid5NameTypes (which means we have already got one name with that nametype)
- if (($LISTFIND(AllowedNameTypesList , nameTypeNcidValue) > 0) && (context.ListPid5NameTypes.Find(nameTypeNcidValue) = "")){
+ if (($LISTFIND(AllowedNameTypesList , nameTypeNcidValue) > 0) && ($LISTFIND(inCompletePid5NameTypesList , nameTypeNcidValue) > 0) && (context.ListPid5NameTypes.Find(nameTypeNcidValue) = "")){
     $$$TRACE("Inside PID-9 accepted NameType present")
     
     ///Insert nametype ncid into the list
@@ -760,7 +844,7 @@ BPL Definition</Description>
 	 if ((errText["INITIATE_ENOREC")){
 		 $$$TRACE(" ERROR - INITIATE_ENOREC " )
 		 set context.iniMergeResponse = ""
-		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in CDR. COuld be merged already. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
+		 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " EMPI# not exists in Initiate. Could be merged already. empi#: ["_context.ihcEmpiNum_". Skipping the record."_errText )
 		 quit
 	 }
 	 if ((errText["INITIATE_EEXISTS")){
@@ -809,6 +893,21 @@ BPL Definition</Description>
 </code>
 
 <trace name='Call Output' value='"Message after Merge Webservice Call "_context.iniMergeResponse_" "' xpos='335' ypos='1500' />
+
+<if name='HasValidMergeResponse' condition='$L(context.iniMergeResponse)> 0' xpos='200' ypos='850' xend='200' yend='2700' >
+<true>
+ <call name='Send to TargetConfigNames' target='@context.notifyTargetConfigName' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.iniMergeResponse" action="set" />
+</request>
+</call>
+</true>
+<false>
+  <trace name='NoValidMergeResponse' value='"Merge Response is blank. Not sent to error notification."' xpos='605' ypos='1000' />
+</false>
+</if>
+
+
 </true>
 <false>
   <transform name='TransformAddUpdateEmpi20' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrAddUpdate' source='request' target='context.empi20Request' xpos='335' ypos='1100' >
@@ -892,6 +991,19 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 <trace name='Call Output' value='"Message after Insert Update Webservice Call " _ context.iniInsertUpdateResponse' xpos='605' ypos='1400' />
+
+<if name='HasValidInitiateUpdateResponse' condition='$L(context.iniInsertUpdateResponse)> 0' xpos='200' ypos='850' xend='200' yend='2700' >
+<true>
+<call name='Send to TargetConfigNames' target='@context.notifyTargetConfigName' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.iniInsertUpdateResponse" action="set" />
+</request>
+</call>
+</true>
+<false>
+  <trace name='NoValidInitiateUpdateResponse' value='"Initiate InsertUpdate Response is blank. Not sent to error notification."' xpos='605' ypos='1000' />
+</false>
+</if>
 
 </false>
 </if>
@@ -1043,6 +1155,9 @@ BPL Definition</Description>
 </Value>
 <Value name="6">
 <Value>AllowedEventTypes</Value>
+</Value>
+<Value name="7">
+<Value>NotifyTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
