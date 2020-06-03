@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.GetErrProductionSettingInvalid">
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65532,43423.465137</TimeCreated>
+
+<Parameter name="TaskName">
+<Description>
+This defines the user-visible name of this task;
+This is defined in subclasses.</Description>
+<Type>%STRING</Type>
+<Default>Generate ErrProductionSettingInvalid Report</Default>
+</Parameter>
+
+<Property name="ServiceName">
+<Type>%String</Type>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ServiceName = "GetErrProductionSettingInvalid"	
+ 	
+ set $NAMESPACE = "%SYS"
+ Write !, $NAMESPACE
+ set nmArr(1) = ""
+ set statement=##class(%SQL.Statement).%New()
+ set status=statement.%PrepareClassQuery("%SYS.Namespace","List")
+ // $$$TRACE( status)
+ if $$$ISERR(status) { do $system.OBJ.DisplayError(status) }
+ set resultset=statement.%Execute()
+
+ set ind = 1
+ while resultset.%Next() {
+	 // $$$sysTRACE( resultset.%GetData(1)
+    // set $NAMESPACE = resultset.%GetData(1)
+    set nmArr(ind) = resultset.%GetData(1)
+    set ind = ind + 1
+ }
+ 
+ // zwrite nmArr 
+ set message = "Error in settings - <I>ErrProductionSettingInvalid</I><br />" _ $SYSTEM _ "<BR/>Date: " _ $ZDATETIME($HOROLOG,3, 1)  _ "<br />"
+ set num =1
+ set sendEmail = 0
+    SET key=$ORDER(nmArr(""))
+   WHILE (key'="") {
+	   set pNamespace = $G(nmArr(key))
+     // $$$sysTRACE( num _ ". " _ key _ ": " _ $G(nmArr(key))
+     // Get next subscript 
+     Try {		
+		New $NAMESPACE
+		Set $NAMESPACE = pNamespace
+		// $$$TRACE( $NAMESPACE)
+		
+		
+		&sql(DECLARE CA1 CURSOR FOR
+		SELECT distinct CONFIGNAME AS SOURCE,  SOURCECLASS AS CLASS, TEXT
+			Into :comp, :cls, :txt
+ 			FROM ENS_UTIL.LOG
+			where Text like '%ErrProductionSettingInvalid%'
+			)
+		&sql(OPEN CA1)
+  		&sql(FETCH CA1)
+  		// $$$TRACE( "SQLCODE: " _ SQLCODE)
+  		if (SQLCODE = 0) {
+	  		set sendEmail = 1
+  			set message =  message _ " Namespace: <B>" _ $NAMESPACE _"</B><br />"
+  		}
+  		WHILE (SQLCODE = 0) {
+	  		if (txt '= "ENS.ACTOR")
+	  		{
+	  			set message =  message _  "     " _ comp _ ", CLASS: " _ cls _ ", " _ txt _ "<br />"
+	  		}
+  			&sql(FETCH CA1) 
+    	}
+    	&sql(CLOSE CA1)
+    
+     } Catch eException {
+		// WRITE !, eException.AsStatus()
+	}
+     SET key = $ORDER(nmArr(key))
+     set num = num +1
+   }
+  
+  
+  
+   
+  if (sendEmail = 1)
+  { 
+  set $NAMESPACE = "ITFCOMMON"
+  // $$$TRACE( "Send email, message size: " _ $L(message))
+  Set msg = ##class(%Net.MailMessage).%New()
+    set msg.From = "Jay.Narasipura@imail.org"
+    Do msg.To.Insert("James.Weaver@imail.org")
+    Do msg.To.Insert("Jay.Narasipura@imail.org")
+    Do msg.To.Insert("Tom.Elmer@imail.org")
+    Do msg.To.Insert("Jon.Humphrey@imail.org")
+    Do msg.To.Insert("Usha.Yarasi@imail.org")
+    
+    
+    Set msg.Subject="Components with error on " _ $SYSTEM
+    Set msg.IsBinary=0
+    Set msg.IsHTML=1
+    Do msg.TextData.Write(message)
+    
+    // $$$TRACE( "Created message")
+    Set adp= ##class(EnsLib.EMail.OutboundAdapter).%New()
+    set adp.SMTP = ##class(%Net.SMTP).%New()
+    Do adp.SMTPServerSet("smtp.co.ihc.com")
+    Do adp.SMTPPortSet(25)
+    
+    set tSc= adp.SendMail(msg, .list)
+    
+    return tSc
+  }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
