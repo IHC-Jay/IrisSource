@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.CDR.BaseOperationLab">
+<Description>
+Calls Tuxedo service cdr class</Description>
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>65533,45779.044654</TimeCreated>
+
+<Property name="JarFiles">
+<Description>
+JarFile which has the java code </Description>
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/jolt.jar:/WORK/common/class/log4j-1.2.17.jar:/WORK/common/class/itf-CdrAndAsn1-mod.jar:/WORK/common/class/ItfLogger.jar:/WORK/common/class/IhcItfCdrBaseClasses.jar:/WORK/common/class/IhcItfCdrMmiOperations.jar:/WORK/common/class/IhcItfCdrMmiUpdate.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="ApplicationAddress">
+<Description>
+Applicaiton Address to be connected</Description>
+<Type>%String</Type>
+<InitialExpression>"//svtst01:54210"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="TuxedoService">
+<Description>
+Mode of communication to Tuxedo Service</Description>
+<Type>%String</Type>
+<InitialExpression>"DSQL"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="objCdrTuxService">
+<Type>%RegisteredObject</Type>
+</Property>
+
+<Property name="LogDirectory">
+<Description>
+Name of the log directory </Description>
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/test"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="MaxRetryCount">
+<Description>
+how many times have we retried?</Description>
+<Type>%Integer</Type>
+<InitialExpression>5</InitialExpression>
+</Property>
+
+<Property name="InitStorage">
+<Description>
+Max Storage (in KiloBytes). Max that can allowcated to a process is 2147483647 KB. If you change this value, You meed to recycle the components.</Description>
+<Type>%Integer</Type>
+<InitialExpression>4000000</InitialExpression>
+</Property>
+
+<Property name="MinStorage">
+<Description>
+Min Storage (in KiloBytes). If the storage level reached less than 100KB, the process will run out of storage.</Description>
+<Type>%Integer</Type>
+<InitialExpression>100</InitialExpression>
+</Property>
+
+<Property name="WarnStorage">
+<Description>
+Warn Storage (in KiloBytes). The available storage is less. Very soon you may reach MINIMUM storage. If you change the value to -1, it will stop sending the warning alerts.</Description>
+<Type>%Integer</Type>
+<InitialExpression>500000</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>JarFiles:Additional,ApplicationAddress:Additional,TuxedoService:Additional,LogDirectory:Additional,MaxRetryCount:Additional,InitStorage:Additional,WarnStorage:Additional,MinStorage:Additional</Default>
+</Parameter>
+
+<Property name="lastRecTime">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="MAXIDLETIME">
+<Type>%Integer</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	do ##super()
+	$$$TRACE("$$$$$ Inside OnInit() method...")	
+	#dim status as %Status
+	set status = $$$OK	
+	$$$TRACE("BaseOperation OnInit.. Load JarFile "_ ..JarFiles)
+	Set p=1
+	
+		For {
+			Set piece=$P(..JarFiles,":",p)
+			Quit:piece=""
+			set p = p+1
+			try {
+				Set status= ..JavaGateway.%Import(piece)
+				$$$TRACE("Jar file: " _ piece _ ", status: " _ status)
+				set ..lastRecTime = $HOROLOG _ ".00"
+			} catch  exp
+    		{
+	     		$$$LOGERROR("Exception in jar file import: " _ exp)
+    		}
+		}
+	$$$TRACE("BaseOperation OnInit status: " _ status)
+    return status
+]]></Implementation>
+</Method>
+
+<Method name="ExceptionHandler">
+<FormalSpec>err:%Exception.AbstractException,method:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set sysText = ""
+ 	if (err.%IsA("%Exception.SystemException") )
+ 	{
+	 	set sysText = " SystemException: " _err.AsSystemError()_ "; "	 
+ 	}
+ 	If $GET(%objlasterror) '="" 
+ 	{
+ 		set sysText = sysText _ "ErrorText: " _ $System.Status.GetErrorText(%objlasterror) _ "; "	 
+ 	}
+ 
+
+ 	$$$LOGERROR("Exception in calling " _ method _ sysText _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    	    	    
+	    
+	set stat = $$$ERROR("Exception in " _ method _ "; " _ err.Data _ ", " _ sysText  _ ";$ZERROR: " _ $ZERROR _ ";ErrName: " _ $ZCVT(err.Name,"O","HTML")_ "; ErrData: " _ err.Data _ "; ErrCode:" _ err.Code _ "ErrLocation:" _ err.Location)	    	    	    
+	    		    	     	 		
+	     set errText = $SYSTEM.Status.GetOneErrorText(stat)
+	     $$$TRACE("CDR Base Operation: ExceptionHandler: "_errText)
+	     if errText["RESEND"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	     }Elseif errText["DATAERROR"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(..%ConfigName,errText)
+	     }Elseif errText["SHUTDOWN"{
+		   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errText)
+	     }Elseif ( ((errText["CONNECTIONERROR")) || (errText'["DATAERROR")){
+		    Try {
+		    	do ..OnTearDown()
+	    	}catch{}
+	    	$$$TRACE("Reconnect to Gateway # " _ ..RetryCount _", MAX: " _ ..MaxRetryCount)
+	    	// Connect to Gateway
+            Set tSC = ..GetConnection(.tGateway, ..ConnectTimeout+10)
+			If $$$ISOK(tSC) {
+				set tSC = ..OnInit()
+				If ( ($$$ISOK(tSC)) && (..RetryCount < ..MaxRetryCount) ) {
+	    			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,"Re connected to Gateway and Tuxedo")	
+				}
+				else
+				{
+					Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName, "Connect to Tuxedo service stat: " _ tSC _ ", RetryCount: " _ ..RetryCount _", Max try: " _ ..MaxRetryCount)
+				}
+			}
+			Else
+			{		
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName, "Could not reconnect to Gateway: " _ errText)
+			}
+	    }Else{
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errText)
+	    }	    
+	 $$$TRACE("ExceptionHandler return status: " _ status)
+	 return status
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+	$$$TRACE(" $$$$$ Inside OnTearDown() method...")
+	set tSC = $$$OK
+	
+	try {		
+		if $IsObject(..objCdrTuxService) {
+			$$$TRACE("Disconnecting from CDR Tuxedo service...")
+			do ..objCdrTuxService.shutdownTuxService()			
+			set ..objCdrTuxService = $$$NULLOREF
+			$$$TRACE("Disconnected - CDR Tuxedo service...")
+		}
+	} catch {
+		set tSC = $$$EnsSystemError
+	}
+	set tSC = ##super()
+	$$$TRACE("OnTearDown, status: " _ tSC)
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CheckObject">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+     $$$TRACE("Last Recorded Time: "_..lastRecTime)
+	 if (..lastRecTime '= "" )
+	 {
+		SET dateint2=$HOROLOG _ ".00"
+	    $$$TRACE("Current Time: "_dateint2)
+	 
+	 	set diff = $SYSTEM.SQL.DATEDIFF("hh", ..lastRecTime, dateint2)
+	 	$$$TRACE("Idle time: "_diff)
+	 	if (diff > ..MAXIDLETIME)
+   		 {
+	   		 $$$TRACE("Reconnect because the connection is older than " _ ..MAXIDLETIME_" hours.")
+	   		 do ..CloseConnection()
+	   		 quit $$$ERROR("Connection to Gateway is stale. Reconnect...")
+   		 }
+	 }
+	 set ..lastRecTime = $HOROLOG _ ".00"
+    If ( ($IsObject(..JavaGateway)) && ($IsObject(..objCdrTuxService)) )
+	{
+			$$$TRACE("Valid Object: " _ ..objCdrTuxService)
+			quit $$$OK
+	}
+    elseif (' $IsObject(..JavaGateway))
+    {
+	    set ..objCdrTuxService = $$$NULLOREF 
+	    quit $$$ERROR("Connection to Gateway is broken. " _ tSC)
+    }
+    else
+    {
+	    set ..objCdrTuxService = $$$NULLOREF 
+	    quit $$$ERROR("Invalid object: objCdrTuxService")
+    }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
