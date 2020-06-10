@@ -31,7 +31,7 @@
 <XMLNamespace>http://www.intersystems.com/urlmap</XMLNamespace>
 <Data><![CDATA[
 <Routes>
-<Route Url="/ShPreRegInfoPost" Method="POST" Call="OnProcessInput"/>
+<Route Url="/MhPreRegInfoPost" Method="POST" Call="OnProcessInput"/>
 </Routes>
 ]]></Data>
 </XData>
@@ -58,14 +58,28 @@
 	 set fin = rec.visit.visitNumber
 	 set vtype = rec.visit.visitType
 	 set facId = rec.visit.facilityCode
-	
+	 
+	 if mrn="" {
+		 $$$TRACE("Bad data, MRN is null... ")
+		 set errTxt = "Post request failed to process. Error: MRN is null."
+		 //Construct error response
+         set responseMsg="{"_$CHAR(34)_"status"_$CHAR(34)_":{"_$CHAR(34)_"error"_$CHAR(34)_":"_errTxt_","_$CHAR(34)_"summary"_$CHAR(34)_":"_$CHAR(34)_$CHAR(34)_"}}"
+         Set pOutput=##class(%GlobalBinaryStream).%New()
+         Do pOutput.SetAttribute("Content-Type","application/json")
+         do pOutput.Write(responseMsg)
+		 //Set %response.Status=$G(resp("ResponseCode"),"400 Bad Request")
+		 //Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName,errTxt_" Raw Data: "_httpBodyData)	 
+		 Do:$$$ISOK(tSC) pOutput.SetAttribute("ResponseCode","400 Bad Request")
+
+	 }
+	 else {
 	 // Construct a HL7 message
 	 set pHL7 = ##class(EnsLib.HL7.Message).%New()
 	 set pHL7.DocType = "R1PreRegAdt:R1ADT"
 	 set ctrlId=$zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
 	 set msgTm=##class(Ens.Util.FunctionSet).SubString(ctrlId,1,14)
-	 set tSeg1 = ##class(EnsLib.HL7.Segment).ImportFromString("MSH|^~\&|MH|ENSEMBLE|||"_msgTm_"||ADT^A08|"_ctrlId_"|T|2.3.1|")
-	 set tSeg2 = ##class(EnsLib.HL7.Segment).ImportFromString("EVN|A08|||1|")
+	 set tSeg1 = ##class(EnsLib.HL7.Segment).ImportFromString("MSH|^~\&|MH|"_facId_"|||"_msgTm_"||ADT^A08|"_ctrlId_"|T|2.3.1|")
+	 set tSeg2 = ##class(EnsLib.HL7.Segment).ImportFromString("EVN|A08|"_msgTm_"||1|")
 	 set tSeg3 = ##class(EnsLib.HL7.Segment).ImportFromString("PID|1||"_mrn_"||"_lastName_"^"_firstName_"^"_middleName_"||"_dob_"|"_sex_"||||||||||"_fin_"||||||||||||N|")
 	 set tSeg4 = ##class(EnsLib.HL7.Segment).ImportFromString("PV1|1||"_facId_"||||||||||||||||"_fin_"|")
 	 set tsc = pHL7.SetSegmentAt(tSeg1,1)
@@ -107,14 +121,24 @@
     set responseMsg="{"_$CHAR(34)_"MessageId"_$CHAR(34)_":"_ctrlId_"}"
 	Set pOutput=##class(%GlobalBinaryStream).%New()
     do pOutput.Write(responseMsg)
+    Do:$$$ISOK(tSC) pOutput.SetAttribute("ResponseCode","200 record is processed ok.")
+	 }
+
  }catch e
 	{
 		 $$$TRACE(" Unknown Exception: " _ e)
-		 set errTxt = $System.Status.GetErrorText("Unknown Exception while receiving post request per Vynca role change. "_e)		 
-		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errTxt)	  
-		 set tSC = $$$OK		 		  		 		 
+		 set errTxt = "Post request failed to process. Error:"_e.Name_" at: "_e.Location
+		 $$$TRACE("Execption  Error: " _ errTxt)
+		 //Construct error response
+         set responseMsg="{"_$CHAR(34)_"status"_$CHAR(34)_":{"_$CHAR(34)_"error"_$CHAR(34)_":"_errTxt_","_$CHAR(34)_"summary"_$CHAR(34)_":"_$CHAR(34)_$CHAR(34)_"}}"
+         Set pOutput=##class(%GlobalBinaryStream).%New()
+         Do pOutput.SetAttribute("Content-Type","application/json")
+         do pOutput.Write(responseMsg)
+		 //Set %response.Status=$G(resp("ResponseCode"),"415 content type is not application/json")
+		 //Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName,errTxt_" Raw Data: "_httpBodyData)	 
+		 Do:$$$ISOK(tSC) pOutput.SetAttribute("ResponseCode","415 content type is not application/json")
 	}
-	quit tSC
+    Quit tSC
 ]]></Implementation>
 </Method>
 
@@ -185,6 +209,17 @@ Return an array of connections for drawing lines on the config diagram</Descript
 	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
 		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
 	}
+]]></Implementation>
+</Method>
+
+<Method name="OnErrorStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pStatus:%Status</FormalSpec>
+<Implementation><![CDATA[
+ 	Set tStream = ##class(%GlobalBinaryStream).%New()  $$$ASSERT($IsObject(tStream))
+	Do tStream.Write($ZConvert($$$StatusDisplayString(pStatus)_$C(13,10),"O","UTF8"))
+	Set tStream.Attributes("Content-Type")="application/json"
+	Set tStream.Attributes("ResponseCode")="415 content type is not application/json"
 ]]></Implementation>
 </Method>
 </Class>
