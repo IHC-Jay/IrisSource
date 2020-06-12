@@ -21,18 +21,14 @@
 <XMLNamespace>http://www.intersystems.com/dtl</XMLNamespace>
 <Data><![CDATA[
 <transform sourceClass='EnsLib.HL7.Message' targetClass='EnsLib.EDI.XML.Document' sourceDocType='SunquestOrdersAndResultsToCerner:ORU_R01' targetDocType='LabMicroXml:CiwsInfo' create='new' language='objectscript' >
+<assign value='""' property='clinicianNcid' action='set' />
+<assign value='""' property='facilityNcid' action='set' />
 <assign value='"50034"' property='appNcid' action='set' />
 <assign value='"DSSXA"' property='target.{CiwsHeader.ServiceName}' action='set' />
 <assign value='"HemsInfo"' property='target.{ServiceMessage.type}' action='set' />
 <assign value='""' property='target.{ServiceMessage.HemsInfo.type}' action='set' />
 <assign value='"6"' property='target.{ServiceMessage.HemsInfo.version}' action='set' />
-<assign value='""' property='facilityNcid' action='set' />
-<assign value='""' property='clinicianNcid' action='set' />
-<assign value='1' property='obsIndex' action='set' />
-<assign value='""' property='obx4Index' action='set' />
-<assign value='""' property='obsIndexToModify' action='set' />
 <assign value='1' property='headerItemIndex' action='set' />
-<assign value='1' property='slideModIndex' action='set' />
 <code>
 <![CDATA[ // get facility and clinician ncid
  set facility=source.GetValueAt("MSH:SendingFacility.NamespaceID")
@@ -263,65 +259,312 @@
 <assign value='obsModsIndex+1' property='obsModsIndex' action='set' />
 </true>
 </if>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(*)}' property='orcGroupCount' action='set' />
 <assign value='""' property='specimenType' action='set' />
 <assign value='""' property='specimenTypeNcid' action='set' />
 <assign value='""' property='specimenBodyLocationNcid' action='set' />
 <assign value='""' property='specimenBodyLocationModifierNcid' action='set' />
 <assign value='""' property='specimenModifierNcid' action='set' />
 <assign value='""' property='specimenComments' action='set' />
-<assign value='source.{PIDgrpgrp(1).ORCgrp(*)}' property='orcGroupCount' action='set' />
-<trace value='"ORC group count: "_orcGroupCount' />
 <assign value='1' property='obsNoteIndex' action='set' />
-<assign value='1' property='obsModsItemIndex' action='set' />
+<assign value='0' property='currentIndex' action='set' />
+<assign value='""' property='previousObservationIndex' action='set' />
 <foreach property='source.{PIDgrpgrp(1).ORCgrp()}' key='k1' >
+<if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBR:UniversalServiceIdentifier.NameofCodingSystem} ="L"' >
+<true>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBR:UniversalServiceIdentifier.Identifier}' property='context.Obr4' action='set' />
+</true>
+<false>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBR:UniversalServiceIdentifier.AlternateIdentifier}' property='context.Obr4' action='set' />
+</false>
+</if>
 <assign value='0' property='isSusceptibility' action='set' />
-<assign value='0' property='isSlide' action='set' />
 <if condition='$FIND(context.ObrWithObxToTranslate,k1) &gt; 0' >
 <true>
-<assign value='""' property='obr4' action='set' />
-<if condition='orcGroupCount &gt; 1' >
-<true>
+<assign value='""' property='obsNcid' action='set' />
+<assign value='""' property='obx3' action='set' />
 <code>
-<![CDATA[ // Is this an susceptibility
- $$$TRACE("Checking for susceptibilities.")
- set obr43 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.nameofcodingsystem")
- if (obr43'="L"){
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.alternateidentifier")
- }else{
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.identifier")
- } 
- $$$TRACE("OBR-4 to check: "_obr4)
- if (obr4 '="") { 
-    set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestResultsHl7ToCdrXml.Lookup.SunquestSusceptibilityList", obr4, .retVal)
-    if (retVal ="1") {
-       $$$TRACE("Record is Susceptibility")
-       set isSusceptibility =1
+<![CDATA[ // Setup context.ObxIndexArray and find susceptibilities and slides.
+
+ if (k1 > 1) {
+    // Is this an susceptibility
+    $$$TRACE("Checking for susceptibilities.")
+    $$$TRACE("OBR-4 to check: "_context.Obr4)
+    if (context.Obr4 '="") { 
+       set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestResultsHl7ToCdrXml.Lookup.SunquestSusceptibilityList", context.Obr4, .retVal)
+       if (retVal ="1") {
+          $$$TRACE("Record is Susceptibility")
+          set isSusceptibility =1
+       }
     }
  }
+ if ('isSusceptibility) {
+    // Is this a slide exam?
+    $$$TRACE("In code to check for slide exam.")
+    set isSlideExam ="" 
+    set obxIndex =""
+    set obsNcid =""
+    for { 
+       Set obxIndex=source.GetNextIndex("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp()",obxIndex,.tSCTrans)  Quit:obxIndex=""
+       if (source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:UserDefinedAccessChecks") '="N") {
+          set obx33= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationIdentifier.NameofCodingSystem")
+          if (obx33 ="L") {
+             set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationIdentifier.Identifier")
+          }else {
+             set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationIdentifier.AlternateIdentifier")
+          }
+          set obx4 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationSubID")
+  
+          if ((obx3 '="") && (obx3 '="SREQ") && (obx3 '="SDES")) {
+             set obsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
+             if ((obsNcid["ITFCOMMON:10109") || (obsNcid["Web service returned(error):")){
+                $$$TRACE("HDD call returned error while trying to determine ncid from OBX-3. Unable to continue, shutting down.")
+                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obsNcid)
+                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+             }elseif (obsNcid ="") {
+                $$$TRACE("HDD call returned nothing while trying to determine OBX-3 ncid. Unable to continue, skipping record.")
+                set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned no ncid using OBX-3: ("_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
+                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+             }
+          }elseif ((obx3 ="SREQ") || (obx3 ="SDES")) {
+             set isSlideExam =0
+          }
 
-]]]]><![CDATA[></code>
+          if (obsNcid '="") {
+             set isSlideExam=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.SlideDomain,obsNcid,context.HddTargetConfigName,.process)
+             if ((isSlideExam["ITFCOMMON:10109") || (isSlideExam["Web service returned(error):")){
+                $$$TRACE("HDD call returned error while trying to determine if OBX-3 is a slide exam. Unable to continue, shutting down.")
+                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-3(Value:"_obx3_". Ncid:("_obsNcid_".) is a slide, shutting down. Error returned: "_isSlideExam)
+                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+             }
+             do context.Obx3NcidArray.SetAt(obsNcid,context.Obr4_"|"_obx3_"|"_obx4)
+          }
+          $$$TRACE("Setting slide index: "_context.Obr4_"|"_obx3_"|"_obx4)
+          do context.SlideArray.SetAt(isSlideExam,context.Obr4_"|"_obx3_"|"_obx4)
+
+          
+          $$$TRACE("Is this a slide exam? "_isSlideExam)
+          if (('isSlideExam) && (obx3 '="SDES") && (obx3 '="SREQ")) {
+             // Is coded OBX a comment? And set the comment text.
+             set isObxAComment =0
+             set isObxAnObrComment =0
+             set isMicroQuantitativeModifier =0
+             set isMicroQualitativeModifier =0
+             set isMicroComment =0
+             set obx2=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ValueType")
+             set obx5 =""
+ 
+             if (obx2="CWE") {
+                set obx53 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationValue(1).NameofCodingSystem")
+                if (obx53="L") {
+                   set obx5 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationValue(1).Identifier")
+                }else {
+                   set obx5 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_obxIndex_").OBX:ObservationValue(1).AlternateIdentifier")
+                }
+                $$$TRACE("OBX-5.3: "_obx53_". OBX-5: "_obx5)
+ 
+                set obx5Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.MicroCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                if ((obx5Ncid["ITFCOMMON:10109") || (obx5Ncid["Web service returned(error):")){
+                   $$$TRACE("HDD Call Returned Error")
+                   set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to map obx5 to comment ncid, shutting down. Error returned: "_obx5Ncid)
+                   Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                }elseif (obx5Ncid="") {
+                   set isObxAComment = 0
+                }
+ 
+                if (obx5Ncid '=""){
+                   set isObxAComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroCommentDomain,obx5Ncid,context.HddTargetConfigName,.process)
+                   if ((isObxAComment["ITFCOMMON:10109") || (isObxAComment["Web service returned(error):")){
+                      $$$TRACE("HDD Call Returned Error")
+                      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to determine if obx5 is a comment, shutting down. Error returned: "_isObxAComment)
+                      Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                   }elseif (isObxAComment =""){
+                      set isObxAComment = 0
+                   }
+     
+                   if (isObxAComment=1) {
+                      $$$TRACE("Calling obx comment lookup")
+                      try {
+                         set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+                         $$$TRACE("Comment: "_obxComment)
+                         if (obxComment["MAXLEN allowed of 250"){
+                            set obxComment =$E($P(obxComment,"'",2),1,250)
+                            $$$TRACE("New comment due to length: "_obxComment)
+                         }elseif ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
+                            $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                            set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
+                            Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                         }elseif (obxComment =""){
+                            set isObxAComment = 0
+                         }
+                         $$$TRACE("OBX comment: "_obxComment)
+                         do context.ObxCommentArray.SetAt(obxComment,context.Obr4_"|"_obx3_"|"_obx4)
+                      }catch ex {
+                         set errorData =$LISTGET(ex.Data,2)
+                         set erroredComment =$LISTGET(ex.Data,1)
+                         $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+                         if (errorData ="250") {
+                            set obxComment =$E(erroredComment,1,250)
+                            $$$TRACE("New comment due to length: "_obxComment) 
+                            do context.ObxCommentArray.SetAt(obxComment,context.Obr4_"|"_obx3_"|"_obx4)
+                         }            
+                      }
+                   }
+                }else {
+                   set obx5Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.ObrCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                   if ((obx5Ncid["ITFCOMMON:10109") || (obx5Ncid["Web service returned(error):")){
+                      $$$TRACE("HDD Call Returned Error")
+                      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to map obx5 to comment ncid, shutting down. Error returned: "_obx5Ncid)
+                      Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                   }elseif (obx5Ncid="") {
+                      set isObxAnObrComment = 0
+                   }
+       
+                   if (obx5Ncid '=""){
+                      set isObxAnObrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.ObrCommentDomain,obx5Ncid,context.HddTargetConfigName,.process)
+                      if ((isObxAnObrComment["ITFCOMMON:10109") || (isObxAnObrComment["Web service returned(error):")){
+                         $$$TRACE("HDD Call Returned Error")
+                         set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to determine if obx5 is a comment, shutting down. Error returned: "_isObxAnObrComment)
+                         Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                      }elseif (isObxAnObrComment =""){
+                         set isObxAnObrComment = 0
+                      }
+     
+                      if (isObxAnObrComment=1) {
+                         try {
+                            set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+                            $$$TRACE("Comment: "_obrComment)
+                            if (obrComment["MAXLEN allowed of 250"){
+                               set obrComment =$E($P(obrComment,"'",2),1,250)
+                               $$$TRACE("New comment due to length: "_obrComment)
+                            }elseif ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
+                               $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                               set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
+                               Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                            }elseif (obrComment =""){
+                               set isObxAnObrComment = 0
+                            }
+                         }catch ex {
+                            set errorData =$LISTGET(ex.Data,2)
+                            set erroredComment =$LISTGET(ex.Data,1)
+                            $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+                            if (errorData ="250") {
+                               set obrComment =$E(erroredComment,1,250)
+                               $$$TRACE("New comment due to length: "_obrComment) 
+                            }            
+                         }
+                         $$$TRACE("OBR comment: "_obrComment)
+                         do context.ObrCommentArray.SetAt(obrComment,context.Obr4_"|"_obx3_"|"_obx4)
+                      }
+                   }
+                }
+                
+                set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.CodedValueDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
+                   $$$TRACE("HDD call returned error shutting down.")
+                   set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
+                   Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                }elseif (obx5IdNcid="") {
+                   set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.CultureDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                   if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
+                      $$$TRACE("HDD call returned error shutting down.")
+                      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
+                      Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                   }elseif (obx5IdNcid="") {
+                      set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.SusceptibilityInterpretiveValueDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                      if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
+                         $$$TRACE("HDD call returned error shutting down.")
+                         set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
+                         Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                      }elseif (obx5IdNcid="") {
+                         set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.CodedCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                         if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
+                            $$$TRACE("HDD call returned error shutting down.")
+                            set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
+                            Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                         }elseif (obx5IdNcid="") {
+                            set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.SlideObservationDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
+                            if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
+                               $$$TRACE("HDD call returned error shutting down.")
+                               set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
+                               Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                            }elseif (obx5IdNcid="") {
+                               $$$TRACE("HDD call returned nothing while trying to determine OBX-5 ncid. Unable to continue, skipping record.")
+                               set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned no ncid using OBX-5: ("_obx5_"). Using any of the domains: "_context.CodedValueDomain_", "_context.CultureDomain_", "_context.SusceptibilityInterpretiveValueDomain_", "_context.CodedCommentDomain_", "_context.SlideObservationDomain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
+                               Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                            }
+                         }
+                      }
+                   }
+                }
+                if (obx5IdNcid '="") {
+                   $$$TRACE("Setting OBX-5 Ncid: "_obx5IdNcid)
+                   do context.Obx5NcidArray.SetAt(obx5IdNcid,context.Obr4_"|"_obx3_"|"_obx4)
+            
+ 
+                   set isMicroQuantitativeModifier=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroQuantitativeModifierDomain,obx5IdNcid,context.HddTargetConfigName,.process)
+                   if ((isMicroQuantitativeModifier["ITFCOMMON:10109") || (isMicroQuantitativeModifier["Web service returned(error):")){
+                      $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a quantitative modifier. Unable to continue, shutting down.")
+                      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5_". Ncid:("_obx5IdNcid_".) is a quantitative modifier, shutting down. Error returned: "_isMicroQuantitativeModifier)
+                      Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                   }elseif (isMicroQuantitativeModifier) {
+                      $$$TRACE("Setting as micro quantitative modifier"_context.Obr4_"|"_obx3_"|"_obx4)
+                      do context.MicroQuantitativeModifierArray.SetAt("1",context.Obr4_"|"_obx3_"|"_obx4)
+                   }
+  
+                   if ('isMicroQuantitativeModifier) {
+                      set isMicroQualitativeModifier=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroQualitativeModifierDomain,obx5IdNcid,context.HddTargetConfigName,.process)
+                      if ((isMicroQualitativeModifier["ITFCOMMON:10109") || (isMicroQualitativeModifier["Web service returned(error):")){
+                         $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a qualitative modifier. Unable to continue, shutting down.")
+                         set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5_". Ncid:("_obx5IdNcid_".) is a qualitative modifier, shutting down. Error returned: "_isMicroQualitativeModifier)
+                         Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                      }elseif (isMicroQualitativeModifier) {
+                         $$$TRACE("Setting as micro qualitative modifier"_context.Obr4_"|"_obx3_"|"_obx4)
+                         do context.MicroQualitativeModifierArray.SetAt("1",context.Obr4_"|"_obx3_"|"_obx4)
+                      }
+                   }
+
+                   if (('isMicroQuantitativeModifier) && ('isMicroQualitativeModifier)) {
+                      set isMicroComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroCommentDomain,obx5IdNcid,context.HddTargetConfigName,.process)
+                      if ((isMicroComment["ITFCOMMON:10109") || (isMicroComment["Web service returned(error):")){
+                         $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a micro comment. Unable to continue, shutting down.")
+                         set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5_". Ncid:("_obx5IdNcid_".) is a micro comment, shutting down. Error returned: "_isMicroComment)
+                         Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                      }elseif (isMicroComment) {
+                         $$$TRACE("Setting as micro comment"_context.Obr4_"|"_obx3_"|"_obx4)
+                         do context.MicroCommentArray.SetAt("1",context.Obr4_"|"_obx3_"|"_obx4)
+                      }
+                   }
+                }
+                if (('isObxAnObrComment) && ('isObxAComment) && ('isMicroQuantitativeModifier) && ('isMicroQualitativeModifier) && ('isMicroComment)) {
+                   set currentIndex =currentIndex+1
+                   do context.ObxIndexArray.SetAt(currentIndex,context.Obr4_"|"_$P(obx4,".",1)) 
+                   $$$TRACE("Setting index for observations: "_currentIndex_":"_context.Obr4_"|"_$P(obx4,".",1))
+                }
+             }
+          }
+       }
+    }
+ }]]]]><![CDATA[></code>
+<if condition='k1 &gt; 1' >
+<true>
 <if condition='isSusceptibility' >
 <true>
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBR:ParentResult.ParentObservationSubidentifi}' property='obr26' action='set' />
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBR:ParentResult.ParentObservationIdentifier.AlternateIdentifier}' property='obr26' action='set' />
+<assign value='$P(source.{PIDgrpgrp(1).ORCgrp(k1).OBR:ParentResult.ParentObservationSubidentifi},".",1)' property='obr262' action='set' />
 <code>
-<![CDATA[ // Set obsIndexToModify
-  set obsIndexToModify = context.ObxIndexArray.GetAt(obr26)
-  $$$TRACE("Observation Index: "_obsIndexToModify)
-  
+<![CDATA[ // Set context.ObservationIndex
+ $$$TRACE("Attempting to find Observation to attach Susceptibility to on index: "_obr26_"|"_obr262)
+ set context.ObservationIndex = context.ObxIndexArray.GetAt(obr26_"|"_obr262)
+ if (context.ObservationIndex ="") {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName, "Susceptibility without result to attach to on OBR["_k1_"]. Failing record.")
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }
+ $$$TRACE("Observation index: "_obr262_". Observation index to modify: "_context.ObservationIndex)  
   ]]]]><![CDATA[></code>
 <foreach property='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp()}' key='k2' >
-<assign value='0' property='hiddenValue' action='set' />
-<code>
-<![CDATA[ //Should this obx be sent?
- set obx13 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:13")
- set obx8 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:8(1)")
- set obx9= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:9")
- $$$TRACE("OBX-8: "_obx8_". OBX-9: "_obx9_". OBX-13: "_obx13)
- if (((obx8'="") && (obx13 ="N")) || (obx9 ="N")) {
-    set hiddenValue =1
- }
- $$$TRACE("Hidden obx? "_hiddenValue)]]]]><![CDATA[></code>
-<if condition='(&apos;hiddenValue)' >
+<trace value='"Handling susceptibility #"_k2' />
+<if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:UserDefinedAccessChecks} &apos;="N"' >
 <true>
 <assign value='0' property='isObxAnObrComment' action='set' />
 <assign value='0' property='isObxAComment' action='set' />
@@ -329,6 +572,8 @@
 <assign value='""' property='obrComment' action='set' />
 <code>
 <![CDATA[ // Is coded OBX a comment? And set the comment text.
+ 
+ $$$TRACE("Checking for susceptibility comments")
  set obx2=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ValueType")
  set obx5 =""
  
@@ -361,13 +606,27 @@
        }
      
        if (isObxAComment=1) {
-          set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-          if ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
-             $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
-             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-          }elseif (obxComment =""){
-             set isObxAComment = 0
+	      try {
+             set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+             $$$TRACE("Comment: "_obxComment)
+             if (obxComment["MAXLEN allowed of 250"){
+                set obxComment =$E($P(obxComment,"'",2),1,250)
+                $$$TRACE("New comment due to length: "_obxComment)
+             }elseif ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
+                $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
+                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+             }elseif (obxComment =""){
+                set isObxAComment = 0
+             }
+	      }catch ex {
+             set errorData =$LISTGET(ex.Data,2)
+             set erroredComment =$LISTGET(ex.Data,1)
+             $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+             if (errorData ="250") {
+                set obxComment =$E(erroredComment,1,250)
+                $$$TRACE("New comment due to length: "_obxComment) 
+             }            
           }
           $$$TRACE("OBX comment: "_obxComment)
        }
@@ -392,21 +651,37 @@
           }
      
           if (isObxAnObrComment=1) {
-             set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-             if ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
-                $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
-                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-             }elseif (obrComment =""){
-                set isObxAnObrComment = 0
-            }
-            $$$TRACE("OBR comment: "_obrComment)
+	         try {
+                set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+                $$$TRACE("Comment: "_obrComment)
+                if (obrComment["MAXLEN allowed of 250"){
+                   set obrComment =$E($P(obrComment,"'",2),1,250)
+                   $$$TRACE("New comment due to length: "_obrComment)
+                }elseif ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
+                   $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                   set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
+                   Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                }elseif (obrComment =""){
+                   set isObxAnObrComment = 0
+                }
+	         }catch ex {
+                set errorData =$LISTGET(ex.Data,2)
+                set erroredComment =$LISTGET(ex.Data,1)
+                $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+                if (errorData ="250") {
+                   set obrComment =$E(erroredComment,1,250)
+                   $$$TRACE("New comment due to length: "_obrComment) 
+                }            
+             }
+             $$$TRACE("OBR comment: "_obrComment)
           }
        }
     }
- }]]]]><![CDATA[></code>
+ }
+ $$$TRACE("Done checking for comments")]]]]><![CDATA[></code>
 <if condition='isObxAnObrComment' >
 <true>
+<trace value='"OBX is an OBR comment"' />
 <assign value='obrComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.comments.Item(noteIndex).comments.Item.text}' action='set' />
 <assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.comments.Item(noteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='noteIndex+1' property='noteIndex' action='set' />
@@ -414,29 +689,57 @@
 <false>
 <if condition='isObxAComment' >
 <true>
-<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
-<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<trace value='"OBX is a comment"' />
+<code>
+<![CDATA[ // Set obsNoteIndex
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(obx4Index)
+  $$$TRACE("Observation index: "_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(obx4Index-1)
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </true>
 <false>
-<if condition='obr4="MIC"' >
+<trace value='"context.ObservationIndex: "_context.ObservationIndex' />
+<code>
+<![CDATA[ //Get obsModsItemIndex
+ set obsModsItemIndex =context.obsModsItemIndexArray.GetAt(context.ObservationIndex)
+ 
+ if (obsModsItemIndex ="") {
+    set obsModsItemIndex =1
+ }]]]]><![CDATA[></code>
+<trace value='"obsModsItemIndex: "_obsModsItemIndex_". subObsIndex: "_subObsIndex' />
+<if condition='context.Obr4="MIC"' >
 <true>
-<assign value='"119243"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='"119270"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='"1076"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<trace value='"Setting up MIC on Observation Index: "_obsIndexToModify' />
+<trace value='"Setting up MIC on Observation Index: "_context.ObservationIndex' />
+<if condition='previousObservationIndex &apos;=context.ObservationIndex' >
+<true>
+<assign value='"119243"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='"119270"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"1076"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='context.ObservationIndex' property='previousObservationIndex' action='set' />
+<assign value='1' property='subObsIndex' action='set' />
+</true>
+</if>
 <assign value='""' property='drugNcid' action='set' />
 <code>
 <![CDATA[ // Setup susceptibility ncids
  set obx3 =""
- set obr4=""
- set obr43=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.nameofcodingsystem")
- if (obr43'="L"){
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.alternateidentifier")
- }else{
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.identifier")
- }
- $$$TRACE("OBR-4="_obr4)
+ $$$TRACE("OBR-4="_context.Obr4)
  
  set obx33= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.NameofCodingSystem")
  if (obx33 ="L") {
@@ -445,14 +748,14 @@
     set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.AlternateIdentifier")
  }
  
- set aggObsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obr4_"-"_obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
+ set aggObsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(context.Obr4_"-"_obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
  if ((aggObsNcid["ITFCOMMON:10109") || (aggObsNcid["Web service returned(error):")){
     $$$TRACE("HDD call returned error while trying to determine susceptibility drug from OBR-4 and OBX-3. Unable to continue, shutting down.")
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_aggObsNcid)
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }elseif (aggObsNcid ="") {
     $$$TRACE("HDD call returned nothing while trying to determine susceptibility drug from OBR-4 and OBX-3. Unable to continue, skipping record.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned nothing for susceptibility drug using OBR-4-OBX-3: ("_obr4_"-"_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned nothing for susceptibility drug using OBR-4-OBX-3: ("_context.Obr4_"-"_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }
  
@@ -471,10 +774,11 @@
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }
  set drugNcid = relationshipNcidValue.StringValue]]]]><![CDATA[></code>
-<assign value='"119247"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='"119274"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='drugNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"119247"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).id}' action='set' />
+<assign value='"119274"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='drugNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:AbnormalFlags(1)}' property='obx8' action='set' />
+<trace value='"OBX-8: "_obx8' />
 <if condition='obx8 &apos;=""' >
 <true>
 <assign value='""' property='obx8Ncid' action='set' />
@@ -500,32 +804,31 @@
        Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
     }
  }]]]]><![CDATA[></code>
-<assign value='"115031"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).id}' action='set' />
-<assign value='context.SusceptibilityInterpretiveValueDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx8Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"115031"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).id}' action='set' />
+<assign value='context.SusceptibilityInterpretiveValueDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx8Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 </true>
 </if>
 <assign value='subObsIndex+1' property='subObsIndex' action='set' />
 </true>
 <false>
-<if condition='obr4="KB"' >
+<if condition='context.Obr4="KB"' >
 <true>
-<assign value='"119242"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='"119269"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='"1076"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<trace value='"Setting up KB on Observation Index: "_obsIndexToModify' />
+<if condition='previousObservationIndex &apos;=context.ObservationIndex' >
+<true>
+<assign value='"119242"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='"119269"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"1076"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='context.ObservationIndex' property='previousObservationIndex' action='set' />
+<assign value='1' property='subObsIndex' action='set' />
+</true>
+</if>
+<trace value='"Setting up KB on Observation Index: "_context.ObservationIndex' />
 <assign value='""' property='drugNcid' action='set' />
 <code>
 <![CDATA[ // Setup susceptibility ncids
  set obx3 =""
- set obr4=""
- set obr43=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.nameofcodingsystem")
- if (obr43'="L"){
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.alternateidentifier")
- }else{
-    set obr4=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBR:UniversalServiceIdentifier.identifier")
- }
- $$$TRACE("OBR-4="_obr4)
+ $$$TRACE("OBR-4="_context.Obr4)
  
  set obx33= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.NameofCodingSystem")
  if (obx33 ="L") {
@@ -534,14 +837,14 @@
     set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.AlternateIdentifier")
  }
  
- set aggObsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obr4_"-"_obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
+ set aggObsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(context.Obr4_"-"_obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
  if ((aggObsNcid["ITFCOMMON:10109") || (aggObsNcid["Web service returned(error):")){
     $$$TRACE("HDD call returned error while trying to determine susceptibility drug from OBR-4 and OBX-3. Unable to continue, shutting down.")
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_aggObsNcid)
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }elseif (aggObsNcid ="") {
     $$$TRACE("HDD call returned nothing while trying to determine susceptibility drug from OBR-4 and OBX-3. Unable to continue, skipping record.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned nothing for susceptibility drug using OBR-4-OBX-3: ("_obr4_"-"_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned nothing for susceptibility drug using OBR-4-OBX-3: ("_context.Obr4_"-"_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }
  
@@ -560,9 +863,9 @@
     Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
  }
  set drugNcid = relationshipNcidValue.StringValue]]]]><![CDATA[></code>
-<assign value='"119246"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='"119273"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='drugNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"119246"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).id}' action='set' />
+<assign value='"119273"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='drugNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:AbnormalFlags(1)}' property='obx8' action='set' />
 <if condition='obx8 &apos;=""' >
 <true>
@@ -589,9 +892,9 @@
        Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
     }
  }]]]]><![CDATA[></code>
-<assign value='"115031"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).id}' action='set' />
-<assign value='context.SusceptibilityInterpretiveValueDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx8Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"115031"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).id}' action='set' />
+<assign value='context.SusceptibilityInterpretiveValueDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx8Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsMods.Item(subObsIndex).value(1).choice.obsMods.Item(1).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 </true>
 </if>
 <assign value='subObsIndex+1' property='subObsIndex' action='set' />
@@ -605,7 +908,21 @@
 </if>
 <foreach property='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE()}' key='k3' >
 <trace value='"Setting up susceptibility notes"' />
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):Comment(1)}' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<code>
+<![CDATA[ // Set obsNoteIndex
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(obx4Index)
+  $$$TRACE("Observation index: "_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(obx4Index-1)
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):Comment(1)}' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):SourceofComment}' property='sourceOfComment' action='set' />
 <code>
 <![CDATA[ ///Getting source of comment ncid
@@ -613,12 +930,21 @@
  if ((sourceOfCommentNcid["ITFCOMMON:10109") || (sourceOfCommentNcid="") || (sourceOfCommentNcid["Web service returned(error):")){
     $$$TRACE("HDD call returned error while trying to determine source of comment. Skipping setting source of comment.")
  }]]]]><![CDATA[></code>
-<assign value='sourceOfCommentNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<assign value='sourceOfCommentNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </foreach>
 </true>
+<false>
+<trace value='"Skipping hidden susceptibility"' />
+</false>
 </if>
 </foreach>
+<trace value='"End of susceptibilities"' />
 </true>
 </if>
 </true>
@@ -626,64 +952,33 @@
 <assign value='""' property='previousObx4' action='set' />
 <assign value='""' property='previousObx3' action='set' />
 <assign value='1' property='subObsIndex' action='set' />
+<assign value='1' property='slideSubObsIndex' action='set' />
+<assign value='1' property='slideObsNoteIndex' action='set' />
 <foreach property='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp()}' key='k2' >
-<assign value='0' property='hiddenValue' action='set' />
-<code>
-<![CDATA[ //Should this obx be sent?
- set obx13 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:13")
- set obx8 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:8(1)")
- set obx9= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:9")
- $$$TRACE("OBX-8: "_obx8_". OBX-9: "_obx9_". OBX-13: "_obx13)
- if (((obx8'="") && (obx13 ="N")) || (obx9 ="N")) {
-    set hiddenValue =1
- }
- 
- $$$TRACE("Hidden value? "_hiddenValue)]]]]><![CDATA[></code>
-<if condition='((&apos;isSusceptibility) &amp;&amp; (&apos;hiddenValue))' >
+<if condition='((&apos;isSusceptibility) &amp;&amp; (source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:UserDefinedAccessChecks} &apos;="N"))' >
 <true>
-<trace value='"Checking for slide exam"' />
-<assign value='""' property='obsNcid' action='set' />
 <assign value='""' property='obx3' action='set' />
-<assign value='$P(source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID},".",1)' property='obx4' action='set' />
+<if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.NameofCodingSystem} ="L"' >
+<true>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.Identifier}' property='obx3' action='set' />
+</true>
+<false>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.AlternateIdentifier}' property='obx3' action='set' />
+</false>
+</if>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID}' property='obx4' action='set' />
+<assign value='0' property='isSlide' action='set' />
 <code>
 <![CDATA[ // Is this a slide exam?
- $$$TRACE("In code to check for slide exam.")
- set obx3 =""
- set obx33= source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.NameofCodingSystem")
- if (obx33 ="L") {
-    set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.Identifier")
- }else {
-    set obx3 = source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationIdentifier.AlternateIdentifier")
- }
- 
- if ((obx3 '="") && (obx3 '="SREQ") && (obx3 '="SDES")) {
-    set obsNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx3,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
-    if ((obsNcid["ITFCOMMON:10109") || (obsNcid["Web service returned(error):")){
-       $$$TRACE("HDD call returned error while trying to determine ncid from OBX-3. Unable to continue, shutting down.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obsNcid)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (obsNcid ="") {
-       $$$TRACE("HDD call returned nothing while trying to determine OBX-3 ncid. Unable to continue, skipping record.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned no ncid using OBX-3: ("_obx3_"). Domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }
- }
- 
- if (obsNcid '="") {
-    set isSlide=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.SlideDomain,obsNcid,context.HddTargetConfigName,.process)
-    if ((isSlide["ITFCOMMON:10109") || (isSlide["Web service returned(error):")){
-       $$$TRACE("HDD call returned error while trying to determine if OBX-3 is a slide exam. Unable to continue, shutting down.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-3(Value:"_obx3_". Ncid:("_obsNcid_".) is a slide, shutting down. Error returned: "_isSlide)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }
- }
- $$$TRACE("Is this a slide exam? "_isSlide)]]]]><![CDATA[></code>
+ set isSlide =context.SlideArray.GetAt(context.Obr4_"|"_obx3_"|"_obx4)
+ $$$TRACE("After slide check using index: "_context.Obr4_"|"_obx3_"|"_obx4_". Is slide? "_isSlide)]]]]><![CDATA[></code>
 <assign value='0' property='isMicroQuantitativeModifier' action='set' />
 <assign value='0' property='isMicroQualitativeModifier' action='set' />
 <assign value='0' property='isMicroComment' action='set' />
 <if condition='isSlide' >
 <true>
 <trace value='"Is a slide exam"' />
+<assign value='$P(obx4,".",1)' property='slideModIndex' action='set' />
 <assign value='0' property='isObxAComment' action='set' />
 <assign value='0' property='isObxAnObrComment' action='set' />
 <assign value='""' property='obxComment' action='set' />
@@ -722,13 +1017,27 @@
        }
      
        if (isObxAComment=1) {
-          set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-          if ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
-             $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
-             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-          }elseif (obxComment =""){
-             set isObxAComment = 0
+	      try {
+             set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+             $$$TRACE("Comment: "_obxComment)
+             if (obxComment["MAXLEN allowed of 250"){
+                set obxComment =$E($P(obxComment,"'",2),1,250)
+                $$$TRACE("New comment due to length: "_obxComment)
+             }elseif ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
+                $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
+                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+             }elseif (obxComment =""){
+                set isObxAComment = 0
+             }
+	      }catch ex {
+             set errorData =$LISTGET(ex.Data,2)
+             set erroredComment =$LISTGET(ex.Data,1)
+             $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+             if (errorData ="250") {
+                set obxComment =$E(erroredComment,1,250)
+                $$$TRACE("New comment due to length: "_obxComment) 
+             }            
           }
           $$$TRACE("OBX comment: "_obxComment)
        }
@@ -753,17 +1062,37 @@
           }
      
           if (isObxAnObrComment=1) {
-             set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-             if ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
-                $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
-                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-             }elseif (obrComment =""){
-                set isObxAnObrComment = 0
-            }
-            $$$TRACE("OBR comment: "_obrComment)
+	         try {
+                set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
+                $$$TRACE("Comment: "_obrComment)
+                if (obrComment["MAXLEN allowed of 250"){
+                   set obrComment =$E($P(obrComment,"'",2),1,250)
+                   $$$TRACE("New comment due to length: "_obrComment)
+                }elseif ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
+                   $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+                   set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
+                   Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+                }elseif (obrComment =""){
+                   set isObxAnObrComment = 0
+                }
+	         }catch ex {
+                set errorData =$LISTGET(ex.Data,2)
+                set erroredComment =$LISTGET(ex.Data,1)
+                $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+                if (errorData ="250") {
+                   set obrComment =$E(erroredComment,1,250)
+                   $$$TRACE("New comment due to length: "_obrComment) 
+                }            
+             }
+             $$$TRACE("OBR comment: "_obrComment)
           }
        }
+    }
+ }elseif (obx2="FT") {
+    set obx5 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationValue(1).Identifier")
+    if ('..StartsWith(obx5, "Performed at")) {
+       set isObxAComment =1
+       set obxComment =obx5
     }
  }]]]]><![CDATA[></code>
 <if condition='isObxAnObrComment' >
@@ -775,9 +1104,9 @@
 <false>
 <if condition='isObxAComment' >
 <true>
-<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
-<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
-<assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.comments.Item(slideObsNoteIndex).comments.Item.text}' action='set' />
+<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.comments.Item(slideObsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<assign value='slideObsNoteIndex+1' property='slideObsNoteIndex' action='set' />
 </true>
 <false>
 <if condition='(previousObx3 = obx3)' >
@@ -786,8 +1115,6 @@
 <true>
 <assign value='""' property='obx5' action='set' />
 <assign value='""' property='obx5Ncid' action='set' />
-<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
-<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ValueType} = "CWE"' >
 <true>
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).NameofCodingSystem} ="L"' >
@@ -851,36 +1178,36 @@
        $$$TRACE("HDD call returned error while trying to determine OBX-5 slide exam type. Unable to continue, shutting down.")
        set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5_". Ncid:("_obx5Ncid_".) is a qualitative slide, shutting down. Error returned: "_isMicroQualitativeModifier)
        Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+    }elseif ('isMicroQualitativeModifier) {
+       set isNotModifier = 1
     }
- }
- if (('isMicroQuantitativeModifier) && ('isMicroQuantitativeModifier)) {
-    set isNotModifier = 1
  }
  ]]]]><![CDATA[></code>
 <if condition='isNotModifier' >
 <true>
+<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
+<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 </true>
 </if>
 <if condition='isMicroQuantitativeModifier' >
 <true>
-<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 <if condition='isMicroQualitativeModifier' >
 <true>
-<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 </true>
 </if>
-<assign value='slideModIndex+1' property='slideModIndex' action='set' />
 <assign value='obx3' property='previousObx3' action='set' />
 <assign value='obx4' property='previousObx4' action='set' />
 </true>
@@ -888,16 +1215,17 @@
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).Identifier}' property='obx5' action='set' />
 <if condition='&apos;..StartsWith(obx5,"Performed at")' >
 <true>
-<assign value='obx4' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.setId}' action='set' />
+<code>
+<![CDATA[ // Get obx3Ncid
+ set obx3Ncid =context.Obx3NcidArray.GetAt(context.Obr4_"|"_obx3_"|"_obx4)
+ $$$TRACE("OBX-3 Ncid: "_obx3Ncid)]]]]><![CDATA[></code>
+<assign value='1' property='slideSubObsIndex' action='set' />
+<assign value='slideModIndex' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.setId}' action='set' />
 <assign value='"115019"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).id}' action='set' />
 <assign value='context.SlideDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obsNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx3' property='previousObx3' action='set' />
-<assign value='obx4' property='previousObx4' action='set' />
+<assign value='obx3Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='""' property='obx5' action='set' />
 <assign value='""' property='obx5Ncid' action='set' />
-<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
-<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ValueType} = "CWE"' >
 <true>
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).NameofCodingSystem} ="L"' >
@@ -970,28 +1298,29 @@
  ]]]]><![CDATA[></code>
 <if condition='isNotSlideModifier' >
 <true>
+<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
+<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 </true>
 </if>
 <if condition='isMicroQuantitativeModifier' >
 <true>
-<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 <if condition='isMicroQualitativeModifier' >
 <true>
-<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 </true>
 </if>
-<assign value='slideModIndex+1' property='slideModIndex' action='set' />
 <assign value='obx3' property='previousObx3' action='set' />
 <assign value='obx4' property='previousObx4' action='set' />
 </true>
@@ -1000,20 +1329,23 @@
 </if>
 </true>
 <false>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).Identifier}' property='obx5' action='set' />
+<if condition='&apos;..StartsWith(obx5,"Performed at")' >
+<true>
+<code>
+<![CDATA[ // Get obx3Ncid
+ set obx3Ncid =context.Obx3NcidArray.GetAt(context.Obr4_"|"_obx3_"|"_obx4)
+ $$$TRACE("OBX-3 Ncid: "_obx3Ncid)]]]]><![CDATA[></code>
 <assign value='headerItemIndex+1' property='headerItemIndex' action='set' />
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).Identifier}' property='obx5' action='set' />
-<if condition='&apos;..StartsWith(obx5,"Performed at")' >
-<true>
-<assign value='obx4' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.setId}' action='set' />
+<assign value='1' property='slideSubObsIndex' action='set' />
+<assign value='slideModIndex' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.setId}' action='set' />
 <assign value='"115019"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).id}' action='set' />
 <assign value='context.SlideDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obsNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx3Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='obx3' property='previousObx3' action='set' />
 <assign value='obx4' property='previousObx4' action='set' />
 <assign value='""' property='obx5' action='set' />
 <assign value='""' property='obx5Ncid' action='set' />
-<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
-<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ValueType} = "CWE"' >
 <true>
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).NameofCodingSystem} ="L"' >
@@ -1086,28 +1418,29 @@
  ]]]]><![CDATA[></code>
 <if condition='isNotSlideModifier' >
 <true>
+<assign value='"114960"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).id}' action='set' />
+<assign value='context.SlideObservationDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
 </true>
 </if>
 <if condition='isMicroQuantitativeModifier' >
 <true>
-<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 <if condition='isMicroQualitativeModifier' >
 <true>
-<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).id}' action='set' />
-<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsValue.att.value.choice.obsMods.Item(subObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='subObsIndex+1' property='subObsIndex' action='set' />
+<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).id}' action='set' />
+<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.header.clinObs.Item(headerItemIndex).value(1).choice.obsMods.Item(slideModIndex).value(1).choice.obsMods.Item(slideSubObsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='slideSubObsIndex+1' property='slideSubObsIndex' action='set' />
 </true>
 </if>
 </true>
 </if>
-<assign value='slideModIndex+1' property='slideModIndex' action='set' />
 <assign value='obx3' property='previousObx3' action='set' />
 <assign value='obx4' property='previousObx4' action='set' />
 </true>
@@ -1121,86 +1454,44 @@
 </true>
 <false>
 <trace value='"Handling regular OBX"' />
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID}' property='obx4' action='set' />
+<code>
+<![CDATA[ //Get context.ObservationIndex and obsModsItemIndex
+ set previousObsIndexToModify =context.ObservationIndex
+ $$$TRACE("Previous Observation Index: "_previousObsIndexToModify_". OBR-4: "_context.Obr4_". OBX-4: "_obx4)
+ set context.ObservationIndex = context.ObxIndexArray.GetAt(context.Obr4_"|"_$P(obx4,".",1))
+ 
+ $$$TRACE("Observation index: "_$P(obx4,".",1)_". Observation index to modify: "_context.ObservationIndex)
+ 
+ set obsModsItemIndex =context.obsModsItemIndexArray.GetAt(context.ObservationIndex)
+ $$$TRACE("Observation Modifier Index: "_obsModsItemIndex)
+ 
+ if (obsModsItemIndex ="") {
+    set obsModsItemIndex =1
+ }
+  ]]]]><![CDATA[></code>
 <assign value='0' property='isObxAnObrComment' action='set' />
 <assign value='0' property='isObxAComment' action='set' />
 <assign value='""' property='obxComment' action='set' />
 <assign value='""' property='obrComment' action='set' />
+<assign value='""' property='obx3Id' action='set' />
+<if condition='obx33 ="L"' >
+<true>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.Identifier}' property='obx3Id' action='set' />
+</true>
+<false>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.AlternateIdentifier}' property='obx3Id' action='set' />
+</false>
+</if>
 <code>
 <![CDATA[ // Is coded OBX a comment? And set the comment text.
- set obx2=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ValueType")
- set obx5 =""
- 
- if (obx2="CWE") {
-    set obx53=source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationValue(1).NameofCodingSystem")
-    if (obx53="L") {
-       set obx5 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationValue(1).Identifier")
-    }else {
-       set obx5 =source.GetValueAt("PIDgrpgrp(1).ORCgrp("_k1_").OBXgrp("_k2_").OBX:ObservationValue(1).AlternateIdentifier}")
-    }
- 
- 
-    set obx5Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.MicroCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-    if ((obx5Ncid["ITFCOMMON:10109") || (obx5Ncid["Web service returned(error):")){
-       $$$TRACE("HDD Call Returned Error")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to map obx5 to comment ncid, shutting down. Error returned: "_obx5Ncid)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (obx5Ncid="") {
-       set isObxAComment = 0
-    }
- 
-    if (obx5Ncid '=""){
-       set isObxAComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroCommentDomain,obx5Ncid,context.HddTargetConfigName,.process)
-       if ((isObxAComment["ITFCOMMON:10109") || (isObxAComment["Web service returned(error):")){
-          $$$TRACE("HDD Call Returned Error")
-          set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to determine if obx5 is a comment, shutting down. Error returned: "_isObxAComment)
-          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-       }elseif (isObxAComment =""){
-          set isObxAComment = 0
-       }
-     
-       if (isObxAComment=1) {
-          set obxComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-          if ((obxComment["ITFCOMMON:10109") || (obxComment["Web service returned(error):")){
-             $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obxComment)
-             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-          }elseif (obxComment =""){
-             set isObxAComment = 0
-          }
-          $$$TRACE("OBX comment: "_obxComment)
-       }
-    }else {
-       set obx5Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5,context.ObrCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-       if ((obx5Ncid["ITFCOMMON:10109") || (obx5Ncid["Web service returned(error):")){
-          $$$TRACE("HDD Call Returned Error")
-          set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to map obx5 to comment ncid, shutting down. Error returned: "_obx5Ncid)
-          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-       }elseif (obx5Ncid="") {
-          set isObxAnObrComment = 0
-       }
-       
-       if (obx5Ncid '=""){
-          set isObxAnObrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.ObrCommentDomain,obx5Ncid,context.HddTargetConfigName,.process)
-          if ((isObxAnObrComment["ITFCOMMON:10109") || (isObxAnObrComment["Web service returned(error):")){
-             $$$TRACE("HDD Call Returned Error")
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd returned error while trying to determine if obx5 is a comment, shutting down. Error returned: "_isObxAnObrComment)
-             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-          }elseif (isObxAnObrComment =""){
-             set isObxAnObrComment = 0
-          }
-     
-          if (isObxAnObrComment=1) {
-             set obrComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5Ncid,context.DisplayContext,context.HddTargetConfigName,.process)
-             if ((obrComment["ITFCOMMON:10109") || (obrComment["Web service returned(error):")){
-                $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obrComment)
-                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-             }elseif (obrComment =""){
-                set isObxAnObrComment = 0
-            }
-            $$$TRACE("OBR comment: "_obrComment)
-          }
-       }
+ set obxComment = context.ObxCommentArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
+ if (obxComment '="") {
+    set isObxComment=1
+ }else {
+    set obrComment = context.ObrCommentArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
+    if (obrComment '="") {
+       set isObxIsAnObrComment=1
     }
  }]]]]><![CDATA[></code>
 <if condition='isObxAnObrComment' >
@@ -1211,29 +1502,40 @@
 <assign value='noteIndex+1' property='noteIndex' action='set' />
 </true>
 <false>
+<trace value='"Previous OBX-3: "_previousObx3_". Previous OBX-4: "_previousObx4' />
 <if condition='isObxAComment' >
 <true>
-<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
-<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<trace value='"Setting up regular obx comment: "_obxComment' />
+<code>
+<![CDATA[ // Set obsNoteIndex
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_obx4Index)
+  $$$TRACE("Observation index: "_context.Obr4_"|"_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_(obx4Index-1))
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='obxComment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =context.Obr4_"|"_$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </true>
 <false>
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ValueType}' property='obx2' action='set' />
-<assign value='""' property='obx3Id' action='set' />
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID}' property='obx4' action='set' />
 <assign value='""' property='obx5Id' action='set' />
 <assign value='""' property='obx5Text' action='set' />
 <trace value='"Setting up OBX("_k1_")("_k2_"). Result Type:"_obx2' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.NameofCodingSystem}' property='obx33' action='set' />
 <trace value='"OBX-3.3: "_obx33' />
-<if condition='obx33 ="L"' >
-<true>
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.Identifier}' property='obx3Id' action='set' />
-</true>
-<false>
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationIdentifier.AlternateIdentifier}' property='obx3Id' action='set' />
-</false>
-</if>
 <if condition='obx2="CWE"' >
 <true>
 <if condition='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).NameofCodingSystem} ="L"' >
@@ -1356,170 +1658,124 @@
 <code>
 <![CDATA[ // Setup obx3 and obx5 ncid and determine if modifier
  
- set obx3Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx3Id,context.MicroObx3Domain,context.InterfaceContext,context.HddTargetConfigName,.process)
- if ((obx3Ncid["ITFCOMMON:10109") || (obx3Ncid["Web service returned(error):")){
-    $$$TRACE("HDD call returned error shutting down.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx3Ncid)
-    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
- }elseif (obx3Ncid="") {
-    $$$TRACE("HDD call returned nothing while trying to determine OBX-3 ncid. Unable to continue, skipping record.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned no ncid using OBX-3: ("_obx3Id_"). Using domain: "_context.MicroObx3Domain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
-    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
- }
+ set obx3Ncid=context.Obx3NcidArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
+ $$$TRACE("OBX-5 ncid: "_obx3Ncid)
+ set obx5IdNcid=context.Obx5NcidArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
+ $$$TRACE("OBX-5 ncid: "_obx5IdNcid)
  
- set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5Id,context.CodedValueDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
- if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
-    $$$TRACE("HDD call returned error shutting down.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
-    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
- }elseif (obx5IdNcid="") {
-    set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5Id,context.CultureDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-    if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
-       $$$TRACE("HDD call returned error shutting down.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (obx5IdNcid="") {
-       set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5Id,context.SusceptibilityInterpretiveValueDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-       if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
-          $$$TRACE("HDD call returned error shutting down.")
-          set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
-          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-       }elseif (obx5IdNcid="") {
-          set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5Id,context.CodedCommentDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-          if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
-             $$$TRACE("HDD call returned error shutting down.")
-             set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
-             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-          }elseif (obx5IdNcid="") {
-             set obx5IdNcid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obx5Id,context.SlideObservationDomain,context.InterfaceContext,context.HddTargetConfigName,.process)
-             if ((obx5IdNcid["ITFCOMMON:10109") || (obx5IdNcid["Web service returned(error):")){
-                $$$TRACE("HDD call returned error shutting down.")
-                set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_obx5IdNcid)
-                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-             }elseif (obx5IdNcid="") {
-                $$$TRACE("HDD call returned nothing while trying to determine OBX-5 ncid. Unable to continue, skipping record.")
-                set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hdd call returned no ncid using OBX-5: ("_obx5Id_"). Using any of the domains: "_context.CodedValueDomain_", "_context.CultureDomain_", "_context.SusceptibilityInterpretiveValueDomain_", "_context.CodedCommentDomain_", "_context.SlideObservationDomain_". Context: "_context.InterfaceContext_", unable to continue, skipping record.")
-                Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-             }
-          }
-       }
-    }
- }
+ set isMicroQuantitativeModifier=context.MicroQuantitativeModifierArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
  
- set isMicroQuantitativeModifier=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroQuantitativeModifierDomain,obx5IdNcid,context.HddTargetConfigName,.process)
- if ((isMicroQuantitativeModifier["ITFCOMMON:10109") || (isMicroQuantitativeModifier["Web service returned(error):")){
-    $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a quantitative modifier. Unable to continue, shutting down.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5Id_". Ncid:("_obx5IdNcid_".) is a quantitative modifier, shutting down. Error returned: "_isMicroQuantitativeModifier)
-    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
- }
- 
- if ('isMicroQuantitativeModifier) {
-    set isMicroQualitativeModifier=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroQualitativeModifierDomain,obx5IdNcid,context.HddTargetConfigName,.process)
-    if ((isMicroQualitativeModifier["ITFCOMMON:10109") || (isMicroQualitativeModifier["Web service returned(error):")){
-       $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a qualitative modifier. Unable to continue, shutting down.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5Id_". Ncid:("_obx5IdNcid_".) is a qualitative modifier, shutting down. Error returned: "_isMicroQualitativeModifier)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }
+ if (isMicroQuantitativeModifier '="1") {
+    set isMicroQualitativeModifier= context.MicroQualitativeModifierArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
  }
 
  
- if (('isMicroQuantitativeModifier) && ('isMicroQualitativeModifier)) {
-    set isMicroComment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.MicroCommentDomain,obx5IdNcid,context.HddTargetConfigName,.process)
-    if ((isMicroComment["ITFCOMMON:10109") || (isMicroComment["Web service returned(error):")){
-       $$$TRACE("HDD call returned error while trying to determine if OBX-5 is a micro comment. Unable to continue, shutting down.")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error while trying to determine if OBX-5(Value:"_obx5Id_". Ncid:("_obx5IdNcid_".) is a micro comment, shutting down. Error returned: "_isMicroComment)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }
+ if ((isMicroQuantitativeModifier '="1") && (isMicroQualitativeModifier '="1")) {
+    set isMicroComment=context.MicroCommentArray.GetAt(context.Obr4_"|"_obx3Id_"|"_obx4)
  }
   
- if (('isMicroQuantitativeModifier) && ('isMicroQualitativeModifier) && ('isMicroComment)) {
+ if ((isMicroQuantitativeModifier '="1") && (isMicroQualitativeModifier '="1") && (isMicroComment '="1")) {
     set isNotModifier = 1
  } ]]]]><![CDATA[></code>
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID}' property='obx4' action='set' />
 <if condition='isNotModifier' >
 <true>
-<trace value='"Not a modifier just regular OBX, Index: "_obsIndex_". Result: "_obx5Id' />
-<assign value='$PIECE(obx4,".",1)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.setId}' action='set' />
-<if condition='((orcGroupCount  &gt;1)  &amp;&amp; (k1 =1))' >
+<trace value='"Not a modifier just regular OBX, Index: "_context.ObservationIndex_". Result: "_obx5Id' />
+<assign value='$PIECE(obx4,".",1)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.setId}' action='set' />
+<assign value='"114957"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).id}' action='set' />
+<assign value='obx3Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+</true>
+</if>
+<if condition='isMicroQuantitativeModifier ="1"' >
 <true>
+<assign value='"14603896"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='"14603897"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='$P(obx4,".",1)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
+<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
+<trace value='"Setup quanitative modifier. Index: "_context.ObservationIndex_". Result: "_obx5Id' />
+<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
 <code>
-<![CDATA[ //set obx array to allow indexing susceptibilities and modifiers
- do context.ObxIndexArray.SetAt(obsIndex,obx4)
- set obx4Index=$PIECE(obx4,".",1)
- do context.ModifierIndexArray.SetAt(obsIndex,obx4Index)]]]]><![CDATA[></code>
+<![CDATA[ 
+ $$$TRACE("setting obsModsItemIndexArray: "_obsModsItemIndex_"|"_context.ObservationIndex)
+ do context.obsModsItemIndexArray.SetAt(obsModsItemIndex,context.ObservationIndex)]]]]><![CDATA[></code>
 </true>
 </if>
-<assign value='"114957"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).id}' action='set' />
-<assign value='obx3Ncid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-</true>
-</if>
-<if condition='isMicroQuantitativeModifier' >
+<if condition='isMicroQualitativeModifier ="1"' >
 <true>
+<trace value='"Setup qualitative modifier. Index: "_context.ObservationIndex_". Result: "_obx5Id' />
+<assign value='"14603896"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='"14603897"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='$P(obx4,".",1)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
+<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
+<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
 <code>
-<![CDATA[ //Get index to modify
- set obx4Index=$PIECE(obx4,".",1)
- set obsIndexToModify=context.ModifierIndexArray.GetAt(obx4Index)
- 
- if (obsIndexToModify ="") {
-    set obsIndexToModify = obsIndex
- }]]]]><![CDATA[></code>
-<assign value='"14603896"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='"14603897"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx4Index' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
-<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
-<trace value='"Setup quanitative modifier. Index: "_obsIndexToModify_". Result: "_obx5Id' />
-<assign value='"119237"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='context.MicroQuantitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
+<![CDATA[ 
+ $$$TRACE("setting obsModsItemIndexArray: "_obsModsItemIndex_"|"_context.ObservationIndex)
+ do context.obsModsItemIndexArray.SetAt(obsModsItemIndex,context.ObservationIndex)]]]]><![CDATA[></code>
 </true>
 </if>
-<if condition='isMicroQualitativeModifier' >
+<if condition='isMicroComment ="1"' >
 <true>
-<code>
-<![CDATA[ //Get index to modify
- set obx4Index=$PIECE(obx4,".",1)
- set obsIndexToModify=context.ModifierIndexArray.GetAt(obx4Index)
- 
- if (obsIndexToModify ="") {
-    set obsIndexToModify = obsIndex
- }]]]]><![CDATA[></code>
-<trace value='"Setup qualitative modifier. Index: "_obsIndexToModify_". Result: "_obx5Id' />
-<assign value='"14603896"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='"14603897"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx4Index' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
-<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
-<assign value='"119238"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='context.MicroQualitativeModifierDomain' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obx5IdNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.codedWOSform.ncid}' action='set' />
-<assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
-</true>
-</if>
-<if condition='isMicroComment' >
-<true>
+<trace value='"Is a micro comment. Observation index: "_context.ObservationIndex_". Current OBR-4: "_context.Obr4' />
 <assign value='""' property='comment' action='set' />
 <code>
-<![CDATA[ //Get index to modify
- set obx4Index=$PIECE(obx4,".",1)
- set obsIndexToModify=context.ModifierIndexArray.GetAt(obx4Index)
- 
- if (obsIndexToModify ="") {
-    set obsIndexToModify = obsIndex
- }]]]]><![CDATA[></code>
-<code>
 <![CDATA[ // get rep from ncid
- set comment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5IdNcid,context.MicroCommentDomain,context.HddTargetConfigName,.process)
- if ((comment["ITFCOMMON:10109") || (comment["Web service returned(error):")){
-    $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_comment)
-    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
- }]]]]><![CDATA[></code>
+ try {
+    set comment=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(obx5IdNcid,context.MicroCommentDomain,context.HddTargetConfigName,.process)
+    $$$TRACE("Comment: "_comment)
+    if (comment["MAXLEN allowed of 250"){
+       set comment =$E($P(comment,"'",2),1,250)
+       $$$TRACE("New comment due to length: "_comment)
+    }elseif ((comment["ITFCOMMON:10109") || (comment["Web service returned(error):")){
+       $$$TRACE("HDD call returned error while trying to determine comment text for coded comment. Unable to continue, shutting down.")
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_comment)
+       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+     }
+ }catch ex {
+    set errorData =$LISTGET(ex.Data,2)
+    set erroredComment =$LISTGET(ex.Data,1)
+    $$$TRACE("Error happened: "_ex.Code_" "_ex.Location_" "_erroredComment_" "_errorData)
+    if (errorData ="250") {
+       set comment =$E(erroredComment,1,250)
+       $$$TRACE("New comment due to length: "_comment) 
+    }            
+ } 
+     ]]]]><![CDATA[></code>
 <if condition='comment &apos;=""' >
 <true>
-<assign value='comment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
-<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<trace value='"Micro comment: "_comment' />
+<code>
+<![CDATA[ // Set obsNoteIndex and verify context.ObservationIndex
+  if (context.ObservationIndex ="") {
+     set context.ObservationIndex = previousObsIndexToModify 
+  }
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_obx4Index)
+  $$$TRACE("Observation index: "_context.Obr4_"|"_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_(obx4Index-1))
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='comment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =context.Obr4_"|"_$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </true>
 </if>
 </true>
@@ -1532,23 +1788,35 @@
 <if condition='&apos;(..StartsWith(comment,"Performed at"))' >
 <true>
 <trace value='"Setting up comment: "_comment' />
-<assign value='$PIECE(source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID},".",1)' property='obx4' action='set' />
 <code>
-<![CDATA[ //Get index to modify
- set obsIndexToModify=context.ModifierIndexArray.GetAt(obx4)
- 
- if (obsIndexToModify ="") {
-    set obsIndexToModify = obsIndex
- }]]]]><![CDATA[></code>
-<assign value='comment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
-<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<![CDATA[ // Set obsNoteIndex
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_obx4Index)
+  $$$TRACE("Observation index: "_context.Obr4_"|"_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_(obx4Index-1))
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='comment' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<assign value='"1114"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =context.Obr4_"|"_$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </true>
 </if>
 </true>
 </if>
 <if condition='(obx2="NM") || (obx2="SN")' >
 <true>
+<assign value='$PIECE(source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationSubID},".",1)' property='obx4' action='set' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).OBX:ObservationValue(1).Identifier}' property='obx5' action='set' />
 <if condition='(($EXTRACT(obx5,*) ="%") || ($EXTRACT(obx5,*)="."))' >
 <true>
@@ -1586,23 +1854,27 @@
        Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
     }
  }]]]]><![CDATA[></code>
-<assign value='"114969"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
-<assign value='"119267"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
+<assign value='"114969"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).id}' action='set' />
+<assign value='"119267"' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsId.att.value.choice.codedWOSform.ncid}' action='set' />
 <if condition='unitNcid &apos;=""' >
 <true>
-<assign value='$EXTRACT(obx5,2,*)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.decimal}' action='set' />
+<assign value='$EXTRACT(obx5,2,*)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.decimal}' action='set' />
 <if condition='numericOperatorNcid &apos;=""' >
 <true>
-<assign value='numericOperatorNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.numericoperator.ncid}' action='set' />
+<assign value='numericOperatorNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.numericoperator.ncid}' action='set' />
 </true>
 </if>
-<assign value='unitNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.units.ncid}' action='set' />
+<assign value='unitNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.units.ncid}' action='set' />
 </true>
 <false>
-<assign value='$EXTRACT(obx5,2,*)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndexToModify).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
+<assign value='$EXTRACT(obx5,2,*)' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.obsMods.Item(obsModsItemIndex).value(1).choice.obsValue.att.value.choice.uLong}' action='set' />
 </false>
 </if>
 <assign value='obsModsItemIndex+1' property='obsModsItemIndex' action='set' />
+<code>
+<![CDATA[ 
+ $$$TRACE("setting obsModsItemIndexArray: "_obsModsItemIndex_"|"_context.ObservationIndex)
+ do context.obsModsItemIndexArray.SetAt(obsModsItemIndex,context.ObservationIndex)]]]]><![CDATA[></code>
 </true>
 </if>
 </false>
@@ -1615,6 +1887,8 @@
 </if>
 </false>
 </if>
+<assign value='obx3' property='previousObx3' action='set' />
+<assign value='$P(obx4,".",1)' property='previousObx4' action='set' />
 </true>
 <false>
 <trace value='"Skipping non sendable OBX."' />
@@ -1622,7 +1896,21 @@
 </if>
 <foreach property='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE()}' key='k3' >
 <trace value='"Setting up notes"' />
-<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):Comment(1)}' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
+<code>
+<![CDATA[ // Set obsNoteIndex
+  set obx4Index =$P(obx4,".",1)
+  set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_obx4Index)
+  $$$TRACE("Observation index: "_context.Obr4_"|"_obx4Index)
+  if (obsNoteIndex ="") {
+     set obsNoteIndex = context.ObsNoteIndexArray.GetAt(context.Obr4_"|"_(obx4Index-1))
+     if (obsNoteIndex ="") {
+	    set obsNoteIndex =1
+     }
+  }
+  $$$TRACE("Observation Note Index: "_obsNoteIndex)
+  
+  ]]]]><![CDATA[></code>
+<assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):Comment(1)}' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).comments.Item.text}' action='set' />
 <assign value='source.{PIDgrpgrp(1).ORCgrp(k1).OBXgrp(k2).NTE(k3):SourceofComment}' property='sourceOfComment' action='set' />
 <code>
 <![CDATA[ ///Getting source of comment ncid
@@ -1630,8 +1918,13 @@
  if ((sourceOfCommentNcid["ITFCOMMON:10109") || (sourceOfCommentNcid="") || (sourceOfCommentNcid["Web service returned(error):")){
     $$$TRACE("HDD call returned error while trying to determine source of comment. Skipping setting source of comment.")
  }]]]]><![CDATA[></code>
-<assign value='sourceOfCommentNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(obsIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
+<assign value='sourceOfCommentNcid' property='target.{ServiceMessage.HemsInfo.trans.PatDataTrans.Item.dataRecords.Item.patDataSet.Item.patDatumObject.MicrobioEvent.clinObs.Item(context.ObservationIndex).value(1).choice.comments.Item(obsNoteIndex).sourceOfComment.att.value.codedWOSform.ncid}' action='set' />
 <assign value='obsNoteIndex+1' property='obsNoteIndex' action='set' />
+<code>
+<![CDATA[ 
+ set obx4Index =context.Obr4_"|"_$P(obx4,".",1)
+ $$$TRACE("setting obsNoteIndexArray: "_obsNoteIndex_"|"_obx4Index)
+ do context.ObsNoteIndexArray.SetAt(obsNoteIndex,obx4Index)]]]]><![CDATA[></code>
 </foreach>
 </foreach>
 <trace value='"ORC("_k1_")"' />
