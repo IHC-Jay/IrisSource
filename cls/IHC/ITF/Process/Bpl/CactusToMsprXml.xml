@@ -375,9 +375,14 @@ BPL Definition</Description>
 <property name='mapAsInsert' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='msprHemsRequest' type='IHC.ITF.DStruc.Schema.XMLPROXYMSPRREQUEST.hemsInfo' instantiate='0' />
 <property name='msprRecordRequest' type='IHC.ITF.DStruc.Schema.XMLPROXYMSPRREQUEST.msprRecords' instantiate='0' />
+<property name='hcp' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2850' >
-<scope xpos='200' ypos='250' xend='200' yend='2750' >
+<sequence xend='200' yend='2950' >
+<scope xpos='200' ypos='250' xend='200' yend='2850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -550,7 +555,13 @@ BPL Definition</Description>
    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableError(process.%ConfigName, "Lookup Not found for skipAffiliations in IHC.ITF.Process.Bpl.CactusToMsprXml.Lookup.config")
    quit
  }else { set context.skipAffiliations=retVal}
-   
+ $$$TRACE(" Retrieve HCP")  
+ set retVal=""
+ set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CactusToMsprXml.Lookup.config", "HCP", .retVal )
+ if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableError(process.%ConfigName, "Lookup Not found for HCP in IHC.ITF.Process.Bpl.CactusToMsprXml.Lookup.config")
+   quit
+ }else { set context.hcp=retVal}
  $$$TRACE(" Retrieve stateProfessionalLicense")  
  set retVal=""
  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CactusToMsprXml.Lookup.config", "stateProfessionalLicense", .retVal )
@@ -568,7 +579,21 @@ BPL Definition</Description>
  }else { set context.uniquePhysiciansIdentifierNumber=retVal}
   ]]]]><![CDATA[>
 </code>
-<code name='ProfLicStateCodeHDDLookUp' xpos='200' ypos='750' >
+<code name='Check HCP provider and filter out' xpos='200' ypos='750' >
+<![CDATA[  set k1=""
+  For {
+     Set k1=request.GetNextIndex("Provider(1).ProviderEntityRecord()",k1,.tSCTrans)
+		Quit:k1=""
+     Set entityK=$zStrip(request.GetValueAt("Provider(1).ProviderEntityRecord("_(k1)_").entity_k.Value"),"<>W")
+     $$$TRACE("Entity_K: "_entityK)
+     If ((entityK'="") && ##class(Ens.Util.FunctionSet).Contains(context.hcp, entityK)) {
+        $$$TRACE("Skip HCP record... "_entityK)
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Skip HCP record with entity_k: "_entityK)
+	Quit		
+     }
+  }]]]]><![CDATA[>
+</code>
+<code name='ProfLicStateCodeHDDLookUp' xpos='200' ypos='850' >
 <![CDATA[  //Professional licenseInfolicenseNo state code
   set stCodeStr=""
   set pNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
@@ -622,7 +647,7 @@ BPL Definition</Description>
      }         
   } ]]]]><![CDATA[>
 </code>
-<code name='AffiliationHddLookUp' xpos='200' ypos='850' >
+<code name='AffiliationHddLookUp' xpos='200' ypos='950' >
 <![CDATA[ $$$TRACE("AffiliationHddLookUp") 
    set affiliationStr=""
   set affiliation=""
@@ -670,7 +695,7 @@ BPL Definition</Description>
      }         
   } 	]]]]><![CDATA[>
 </code>
-<code name='SpecialityHDDLookup' xpos='200' ypos='950' >
+<code name='SpecialityHDDLookup' xpos='200' ypos='1050' >
 <![CDATA[  $$$TRACE("SpecialityHDDLookup")
   set specialityStr=""
   set currentRep=""
@@ -712,9 +737,9 @@ BPL Definition</Description>
      }         
   } ]]]]><![CDATA[>
 </code>
-<trace name='Extract MSPR Response fields' value='"Create MSPR Request Fields"' xpos='200' ypos='1050' />
-<transform name='CreateMSPRrequest' class='IHC.ITF.Transform.Dtl.CactusToMSPRXml' source='request' target='context.msprRequest' xpos='200' ypos='1150' />
-<code name='createXMLProxyRequest' xpos='200' ypos='1250' >
+<trace name='Extract MSPR Response fields' value='"Create MSPR Request Fields"' xpos='200' ypos='1150' />
+<transform name='CreateMSPRrequest' class='IHC.ITF.Transform.Dtl.CactusToMSPRXml' source='request' target='context.msprRequest' xpos='200' ypos='1250' />
+<code name='createXMLProxyRequest' xpos='200' ypos='1350' >
 <![CDATA[   //set status=context.msprRequest.%Save()
   // $$$LOGINFO("status of save "_status)
    set quote=""""
@@ -732,8 +757,8 @@ BPL Definition</Description>
       set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Issue creating XMLProxy request to be sent to MSPR - "_$SYSTEM.Status.GetOneErrorText(status))
  }]]]]><![CDATA[>
 </code>
-<assign name="SetValue" property="context.CallXmlProxy" value="1" action="set" xpos='200' ypos='1350' />
-<while name='CallXmlProxyOperation' condition='context.CallXmlProxy=1' xpos='200' ypos='1450' xend='200' yend='1700' >
+<assign name="SetValue" property="context.CallXmlProxy" value="1" action="set" xpos='200' ypos='1450' />
+<while name='CallXmlProxyOperation' condition='context.CallXmlProxy=1' xpos='200' ypos='1550' xend='200' yend='1700' >
 <code name='Call XML Proxy Operation' xpos='200' ypos='250' >
 <![CDATA[  $$$TRACE("Call XML Proxy Operation: "_process.TargetConfigNameXMLProxy)
   try {
@@ -852,11 +877,11 @@ BPL Definition</Description>
 </true>
 </if>
 </while>
-<code name='RESET ERROR' xpos='200' ypos='1550' >
+<code name='RESET ERROR' xpos='200' ypos='1650' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
-<trace name='Create Master Provider Request' value='" Setting MSPR Master request to me sent to Subscribes .."' xpos='200' ypos='1650' />
-<code name='SetMsprMasterRequest' xpos='200' ypos='1750' >
+<trace name='Create Master Provider Request' value='" Setting MSPR Master request to me sent to Subscribes .."' xpos='200' ypos='1750' />
+<code name='SetMsprMasterRequest' xpos='200' ypos='1850' >
 <![CDATA[ set context.msprMasterRequest=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO).%New()
  set context.msprMasterRequest.sourceSystem="CACTUS"
  set tmspr=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.MSPR).%New()
@@ -868,11 +893,11 @@ BPL Definition</Description>
  $$$TRACE("Cactus HR Record ID"_tCactus)
  $$$TRACE("MSPR Response "_context.MSPRResponseString) ]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='200' ypos='1850' >
+<code name='GetTargetConfigList' xpos='200' ypos='1950' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1950' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2050' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='500' >
 <true>
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='400' >
@@ -884,9 +909,9 @@ BPL Definition</Description>
 </if>
 <trace name='trace' value='"Iteration="_context.cntr_", message sent to target="_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='600' />
 </foreach>
-<if name='SendToBridgeOperation' condition='process.TargetConfigNameBridgeOperation&apos;=""' xpos='200' ypos='2050' xend='200' yend='2400' >
+<if name='SendToBridgeOperation' condition='process.TargetConfigNameBridgeOperation&apos;=""' xpos='200' ypos='2150' xend='200' yend='2500' >
 <true>
-<code name='setBridgeOperationName' xpos='335' ypos='2200' >
+<code name='setBridgeOperationName' xpos='335' ypos='2300' >
 <![CDATA[ set context.BridgeOperation=process.TargetConfigNameBridgeOperation
   
  set outMsgStr="<?xml version="_$Char(34)_"1.0"_$Char(34)_" encoding="_$Char(34)_"UTF-8"_$Char(34)_"?><PROVIDER_INFO sourceSystem="_$Char(34)_"CACTUS"_$C(34)_"><MSPR>"
@@ -901,18 +926,18 @@ BPL Definition</Description>
 
   ]]]]><![CDATA[>
 </code>
-<call name='Publish master message to eGate queue' target='Out-Egate-Mspr-XmlJms-CactusCorpprv' async='1' xpos='335' ypos='2300' >
+<call name='Publish master message to eGate queue' target='Out-Egate-Mspr-XmlJms-CactusCorpprv' async='1' xpos='335' ypos='2400' >
 <request type='Ens.StringContainer' >
 <assign property="callrequest" value="context.msprMasterRequest" action="set" />
 </request>
 </call>
 </true>
 </if>
-<code name='reset error count' xpos='200' ypos='2500' >
+<code name='reset error count' xpos='200' ypos='2600' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2600' xend='200' yend='350' >
+<catchall xpos='200' ypos='2700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
