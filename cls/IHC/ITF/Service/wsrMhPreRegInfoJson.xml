@@ -73,56 +73,70 @@
 
 	 }
 	 else {
-	 // Construct a HL7 message
-	 set pHL7 = ##class(EnsLib.HL7.Message).%New()
-	 set pHL7.DocType = "R1PreRegAdt:R1ADT"
-	 set ctrlId=$zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
-	 set msgTm=##class(Ens.Util.FunctionSet).SubString(ctrlId,1,14)
-	 set tSeg1 = ##class(EnsLib.HL7.Segment).ImportFromString("MSH|^~\&|MH|"_facId_"|||"_msgTm_"||ADT^A08|"_ctrlId_"|T|2.3.1|")
-	 set tSeg2 = ##class(EnsLib.HL7.Segment).ImportFromString("EVN|A08|"_msgTm_"||1|")
-	 set tSeg3 = ##class(EnsLib.HL7.Segment).ImportFromString("PID|1||"_mrn_"||"_lastName_"^"_firstName_"^"_middleName_"||"_dob_"|"_sex_"||||||||||"_fin_"||||||||||||N|")
-	 set tSeg4 = ##class(EnsLib.HL7.Segment).ImportFromString("PV1|1||"_facId_"||||||||||||||||"_fin_"|")
-	 set tsc = pHL7.SetSegmentAt(tSeg1,1)
-	 set tsc = pHL7.InsertSegmentAt(tSeg2,2)	
-	 set tsc = pHL7.InsertSegmentAt(tSeg3,3)
-	 set tsc = pHL7.InsertSegmentAt(tSeg4,4)
-     set obxSegIndx=1
-     set segCnt=4
-     #dim docIter As %Iterator.Array
-	 if $isObject(rec) {
-       $$$TRACE("Loop Documents...")
-       set iterator =  rec.%GetIterator()
-       while iterator.%GetNext(.key,.value) { 
-          $$$TRACE(" Key1: "_key_" Value: "_value)
-          if (key="documents") {
-	         set docIter=value.%GetIterator()
-	         if (##class(Ens.Util.FunctionSet).Contains(value,"DynamicArray")) {
-	           while docIter.%GetNext(.key,.value) { 
-                 if $isObject(value) {
-	               set tObxSeg=##class(EnsLib.HL7.Segment).ImportFromString(..createObxSegmentStr(value,obxSegIndx))
-	               set cSegCnt=segCnt + obxSegIndx
-	               set tsc = pHL7.InsertSegmentAt(tObxSeg,cSegCnt)
-                   set obxSegIndx=obxSegIndx+1
-                 }
+	    // Construct a HL7 message
+	    set pHL7 = ##class(EnsLib.HL7.Message).%New()
+	    set pHL7.DocType = "R1PreRegAdt:R1ADT"
+	    set ctrlId=$zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
+	    set msgTm=##class(Ens.Util.FunctionSet).SubString(ctrlId,1,14)
+	    set tSeg1 = ##class(EnsLib.HL7.Segment).ImportFromString("MSH|^~\&|MH|"_facId_"|||"_msgTm_"||ADT^A08|"_ctrlId_"|T|2.3.1|")
+	    set tSeg2 = ##class(EnsLib.HL7.Segment).ImportFromString("EVN|A08|"_msgTm_"||1|")
+	    set tSeg3 = ##class(EnsLib.HL7.Segment).ImportFromString("PID|1||"_mrn_"||"_lastName_"^"_firstName_"^"_middleName_"||"_dob_"|"_sex_"||||||||||"_fin_"||||||||||||N|")
+	    set tSeg4 = ##class(EnsLib.HL7.Segment).ImportFromString("PV1|1||"_facId_"||||||||||||||||"_fin_"|")
+	    set tsc = pHL7.SetSegmentAt(tSeg1,1)
+	    set tsc = pHL7.InsertSegmentAt(tSeg2,2)	
+	    set tsc = pHL7.InsertSegmentAt(tSeg3,3)
+	    set tsc = pHL7.InsertSegmentAt(tSeg4,4)
+        set obxSegIndx=1
+        set segCnt=4
+        #dim docIter As %Iterator.Array
+        if $isObject(rec) {
+           $$$TRACE("Loop Documents...")
+           set iterator =  rec.%GetIterator()
+           while iterator.%GetNext(.key,.value) { 
+	          $$$TRACE(" Key1: "_key_" Value: "_value)
+              if (key="documents") {
+	             set docIter=value.%GetIterator()
+	             if (##class(Ens.Util.FunctionSet).Contains(value,"DynamicArray")) {
+	                while docIter.%GetNext(.key,.value) { 
+                       if $isObject(value) {
+	                      set obxs=..createObxSegments(value,obxSegIndx)
+		         	      set recCnt=obxs.Size
+                          if recCnt > 0 {
+                             for i=1:1:recCnt {
+		 	                    set obxstr=obxs.GetAt(i)
+		        	            set tObxSeg=##class(EnsLib.HL7.Segment).ImportFromString(obxstr)
+		        	            set segCnt=segCnt+1
+		        	            set obxSegIndx=obxSegIndx+1
+                	            set tsc = pHL7.InsertSegmentAt(tObxSeg,segCnt)
+                             }
+                          }
+                       }
+                    }
+	              }
+	              else {
+		             set obxs=..createObxSegments(value,1)
+		         	 set recCnt=obxs.Size
+                     if recCnt > 0 {
+                        for i=1:1:recCnt {
+		 	               set obxstr=obxs.GetAt(i)
+		        	       set tObxSeg=##class(EnsLib.HL7.Segment).ImportFromString(obxstr)
+		        	       set segCnt=segCnt+1
+                	       set tsc = pHL7.InsertSegmentAt(tObxSeg,segCnt)
+                        }
+                     }
+	              }
                }
-	         }
-	         else {
-		        set tObxSeg=##class(EnsLib.HL7.Segment).ImportFromString(..createObxSegmentStr(value,1))
-                set tsc = pHL7.InsertSegmentAt(tObxSeg,5)
-	         }
-          }
-       }
-	}
-	 
-	do ..SendRequestAsync(..TargetConfigNames,pHL7)	
-	$$$TRACE("***Sent the HL7 Message ****")
+            }
+         }
+	  do ..SendRequestAsync(..TargetConfigNames,pHL7)	
+	  $$$TRACE("***Sent the HL7 Message ****")
 
-    //Construct response data
-    set responseMsg="{"_$CHAR(34)_"MessageId"_$CHAR(34)_":"_ctrlId_"}"
-	Set pOutput=##class(%GlobalBinaryStream).%New()
-    do pOutput.Write(responseMsg)
-    Do:$$$ISOK(tSC) pOutput.SetAttribute("ResponseCode","200 record is processed ok.")
-	 }
+      //Construct response data
+      set responseMsg="{"_$CHAR(34)_"MessageId"_$CHAR(34)_":"_ctrlId_"}"
+	  Set pOutput=##class(%GlobalBinaryStream).%New()
+      do pOutput.Write(responseMsg)
+      Do:$$$ISOK(tSC) pOutput.SetAttribute("ResponseCode","200 record is processed ok.")
+   }
 
  }catch e
 	{
@@ -168,12 +182,22 @@ Use this method to dispatch an Ensemble business invocation asynchronously</Desc
 ]]></Implementation>
 </Method>
 
-<Method name="createObxSegmentStr">
+<Method name="createObxSegments">
+<ClassMethod>1</ClassMethod>
 <FormalSpec>doc:%Library.DynamicObject,obxInx:%Integer</FormalSpec>
-<ReturnType>%String</ReturnType>
+<ReturnType>%Library.ListOfDataTypes</ReturnType>
 <Implementation><![CDATA[
+	set tmp="temp"
 	set obxStr=""
-	
+	set docId=""
+	set docName=""
+	set cerDocType=""
+	set docRefId=""
+	set docSignedDate=""
+	set mspQlf=""
+	set sobxIndx=1
+	Set obxArray = ##class(%ListOfDataTypes).%New()
+	do obxArray.Insert("temp")
 	set iter = doc.%GetIterator()
     while iter.%GetNext(.key,.value) { 
                  	if (key="aliasDocumentId"){
@@ -192,9 +216,44 @@ Use this method to dispatch an Ensemble business invocation asynchronously</Desc
 	                elseif (key="documentSignedDate") {
 		                set docSignedDate=value
 	                }
+	                elseif (key="data") {
+		                set msps=value
+		                $$$TRACE("Loop MSPGs...")
+                        set iterator1 =  msps.%GetIterator()
+                        while iterator1.%GetNext(.key1,.value1) { 
+                           $$$TRACE(" Key1: "_key1_" Value1: "_value1)
+                           if (key1="qualifier") {
+	                           set mspQlf=value1
+                           }
+                           elseif (key1="values") {
+                               if $isObject(value1) {
+       			                  set iterator2 =  value1.%GetIterator()
+       			                  while iterator2.%GetNext(.key2,.value2) { 
+          			                  $$$TRACE(" Key2: "_key2_" Value2: "_value2)
+          			                  set tObxSeg=..createObxSegmentStr(mspQlf,key2,value2,obxInx,sobxIndx,docSignedDate)
+          			                  $$$TRACE(" OBX string: "_tObxSeg)
+          			                  set sobxIndx=sobxIndx+1
+          			                  do obxArray.Insert(tObxSeg)
+                 	              }
+               	               }
+	         	           }
+                        }
+	                }
     } 
     $$$TRACE("Create OBX segment #"_obxInx)
     set obxStr = "OBX|"_obxInx_"|ST|"_docId_"^"_docName_"^"_cerDocType_"||"_docRefId_"||||||F|||"_docSignedDate_"|"
+    do obxArray.SetAt(obxStr,1)
+	Quit obxArray
+]]></Implementation>
+</Method>
+
+<Method name="createObxSegmentStr">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>qaulifier:%String,key:%String,value:%String,obxIndx:%Integer,sObxIndx:%Integer,docSignedDate:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    $$$TRACE("Create OBX segment #: "_obxIndx)
+    set obxStr = "OBX|"_(obxIndx+sObxIndx)_"|ST|"_qaulifier_"^"_key_"|"_obxIndx_"|"_value_"||||||F|||"_docSignedDate_"|"
 	Quit obxStr
 ]]></Implementation>
 </Method>
