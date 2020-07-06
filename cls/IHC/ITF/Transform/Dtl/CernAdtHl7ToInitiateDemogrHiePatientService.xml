@@ -27,17 +27,61 @@
 <assign value='"525935320"' property='target.{transactionFacility}' action='set' />
 <assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).addresstype}' property='addrType' action='set' />
 <assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).streetaddressSAD.streetormailingaddress}' property='address1' action='set' />
+<trace value='"#### DTL: Address1: "_address1_" Length:"_$L(address1)_"#####"' />
+<assign value='""' property='updAddress' action='set' />
+<code>
+<![CDATA[
+  set listDirections = $LISTBUILD("WEST ","EAST ","NORTH ","SOUTH ")
+  set listDirectionsLen =$LISTLENGTH(listDirections)
+  FOR i=1:1:listDirectionsLen {
+     set direction = $LIST(listDirections,i)
+     set upcaseAddress1 = $ZCONVERT(address1 ,"U")
+     if upcaseAddress1 [ direction {
+	     SET updAddress=$REPLACE(upcaseAddress1,direction,$E(direction,1)_" ")
+	     $$$TRACE("updAddress value(direction) :"_updAddress)            
+	 }else{
+		 set updAddress = upcaseAddress1
+	 }     	  
+  }  
+]]]]><![CDATA[></code>
+<code>
+<![CDATA[
+  set addressAbbrList = $LISTFROMSTRING(context.addressAbbr, ",")
+  set addressAbbrListLen =$LISTLENGTH(addressAbbrList)
+  set upcaseAddress1 = $ZCONVERT(address1 ,"U")
+  set address1List = $LISTFROMSTRING(upcaseAddress1, " ")
+  set address1ListLen =$LISTLENGTH(address1List)
+  set lastAddress1Word = $LIST(address1List,address1ListLen)
+  
+  FOR i=1:1:addressAbbrListLen {
+     set abbr = $LIST(addressAbbrList,i)    
+     if upcaseAddress1 [ lastAddress1Word {
+     	try {
+ 			set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", lastAddress1Word, .retVal )
+ 	 		set abbrVal=retVal
+ 			if (retVal="Unknown"){
+	 			set abbrVal=lastAddress1Word
+			}
+ 		}catch err{
+			set abbrVal=lastAddress1Word 
+ 		}
+  		SET updAddress=$REPLACE(upcaseAddress1,abbr,abbrVal)
+  		$$$TRACE("updAddress value(end words abbr) :"_updAddress)
+  	}     	  
+  }  
+]]]]><![CDATA[></code>
+
+<assign value='updAddress' property='address1' action='set' />
 <assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).otherdesignation}' property='address2' action='set' />
 <assign value='""' property='street1' action='set' />
 <assign value='""' property='street2' action='set' />
 <trace value='"DTL:AddressKeyWords:"_context.addressKeyWords' />
-  
 <if condition='($L(address1) &gt; 0)' >
 <true>
-<if condition='$L(address1) &gt; 25' >
-<true>  
-  <code>
- <![CDATA[ 
+<if condition='$L(address1) &gt; 30' >
+<true>
+<code>
+<![CDATA[ 
     set AddrWrapKeywordsList = $LISTFROMSTRING(context.addressKeyWords, ",")
     Set isWrapped = 0
     
@@ -45,16 +89,14 @@
        $$$TRACE("Inside need wrapping")
        SET ptr=0
        WHILE 1=$LISTNEXT(AddrWrapKeywordsList,ptr,addrWrap){
-          $$$TRACE("addrWrap value :"_addrWrap)
-          set addrWrap = " "_addrWrap
+          set addrWrapPre = " "_addrWrap
           set addrLine1L = $ZCONVERT(address1 ,"L") ///Converting to Lowercase
-          set addrWrapL = $ZCONVERT(addrWrap,"L")
-          
+          set addrWrapL = $ZCONVERT(addrWrapPre,"L")
+           $$$TRACE(" addrLine1L : ["_addrLine1L_"]. addrWrapL:["_addrWrapL_"]")
           ///Below $FIND will give the ending index+1 of the word in "addrWrapL"
-          set indexAddrLine1 = $FIND(addrLine1L,addrWrapL)
-          if (indexAddrLine1 > 0)
-          {
-            $$$TRACE("Inside indexfound at: "_indexAddrLine1 )
+          set indexAddrLine1 = $FIND(addrLine1L,addrWrapL)          
+          if (indexAddrLine1 > 0){
+            $$$TRACE("Inside indexfound(end of address1) at: "_indexAddrLine1 )
              ///Need to minus the length addrWrapL since we have the ending index+1 in previous step
              set street1 = $EXTRACT(addrLine1L,0,indexAddrLine1-$LENGTH(addrWrapL)-1)
              $$$TRACE("street1 Value in List position : "_street1)
@@ -64,41 +106,40 @@
              $$$TRACE("street2 Value in List position : "_street2 )
              
              ///We are interchanging street1 and street2 values when we map just bcas Egate does that
-             set isWrapped = 1
-             
-          }          
+             set isWrapped = 1             
+          }
        }       
     }
   ]]]]><![CDATA[></code>
- <if condition='isWrapped = 1' >
+<if condition='isWrapped = 1' >
 <true>
-   <trace value='"#### DTL: Address1 lenght > 25. AddressWrapp... "' />
-  <assign value='..ToUpper(street2)' property='target.{patient.addresses(1).line1}' action='set' />
-  <if condition='$length(street1) &gt; 0' >
-  <true>
-  <assign value='..ToUpper(street1)' property='target.{patient.addresses(1).line2}' action='set' />
-  </true>
-  </if>
+<trace value='"#### DTL: Address1 lenght &gt; 30. AddressWrapp... "' />
+<assign value='..ToUpper(street2)' property='target.{patient.addresses(1).line1}' action='set' />
+<if condition='$length(street1) &gt; 0' >
+<true>
+<assign value='..ToUpper(street1)' property='target.{patient.addresses(1).line2}' action='set' />
+</true>
+</if>
 </true>
 <false>
-   <trace value='"#### DTL: Address1 lenght > 25. No Address Wrapp... "' />
-  <assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
-  <if condition='$length(address2) &gt; 0' >
-  <true>
-    <assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
-   </true>
-   </if>
-</false>
- </if>
-</true>
-<false>
-<trace value='"#### DTL: Address1 length is not greater than 25 "' />
+<trace value='"#### DTL: Address1 lenght &gt; 30. No Address Wrapp... "' />
 <assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
 <if condition='$length(address2) &gt; 0' >
-  <true>
-  <assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
-  </true>
-  </if>
+<true>
+<assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
+</true>
+</if>
+</false>
+</if>
+</true>
+<false>
+<trace value='"#### DTL: Address1 length is not greater than 30 "' />
+<assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
+<if condition='$length(address2) &gt; 0' >
+<true>
+<assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
+</true>
+</if>
 </false>
 </if>
 <assign value='..ToUpper(source.{PID:PatientAddress(context.homeAddrTypeIndex).city})' property='target.{patient.addresses(1).city}' action='set' />
@@ -244,6 +285,7 @@
 <assign value='target.{patient.phones(context.prefPhoneIndex).extension}' property='target.{patient.phones(phoneIndexOut).extension}' action='set' />
 </true>
 </if>
+<assign value='context.prefPhoneType' property='target.{patient.phones(phoneIndexOut).countryCode}' action='set' />
 </true>
 </if>
 <assign value='"1"' property='nameIndexOut' action='set' />
@@ -328,96 +370,84 @@
 <assign value='context.gender' property='target.{patient.genderType}' action='set' />
 </true>
 </if>
-
 <if condition='($L(source.{PID:DateTimeOfBirth.timeofanevent}) &gt; 0)' >
 <true>
 <if condition='($L(source.{PID:DateTimeOfBirth.timeofanevent}) &gt; 8)' >
 <true>
-  <assign value='$E(source.{PID:DateTimeOfBirth.timeofanevent},1,8)' property='target.{patient.dateOfBirth}' action='set' />
+<assign value='$E(source.{PID:DateTimeOfBirth.timeofanevent},1,8)' property='target.{patient.dateOfBirth}' action='set' />
 </true>
- <false>
-    <assign value='source.{PID:DateTimeOfBirth.timeofanevent}' property='target.{patient.dateOfBirth}' action='set' />
- </false>
+<false>
+<assign value='source.{PID:DateTimeOfBirth.timeofanevent}' property='target.{patient.dateOfBirth}' action='set' />
+</false>
 </if>
 </true>
 </if>
-
 <if condition='($L(source.{PID:SSNNumberPatient}) &gt; 0)' >
 <true>
-  <assign value='source.{PID:SSNNumberPatient}' property='target.{patient.ssn}' action='set' />
+<assign value='source.{PID:SSNNumberPatient}' property='target.{patient.ssn}' action='set' />
 </true>
 </if>
-
 <if condition='($ISVALIDNUM(source.{PID:PrimaryLanguage.identifierST}))="1"' >
 <true>
-  <assign value='source.{PID:PrimaryLanguage.identifierST}' property='target.{patient.language}' action='set' />
+<assign value='source.{PID:PrimaryLanguage.identifierST}' property='target.{patient.language}' action='set' />
 </true>
 </if>
-
 <if condition='($ISVALIDNUM(source.{PID:Religion.identifierST}))="1"' >
 <true>
-  <assign value='source.{PID:Religion.identifierST}' property='target.{patient.religion}' action='set' />
+<assign value='source.{PID:Religion.identifierST}' property='target.{patient.religion}' action='set' />
 </true>
 </if>
-
 <foreach property='source.{PID:EthnicGroup()}' key='k1' >
 <if condition='$ISVALIDNUM(source.{PID:22(k1).1})="1"' >
 <true>
 <assign value='source.{PID:22(k1).1}' property='target.{patient.ethnicity}' action='set' />
-<code><![CDATA[ quit]]]]><![CDATA[></code>
+<code>
+<![CDATA[ quit]]]]><![CDATA[></code>
 </true>
 </if>
 </foreach>
-
-
 <assign value='1' property='pid10IndexOut' action='set' />
 <assign value='0' property='pid10UnavailAndDeclinedCount' action='set' />
-
-
 <foreach property='source.{PID:Race()}' key='k1' >
 <assign value='source.{PID:Race(k1).identifierST}' property='raceNcid' action='set' />
 <if condition='$ISVALIDNUM(raceNcid)="1"' >
 <true>
 <if condition='(raceNcid="522982748") || (raceNcid="522982749")' >
- <true>
-   <trace value='"#### DTL: Ignoring the Race: "_raceNcid' />
-   <assign value='pid10UnavailAndDeclinedCount+1' property='pid10UnavailAndDeclinedCount' action='set' />
- </true>
- <false>
-   <assign value='raceNcid' property='target.{patient.race(pid10IndexOut)}' action='set' />
-   <assign value='pid10IndexOut+1' property='pid10IndexOut' action='set' />
- </false>
+<true>
+<trace value='"#### DTL: Ignoring the Race: "_raceNcid' />
+<assign value='pid10UnavailAndDeclinedCount+1' property='pid10UnavailAndDeclinedCount' action='set' />
+</true>
+<false>
+<assign value='raceNcid' property='target.{patient.races(pid10IndexOut)}' action='set' />
+<assign value='pid10IndexOut+1' property='pid10IndexOut' action='set' />
+</false>
 </if>
 </true>
 </if>
 </foreach>
-
 <if condition='(pid10UnavailAndDeclinedCount &gt; 1)' >
 <true>
-  <if condition='(pid10IndexOut = 1)' >
-  <true>
-   <assign value='"522982748"' property='target.{patient.race(1)}' action='set' /> 
-   </true>
-   </if>
+<if condition='(pid10IndexOut = 1)' >
+<true>
+<assign value='"522982748"' property='target.{patient.races(1)}' action='set' />
 </true>
 </if>
-
-
+</true>
+</if>
 <if condition='($L(context.pid30) &gt; 0)' >
 <true>
 <assign value='context.pid30' property='target.{patient.deathFlag}' action='set' />
 </true>
 </if>
-
 <if condition='($L(source.{PID:PatientDeathDateandTime.timeofanevent}) &gt; 0)' >
 <true>
 <if condition='($L(source.{PID:PatientDeathDateandTime.timeofanevent}) &gt; 8)' >
 <true>
-  <assign value='$E(source.{PID:PatientDeathDateandTime.timeofanevent},1,8)' property='target.{patient.deathDate}' action='set' />
+<assign value='$E(source.{PID:PatientDeathDateandTime.timeofanevent},1,8)' property='target.{patient.deathDate}' action='set' />
 </true>
- <false>
-    <assign value='source.{PID:PatientDeathDateandTime.timeofanevent}' property='target.{patient.deathDate}' action='set' />
- </false>
+<false>
+<assign value='source.{PID:PatientDeathDateandTime.timeofanevent}' property='target.{patient.deathDate}' action='set' />
+</false>
 </if>
 <if condition='($L(context.pid30) = 0)' >
 <true>
@@ -426,7 +456,6 @@
 </if>
 </true>
 </if>
-
 </transform>
 ]]></Data>
 </XData>
