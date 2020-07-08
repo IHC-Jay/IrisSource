@@ -29,8 +29,18 @@
 <assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).streetaddressSAD.streetormailingaddress}' property='address1' action='set' />
 <trace value='"#### DTL: Address1: "_address1_" Length:"_$L(address1)_"#####"' />
 <assign value='""' property='updAddress' action='set' />
+<assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).otherdesignation}' property='address2' action='set' />
+<assign value='""' property='street1' action='set' />
+<assign value='""' property='street2' action='set' />
+<assign value='""' property='prefPhSubType' action='set' />
+<assign value='""' property='prefPhoneNum' action='set' />
+<assign value='""' property='prefAreaCode' action='set' />
+<assign value='""' property='prefPhoneExt' action='set' />
+<trace value='"DTL:AddressKeyWords:"_context.addressKeyWords' />
+<if condition='($L(address1) &gt; 0)' >
+<true>
 <code>
-<![CDATA[
+<![CDATA[ 
   set listDirections = $LISTBUILD("WEST ","EAST ","NORTH ","SOUTH ")
   set listDirectionsLen =$LISTLENGTH(listDirections)
   FOR i=1:1:listDirectionsLen {
@@ -45,7 +55,7 @@
   }  
 ]]]]><![CDATA[></code>
 <code>
-<![CDATA[
+<![CDATA[ 
   set addressAbbrList = $LISTFROMSTRING(context.addressAbbr, ",")
   set addressAbbrListLen =$LISTLENGTH(addressAbbrList)
   set upcaseAddress1 = $ZCONVERT(address1 ,"U")
@@ -53,9 +63,14 @@
   set address1ListLen =$LISTLENGTH(address1List)
   set lastAddress1Word = $LIST(address1List,address1ListLen)
   
+  $$$TRACE("$$$ addressAbbrList: "_addressAbbrList)
+  $$$TRACE("$$$ upcaseAddress1: "_upcaseAddress1)
+  $$$TRACE("$$$ lastAddress1Word: "_lastAddress1Word)
+  
+  
   FOR i=1:1:addressAbbrListLen {
      set abbr = $LIST(addressAbbrList,i)    
-     if upcaseAddress1 [ lastAddress1Word {
+     if upcaseAddress1 [ abbr {
      	try {
  			set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", lastAddress1Word, .retVal )
  	 		set abbrVal=retVal
@@ -67,17 +82,11 @@
  		}
   		SET updAddress=$REPLACE(upcaseAddress1,abbr,abbrVal)
   		$$$TRACE("updAddress value(end words abbr) :"_updAddress)
+  		break
   	}     	  
   }  
 ]]]]><![CDATA[></code>
-
 <assign value='updAddress' property='address1' action='set' />
-<assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).otherdesignation}' property='address2' action='set' />
-<assign value='""' property='street1' action='set' />
-<assign value='""' property='street2' action='set' />
-<trace value='"DTL:AddressKeyWords:"_context.addressKeyWords' />
-<if condition='($L(address1) &gt; 0)' >
-<true>
 <if condition='$L(address1) &gt; 30' >
 <true>
 <code>
@@ -186,6 +195,14 @@
  }catch err{
 	set hiePhTypeCode=""   
  }
+   if (source.GetValueAt("PID:PhoneNumberHome("_k1_").telecommunicationusecode") = "68023") && ($LOCATE(context.prefPhoneType,"^(Alt)") = 1 ){
+   		set context.prefPhoneIndex = phoneIndexOut
+   		set prefPhSubType = "ALT"
+   		set prefPhoneNum = $extract(numericHomePh,4,10)
+   		set prefAreaCode = $extract(numericHomePh,1,3)
+   		$$$TRACE("telecommunicationusecode is 68023, PrefPhoneType is "_context.prefPhoneType_" and PrefPhoneIndex is "_context.prefPhoneIndex )
+   		set prefPhoneExt = phExt
+    } 
  ]]]]><![CDATA[></code>
 <if condition='($L(hiePhTypeCode)  &gt; 0)  ' >
 <true>
@@ -202,17 +219,15 @@
    do context.ListPhoneTypes.Insert(phTypeCode)
    if (source.GetValueAt("PID:PhoneNumberHome("_k1_").telecommunicationusecode") = "193") && ($LOCATE(context.prefPhoneType,"^(Home)") = 1 ){
    		set context.prefPhoneIndex = phoneIndexOut
+   		set prefPhSubType = "HM"
     	$$$TRACE("telecommunicationusecode is 193 , PrefPhoneType is "_context.prefPhoneType_" and PrefPhoneIndex is "_context.prefPhoneIndex )
-    }
- 	if (source.GetValueAt("PID:PhoneNumberHome("_k1_").telecommunicationusecode") = "68023") && ($LOCATE(context.prefPhoneType,"^(Alt)") = 1 ){
-   		set context.prefPhoneIndex = phoneIndexOut
-   		$$$TRACE("telecommunicationusecode is 68023, PrefPhoneType is "_context.prefPhoneType_" and PrefPhoneIndex is "_context.prefPhoneIndex )
     }
  	if (source.GetValueAt("PID:PhoneNumberHome("_k1_").telecommunicationusecode") = "195") && ($LOCATE(context.prefPhoneType,"^(Mobile)") = 1 ){
    		set context.prefPhoneIndex = phoneIndexOut
+   		set prefPhSubType = "MBL"
    		$$$TRACE("telecommunicationusecode is 195, PrefPhoneType is "_context.prefPhoneType_" and PrefPhoneIndex is "_context.prefPhoneIndex )
     }
-    set result = $INCREMENT(phoneIndexOut)
+   set result = $INCREMENT(phoneIndexOut)
 ]]]]><![CDATA[></code>
 </true>
 </if>
@@ -264,6 +279,7 @@
    do context.ListPhoneTypes.Insert(phTypeCode)
    if (source.GetValueAt("PID:PhoneNumberBusiness("_k1_").telecommunicationusecode") = "194") && ($LOCATE(context.prefPhoneType,"^(Work)") = 1 ){
    		set context.prefPhoneIndex = phoneIndexOut
+   		set prefPhSubType = "WRK"
    		$$$TRACE("ForBusiness : telecommunicationusecode is 194, PrefPhoneType is "_context.prefPhoneType_" and PrefPhoneIndex is "_context.prefPhoneIndex )
     }
      set result = $INCREMENT(phoneIndexOut)
@@ -277,6 +293,14 @@
 </foreach>
 <if condition='context.prefPhoneIndex &gt; 0' >
 <true>
+<if condition='prefPhSubType = "ALT"' >
+<true>
+<assign value='prefPhoneNum' property='target.{patient.phones(phoneIndexOut).phoneNumber}' action='set' />
+<assign value='prefAreaCode' property='target.{patient.phones(phoneIndexOut).areaCode}' action='set' />
+<assign value='"PREFPHONE"' property='target.{patient.phones(phoneIndexOut).phoneType}' action='set' />
+<assign value='prefPhSubType' property='target.{patient.phones(phoneIndexOut).countryCode}' action='set' />
+</true>
+<false>
 <assign value='target.{patient.phones(context.prefPhoneIndex).phoneNumber}' property='target.{patient.phones(phoneIndexOut).phoneNumber}' action='set' />
 <assign value='target.{patient.phones(context.prefPhoneIndex).areaCode}' property='target.{patient.phones(phoneIndexOut).areaCode}' action='set' />
 <assign value='"PREFPHONE"' property='target.{patient.phones(phoneIndexOut).phoneType}' action='set' />
@@ -285,7 +309,9 @@
 <assign value='target.{patient.phones(context.prefPhoneIndex).extension}' property='target.{patient.phones(phoneIndexOut).extension}' action='set' />
 </true>
 </if>
-<assign value='context.prefPhoneType' property='target.{patient.phones(phoneIndexOut).countryCode}' action='set' />
+<assign value='prefPhSubType' property='target.{patient.phones(phoneIndexOut).countryCode}' action='set' />
+</false>
+</if>
 </true>
 </if>
 <assign value='"1"' property='nameIndexOut' action='set' />
@@ -306,9 +332,9 @@
 </if>
 <assign value='1' property='pid3IndexOut' action='set' />
 <assign value='0' property='amWellFlag' action='set' />
+<foreach property='source.{PID:PatientIdentifierList()}' key='k1' >
 <assign value='source.{PID:PatientIdentifierList(k1).ID}' property='facilityMrn' action='set' />
 <assign value='source.{PID:PatientIdentifierList(k1).assigningauthority.namespaceID}' property='facilityNcid' action='set' />
-<foreach property='source.{PID:PatientIdentifierList()}' key='k1' >
 <if condition='(facilityMrn &apos;="")' >
 <true>
 <if condition='$ISVALIDNUM(facilityMrn)' >
@@ -456,6 +482,7 @@
 </if>
 </true>
 </if>
+<assign value='source.{PID:MaritalStatus.identifierST}' property='target.{patient.maritalStatus}' action='set' />
 </transform>
 ]]></Data>
 </XData>
