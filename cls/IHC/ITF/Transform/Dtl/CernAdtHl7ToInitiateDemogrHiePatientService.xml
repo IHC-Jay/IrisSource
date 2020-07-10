@@ -36,63 +36,68 @@
 <assign value='""' property='prefPhoneNum' action='set' />
 <assign value='""' property='prefAreaCode' action='set' />
 <assign value='""' property='prefPhoneExt' action='set' />
+<assign value='"0"' property='isWrapped' action='set' />
+
 <trace value='"DTL:AddressKeyWords:"_context.addressKeyWords' />
 <if condition='($L(address1) &gt; 0)' >
 <true>
+<if condition='$L(address1) &gt; 30' >
+<true>
 <code>
-<![CDATA[ 
+<![CDATA[
+  set address1=$replace(address1,".","")
+  set upcaseAddress1 = $ZCONVERT(address1 ,"U")
+
+  $$$TRACE("DTL:Cleanse-Address1(Directions)...") 
   set listDirections = $LISTBUILD("WEST ","EAST ","NORTH ","SOUTH ")
   set listDirectionsLen =$LISTLENGTH(listDirections)
   FOR i=1:1:listDirectionsLen {
-     set direction = $LIST(listDirections,i)
-     set upcaseAddress1 = $ZCONVERT(address1 ,"U")
+     set direction = $LIST(listDirections,i)     
      if upcaseAddress1 [ direction {
 	     SET updAddress=$REPLACE(upcaseAddress1,direction,$E(direction,1)_" ")
-	     $$$TRACE("updAddress value(direction) :"_updAddress)            
+	     $$$TRACE("updAddress value(direction) :"_updAddress)	                 
 	 }else{
 		 set updAddress = upcaseAddress1
 	 }     	  
   }  
-]]]]><![CDATA[></code>
-<code>
-<![CDATA[ 
+  
+  $$$TRACE("DTL:Cleanse-Address1(Abbreviations..)...") 
   set addressAbbrList = $LISTFROMSTRING(context.addressAbbr, ",")
   set addressAbbrListLen =$LISTLENGTH(addressAbbrList)
-  set upcaseAddress1 = $ZCONVERT(address1 ,"U")
-  set address1List = $LISTFROMSTRING(upcaseAddress1, " ")
+  set address1List = $LISTFROMSTRING(updAddress, " ")
   set address1ListLen =$LISTLENGTH(address1List)
   set lastAddress1Word = $LIST(address1List,address1ListLen)
-  
   $$$TRACE("$$$ addressAbbrList: "_addressAbbrList)
-  $$$TRACE("$$$ upcaseAddress1: "_upcaseAddress1)
+  $$$TRACE("$$$ updAddress: "_updAddress)
   $$$TRACE("$$$ lastAddress1Word: "_lastAddress1Word)
-  
   
   FOR i=1:1:addressAbbrListLen {
      set abbr = $LIST(addressAbbrList,i)    
-     if upcaseAddress1 [ abbr {
-     	try {
- 			set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", lastAddress1Word, .retVal )
- 	 		set abbrVal=retVal
- 			if (retVal="Unknown"){
-	 			set abbrVal=lastAddress1Word
-			}
- 		}catch err{
-			set abbrVal=lastAddress1Word 
- 		}
-  		SET updAddress=$REPLACE(upcaseAddress1,abbr,abbrVal)
-  		$$$TRACE("updAddress value(end words abbr) :"_updAddress)
-  		break
+     if updAddress [ abbr {
+	     if (abbr=lastAddress1Word){
+     		try {
+ 				set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", lastAddress1Word, .retVal )
+ 	 			set abbrVal=retVal
+ 				if (retVal="Unknown"){
+	 				set abbrVal=lastAddress1Word
+				}
+ 			}catch err{
+				set abbrVal=lastAddress1Word 
+ 			}
+  			SET updAddress=$REPLACE(upcaseAddress1,abbr,abbrVal)
+  			$$$TRACE("updAddress value(end words abbr) :"_updAddress)
+  			break
+	     }else{
+		     $$$TRACE("$$$ abbr "_abbr_" is not the last word of the address:"_updAddress)
+		 }
   	}     	  
   }  
 ]]]]><![CDATA[></code>
 <assign value='updAddress' property='address1' action='set' />
-<if condition='$L(address1) &gt; 30' >
-<true>
 <code>
 <![CDATA[ 
     set AddrWrapKeywordsList = $LISTFROMSTRING(context.addressKeyWords, ",")
-    Set isWrapped = 0
+    
     
     if (($LISTLENGTH(AddrWrapKeywordsList) > 0) && (context.AddrWrapLogicValue = 1) && ($LENGTH(address2) = 0)){
        $$$TRACE("Inside need wrapping")
@@ -108,35 +113,41 @@
             $$$TRACE("Inside indexfound(end of address1) at: "_indexAddrLine1 )
              ///Need to minus the length addrWrapL since we have the ending index+1 in previous step
              set street1 = $EXTRACT(addrLine1L,0,indexAddrLine1-$LENGTH(addrWrapL)-1)
-             $$$TRACE("street1 Value in List position : "_street1)
+             $$$TRACE("street1 Value in List position : ["_street1_"]")
              
              ///* will get till the end of the string
-             set street2 = $EXTRACT(addrLine1L,indexAddrLine1-$LENGTH(addrWrapL),*)
-             $$$TRACE("street2 Value in List position : "_street2 )
+             set street2 = $EXTRACT(addrLine1L,indexAddrLine1-$LENGTH(addrWrapL)+1,*)
+             $$$TRACE("street2 Value in List position : ["_street2_"]" )
              
              ///We are interchanging street1 and street2 values when we map just bcas Egate does that
-             set isWrapped = 1             
+             set isWrapped = "1" 
+             break            
           }
        }       
     }
   ]]]]><![CDATA[></code>
-<if condition='isWrapped = 1' >
+<if condition='isWrapped = "1"' >
 <true>
-<trace value='"#### DTL: Address1 lenght &gt; 30. AddressWrapp... "' />
+<trace value='"#### DTL: AddressWrapp... "' />
 <assign value='..ToUpper(street2)' property='target.{patient.addresses(1).line1}' action='set' />
-<if condition='$length(street1) &gt; 0' >
+<if condition='$length(street1) &gt; 30' >
 <true>
-<assign value='..ToUpper(street1)' property='target.{patient.addresses(1).line2}' action='set' />
+<assign value='..ToUpper($E(street1,1,30))' property='target.{patient.addresses(1).line2}' action='set' />
 </true>
+ <false>
+  <assign value='..ToUpper(street1)' property='target.{patient.addresses(1).line2}' action='set' />
+ </false>
 </if>
 </true>
 <false>
-<trace value='"#### DTL: Address1 lenght &gt; 30. No Address Wrapp... "' />
-<assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
-<if condition='$length(address2) &gt; 0' >
+<trace value='"#### DTL: Address1.. No Address Wrapp... "' />
+<if condition='$length(address1) &gt; 30' >
 <true>
-<assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
+ <assign value='..ToUpper($E(address1,1,30))' property='target.{patient.addresses(1).line1}' action='set' />
 </true>
+<false>
+  <assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
+</false>
 </if>
 </false>
 </if>
@@ -144,19 +155,94 @@
 <false>
 <trace value='"#### DTL: Address1 length is not greater than 30 "' />
 <assign value='..ToUpper(address1)' property='target.{patient.addresses(1).line1}' action='set' />
-<if condition='$length(address2) &gt; 0' >
-<true>
-<assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
-</true>
+</false>
 </if>
+
+<if condition='$length(address2) &gt; 30' >
+<true>
+<trace value='"#### DTL: Address2 length is greater than 30 "' />
+<code>
+<![CDATA[
+  set address2=$replace(address2,".","")
+  set upcaseAddress2 = $ZCONVERT(address1 ,"U")
+
+  $$$TRACE("DTL:Cleanse-Address2(Directions)...") 
+  set listDirections = $LISTBUILD("WEST ","EAST ","NORTH ","SOUTH ")
+  set listDirectionsLen =$LISTLENGTH(listDirections)
+  FOR i=1:1:listDirectionsLen {
+     set direction = $LIST(listDirections,i)     
+     if upcaseAddress2 [ direction {
+	     SET updAddress=$REPLACE(upcaseAddress2,direction,$E(direction,1)_" ")
+	     $$$TRACE("updAddress2 value(direction) :"_updAddress)	                 
+	 }else{
+		 set updAddress = upcaseAddress2
+	 }     	  
+  }  
+  
+  $$$TRACE("DTL:Cleanse-Address2(Abbreviations..)...") 
+  set addressAbbrList = $LISTFROMSTRING(context.addressAbbr, ",")
+  set addressAbbrListLen =$LISTLENGTH(addressAbbrList)
+  set address2List = $LISTFROMSTRING(upcaseAddress2, " ")
+  set address2ListLen =$LISTLENGTH(address2List)
+  set lastAddress2Word = $LIST(address2List,address2ListLen)
+  $$$TRACE("$$$ addressAbbrList: "_addressAbbrList)
+  $$$TRACE("$$$ upcaseAddress2: "_upcaseAddress2)
+  $$$TRACE("$$$ lastAddress2Word: "_lastAddress2Word)
+  
+  FOR i=1:1:addressAbbrListLen {
+     set abbr = $LIST(addressAbbrList,i)    
+     if updAddress [ abbr {
+	     if (abbr=lastAddress2Word){
+     		try {
+ 				set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", lastAddress2Word, .retVal )
+ 	 			set abbrVal=retVal
+ 				if (retVal="Unknown"){
+	 				set abbrVal=lastAddress2Word
+				}
+ 			}catch err{
+				set abbrVal=lastAddress2Word 
+ 			}
+  			SET updAddress=$REPLACE(upcaseAddress2,abbr,abbrVal)
+  			$$$TRACE("updAddress2 value(end words abbr) :"_updAddress)
+  			break
+	     }else{
+		     $$$TRACE("$$$ abbr "_abbr_" is not the last word of the address:"_updAddress)
+		 }
+  	} 
+  }    	   
+]]]]><![CDATA[></code>
+<assign value='updAddress' property='address2' action='set' />
+<if condition='$length(address2) &gt; 30' >
+<true>
+<trace value='"#### DTL: Address2 length is greater than 30 after Cleanse.."' />
+<assign value='..ToUpper($E(address2,1,30))' property='target.{patient.addresses(1).line2}' action='set' />
+</true>
+<false>
+ <assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
+</false>
+</if>
+</true>
+<false>
+  <trace value='"#### DTL: Address2 length is NOT greater than 30 "' />
+  <if condition='isWrapped = 1' >
+  <false>
+   <assign value='..ToUpper(address2)' property='target.{patient.addresses(1).line2}' action='set' />
+  </false>
+  </if>  
 </false>
 </if>
 <assign value='..ToUpper(source.{PID:PatientAddress(context.homeAddrTypeIndex).city})' property='target.{patient.addresses(1).city}' action='set' />
 <assign value='..ToUpper(source.{PID:PatientAddress(context.homeAddrTypeIndex).stateorprovince})' property='target.{patient.addresses(1).state}' action='set' />
 <assign value='..ToUpper(context.pid116)' property='target.{patient.addresses(1).country}' action='set' />
-<assign value='source.{PID:PatientAddress(context.homeAddrTypeIndex).ziporpostalcode}' property='target.{patient.addresses(1).zip}' action='set' />
+<assign value='$ZSTRIP(source.{PID:PatientAddress(context.homeAddrTypeIndex).ziporpostalcode},"*P")' property='target.{patient.addresses(1).zip}' action='set' />
 <assign value='"HOMEADDR"' property='target.{patient.addresses(1).type}' action='set' />
-<assign value='..ToUpper(source.{PID:PatientAddress(context.homeAddrTypeIndex).countyparishcode})' property='target.{patient.addresses(1).county}' action='set' />
+<assign value='$ZSTRIP(source.{PID:PatientAddress(context.homeAddrTypeIndex).countyparishcode},"*W")' property='county' action='set' />
+<if condition='($L(county) &gt; 0)' >
+<true>
+<assign value='..ToUpper(county)' property='target.{patient.addresses(1).county}' action='set' />
+</true>
+</if>
+
 </true>
 </if>
 <if condition='(context.homeEmailAddressIndex &gt; 0)' >
@@ -482,7 +568,12 @@
 </if>
 </true>
 </if>
-<assign value='source.{PID:MaritalStatus.identifierST}' property='target.{patient.maritalStatus}' action='set' />
+<if condition='$ISVALIDNUM(source.{PID:MaritalStatus.identifierST})="1"' >
+<true>
+ <assign value='source.{PID:MaritalStatus.identifierST}' property='target.{patient.maritalStatus}' action='set' />
+</true>
+</if>
+
 </transform>
 ]]></Data>
 </XData>
