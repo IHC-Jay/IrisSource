@@ -176,6 +176,8 @@ BPL Definition</Description>
 <property name='msgType' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
 
+<property name='errResp' type='%String' instantiate='0' initialexpression='"0"'/>
+
 <property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
@@ -845,22 +847,30 @@ BPL Definition</Description>
 		                 	$$$TRACE(" Status: "_value)	                 	   
 	                 	 }else{
 		                 	 $$$TRACE(" Status: "_value)
+		                 	 set context.errResp = "1"
 		                 	 $$$TRACE(" respJSONstring (ERRTXT): "_respJSONstring)	
-		                 	 if respJSONstring [ "line 1 limit is 30"{
-			                 	 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Length of the Address1 from iCentra Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
-			                 }elseif respJSONstring [  "Patient not found for mrn"{
-				                 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.deleteMmiNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
-			                 }else{
-				                 if respJSONstring [ "EINVAL" {
-		                 	 		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Response from Patient Service Post Operation: "_respJSONstring)
-				                 }elseif respJSONstring [ "ENOREC"{
-                                    set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Response from Patient Service Post Operation: "_respJSONstring)				                 
-			                 	 }elseif respJSONstring [ "EEXISTS"{
-				                 	 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Response from Patient Service Post Operation: "_respJSONstring)				                 
+		                 	 set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
+	   						 Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
+	   						 $$$TRACE("  lenInDataErrCodeList : "_lenInDataErrCodeList)
+	   						 For i=1:1:lenInDataErrCodeList {
+		   						 set listItem = $List(inputDataErrCodeList,i)
+								Set isInDataErrCodeFound = respJSONstring[ listItem	
+								$$$TRACE("  isInDataErrCodeFound:"_isInDataErrCodeFound_" ErrCode:"_listItem)
+								if (isInDataErrCodeFound=1) quit				
+							 }
+							 if (isInDataErrCodeFound=1) {
+		    					$$$TRACE(" InputDataError.. errorText: "_respJSONstring)
+	        					set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Skipping the record... Response from Patient Service Post Operation: "_respJSONstring)
+							 }else{
+								 if respJSONstring [ "line 1 limit is 30"{
+			                 		 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Length of the Address1 from iCentra Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
+			                 	 }elseif respJSONstring [  "Patient not found for mrn"{
+				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.deleteMmiNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
 			                 	 }else{
-					                 set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from Patient Service Post Operation: "_respJSONstring)
-					             }	  
-			                 }               	
+								 	$$$TRACE(" Unknown/Unhandled Error. Response from the Hie Patient Service: errorText: "_respJSONstring)
+	    						 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Unknown/Unhandled error: "_respJSONstring) 
+			                 	 }
+							 }              	
 		                 }
 	                }
                  	
@@ -873,11 +883,13 @@ BPL Definition</Description>
 	   	Set lenRetryErrCodeList = $ListLength(retryErrCodeList)
 	   	$$$TRACE("  lenRetryErrCodeList : "_lenRetryErrCodeList)
 	   	For i=1:1:lenRetryErrCodeList {
-			Set isRetryErrCodeFound = errTxt[ i	
-			$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_i)				
+		   	 set listItem = $List(retryErrCodeList,i)
+			Set isRetryErrCodeFound = errTxt[ listItem	
+			$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_listItem)
+			if (isRetryErrCodeFound=1) quit				
 		}
 
-	    if isRetryErrCodeFound = 1 {
+	    if (isRetryErrCodeFound=1) {
 		    $$$TRACE(" RetryCheckError.. errorText "_ettTxt)
 	        Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"TimedOut. No Successful Response from Patient service: ["_errTxt_"]. Retrying ..")
 		}else{
@@ -887,7 +899,17 @@ BPL Definition</Description>
     }          
 ]]]]><![CDATA[>
 </code>
-    
+  
+  <if name='HasErrResponse' condition='context.errResp="1"' xpos='200' ypos='850' xend='200' yend='2700' >
+<true>
+<call name='Send to TargetConfigNames' target='@context.notifyTargetConfigName' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.iniInsertUpdateResponse" action="set" />
+</request>
+</call>
+</true>
+</if>
+
 </true>
 <false>
 <trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' />
