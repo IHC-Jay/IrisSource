@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.TaskResendTransTrackingRecords">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65573,51608.490782</TimeCreated>
+
+<UDLText name="T">
+<Content><![CDATA[
+// The correct order should have been:
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 1.	IHCSP_EDITRK_TRANX_INSERT
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 2.	IHCSP_EDITRK_CLAIM_INSERT
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 3.	837_ACCEPTED_CLAIMS
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 4.	837_OUTGOING_CLAIMS
+
+]]></Content>
+</UDLText>
+
+<Property name="inService">
+<Type>%String</Type>
+<InitialExpression>"In-Delim-BRIDGE-EnsPayer-FROM-Edifecs-JMSTRANSTRACKCLAIM"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="SourceConfigName">
+<Type>%String</Type>
+<InitialExpression>"Sh-Ttc-Demin_Text_TRANSTRACK_RETRY"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="NewTarget">
+<Type>%String</Type>
+<InitialExpression>"Sh-Ttc-Delim_Text-TRANSTRACKCLAIMDBLOAD"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="alertComp">
+<Type>%String</Type>
+<InitialExpression>"Ens.Alert"</InitialExpression>
+</Property>
+
+<Property name="maxError">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="Today">
+<Type>%Integer</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$TRACE(	"Starting IHC.ITF.ITFCOMMON.Task.TaskResendTransTrackingRecords")
+  
+  set DateRange = ""
+  if (..Today = 1)
+  { 
+  		// entries from today 
+  		set DateRange = " and mh.TimeCreated >= SYSDATE "
+  }
+  else {
+	  // for entries from yesterday
+	  set DateRange = " and mh.TimeCreated  >= DATEADD(day, -1, GETDATE()) and mh.TimeCreated < SYSDATE "
+  }
+    
+  
+  // Get MAXERROR
+  Set tStatus = ##class(Ens.Director).GetHostSettings(..SourceConfigName,.tHostSettings)
+ 
+	If ($DATA(tHostSettings) = 10) {
+		set ..maxError = tHostSettings( "MaxErrors")
+		$$$TRACE(  ..SourceConfigName _ " - ReplyCodeActions === " _ ..maxError)
+	}
+	else
+	{
+		$$$TRACE("Could not read Process Max error for " _ ..SourceConfigName)
+		QUIT
+	}
+	
+	if (..maxError >= 1)
+	{
+		$$$TRACE("Process Max error: " _ ..maxError)
+		// process exits when value is one more than maxError
+		set ..maxError = ..maxError + 1
+	}
+	else
+	{
+		$$$LOGERROR("Could not read Process Max error for " _ ..SourceConfigName)
+		QUIT
+	}
+	Do ..Resend("837_ACCEPTED_CLAIMS", DateRange)
+	Do ..Resend("837_OUTGOING_CLAIMS", DateRange)
+	$$$TRACE(	"End IHC.ITF.ITFCOMMON.Task.TaskResendTransTrackingRecords")
+	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Resend">
+<FormalSpec>msgType:%String,DateRange:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	SET errorStr = ""
+	if (msgType = "837_OUTGOING_CLAIMS")
+	{
+    	SET errorStr = "%Unable to update translation file name and translation date/time  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables%retry # " _ ..maxError _"%"
+	} 
+	else {
+    	// 837_ACCEPTED_CLAIMS
+    	SET errorStr = "%Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables, retry # " _ ..maxError _"%"
+	}
+		 
+	 SET myquery = 11 
+	 SET myquery(1) = " select distinct mh.Id AS tMsgId "
+	 SET myquery(2) = " from  Ens.MessageHeader mh"
+	 SET myquery(3) = " where SourceConfigName =  ? "  
+	 SET myquery(4) = " and	TargetConfigName= ?  and SessionId  in"
+	 SET myquery(5) = " ( select  mh.SessionId  from"
+	 SET myquery(6) = "	 Ens.MessageHeader mh, Ens.AlertRequest sc"
+	SET myquery(7) = "	 where  mh.SourceConfigName= ?"
+	SET myquery(8) = "	 and mh.TargetConfigName= ? "
+	SET myquery(9) = "	 and mh.MessageBodyId = sc.ID  "
+	SET myquery(10) = DateRange
+	SET myquery(11) = "	 and AlertText like ? )"
+	
+	$$$TRACE(myquery)
+  	
+  SET tStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = tStatement.%Prepare(.myquery)
+    IF qStatus'=1 {WRITE "%Prepare failed:" DO $System.Status.DisplayError(qStatus) QUIT}
+  SET rset = tStatement.%Execute(..inService, ..NewTarget, ..SourceConfigName, ..alertComp, errorStr)
+  IF rset.%SQLCODE=0 { $$$TRACE("Created a query") }
+  ELSEIF rset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ rset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message)   QUIT}
+  
+  set arrInd = 1
+  Set tMsgIdArr = ""
+  
+   WHILE rset.%Next() {
+     set tMsgId = rset.tMsgId
+     $$$TRACE( "MessageHeader ID: " _ tMsgId)
+     	Set tMsgIdArr(arrInd) = tMsgId
+	   	set arrInd = arrInd + 1
+   }
+   SET sc=rset.Close()
+     
+	 set HeadOfQueue = 0
+	 set Key  = "KEY"
+	 set num = 0
+	 set msgId = "" 
+	 Do {
+        Set msgId=$Order(tMsgIdArr(msgId)) Quit:msgId="" ;get the next S1 subscript
+        
+        Set tMsgId = tMsgIdArr(msgId)
+	    $$$TRACE( "Resend MessageHeader ID: " _ tMsgId)
+	    
+		Set tSC=##class(Ens.MessageHeader).ResendDuplicatedMessage(tMsgId,.tNewHeaderId,..NewTarget,,,HeadOfQueue)
+		If ($$$ISERR(tSC)) {
+			Set errText = $System.Status.GetErrorText(tSC)
+			$$$LOGERROR( "Error: " _ errText)				
+		}
+		
+		Else {
+			set num = num + 1
+			$$$TRACE( num _ ". RESENT: " _ tNewHeaderId _ " to: " _ ..NewTarget)
+			Set ^CacheTemp.ResendIDs(Key,tMsgId,"sc") = "OK"
+			Set ^CacheTemp.ResendIDs(Key,tMsgId,"new") = tNewHeaderId
+		}
+	
+	
+	
+  } While msgId'=""
+  
+  $$$TRACE( msgType _ " Resent : " _ num)
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
