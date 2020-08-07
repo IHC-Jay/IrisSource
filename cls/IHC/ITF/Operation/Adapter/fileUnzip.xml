@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.Adapter.fileUnzip">
+<Super>Ens.Adapter</Super>
+<TimeCreated>65597,42512.788332</TimeCreated>
+
+<Parameter name="SETTINGS">
+<Default>ZipCommand,UnZipCommand,WorkingDirectory</Default>
+</Parameter>
+
+<Property name="ZipCommand">
+<Description>
+zip -r %1 %2  	[Zip this directory - recursively into the archive file %1 from path %2 ]
+7z example (windows) "c:\program files\7-zip\7z" a %1 %2 -r</Description>
+<Type>%String</Type>
+<InitialExpression>$S($zv["Win":"""c:\program files\7-zip\7z"" a %1 %2 -r",1:"zip -rm %1 %2")</InitialExpression>
+</Property>
+
+<Property name="UnZipCommand">
+<Description>
+unzip %1 -d %2  [Unzip the archive file %1 into the current path %2]
+7z example (windows) "c:\program files\7-zip\7z" x %1 -o%2 -r</Description>
+<Type>%String</Type>
+<InitialExpression>$S($zv["Win":"""c:\program files\7-zip\7z"" x %1 -o%2 -r",1:"unzip %1 -d %2")</InitialExpression>
+</Property>
+
+<Property name="WorkingDirectory">
+<Type>%String</Type>
+<InitialExpression>##class(%File).NormalizeDirectory($zu(12)_"Temp/Zip")</InitialExpression>
+</Property>
+
+<Method name="UnZip">
+<Description>
+Take a ZipRequest with a File and split it into items including the directory path</Description>
+<FormalSpec>pRequest:HS.Message.ZipRequest,pResponse:HS.Message.ZipResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	#define ND(%directory) ##class(%File).NormalizeDirectory(%directory)
+	try {
+		Set tSC=$$$OK
+		Set tSC=pRequest.NewResponse(.pResponse)
+		Set tWorkingDirectory=$$$ND(..WorkingDirectory)
+		#; cleanup from any previous run
+		If ##class(%File).DirectoryExists($$$ND(..WorkingDirectory)) Set tSC = ##class(%File).RemoveDirectoryTree($$$ND(..WorkingDirectory)) 
+		Set tSC= ##class(%File).CreateDirectoryChain(tWorkingDirectory) Quit:$$$ISERR(tSC)
+
+		#; write out the zip file
+		Set tZipDir=$$$ND(tWorkingDirectory_"../")
+		Set tFile=##class(%Stream.FileBinary).%New()
+		Set tSC=tFile.LinkToFile(tZipDir_"z.zip")
+		Set tSC= tFile.CopyFrom(pRequest.File) Quit:$$$ISERR(tSC)
+		Set tSC= tFile.%Save() Quit:$$$ISERR(tSC)
+		
+		Set tCurrentDirectory=$system.Process.CurrentDirectory(tWorkingDirectory)
+
+		#; unzip the file to the directory
+		Set tCMD = $p(..UnZipCommand,"%1")_tFile.Filename_$p(..UnZipCommand,"%1",2)
+		Set tCMD = $P(tCMD,"%2")_"."_$P(tCMD,"%2",2)
+				$$$TRACE("CMD: "_tCMD)
+		Set tStatus=$zf(-1,tCMD) If tStatus Set tSC=$$$ERROR($$$GeneralError,"Unable to unzip "_tCMD) Quit
+		Set tSC=..GetFiles(tWorkingDirectory,.pResponse,tWorkingDirectory)
+		Set tNewDirectory=$system.Process.CurrentDirectory(tCurrentDirectory),tCurrentDirectory=""
+
+		If ##class(%File).DirectoryExists($$$ND(..WorkingDirectory)) Set tSC = ##class(%File).RemoveDirectoryTree($$$ND(..WorkingDirectory)) 
+	} Catch ex {
+		Set tSC = ex.AsStatus()
+	}
+	Set:$g(tCurrentDirectory)]"" tNewDirectory=$system.Process.CurrentDirectory(tCurrentDirectory)
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="GetFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pWorkingDirectory,pResponse:HS.Types.Zip,pBaseDirectory</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tQuery=##class(%ResultSet).%New("%File:FileSet")
+	Set tSC= tQuery.Execute(pWorkingDirectory,"*",,1)
+	While tQuery.%Next() {
+		Set tFilename=tQuery.GetData(1)
+		If tQuery.GetData(2)="D" Do ..GetFiles(tFilename,.pResponse,pBaseDirectory) Continue
+		Set tFile=##class(%Stream.FileBinary).%New()
+		Set tSC=tFile.LinkToFile(tFilename)
+		Set tItem=##class(HS.Types.ZipItem).%New()
+		Set tItem.Path=$p(##class(%File).GetDirectory(tFilename),pBaseDirectory,2)
+		Set tItem.Filename=##class(%File).GetFilename(tFilename)
+		Set tSC = tItem.File.CopyFrom(tFile)
+		Do pResponse.Items.Insert(tItem)	
+	}
+	Quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
