@@ -110,9 +110,11 @@ BPL Definition</Description>
 </property>
 <property name='facInd' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='facRow' type='IHC.ITF.DStruc.Request.CORPPRV.CorpprvFacilities' instantiate='0' />
+<property name='cleanseOrgReq' type='Request.CleanseOrganizationDataRequest' instantiate='1' />
+<property name='cleanseOrgResponse' type='Response.CleanseOrganizationDataResponse' instantiate='1' />
 </context>
-<sequence xend='200' yend='3000' >
-<scope xpos='200' ypos='250' xend='200' yend='2900' >
+<sequence xend='200' yend='3300' >
+<scope xpos='200' ypos='250' xend='200' yend='3200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", inp class: " _ request.%ClassName()' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -152,7 +154,7 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<if name='ADVPROVIDERPRVDRID &gt; 89999' condition='request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content &gt; 89999' xpos='200' ypos='750' xend='200' yend='2650' >
+<if name='ADVPROVIDERPRVDRID &gt; 89999' condition='request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content &gt; 89999' xpos='200' ypos='750' xend='200' yend='2950' >
 <true>
 <trace value='"SKIP record, ID more than 89999. ID: " _ request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content' xpos='200' ypos='900' />
 </true>
@@ -264,7 +266,7 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <transform name='copy data to Cleanse service' class='IHC.ITF.Transform.Dtl.CorpprvXmlToMdmCleanseXml' source='request' target='context.cleanseProviderData' xpos='470' ypos='1400' />
-<code name='call IDQ clenase rule' xpos='470' ypos='1500' >
+<code name='call IDQ cleanse rule' xpos='470' ypos='1500' >
 <![CDATA[  /*
      $$$TRACE("context.cleanseProviderData SRCSYSTEM: " _ context.cleanseProviderData.ID.NAME.GetAt(1).SRCSYSTEM)
     $$$TRACE("context.cleanseProviderData ADDRESS #: " _  context.cleanseProviderData.ID.ADDRESS.Count() )
@@ -306,19 +308,42 @@ BPL Definition</Description>
      $$$LOGWARNING("Warning: Title Name is not standardized, ProviderId: " _ context.inpData.providerId)
  }]]]]><![CDATA[>
 </code>
-<if name='if facilities are found' condition='context.corpprvResponse.facList.Count() &gt; 0' xpos='470' ypos='1600' xend='470' yend='1950' >
+<if name='if facilities are found' condition='context.corpprvResponse.facList.Count() &gt; 0' xpos='470' ypos='1600' xend='470' yend='2250' >
 <true>
-<foreach property='context.corpprvResponse.facList' key='context.facInd' xpos='605' ypos='1750' xend='200' yend='1000' >
+<transform name='CorpprvSqlToInformaticaOrgCleanseXml' class='IHC.ITF.Transform.Dtl.CorpprvSqlToInformaticaOrgCleanseXml' source='context.corpprvResponse' target='context.cleanseOrgReq' xpos='605' ypos='1750' />
+<trace name='data from DTL' value='context.cleanseOrgReq' xpos='605' ypos='1850' />
+<code name='Call ORG Cleanse service' xpos='605' ypos='1950' >
+<![CDATA[  $$$TRACE("Call IDQ ORG operation to clean Data " )
+   set tStatus=process.SendRequestSync("Op-InformaticaMdm-Wssc-CLEANSEORG", context.cleanseOrgReq, .resp)
+   if ('tStatus) {     
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected IDQ response returned or failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+     
+   } 
+   $$$TRACE("Got this value from ORG Cleanse operation: " _ resp)
+   Set context.cleanseOrgResponse = resp
+   ]]]]><![CDATA[>
+</code>
+<foreach property='context.corpprvResponse.facList' key='context.facInd' xpos='605' ypos='2050' xend='200' yend='1000' >
 <trace value='"Sending Data to MDM Organization #" _ context.facInd' xpos='200' ypos='250' />
 <code name='Get each row' xpos='200' ypos='350' >
 <![CDATA[ 
       set context.facRow = context.corpprvResponse.facList.GetAt(context.facInd)
-      $$$TRACE("facility: " _ context.facRow.FACIFCILITYNM)]]]]><![CDATA[>
+      $$$TRACE("facility: " _ context.facRow.FACIFCILITYNM)
+      
+      $$$TRACE("facility from Cleanse service: " _ context.cleanseOrgResponse.ID.ORGNAME.GetAt(context.facInd).ORGNM)
+      
+            $$$TRACE("facility.ALTIDVAL from Cleanse service: " _ context.cleanseOrgResponse.ID.ALTID.GetAt(context.facInd).ALTIDVAL)
+            ]]]]><![CDATA[>
 </code>
-<if name='if facility name is not null' condition='context.facRow.FACIFCILITYNM &apos;= ""' xpos='200' ypos='450' xend='200' yend='900' >
+<if name='if facility name is null OR Invalid flag is Y' condition='(context.cleanseOrgResponse.ID.ORGNAME.GetAt(context.facInd).ORGNM = "") ||  (context.cleanseOrgResponse.ID.ORGNAME.GetAt(context.facInd).INVALIDNMFLG = "Y")  || (context.cleanseOrgResponse.ID.ALTID.GetAt(context.facInd).INVALIDALTIDFLG = "Y")' xpos='200' ypos='450' xend='200' yend='900' >
 <true>
-<transform name='create organization XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmOrgXml' source='context.corpprvResponse' target='context.orgXml' xpos='335' ypos='600' />
-<code name='Converting XML to JSON Operation' xpos='335' ypos='700' >
+<code name='Error' xpos='200' ypos='600' >
+<![CDATA[  $$$LOGERROR( "Warning: Org is Invalid: " _ context.cleanseOrgResponse.ID.ORGNAME.GetAt(context.facInd).ORGNM _", ID: " _ context.cleanseOrgResponse.ID.ORGNAME.GetAt(context.facInd).INVALIDNMFLG)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<transform name='create organization XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmOrgXml' source='context.cleanseOrgResponse' target='context.orgXml' xpos='470' ypos='600' />
+<code name='Converting XML to JSON Operation' xpos='470' ypos='700' >
 <![CDATA[ $$$TRACE("Converting MDMOrgRestOperation XML to JSON Operation.. ")
     set context.orgJsonStrReq = ##class(Ens.StringRequest).%New()	       
     set myList = $LISTBUILD("item")
@@ -341,7 +366,7 @@ BPL Definition</Description>
     Do context.orgJsonStrReq.%Save()
      $$$TRACE("MDMOrgRestOperation ORG JSON " _ context.orgJsonStrReq.%Id() _ ", Value: "_context.orgJsonStrReq.StringValue )]]]]><![CDATA[>
 </code>
-<code name='Call MDM organization to store data' xpos='335' ypos='800' >
+<code name='Call MDM organization to store data' xpos='470' ypos='800' >
 <![CDATA[ set tStatus=process.SendRequestSync("Out-InformaticaMdm-Json-Wsrc-ORG", context.orgJsonStrReq ,.mdmResponse)
    if ('tStatus) {     
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected MDM response returned or failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
@@ -350,14 +375,14 @@ BPL Definition</Description>
     $$$TRACE("MDMOrgRestOperation Response: " _ mdmResponse.StringValue)
    }]]]]><![CDATA[>
 </code>
-</true>
+</false>
 </if>
 </foreach>
-<trace value='"MDM Org calls done"' xpos='605' ypos='1850' />
+<trace value='"MDM Org calls done"' xpos='605' ypos='2150' />
 </true>
 </if>
-<transform name='Transform to MDM XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmXml' source='request' target='response' xpos='470' ypos='2050' />
-<code name='convert to json' xpos='470' ypos='2150' >
+<transform name='Transform to MDM XML' class='IHC.ITF.Transform.Dtl.CorpprvXmlToInformaticaMdmXml' source='request' target='response' xpos='470' ypos='2350' />
+<code name='convert to json' xpos='470' ypos='2450' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -382,12 +407,12 @@ BPL Definition</Description>
     
    ]]]]><![CDATA[>
 </code>
-<trace name='TraceValidate' value='"Validating MSPR Response " _ response' xpos='470' ypos='2250' />
-<code name='GetTargetConfigList' xpos='470' ypos='2350' >
+<trace name='TraceValidate' value='"Validating MSPR Response " _ response' xpos='470' ypos='2550' />
+<code name='GetTargetConfigList' xpos='470' ypos='2650' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Target count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<code name='Call MDM operation to store data' xpos='470' ypos='2450' >
+<code name='Call MDM operation to store data' xpos='470' ypos='2750' >
 <![CDATA[ for i=1:1:context.targetList.Count()
  {
    $$$TRACE( i _ ". call MDM operation " _ context.targetList.GetAt(i))
@@ -405,13 +430,13 @@ BPL Definition</Description>
     }
  }]]]]><![CDATA[>
 </code>
-<code name='reset error count' xpos='470' ypos='2550' >
+<code name='reset error count' xpos='470' ypos='2850' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2750' xend='200' yend='350' >
+<catchall xpos='200' ypos='3050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
