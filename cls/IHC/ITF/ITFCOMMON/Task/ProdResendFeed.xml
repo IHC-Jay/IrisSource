@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.ProdResendFeed">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65619,55203.435508</TimeCreated>
+
+<Property name="SourceComp">
+<Type>%String</Type>
+<InitialExpression>"In-Hl7Service-Brent"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="TargetComp">
+<Type>%String</Type>
+<InitialExpression>"Cern-Adt-Hl7_LegacyPlus-0"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="DestDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="NumOfDays">
+<Type>%Numeric</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Method name="OnTask">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 
+ set dtTm = $HOROLOG
+ 
+ set lastRun = $GET(^ResendService(..SourceComp _ "-" _ ..TargetComp))
+ 
+ if (..NumOfDays > 0)
+ {
+	
+ 	if (lastRun '= "")
+	 {
+		set lastHOROLOG = $ZDATETIMEH(lastRun, 3, 1)
+ 		set lastRun = $ZDATETIME($PIECE(dtTm, ",", 1) - ..NumOfDays _","_ $PIECE(lastHOROLOG, ",", 2), 3, 1)
+	 }
+	 else
+	 {
+		 set lastRun = $ZDATETIME($PIECE(dtTm, ",", 1) - ..NumOfDays _","_ 0, 3, 1)
+	 }
+ 	set currentDtTm = $ZDATETIME($PIECE(dtTm, ",", 1) - ..NumOfDays _","_ $PIECE(dtTm, ",", 2), 3, 1)
+ 	
+ 	SET myquery = 7
+	
+	SET myquery(7) = " and mh.TimeCreated >=  to_timestamp('" _ lastRun _ "', 'YYYY-MM-DD HH24:MI:SS')"
+	set DateRange = " and mh.TimeCreated <  to_timestamp('" _ currentDtTm _ "', 'YYYY-MM-DD HH24:MI:SS')"
+	$$$TRACE(myquery(7))
+ }
+ else
+ {
+	 if (lastRun '= "")
+	 {
+		 SET myquery = 7
+		 set currentDtTm = $ZDATETIME(dtTm,3, 1)
+		 SET myquery(7) = " and mh.TimeCreated >=  to_timestamp('" _ lastRun _ "', 'YYYY-MM-DD HH24:MI:SS')"
+		 set DateRange = " and mh.TimeCreated <  to_timestamp('" _ currentDtTm _ "', 'YYYY-MM-DD HH24:MI:SS')"
+		 $$$TRACE(myquery(7))
+	 }
+	 else
+	 {
+		 SET myquery = 6 
+		 set currentDtTm = $ZDATE(dtTm,3)
+		 set DateRange = " and mh.TimeCreated >=  to_timestamp('" _ currentDtTm _ " 00:00:00', 'YYYY-MM-DD HH24:MI:SS')"
+	 }
+ }
+ 	 
+ SET myquery(1) = " select mh.ID AS tMsgId, RawContent AS hlMsg "
+ SET myquery(2) = " from  Ens.MessageHeader mh, EnsLib_HL7.Message hl"
+ SET myquery(3) = " where SourceConfigName =  ? "
+ SET myquery(4) = " and TargetConfigName = ? "  
+ set myquery(5) = " and mh.MessageBodyId = hl.ID"
+ SET myquery(6) = DateRange
+
+  $$$TRACE(DateRange)
+ set fileName = ..SourceComp _"." _ ..TargetComp _ "-" _ $ZDATETIME(dtTm,3,7)
+ set ^ResendService(..SourceComp _ "-" _ ..TargetComp) = $ZDATETIME(dtTm,3, 1)
+  	
+  SET tStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = tStatement.%Prepare(.myquery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET rset = tStatement.%Execute(..SourceComp, ..TargetComp)
+  IF rset.%SQLCODE=0 { $$$TRACE("Created a query") }
+  ELSEIF rset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ rset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message)   return rset.%SQLCODE}
+  
+  set arrInd = 1
+  Set tMsgIdArr = ""
+  Set num = 1
+   WHILE rset.%Next() {
+     set tMsgId = rset.tMsgId
+     
+     $$$TRACE( "Message: " _ tMsgId)
+      
+     	Set tSC = $$$OK
+	
+	Try {
+		
+		Set file=##class(%Library.File).%New(..DestDirectory _ fileName _ "-" _ num _ ".rec")
+        	
+    	Do file.Open("WS:/APPEND")
+   
+    	Do file.WriteLine(rset.hlMsg)
+    	Do file.Close()
+    	set num = num + 1
+        	
+	}
+	Catch (ex) {
+		Set tSC = ex.AsStatus()
+	}
+	If $$$ISERR(tSC) {
+		$$$LOGERROR( $system.Status.GetErrorText(tSC))
+		return tSC
+	}
+	
+
+     
+   }
+   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
