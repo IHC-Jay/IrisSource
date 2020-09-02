@@ -19,6 +19,18 @@ HddTargetConfigName:Custom setting to select Configuration item(s) to  request t
 <Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>IkonopediaResultsHl7ToCernDefaultData</DefaultData>
+<Data name="IkonopediaResultsHl7ToCernDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"IkonopediaResultsHl7ToCern"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -102,9 +114,29 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='orc1ncidList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='msh6ncid' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='obr4ncidList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='obr25ncidList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2400' >
-<scope xpos='200' ypos='250' xend='200' yend='2300' >
+<sequence xend='200' yend='2100' >
+<scope xpos='200' ypos='250' xend='200' yend='2000' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -171,51 +203,122 @@ BPL Definition</Description>
 	}
  }]]]]><![CDATA[>
 </code>
-<code name='Create HDD Req Obj' xpos='200' ypos='1050' >
-<annotation><![CDATA[Prepare RepFromNcid values]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE(" Get Rep from Ncid Hdd lookup call")  	
- set context.hddNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject()
-]]]]><![CDATA[>
+<code name='Filter invalid input message' xpos='200' ypos='1050' >
+<![CDATA[    
+      if ((request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientName(1).givenname") = "") && (request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientName(1).familylastname.familyname") = "") &&  (request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientName(1).middleinitialorname") = "") )
+  {
+  
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "PID-5 is blank so not processing the record.") 
+    
+   } 
+	
+	
+  if ((request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientID.ID") = "") && (request.GetValueAt("PIDgrpgrp(1).PIDgrp.PID:PatientIdentifierList(1).ID") = "") )
+  {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "PID-2,PID.3 is blank so not processing the record.")
+  }
+	]]]]><![CDATA[>
 </code>
-<transform name='HDD Request Builder' class='IHC.ITF.Transform.Dtl.IkonopediaResultsHl7ToCernHDDRequestBuilder' source='request' target='response' xpos='200' ypos='1150' />
-<code name='Filter the Invalid Input Msg' xpos='200' ypos='1250' >
-<![CDATA[  if context.CompositeError '=""
-	   {
-	       $$$TRACE(context.CompositeError)
-	       if $EXTRACT(context.CompositeError,1,1) = ","
-	       {
-	            	set context.CompositeError = $EXTRACT(context.CompositeError,2,*)
-	            	$$$TRACE(context.CompositeError)
-
-	       }
-		  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Field/s " _ context.CompositeError _" is blank so not processing the record.")
-	   }
-
-]]]]><![CDATA[>
+<code name='GetNcidFromRep' xpos='200' ypos='1150' >
+<![CDATA[  
+  	$$$TRACE(" Calling getNcidFromRep...")  
+  	
+  		
+  	set msh6Rep = request.GetValueAt("MSH:ReceivingFacility.namespaceID")     	  	
+  	if (msh6Rep '= "")
+  	{		
+		set context.msh6ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(msh6Rep, context.FACILITYDOMAIN, context.INTERFACECONTEXT, context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid MSH-6 is " _ context.msh6ncid)	
+		if (context.msh6ncid= ""){
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, " RepToNcid hdd call failed for Hl7 field: [MSH-6]. REP: ["_msh6Rep_"]. DOMAIN: ["_context.FACILITYDOMAIN_"]. CONTEXT: ["_context.INTERFACECONTEXT_"].")
+		}	
+	}
+       else
+       {
+	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MSH-6 is blank so not processing the record.")
+	
+       }
+       
+       
+       
+   set k1=""
+       For { 
+                set k1=request.GetNextIndex("PIDgrpgrp(1).ORCgrp()",k1,.tSCTrans)  Quit:k1="" 
+                
+                
+                
+                // Get Ncid for ORC-1    
+                     
+                set orc1rep= request.GetValueAt("PIDgrpgrp(1).ORCgrp("_(k1)_").ORC:OrderControl") 
+                if (orc1rep'= "")
+  	        {				                                                                                      
+                   set orc1ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(orc1rep, context.ORDERCONTROLDOMAIN, context.ORDERCONTROLCONTEXT, context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid ORC-1("_k1_") is " _ orc1ncid)	
+		if (orc1ncid= ""){
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, " RepToNcid hdd call failed for Hl7 field: [ORC-1("_k1_")]. REP: ["_orc1rep_"]. DOMAIN: ["_context.ORDERCONTROLDOMAIN_"]. CONTEXT: ["_context.ORDERCONTROLCONTEXT_"].")
+		}
+		else
+		{
+		  do context.orc1ncidList.InsertAt(orc1ncid,k1)
+		}	
+	}
+       
+       
+       
+       
+       
+       // Get Ncid for OBR-4   
+                     
+                set obr4rep= request.GetValueAt("PIDgrpgrp(1).ORCgrp("_(k1)_").OBR:UniversalServiceID.identifier") 
+             if (obr4rep'= "")
+  	        {				                                                                                      
+                   set obr4ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obr4rep, context.EXAMCODEDOMAIN, context.EXAMCODECONTEXT, context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid OBR-4("_k1_") is " _ obr4ncid)	
+		if (obr4ncid= ""){
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, " RepToNcid hdd call failed for Hl7 field: [OBR-4("_k1_")]. REP: ["_obr4rep_"]. DOMAIN: ["_context.EXAMCODEDOMAIN_"]. CONTEXT: ["_context.EXAMCODECONTEXT_"].")
+		}
+		else
+		{
+		  do context.obr4ncidList.InsertAt(obr4ncid,k1)
+		}	
+	    }
+	    
+	    
+	    
+	    
+	    // Get Ncid for OBR-25   
+                     
+                set obr25rep= request.GetValueAt("PIDgrpgrp(1).ORCgrp("_(k1)_").OBR:ResultStatus") 
+             if (obr25rep'= "")
+  	        {				                                                                                      
+                   set obr25ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obr25rep, context.RESULTSTATUSDOMAIN, context.RESULTSTATUSCONTEXT, context.hddTargetConfigName, .process)  	  	
+		$$$TRACE(" Ncid OBR-25("_k1_") is " _ obr25ncid)	
+		if (obr25ncid= ""){
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, " RepToNcid hdd call failed for Hl7 field: [OBR-25("_k1_")]. REP: ["_obr25rep_"]. DOMAIN: ["_context.RESULTSTATUSDOMAIN_"]. CONTEXT: ["_context.RESULTSTATUSCONTEXT_"].")
+		}
+		else
+		{
+		  do context.obr25ncidList.InsertAt(obr25ncid,k1)
+		}	
+	    }
+       
+                
+    }
+    kill k1
+           
+            ]]]]><![CDATA[>
 </code>
-<code name='Call GetNcidFromRep' xpos='200' ypos='1350' >
-<![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddNcidRequest,.hddNcidResponse)
- if ('tStatus) {
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
- } else { 
-   set context.hddNcidResponse= hddNcidResponse
- }
-]]]]><![CDATA[>
-</code>
-<trace name='# of HDD objects returned' value='"Hdd return count(getRepFromNcid): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1450' >
-<annotation><![CDATA[Check out HDD RepFromNcid call return]]]]><![CDATA[></annotation>
-</trace>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.IkonopediaResultsHl7ToCern' source='request' target='response' xpos='200' ypos='1550' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.IkonopediaResultsHl7ToCern' source='request' target='response' xpos='200' ypos='1250' >
 <annotation><![CDATA[translate to Cerner format]]]]><![CDATA[></annotation>
 </transform>
-<code name='MammoError' xpos='200' ypos='1650' >
+<code name='MammoError' xpos='200' ypos='1350' >
 <annotation><![CDATA[This error handling is after the Transform because proablitiy of this error is less and help us to avoid multiple calculations]]]]><![CDATA[></annotation>
 <![CDATA[ if context.MammoError '= ""
  {
      set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, context.MammoError  _ "Hl7 Msg:" _ request.RawContent)
  }]]]]><![CDATA[>
 </code>
-<code name='Check HDD Return Error' xpos='200' ypos='1750' >
+<code name='Check HDD Return Error' xpos='200' ypos='1450' >
 <annotation><![CDATA[This error handling is after the Transform because proablitiy of this error is less and help us to avoid multiple calculations]]]]><![CDATA[></annotation>
 <![CDATA[   if context.CompositeError '=""
 	   {
@@ -229,10 +332,10 @@ BPL Definition</Description>
 		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Field/s " _ context.CompositeError _" is blank or did not translate using getRepFromNcid so not processing the record.")
 	   }]]]]><![CDATA[>
 </code>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1850' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1550' >
 <annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1950' xend='200' yend='350' >
+<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1650' xend='200' yend='350' >
 <annotation><![CDATA[Publish to each Target Configured]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -240,13 +343,13 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='2050' >
+<code name='Reset Error' xpos='200' ypos='1750' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='Catch Error' xpos='200' ypos='2150' xend='200' yend='350' >
+<catchall name='Catch Error' xpos='200' ypos='1850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -259,17 +362,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>IkonopediaResultsHl7ToCernDefaultData</DefaultData>
-<Data name="IkonopediaResultsHl7ToCernDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"IkonopediaResultsHl7ToCern"</Subscript>
-<Value name="1">
-<Value>HddTargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
