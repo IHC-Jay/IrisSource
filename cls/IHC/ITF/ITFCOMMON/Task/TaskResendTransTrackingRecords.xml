@@ -79,16 +79,16 @@ The OnTask() method is called to execute the task</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   $$$TRACE(	"Starting IHC.ITF.ITFCOMMON.Task.TaskResendTransTrackingRecords")
-  
+  Set tStatus = $$$OK
   set DateRange = ""
   if (..Today = 1)
   { 
   		// entries from today 
-  		set DateRange = " and mh.TimeCreated >= SYSDATE "
+  		set DateRange = " and mh.TimeCreated >= CURRENT_DATE "
   }
   else {
 	  // for entries from yesterday
-	  set DateRange = " and mh.TimeCreated  >= DATEADD(day, -1, GETDATE()) and mh.TimeCreated < SYSDATE "
+	  set DateRange = " and mh.TimeCreated  >= DATEADD('day', -1, CURRENT_DATE) and mh.TimeCreated < CURRENT_DATE "
   }
     
   
@@ -102,7 +102,8 @@ The OnTask() method is called to execute the task</Description>
 	else
 	{
 		$$$TRACE("Could not read Process Max error for " _ ..SourceConfigName)
-		QUIT
+		set tStatus = $$$ERROR("Could not read Process Max error for " _ ..SourceConfigName)
+		return tStatus
 	}
 	
 	if (..maxError >= 1)
@@ -113,13 +114,15 @@ The OnTask() method is called to execute the task</Description>
 	}
 	else
 	{
-		$$$LOGERROR("Could not read Process Max error for " _ ..SourceConfigName)
-		QUIT
+		
+		$$$LOGERROR("Process Max error for " _ ..SourceConfigName _ " is not valid")
+		set tStatus = $$$ERROR("Process Max error for " _ ..SourceConfigName_ " is not valid")
+		return tStatus
 	}
-	Do ..Resend("837_ACCEPTED_CLAIMS", DateRange)
-	Do ..Resend("837_OUTGOING_CLAIMS", DateRange)
+	set tStatus =  ..Resend("837_ACCEPTED_CLAIMS", DateRange)
+	set tStatus = ..Resend("837_OUTGOING_CLAIMS", DateRange)
 	$$$TRACE(	"End IHC.ITF.ITFCOMMON.Task.TaskResendTransTrackingRecords")
-	return $$$OK
+	return tStatus
 ]]></Implementation>
 </Method>
 
@@ -137,28 +140,29 @@ The OnTask() method is called to execute the task</Description>
     	SET errorStr = "%Unable to update claim splitter date and status code  in IHC_EDITRK_TRANSX_BATCH and IHC_EDITRK_CLAIM tables, retry # " _ ..maxError _"%"
 	}
 		 
-	 SET myquery = 11 
-	 SET myquery(1) = " select distinct mh.Id AS tMsgId "
-	 SET myquery(2) = " from  Ens.MessageHeader mh"
-	 SET myquery(3) = " where SourceConfigName =  ? "  
-	 SET myquery(4) = " and	TargetConfigName= ?  and SessionId  in"
-	 SET myquery(5) = " ( select  mh.SessionId  from"
-	 SET myquery(6) = "	 Ens.MessageHeader mh, Ens.AlertRequest sc"
-	SET myquery(7) = "	 where  mh.SourceConfigName= ?"
-	SET myquery(8) = "	 and mh.TargetConfigName= ? "
-	SET myquery(9) = "	 and mh.MessageBodyId = sc.ID  "
-	SET myquery(10) = DateRange
-	SET myquery(11) = "	 and AlertText like ? )"
-	
+		 
+ SET myquery = 11 
+ SET myquery(1) = " select distinct mh.Id AS tMsgId "
+ SET myquery(2) = " from  Ens.MessageHeader mh"
+ SET myquery(3) = " where SourceConfigName =  ? "  
+ SET myquery(4) = " and TargetConfigName= ?  and SessionId  in"
+ SET myquery(5) = " ( select  mh.SessionId  from"
+ SET myquery(6) = " Ens.MessageHeader mh, Ens.AlertRequest sc"
+ SET myquery(7) = " where  mh.SourceConfigName= ?"
+ SET myquery(8) = " and mh.TargetConfigName= ? "
+ SET myquery(9) = " and mh.MessageBodyId = sc.ID  "
+ SET myquery(10) = DateRange
+ SET myquery(11) = " and AlertText like ? )"
+		
 	$$$TRACE(myquery)
   	
   SET tStatement = ##class(%SQL.Statement).%New()
   SET qStatus = tStatement.%Prepare(.myquery)
-    IF qStatus'=1 {WRITE "%Prepare failed:" DO $System.Status.DisplayError(qStatus) QUIT}
+    IF qStatus'=1 {WRITE "%Prepare failed:" DO $System.Status.DisplayError(qStatus) return qStatus}
   SET rset = tStatement.%Execute(..inService, ..NewTarget, ..SourceConfigName, ..alertComp, errorStr)
   IF rset.%SQLCODE=0 { $$$TRACE("Created a query") }
   ELSEIF rset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ rset.%Message) }
-  ELSE { $$$LOGERROR("CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message)   QUIT}
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message)   return qStatus}
   
   set arrInd = 1
   Set tMsgIdArr = ""
@@ -184,7 +188,8 @@ The OnTask() method is called to execute the task</Description>
 		Set tSC=##class(Ens.MessageHeader).ResendDuplicatedMessage(tMsgId,.tNewHeaderId,..NewTarget,,,HeadOfQueue)
 		If ($$$ISERR(tSC)) {
 			Set errText = $System.Status.GetErrorText(tSC)
-			$$$LOGERROR( "Error: " _ errText)				
+			$$$LOGERROR( "Error: " _ errText)	
+			set qStatus = $$$ERROR(	errText)		
 		}
 		
 		Else {
@@ -199,7 +204,7 @@ The OnTask() method is called to execute the task</Description>
   } While msgId'=""
   
   $$$TRACE( msgType _ " Resent : " _ num)
-  return $$$OK
+  return qStatus
 ]]></Implementation>
 </Method>
 </Class>
