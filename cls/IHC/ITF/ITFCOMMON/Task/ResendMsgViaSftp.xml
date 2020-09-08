@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.ResendMsgViaSftp">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65630,48740.702266</TimeCreated>
+
+<Property name="TargetComp">
+<Type>%String</Type>
+<InitialExpression>"In-Hl7Service-Brent"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="DocType">
+<Type>%String</Type>
+<InitialExpression>"CernAdtHl7:CernerInAdt"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="TargetDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SearchPattern">
+<Type>%String</Type>
+<InitialExpression>"In-Hl7Service-Shankar-0*"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="RemoteServer">
+<Type>%String</Type>
+<InitialExpression>"lp-itfprd01.co.ihc.com"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="RemoteDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="CredentialName">
+<Type>%String</Type>
+<InitialExpression>"Credential"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Method name="OnTask">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	
+ set statement=##class(%SQL.Statement).%New()
+ set status=statement.%Prepare("Select ID,Username, Password,BusinessPartner from Ens_Config.Credentials where ID = '" _ ..CredentialName _"'")
+ if $$$ISERR(status) { do $system.OBJ.DisplayError(status) }
+ set resultset=statement.%Execute()
+ while resultset.%Next() {
+    $$$TRACE( resultset.%Get("ID"))
+    set pUser = resultset.%Get("Username")
+    set pPassword = resultset.%Get("Password")
+ }
+ $$$TRACE( pUser )
+ if (pUser = "")
+ {
+	 QUIT $$$ERROR("Could not get username from the Credential")
+ }
+ 
+ set credentialsObj=##class(Ens.Config.Credentials).%New()
+
+ 	
+ Set tSession=##class(%Net.SSH.Session).%New()
+
+
+	set stat = tSession.Connect(..RemoteServer) 
+	if $$$ISERR(stat) { $$$LOGERROR( "Not connected " _ stat) Quit stat}
+
+    Set stat = tSession.AuthenticateWithUsername(pUser,pPassword)
+		
+	Set tSC=tSession.OpenSFTP(.sftp)
+	If 'tSC {
+		$$$LOGERROR("Failed to Authenticate to SFTP remoteServer"_pHost_" with user: "_pUser)
+		
+		Quit tSC
+	}
+	Set tSC=sftp.Dir(..RemoteDirectory,.tTempListing,..SearchPattern)
+	Set i=$O(tTempListing("")) 
+	While i'="" {
+		set DataFile = $LG(tTempListing(i),1)
+		$$$TRACE(DataFile)
+		Set tSC=sftp.Get(..RemoteDirectory _ DataFile, ..TargetDirectory _ DataFile,)
+		$$$TRACE( "sftp.Get: " _ tSC)
+	
+									
+			Try {
+				 set fSz = ##class(%File).GetFileSize(..TargetDirectory _ DataFile)
+				 $$$TRACE( DataFile _ ", size: " _ fSz )
+				 if (fSz > 0 )
+				 {
+					 #dim tRequestObj As EnsLib.HL7.Message
+					 
+					 Set tRequestObj = ##class(EnsLib.HL7.Message).ImportFromFile(..TargetDirectory _ DataFile)
+					 
+					 set tSC = tRequestObj.DocTypeSet(..DocType)
+					 $$$TRACE( "Create Hl7 message: size: " _ tRequestObj.FullSize _ ", stat: " _ tSC)
+					 
+					 set tSC =  ##Class(EnsLib.Testing.Service).SendTestRequest(..TargetComp, tRequestObj, .tResponse, .tSessionId)
+					 
+					 $$$TRACE( "Call SendTestRequest to "_ ..TargetComp _ ", stat: " _ tSC _ ", tResponse " _ tResponse _ ", tSessionId " _ tSessionId)
+				 }						        	
+			}
+			Catch (ex) {
+				Set tSC = ex.AsStatus()
+			}
+			If $$$ISERR(tSC) {
+				$$$LOGERROR( $system.Status.GetErrorText(tSC))
+				
+			}
+		
+		Set i=$O(tTempListing(i))
+	}
+	
+	return tSC
+]]></Implementation>
+</Method>
+</Class>
+</Export>
