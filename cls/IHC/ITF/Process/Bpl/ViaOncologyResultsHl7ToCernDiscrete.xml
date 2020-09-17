@@ -6,8 +6,24 @@ BPL for Via Oncology DISCRETE Results to Cerner...</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>65514,46878.612617</TimeCreated>
 
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional</Default>
+</Parameter>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
+<DefaultData>ViaOncologyResultsHl7ToCernDiscreteDefaultData</DefaultData>
+<Data name="ViaOncologyResultsHl7ToCernDiscreteDefaultData">
+<Subscript>"ViaOncologyResultsHl7ToCernDiscrete"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
 </Storage>
 
 <XData name="BPL">
@@ -29,7 +45,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='hddNcidRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.NcidLookupRequest' instantiate='0' />
+<property name='hddParentNcidReq' type='IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest' instantiate='0' />
 <property name='hddNcidResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
+<property name='hddParentNcidResp' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='0' />
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -61,8 +79,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='2000' >
-<scope xpos='200' ypos='250' xend='200' yend='1900' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='1. Incoming Message' value=' "1. Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
 <code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[
@@ -169,6 +187,7 @@ BPL Definition</Description>
 <![CDATA[
   $$$TRACE("9.1 NcidFromRep Hdd Requests...")
   set context.hddNcidRequest  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddNcidReqObject() 
+   set context.hddParentNcidReq  = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateUniqueParentRepByChildRepObject()
   	
   set pidSexRep = request.GetValueAt("PID:8") 
   $$$TRACE("9.2  PID-8:AdministrativeSex: "_pidSexRep)
@@ -190,7 +209,48 @@ BPL Definition</Description>
   
     $$$TRACE("9.6 After AddRepToNcidObject calls for PID-8 and OBR-25.")		]]]]><![CDATA[>
 </code>
-<code name='10. Send NcidFromRep Obj' xpos='200' ypos='1250' >
+<code name='Process OBX-3 and OBX-5' xpos='200' ypos='1250' >
+<![CDATA[ $$$TRACE("Process OBX -3 and OBX-5")
+ 
+ set k1="",tSC=1 
+ For { 
+     Set k1=request.GetNextIndex("OBXgrp()",k1,.tSCTrans)  Quit:k1=""          
+     set obsId= request.GetValueAt("OBXgrp("_k1_").OBX:3.1")
+     set obx5 = request.GetValueAt("OBXgrp("_k1_").OBX:5.1")
+     $$$TRACE("9.5 Observation Identifier in source OBX-3: " _obsId_"  OBX-5: "_obx5)
+      set flag = 0
+     if (obsId '= ""){
+	     if ( (obsId = "AJCC M Category") || (obsId = "AJCC N Category") || (obsId = "AJCC T Category") )
+	     {   
+	        $$$TRACE(" obx -3 values is AAJCC...")
+		  set flag = 1 
+	  	Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddUniqueParentRepByChildRepObject(context.hddParentNcidReq, obx5,"529809143","529806013","529809385","363","529806013" , "OBX31"_k1) 
+	     $$$TRACE("9.7 AddUniqueParentRepByChildRepObject called for OBX-3.1: " _obsId)
+
+			     
+		  
+		     
+		     
+	     }
+	     if ( flag = 0 )
+	     {
+		   Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddRepToNcidObject(context.hddNcidRequest, obsId, "529807064", "529806013", "OBX31"_k1) 
+	     $$$TRACE("9.7 AddRepToNcidObject called for OBX-3.1: " _obsId)
+  
+		     
+	     }
+	     
+ 
+        
+	  }
+	  
+	 	  
+  }
+  
+    $$$TRACE("9.9 After AddRepToNcidObject calls for OBX-3.1")		
+ ]]]]><![CDATA[>
+</code>
+<code name='10. Send NcidFromRep Obj' xpos='200' ypos='1350' >
 <![CDATA[   $$$TRACE("10. GetNcidFromRep HDD Request Object")
    set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddNcidRequest,.hddNcidResponse)
  if ('tStatus) {
@@ -201,20 +261,32 @@ BPL Definition</Description>
    $$$TRACE("10.2 HDD response returned value: "_context.hddNcidResponse) 
  }]]]]><![CDATA[>
 </code>
-<trace name='11. number of HDD objects ' value='"11. Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1350' />
-<transform name='12. Transform' class='IHC.ITF.Transform.Dtl.ViaOncologyResultsHl7ToCern' source='request' target='response' xpos='200' ypos='1450' />
-<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1550' xend='200' yend='350' >
+<trace name='11. number of HDD objects ' value='"11. Hdd return count(getNcidFromRep): " _ context.hddNcidResponse.listOfHDDobj.Count()' xpos='200' ypos='1450' />
+<code name='Send ParentNcidFromRep' xpos='200' ypos='1550' >
+<![CDATA[ $$$TRACE("...GetParentNcidReq...")
+ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddParentNcidReq,.hddParentNcidResp)
+ if ('tStatus) {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))   
+        $$$TRACE("10.3 Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus)) 
+ }else { 
+   set context.hddParentNcidResp= hddParentNcidResp
+   }
+]]]]><![CDATA[>
+</code>
+<trace name='no of HDD objects' value='"11. Hdd return count(getParentNcidFromRep): " _ context.hddParentNcidResp.listOfHDDobj.Count()' xpos='200' ypos='1650' />
+<transform name='12. Transform' class='IHC.ITF.Transform.Dtl.ViaOncologyResultsHl7ToCernDiscrete' source='request' target='response' xpos='200' ypos='1750' />
+<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1850' xend='200' yend='350' >
 <call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='14.  reset error count' xpos='200' ypos='1650' >
+<code name='14.  reset error count' xpos='200' ypos='1950' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='15. Call ProcessError' xpos='200' ypos='1750' xend='200' yend='350' >
+<catchall name='15. Call ProcessError' xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
