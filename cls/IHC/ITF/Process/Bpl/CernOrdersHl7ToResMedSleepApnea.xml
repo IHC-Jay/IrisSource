@@ -11,8 +11,13 @@
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="Environment">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional</Default>
+<Default>HddTargetConfigName,Environment:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -22,6 +27,9 @@
 <Subscript>"CernOrdersHl7ToResMedSleepApnea"</Subscript>
 <Value name="1">
 <Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>Environment</Value>
 </Value>
 </Data>
 </Storage>
@@ -222,9 +230,24 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='env' type='%String' initialexpression='"P"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pid116' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pid117' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2100' >
-<scope xpos='200' ypos='250' xend='200' yend='2000' >
+<sequence xend='200' yend='2200' >
+<scope xpos='200' ypos='250' xend='200' yend='2100' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[XLTEK Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -280,7 +303,19 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetMSH_10_MsgControlID' xpos='200' ypos='950' >
+<code name='Get Env' xpos='200' ypos='950' >
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Environment", .configValue)
+ if ($$$ISOK(pstatus)){
+    set context.env = configValue
+    $$$TRACE("Environment: " _ context.env)
+ }else{
+ 
+ set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get Setting Value for Environment, shutting down.")
+ 
+ 
+    }]]]]><![CDATA[>
+</code>
+<code name='GetMSH_10_MsgControlID' xpos='200' ypos='1050' >
 <annotation><![CDATA[Get MSH-10 Message Control ID]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting MSH:MessageControlID - MSH-10 value. ")
   set context.MSH10 = request.GetValueAt("MSH:MessageControlID")
@@ -288,7 +323,7 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<code name='CheckForWantedMSH4Loc' xpos='200' ypos='1050' >
+<code name='CheckForWantedMSH4Loc' xpos='200' ypos='1150' >
 <![CDATA[ set getNotAllowedLocations=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"NotAllowedLocations",.getNotAllowedLocations)
  //TODO: have to determine if MSH-4 is going to be an NCID or rep - NotAllowedLocation value will have to match that
@@ -319,7 +354,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1150' >
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1250' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
  Set context.empiNumber=request.GetValueAt("PIDgrp.PID:PatientIdentifierList(1).IDNumber")
@@ -330,7 +365,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1250' >
+<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1350' >
 <annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
  Set pid18=request.GetValueAt("PIDgrp.PID:PatientAccountNumber.IDNumber")
@@ -345,7 +380,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Do HDD Work' xpos='200' ypos='1350' >
+<code name='Do HDD Work' xpos='200' ypos='1450' >
 <![CDATA[ 
     
  set pid8Sex = request.GetValueAt("PIDgrp.PID:AdministrativeSex")  	
@@ -360,12 +395,25 @@ BPL Definition</Description>
      $$$TRACE("Hdd REP PID-10 Race is " _ context.pid10Race)     		
  }
  
-  set pid11Country = request.GetValueAt("PIDgrp.PID:PatientAddress(1).country")  	
- if (pid11Country '= "") {
-     set context.pid11Country =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid11Country, context.hddContextHelp, context.hddTargetConfigName, .process)
-     $$$TRACE("Hdd REP PID-11 Country is " _ context.pid11Country )     		
- }
-  
+ 
+   set k1="",tSC=1 
+  For { 
+     Set k1=request.GetNextIndex("PIDgrp.PID:PatientAddress()",k1,.tSCTrans)  Quit:k1=""          
+     set pid116CountryNcid = request.GetValueAt("PIDgrp.PID:PatientAddress("_k1_").country")
+     $$$TRACE(" PID-11.6 Country Ncid: " _ pid116CountryNcid)
+     do context.pid116.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid116CountryNcid, context.hddContextHelp, context.hddTargetConfigName, .process))
+     $$$TRACE("PID-11.6(Country) is " _ context.pid116.GetAt(k1))		
+     
+     set pid117AddressTypeNcid = request.GetValueAt("PIDgrp.PID:PatientAddress("_k1_").addresstype")
+      $$$TRACE(" PID-11.7 AddressType Ncid: " _ pid117AddressTypeNcid)
+     if (pid117AddressTypeNcid '= "" && $ISVALIDNUM(pid117AddressTypeNcid)= "1"){			  	
+		do context.pid117.Insert(##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid117AddressTypeNcid, context.hddContextHelp, context.hddTargetConfigName, .process))
+		$$$TRACE("Hdd Request PID-11.7(Address Type Ncid) is " _ pid117AddressTypeNcid)		
+	}	
+	kill pid116CountryNcid,pid117AddressTypeNcid
+  }
+ 
+    
   set pid15Lang = request.GetValueAt("PIDgrp.PID:PrimaryLanguage.Identifier")  	
  if (pid15Lang '= "") {
      set context.pid15Lang =##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepFromNcid(pid15Lang, context.hddContextHelp, context.hddTargetConfigName, .process)  	  	
@@ -455,13 +503,13 @@ BPL Definition</Description>
  $$$TRACE(" After converting all NCID values")  
  ]]]]><![CDATA[>
 </code>
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToResMedSleepApnea' source='request' target='response' xpos='200' ypos='1450' />
-<trace name='Back From DTL Log Response' value='"Back From DTL - Response Message: " _response' xpos='200' ypos='1550' />
-<code name='GetDestinationOperations' xpos='200' ypos='1650' >
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToResMedSleepApnea' source='request' target='response' xpos='200' ypos='1550' />
+<trace name='Back From DTL Log Response' value='"Back From DTL - Response Message: " _response' xpos='200' ypos='1650' />
+<code name='GetDestinationOperations' xpos='200' ypos='1750' >
 <![CDATA[ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1750' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1850' xend='200' yend='450' >
 <call name='SendToEachTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -470,7 +518,7 @@ BPL Definition</Description>
 <trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.cntr_", Message Sent to target: "_ context.targetList.GetAt(context.cntr)' xpos='200' ypos='350' />
 </foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='1850' xend='200' yend='350' >
+<catchall xpos='200' ypos='1950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
