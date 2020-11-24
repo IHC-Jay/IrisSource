@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.MdmPatientStats">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65619,55203.435508</TimeCreated>
+
+<Property name="SubDirectory">
+<Type>%String</Type>
+<InitialExpression>"MdmPatientStats"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="NumOfDays">
+<Type>%Numeric</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Method name="OnTask">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ $$$LOGINFO("In Task ProdResendFeed")
+ set DestDirectory = "/itf-share/itf-tmp/" _ ..SubDirectory _ "/"
+ 
+ if ( ##class(%File).DirectoryExists(DestDirectory) '= 1)
+ {
+	 set stat = ##class(%File).CreateDirectoryChain(DestDirectory)
+	 $$$LOGINFO("Created directory: " _ stat)
+ }
+ $$$LOGINFO("DestDirectory: " _ DestDirectory)
+ SET inQuery = 5
+ SET prQuery = 5
+ SET opQuery = 5
+ SET cntQuery = 6
+ 
+ //Data is stored in DB as GMT
+ SET zonesave=$ZTIMEZONE
+ set $ZTIMEZONE = 0
+ set dtTm = $ZTIMESTAMP
+     
+ 
+ SET inSrvc = " TargetConfigName = 'Rt-Cern-Adt-Hl7-INFORMATICAMDM'"
+ Set filtOper = " TargetConfigName like 'Cern-Adt-Hl7_InformaticaMdm-Json-PATIENT-%' and SourceConfigName = 'Rt-Cern-Adt-Hl7-INFORMATICAMDM'"
+ SET mdmOper = " SourceConfigName like 'Cern-Adt-Hl7_InformaticaMdm-Json-PATIENT-%' and TargetConfigName like'Out-InformaticaMdm-Json-Wsrc-PATIENT-%'"
+ 
+ if (..NumOfDays = 0)
+ {
+	 set timeStr = " and TimeCreated >= '" _ $ZDATETIME($PIECE(dtTm, ",", 1)) _ "'"
+ }
+ else
+  {
+ 	set lastRun = $ZDATETIME($PIECE(dtTm, ",", 1) - (..NumOfDays +1) _","_ 0, 3, 1)
+ 	set currentDtTm = $ZDATETIME($PIECE(dtTm, ",", 1) - ..NumOfDays _","_ 0, 3, 1)
+ 	set timeStr = " and TimeCreated BETWEEN '" _ lastRun _ "' AND '"  _ currentDtTm _ "'"
+  }
+ 
+ SET cntQuery(1) = "select TO_CHAR( TimeCreated , 'YYYY-MM-DD' ) as DtTm, count(*) as Cnt from Ens.MessageHeader mh, EnsLib_HTTP.GenericMessage gm where "
+ SET cntQuery(2) = "SourceConfigName like 'Out-InformaticaMdm-Json-Wsrc-PATIENT-%' "
+ SET cntQuery(3) = "and TargetConfigName like 'Cern-Adt-Hl7_InformaticaMdm-Json-PATIENT-%' "
+ SET cntQuery(4) = timeStr
+ SET cntQuery(5) = "and mh.MessageBodyId = gm.ID and substring(%Object(gm.StreamBG), 0, 200) like '%IhcPatient%' "
+ SET cntQuery(6) = " group by TO_CHAR( TimeCreated , 'YYYY-MM-DD')"
+
+
+
+ SET inQuery(1) = "select TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' ) as DtTm, count(*) as Cnt"
+ SET inQuery(2) = "from Ens.MessageHeader where "
+ SET inQuery(3) = inSrvc		
+ SET inQuery(4) = timeStr
+ SET inQuery(5) = " group by TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' )"
+
+ SET prQuery(1) = "select TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' ) as DtTm, count(*) as Cnt"
+ SET prQuery(2) = "from Ens.MessageHeader where "
+ SET prQuery(3) = filtOper		
+ SET prQuery(4) = timeStr
+ SET prQuery(5) = " group by TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' )"
+
+ SET opQuery(1) = "select TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' ) as DtTm, count(*) as Cnt"
+ SET opQuery(2) = "from Ens.MessageHeader where "
+ SET opQuery(3) = mdmOper		
+ SET opQuery(4) = timeStr
+ SET opQuery(5) = " group by TO_CHAR( TimeCreated , 'YYYY-MM-DD HH24' )"
+
+ 
+  // Set timezone back to local
+ set $ZTIMEZONE = zonesave 
+
+ set fileName = $REPLACE("SQL-Data" _ "-" _ $$$timeLocal _ ".csv", " ", "-")
+   Set file=##class(%Library.File).%New(DestDirectory _ fileName)
+  
+  Do file.Open("WS:/APPEND")
+  Do file.WriteLine(inQuery(4))
+  Do file.WriteLine("YYYY_MM_DD H24,,,,,,,Successful,,Errors,")
+
+ #dim inRset As %SQL.StatementResult	
+ 
+   SET cntStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = cntStatement.%Prepare(.cntQuery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET cntRset = cntStatement.%Execute()
+  IF cntRset.%SQLCODE=0 { $$$LOGINFO("Created a query" ) }
+  ELSEIF cntRset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ cntRset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ cntRset.%SQLCODE_", "_cntRset.%Message)   return cntRset.%SQLCODE}
+
+  WHILE cntRset.%Next() {
+	  Try {
+				   
+	    	set tSC = file.WriteLine(cntRset.DtTm _ ",,,,,,," _ cntRset.Cnt )
+	    		        	
+		}
+		Catch (ex) {
+			Set tSC = ex.AsStatus()
+		}
+		If $$$ISERR(tSC) {
+			$$$LOGERROR( $system.Status.GetErrorText(tSC))
+			return tSC
+		}
+  }
+  
+   
+ SET cntQuery(5) = "and mh.MessageBodyId = gm.ID and substring(%Object(gm.StreamBG), 0, 200) NOT like '%IhcPatient%' "
+
+ 
+   SET cntStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = cntStatement.%Prepare(.cntQuery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET cntRset = cntStatement.%Execute()
+  IF cntRset.%SQLCODE=0 { $$$LOGINFO("Created a query" ) }
+  ELSEIF cntRset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ cntRset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ cntRset.%SQLCODE_", "_cntRset.%Message)   return cntRset.%SQLCODE}
+
+  WHILE cntRset.%Next() {
+	  Try {
+				   
+	    	set tSC = file.WriteLine(cntRset.DtTm _ ",,,,,,,,," _ cntRset.Cnt )
+	    		        	
+		}
+		Catch (ex) {
+			Set tSC = ex.AsStatus()
+		}
+		If $$$ISERR(tSC) {
+			$$$LOGERROR( $system.Status.GetErrorText(tSC))
+			return tSC
+		}
+  }
+  Do file.WriteLine("YYYY_MM_DD H24,Messages from inbound interface (Cerner),,After filtering (Messages to MDM),,Messages sent to MDM,,,,,")
+
+  SET inStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = inStatement.%Prepare(.inQuery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET inRset = inStatement.%Execute()
+  IF inRset.%SQLCODE=0 { $$$LOGINFO("Created a query" ) }
+  ELSEIF inRset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ inRset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ inRset.%SQLCODE_", "_inRset.%Message)   return inRset.%SQLCODE}
+
+  SET prStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = prStatement.%Prepare(.prQuery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET prRset = prStatement.%Execute()
+  IF prRset.%SQLCODE=0 { $$$LOGINFO("Created a query" ) }
+  ELSEIF prRset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ prRset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ prRset.%SQLCODE_", "_prRset.%Message)   return prRset.%SQLCODE}
+
+  SET opStatement = ##class(%SQL.Statement).%New()
+  SET qStatus = opStatement.%Prepare(.opQuery)
+    IF qStatus'=1 { $$$LOGERROR( "%Prepare failed:" _ qStatus) return qStatus}
+  SET opRset = opStatement.%Execute()
+  IF opRset.%SQLCODE=0 { $$$LOGINFO("Created a query" ) }
+  ELSEIF opRset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ opRset.%Message) }
+  ELSE { $$$LOGERROR("CREATE QUERY error: " _ opRset.%SQLCODE_", "_opRset.%Message)   return opRset.%SQLCODE}
+  
+  
+   WHILE inRset.%Next() {
+    
+     Do prRset.%Next()
+     Do opRset.%Next()
+      
+		Try {
+				   
+	    	set tSC = file.WriteLine(inRset.DtTm _ "," _ inRset.Cnt _ ",," _ prRset.Cnt _ ",," _ opRset.Cnt)
+	    		        	
+		}
+		Catch (ex) {
+			Set tSC = ex.AsStatus()
+		}
+		If $$$ISERR(tSC) {
+			$$$LOGERROR( $system.Status.GetErrorText(tSC))
+			return tSC
+		}
+	
+
+     
+   }
+   Do file.Close()
+   $$$LOGINFO("Created data files")
+   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
