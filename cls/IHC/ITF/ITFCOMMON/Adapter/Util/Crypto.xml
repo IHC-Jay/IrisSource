@@ -5,7 +5,7 @@
 <TimeCreated>62671,41672.630695</TimeCreated>
 
 <Parameter name="SETTINGS">
-<Default>EncryptCommand,DecryptCommand,WorkingDirectory, STDOUT, STDERR</Default>
+<Default>EncryptCommand,DecryptCommand, CommandOutput, WorkingDirectory, STDOUT, STDERR</Default>
 </Parameter>
 
 <Property name="EncryptCommand">
@@ -22,6 +22,14 @@ Decrypt %1 %2  [Decrypt the file %2 into  %1]</Description>
 <Type>%String</Type>
 <InitialExpression>"gpg --output %1 --decrypt %2"</InitialExpression>
 <Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="CommandOutput">
+<Description>
+Valid output from Command separated by comma</Description>
+<Type>%String</Type>
+<InitialExpression>"0"</InitialExpression>
+<Parameter name="MAXLEN" value="20"/>
 </Property>
 
 <Property name="WorkingDirectory">
@@ -121,7 +129,21 @@ Take a EncryptRequest with a File and split it into items including the director
 		Set tStatus= ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(tCMD, ..STDOUT, ..STDERR) 
 		$$$TRACE("CMD ret: " _ tStatus)
 		$$$TRACE("Output file: " _ tDecryptDir_"z.Decrypt" _ ", exists: " _ ##class(%File).Exists(tDecryptDir_"z.Decrypt") _ " ," _ ##class(%File).GetFileSize(tDecryptDir_"z.Decrypt"))
-
+		
+		SET delim=","
+   		SET countdown=$LENGTH(..CommandOutput,delim)
+   		SET countup=1
+   		FOR reps=countdown:-1:1 {
+	   		$$$TRACE("Compare Output : " _ $PIECE(..CommandOutput,delim,countup) _ ", " _ tStatus)
+	   		if $PIECE(..CommandOutput,delim,countup) = tStatus
+	   		{
+		   		$$$TRACE("Output is valid code: " _ tStatus)
+		   		set tStatus = 0
+		   		quit
+	   		}
+	   		SET countup=countup+1
+   		}
+   		
 		If tStatus 
 		{
 			If ##class(%File).DirectoryExists($$$ND(..WorkingDirectory_"/"_$J)) Set tSC = ##class(%File).RemoveDirectoryTree($$$ND(..WorkingDirectory_"/"_$J)) 
@@ -129,10 +151,18 @@ Take a EncryptRequest with a File and split it into items including the director
 			$$$TRACE("Delete directory: " _ ..WorkingDirectory _ ", $$$ND: " _ $$$ND(..WorkingDirectory_"/"_$J) )
 			Quit
 		}
-
-		$$$TRACE(tDecryptDir_"z.Decrypt" _ ", size: " _  ##class(%File).GetFileSize(tDecryptDir_"z.Decrypt"))
+		
+		
 		if (##class(%File).Exists(tDecryptDir_"z.Decrypt"))
 		{
+			set fSize = ##class(%File).GetFileSize(tDecryptDir_"z.Decrypt")
+
+			$$$TRACE(tDecryptDir_"z.Decrypt" _ ", size: " _  fSize)
+			if (fSize = 0)
+			{
+				Set tSC=$$$ERROR($$$GeneralError,"Unable to Decrypt, output file size is 0 ")
+				Quit
+			}
 			set pResponse.DestFileName = pRequest.DestFileName
 
 			#; write out the Decrypted file
@@ -145,6 +175,11 @@ Take a EncryptRequest with a File and split it into items including the director
 		
 				
 			Set tNewDirectory=$system.Process.CurrentDirectory(tCurrentDirectory),tCurrentDirectory=""
+		}
+		else
+		{
+			Set tSC=$$$ERROR($$$GeneralError,"Decrypt did not create outout file "_tCMD)
+			Quit
 		}
 
 		If ##class(%File).DirectoryExists($$$ND(..WorkingDirectory_"/"_$J)) Set tSC = ##class(%File).RemoveDirectoryTree($$$ND(..WorkingDirectory_"/"_$J)) 
