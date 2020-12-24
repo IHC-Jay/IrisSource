@@ -1,0 +1,453 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.SrcCtrlPkg.CreateSettingFiles">
+<IncludeCode>itfSrcCtrl,EnsErrors</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>63460,53239.025973</TimeCreated>
+
+<Property name="DeployDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/itfSvnFiles/ITF_EnsembleReleasePkgs/trunk/"</InitialExpression>
+</Property>
+
+<Property name="SettingDirectory">
+<Type>%String</Type>
+<InitialExpression>"settings/"</InitialExpression>
+</Property>
+
+<Property name="DeployLogDirectory">
+<Type>%String</Type>
+<InitialExpression>"/DEVSANDBOX/deploy/logs/"</InitialExpression>
+</Property>
+
+<Method name="svnUpdate">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	Do ##class(%File).Delete(fileNm)
+	Set cmd=""
+	if (rev '= "")
+	{
+		
+		Set cmd= $$$SVNUPDATE _ " --revision " _ rev
+	}
+	else
+	{	
+		Set cmd= $$$SVNUPDATE	
+		//  set tSC = $$$ERROR($$$GeneralError, "Checkout: Revision number is required") 
+	}	
+	Set cmd= cmd _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _  fileNm 
+
+	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+	
+	if (status '= 0)
+	{
+		set tSC = $$$ERROR($$$GeneralError, $$$SVNUPDATE _ " --revision " _ rev _ " failed")
+	}
+	if ##class(%File).Exists(fileNm)
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Checked out " _ fileNm _ ", version: " _ rev)
+	}
+	else {
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Could not find file " _ fileNm)
+		set tSC = $$$ERROR($$$GeneralError, "Could not find file " _ fileNm)
+	}
+	
+ 	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="createSettingsFile">
+<FormalSpec><![CDATA[nmSp:%String,tConfigName:%String,env:%String,usrNm:%String,passwd:%String,&retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set sc = $$$OK
+	set retStr = ""
+	try {
+			set $NAMESPACE = nmSp
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("IHC.ITF.SrcCtrlPkg.CreateSettingFiles.createFile: " _ tConfigName)
+		
+		set direc = ..DeployDirectory _ ..SettingDirectory _ env _"/"
+		IF ' ##class(%File).DirectoryExists(direc)
+		 {
+			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ direc)
+		     Do ##class(%File).CreateDirectoryChain(direc)
+		 }
+		 
+		set tempFile = direc _ tConfigName _ "-" _ env _".txt" 
+		set srcCtrlFile = $$$USRRELEASEBASEDIR _ usrNm _ $$$SVNSRCTRUNK _ ..SettingDirectory _ env _"/" _ tConfigName _ "-" _ env _".txt"
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Files: " _ tempFile _", Src ctrl: " _ srcCtrlFile)
+		
+		if ( $$$ISOK(..svnUpdate(srcCtrlFile, usrNm , passwd, "" )))
+		{
+			Do ##class(%File).CopyFile(srcCtrlFile, tempFile)
+			set retStr = "; Copied from the Source Control: " _ tempFile
+			return sc
+		}
+		else
+		{
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ tempFile)
+			Set file=##class(%File).%New(tempFile)
+			
+			Do file.Open("WN")
+			Do file.WriteLine("# Settings file for: "  _ tConfigName _ ", Namepsace: " _ nmSp _ ", Environment: " _ env)
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Created the file")
+			
+			// Do ##class(%Library.File).Delete(tempFile)
+			
+			Set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+		   	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "tProductionName: " _ 	tProductionName)
+		   	Set tProduction = ##class(Ens.Config.Production).%OpenId(tProductionName,,.tStatus)
+		   	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("%OpenId " _ tStatus)
+
+			#dim tItem As Ens.Config.Item
+			Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(tConfigName)
+			If ' $IsObject(tItem)
+			{
+				Write "Can't open object: " _ tConfigName 	
+			}
+			else
+			{
+		   			
+					// Analyze static settings for this component/config item
+					
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( tItem.Name _ ", ID: " _ tItem.%Id())
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( tItem.Production.Name)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "tConfigItem properties: " _ tItem.ClassName _ ", " _ tItem.Comment)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "tConfigItem settings: " _ tItem.Settings)
+					
+					/******** Process static settings ****/
+					// 
+					Do file.WriteLine(  "# Static Settings")
+					Set tStatus = tItem.GetStaticSettings(.tStaticSettings)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "GetStaticSettings: " _ tStatus _", " _ $DATA(tHostSettings))
+					If ($DATA(tHostSettings) = 10) {
+						
+						set ind = 1
+						Set tSettingName = ""
+						Set tSettingIndex = ""
+						For {
+							Set tSettingIndex = $ORDER(tStaticSettings(tSettingIndex))
+							Quit:(tSettingIndex = "")
+							
+							Set tSettingList = tStaticSettings(tSettingIndex)
+							Set tSettingName = $LG(tSettingList,2)
+							
+							// Grab the value
+							Set tCurrentValue = $LG(tSettingList,3)
+							
+												
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "  StaticSettings #$# " _
+														tSettingName _ ", val: " _ tCurrentValue )
+							
+						} // end For
+						
+					} // End if $DATA(tStaticSettings) = 10 
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "  StaticSettings END")
+					
+					Set tStatus = ##class(Ens.Director).GetHostSettings(tConfigName,.tHostSettings)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(  "  GetHostSettings: " _ tStatus _ ", " _ $DATA(tHostSettings))
+								
+					Do file.WriteLine(  "# Host Settings")
+					If ($DATA(tHostSettings) = 10) {	
+
+						Set tSettingName = ""
+						  
+						For {
+							Set tSettingName = $ORDER(tHostSettings(tSettingName))
+							Quit:(tSettingName = "")
+
+							Set tCurrentValue = tHostSettings(tSettingName)
+							
+							
+							Do file.WriteLine(  "Host #$# " _ tSettingName _"#$# "_tCurrentValue)
+							
+						}  
+					} // End if $DATA(tHostSettings) = 10
+					
+					/***** Process adapter settings *****/
+					Set tStatus = ##class(Ens.Director).GetAdapterSettings(tConfigName,.tAdapterSettings)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "GetAdapterSettings: " _ tStatus _ ", " _ $DATA(tAdapterSettings))
+					Do file.WriteLine(  "# Adapter Settings")
+					If ($DATA(tAdapterSettings) = 10) {	
+
+						Set tSettingName = ""
+						  
+						For {
+							Set tSettingName = $ORDER(tAdapterSettings(tSettingName))
+							Quit:(tSettingName = "")
+
+							Set tCurrentValue = tAdapterSettings(tSettingName)
+							
+													
+							Do file.WriteLine(  "Adapter #$# " _ tSettingName _"#$# "_tCurrentValue)
+							
+						}  
+					} // End if $DATA(tAdapterSettings) = 10
+			}
+			set retStr = "; New file created: " _ tempFile
+			Do file.Close()
+		}
+		
+	} catch(err)
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Exception: Could not create setting files " _ err)
+		set sc = $$$ERROR("Could not create setting files " _ err.Data)
+	}			
+	return sc
+]]></Implementation>
+</Method>
+
+<Method name="updateSettings">
+<FormalSpec>nmSp:%String,tConfigName:%String,env:%String,usrNm:%String,passwd:%String,settingRev:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	set sc = $$$OK
+	try {
+		set $NAMESPACE = nmSp
+		set sc = $$$OK
+		set retStr = ""
+	
+		
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("IHC.ITF.SrcCtrlPkg.CreateSettingFiles.updateSettings: " _ tConfigName)
+		
+		
+		set direc = ..DeployDirectory _ ..SettingDirectory _ env _"/"
+		IF ' ##class(%File).DirectoryExists(direc)
+		 {
+			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ direc)
+		     Do ##class(%File).CreateDirectoryChain(direc)
+		 }
+		 
+		set tempFile = direc _ tConfigName _ "-" _ env _".txt" 
+		set srcCtrlFile = $$$USRRELEASEBASEDIR _ usrNm _ $$$SVNSRCTRUNK _ ..SettingDirectory _ env _"/" _ tConfigName _ "-" _ env _".txt"
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Files: " _ tempFile _", Src ctrl: " _ srcCtrlFile)
+		
+		if ( $$$ISERR(..svnUpdate(srcCtrlFile, usrNm , passwd, settingRev )))
+		{		
+			set retStr = "; Error in getting the file from SVN " _ srcCtrlFile
+			return sc
+		}
+		Do ##class(%File).CopyFile(srcCtrlFile, tempFile)
+		
+		Set tProductionName = ##class(Ens.Director).GetActiveProductionName()
+   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "tProductionName: " _ 	tProductionName)
+   			
+		#dim tItem As Ens.Config.Item
+		Set tItem = ##class(Ens.Config.Production).OpenItemByConfigName(tConfigName)
+		If ' $IsObject(tItem)
+		{
+			set sc = $$$ERROR("Can't open object: " _ tConfigName)	
+		}
+		else
+		{
+		
+		 	Set fileObj=##class(%Library.File).%New(tempFile)
+		 	if ($IsObject(fileObj)) {
+		 	
+				set fileOpen = fileObj.Open("R") ; Read mode and as stream
+				if ($$$ISERR(fileOpen))
+				{
+					set sc = $$$ERROR("Can not open file: " _ tempFile)
+				}
+				else
+				{
+					set fileInfo = ""
+					set lnNum = 0
+				    While 'fileObj.AtEnd 
+				    {
+				         set readStr = fileObj.ReadLine(, .sc, .stat)
+				         if ( ($L(readStr) > 0) && ($F(readStr, "#") '= 2) && ($F(readStr, "#$#") > 2))
+				         {
+					         set lnNum = lnNum + 1
+				         }
+				    }
+				    set pUpdArray = lnNum
+				    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Settings size: " _ lnNum)
+				    Do fileObj.Rewind()
+				    set lnNum = 1
+				    While 'fileObj.AtEnd 
+				    {
+				         set readStr = fileObj.ReadLine(, .sc, .stat)
+				         if ( ($L(readStr) > 0) && ($F(readStr, "#") '= 2) && ($F(readStr, "#$#") > 2))
+				         {
+					         set typeStr = $ZSTRIP($PIECE(readStr, "#$#", 1),"<>W") 
+					         set keyStr = $ZSTRIP($PIECE(readStr, "#$#", 2),"<>W")
+					         set valueStr = $ZSTRIP($PIECE(readStr, "#$#", 3),"<>W")
+					         set pUpdArray(lnNum) = $LB(typeStr, keyStr, valueStr)
+					         set lnNum = lnNum + 1
+				         }
+				    }																	
+								
+							
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Update Array size: " _ pUpdArray)
+								
+								
+					set sc =  tItem.UpdateSettings(.pUpdArray)
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Set new values: " _ sc)
+					set sc =  tItem.%Save()
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("config save: " _ sc)
+				}
+		 	}
+		 	else
+		 	{
+			 	set sc = $$$ERROR("Can not create object for file: " _ tempFile)
+		 	}
+		}
+	} catch(err)
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Exception: Could not Update setting files " _ err)
+		set sc = $$$ERROR("Could not update setting " _ err.Data)
+	}		
+	RETURN sc
+]]></Implementation>
+</Method>
+
+<Method name="checkInFile">
+<FormalSpec>tConfigName:%String,cmt:%String,env:%String,userNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ try
+ {
+	 
+	Set tSC = $$$OK 
+	set tempFile = ..DeployDirectory _ ..SettingDirectory _ env _"/" _ tConfigName _ "-" _ env _".txt"
+	
+	if ('##class(%File).Exists(tempFile))
+	{
+		set tSC = $$$ERROR("Can't open file: " _ tempFile)
+		RETURN tSC
+	}
+	
+    set fullPath = $$$USRRELEASEBASEDIR _ userNm _ $$$SVNSRCTRUNK _ ..SettingDirectory _ env _"/"
+    IF ' ##class(%File).DirectoryExists(fullPath)
+	 {
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ fullPath)
+	     Do ##class(%File).CreateDirectoryChain(fullPath)
+	 }
+ 	
+ 	
+	set fullPath = fullPath _ tConfigName _ "-" _ env _".txt"
+	Do ##class(%File).CopyFile(tempFile, fullPath)
+	
+	if (##class(%File).Exists(fullPath))
+	{
+		Set cmd = $$$SVNINFO _ " --username " _ userNm _ " --password '" _ passwd _ "' " _ fullPath
+		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fullPath _ " svn info:" _ stat)
+		
+		If stat '= 0 	
+		{
+			// files not in svn, add the file
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _" returned no information" )
+			Set cmd = $$$SVNADD _ " --username " _ userNm _ " --password '" _ passwd _ "' " _  fullPath  
+			Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn add:" _ stat)
+			If stat '= 0
+			{
+				Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN add error for " _ fullPath)
+				Return tSC
+			}
+		}
+		set tempFile = ##class(%Library.File).TempFilename()
+		set commentFile = ##class(%Library.File).TempFilename()
+		Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).WriteToFile(commentFile, cmt)
+		
+		Set cmd = $$$SVNCOMMIT _ " --no-auth-cache --non-interactive --username " _ userNm _ " --password '" _ passwd  _ "' -F "" " _ commentFile _ " "" " _ fullPath _ " > " _ tempFile
+		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+		    
+	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit stat: " _ stat _ " file: " _ tempFile)
+			
+		if stat '= 0
+		{
+			  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ $$$SVNCOMMIT _ " " _ fullPath)
+			  Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN commit error")
+			  Do ##class(%Library.File).Delete(tempFile)
+		}
+		else
+		{
+			Set tSC = $$$OK
+			set tComment = ##class(%Stream.TmpCharacter).%New()
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).findStringInFile(tempFile, "Committed", tComment)
+			Do ##class(%Library.File).Delete(tempFile)
+			Do tComment.Rewind()
+	    	set len = 32656
+	    	#dim sc as %Status
+	    	set commitComment = tComment.Read(.len, .sc)
+	    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit: " _ commitComment)
+		}
+	}
+	else
+	{
+		set tSC = $$$ERROR("Can't open file: " _ fullPath)
+	}
+	
+ } catch err
+ {
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "Error: " _ err.Name _ " " _ err.Data _ " " _ ..DeployDirectory)
+ }
+ return tSC
+]]></Implementation>
+</Method>
+
+<Method name="getSvnLog">
+<FormalSpec>tItemName:%String,env:%String,usrNm:%String,passwd:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set fileNm = $$$USRRELEASEBASEDIR _ usrNm _ $$$SVNSRCTRUNK _ ..SettingDirectory _ env _"/" _ tItemName _ "-" _ env _".txt"
+	
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "GetVersions: " _ fileNm _", Name: " _ tItemName _ "$")
+
+	Do ##class(%File).Delete(fileNm)
+	Set cmd= $$$SVNUPDATE _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _  fileNm 
+	
+	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+		
+	if (status '= 0)
+	{
+		set fileInfo = $$$SVNUPDATE _ " failed for: " _ fileNm
+	}
+	if ##class(%File).Exists(fileNm)
+	{
+			set tempFile = 	fileNm _ "Temp"
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Checked out " _ fileNm)
+			Set cmd= $$$SVNINFO _ fileNm _ " >> " _ tempFile
+	
+			Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+			if (status =0)
+			{
+	        	Set cmd=  $$$SVNLOG _" --username " _ usrNm _ " --password '" _ passwd _ "' " _ fileNm _ " >> " _ tempFile 
+	
+				Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+	  		
+	  			if ((status =0) && (##class(%File).Exists(tempFile)) )
+	  			{
+         			// Call the function to get svn information
+         			Set fileInfo = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetFileContent(tempFile)       
+	  			}
+	  			else
+	  			{
+		  			SET fileInfo = "svn command :" _ $$$SVNLOG _ " failed: " _ $$$SVNLOG
+	  			}
+			}
+			else
+	  			{
+		  			SET fileInfo = "svn command :" _ $$$SVNINFO _ " failed: " _ $$$SVNLOG
+	  			}
+	}
+	else {
+  			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,   "Could not find file " _ fileNm)
+  			
+  			
+	  			set fileInfo = "Could not find file " _ fileNm
+  			
+ 	}
+		
+	Quit fileInfo
+]]></Implementation>
+</Method>
+</Class>
+</Export>
