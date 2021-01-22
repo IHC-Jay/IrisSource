@@ -76,6 +76,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='obConnection' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
@@ -93,7 +98,7 @@ BPL Definition</Description>
   set context.targetConfigNames=configValue
   ]]]]><![CDATA[>
 </code>
-<code name='Get transaction property' xpos='200' ypos='650' >
+<code name='Get JMS properties' xpos='200' ypos='650' >
 <![CDATA[ $$$TRACE("# of Properties: " _ request.Properties.Count())
  set context.transTrackDateTimeStamp = request.Properties.GetAt("RemitTransTrackDateTimeStamp")
  if ($L(context.transTrackDateTimeStamp) > 0)
@@ -102,11 +107,14 @@ BPL Definition</Description>
       
  }
  set context.transTrackDateTimeStamp = $REPLACE(context.transTrackDateTimeStamp,"]", "")
+ 
+ // <PropertiesItem PropertiesKey="obConnection">UMRBatch</PropertiesItem>
+ set context.obConnection = request.Properties.GetAt("obConnection")
  ]]]]><![CDATA[>
 </code>
 <if name='TrackDateTimeStamp is valid' condition='($L(context.transTrackDateTimeStamp) &gt; 0) ' xpos='200' ypos='750' xend='200' yend='1100' >
 <true>
-<code name='Get TRN 02 and call operation' xpos='470' ypos='900' >
+<code name='Get TRN 02 or 04 and call the operation' xpos='470' ypos='900' >
 <![CDATA[ set ediDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Message, .pStat )
  if (pStat '= $$$OK){  	
   $$$TRACE("Failed to create X12 message from Stream" _ pStat)
@@ -125,9 +133,21 @@ BPL Definition</Description>
  while ((transactionDoc '= "") && (num <= groupDoc.ChildCount))
  {
  	set transactionDoc.DocType="HIPAA_5010:835"
+ 	
  	//Get TRN-02
   	set trnsNum = transactionDoc.GetValueAt("TRN:RefId", , .pStat)
   	$$$TRACE(trnsNum _ ", " _ pStat)
+  	
+  	set value = ""
+  	set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Sh835ToTransTrackRemitCff.Lookup.obConnectionForTRN4", context.obConnection,.value)
+  	$$$TRACE("ItfLookup stat: " _ stat _ ", value: " _ value)
+  	if (($$$ISOK(stat)) && ($L(value) > 0))
+    	{
+  	    //Get TRN-04
+  	    set trnsNum = transactionDoc.GetValueAt("TRN:RefId2", , .pStat)
+  	    $$$TRACE("UMR: TRN4: " _ trnsNum _ ", " _ pStat)
+  	}
+  	
 
   	//TRIM the number
   	if ($L(trnsNum) > 16)
