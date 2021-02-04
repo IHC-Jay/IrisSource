@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Task.GetSettingsDiffReport">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65532,43423.465137</TimeCreated>
+
+<Parameter name="TaskName">
+<Description>
+This defines the user-visible name of this task;
+This is defined in subclasses.</Description>
+<Type>%STRING</Type>
+<Default>Generate Settings Diff Report</Default>
+</Parameter>
+
+<Property name="EmailAddrs">
+<Type>%String</Type>
+<InitialExpression>"Jay.Narasipura@imail.org"</InitialExpression>
+<Parameter name="MAXLEN" value="256"/>
+</Property>
+
+<Property name="ServiceName">
+<Type>%String</Type>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ServiceName = "GetSettingsDiffReport"	
+ 	
+ set message = "Differences in - <I>Setting on " _ $SYSTEM _ ", Date: " _ $ZDATETIME($HOROLOG,3, 1)  _ "</I><br />"
+ set num =1
+ set sendEmail = 0
+ set tSc = $$$OK
+ try {
+	  		
+  		$$$LOGINFO("Start IHC.ITF.ITFCOMMON.Task.GetSettingsDiffReport")
+  		Set $NAMESPACE = "ITFCOMMON"
+  		
+  		// set message =  message _ " Namespace: <B>" _ $NAMESPACE _"</B><br />"
+  		
+  		set env = ""
+		set sysEnv = $ZCVT($SYSTEM, "U")
+		if ( $FIND(sysEnv, "PRD") > 0)
+		{
+			set env = "PROD"
+		}
+		elseif ( $FIND(sysEnv, "UAT") > 0)
+		{
+			set env = "UAT"
+		}
+		elseif ( $FIND(sysEnv, "QA") > 0)
+		{
+			set env = "QA"
+		}
+		else
+		{
+			set env = "DEV"
+		}
+		
+		  set newDirec = "/itf-share/itf-tmp/itfSvnFiles/ITF_EnsembleReleasePkgs/batch/" _ env _ "/"
+		  set svnDirec = "/WORK/CLIN/deploy/lpjnaras/ITF_Ensemble/trunk/settings/" _ env _ "/"
+		  set message =  message _  "<B>Comparing Today's export files in </B>" 
+		  set message =  message _  "   -- " _ newDirec
+		  set message =  message _  "<B> WITH files in SVN </B>"
+		  set message =  message _  "   -- " _ svnDirec _ "<br />"
+		  
+		  set fileCnt = 0
+		  set fileNotFound = 0
+		  SET LfileNotFound=$LISTBUILD("")
+		  
+		  set numDiff = 0
+		  // 
+		  
+		  	 	Set stat =  ##class(IHC.ITF.SrcCtrlPkg.CreateSettingFiles).svnUpdate(svnDirec, "eai_chef", "tzghty6n", "")
+			 	// set message =  message _  "svnUpdate: " _ stat
+			 	
+			 	/*
+
+			 	set rmCmd = "rm -rf " _ newDirec 
+				Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(rmCmd)
+				set message =  message _  "Delete directory: " _ stat
+
+			 	Set stat =  ##class(IHC.ITF.ITFCOMMON.Util.createSettingsFiles).CreateSettingFiles()
+			 	set message =  message _  "CreateSettingFiles: " _ stat
+			 	
+			 	*/
+			 	set diffFile = 	##class(%Library.File).TempFilename()
+			 	
+			 	Set tRS = ##class(%ResultSet).%New("%File:FileSet")
+		 		Set tSC = tRS.Execute(newDirec)
+		        For {
+		            Quit:'tRS.Next()
+		            set fNm = tRS.Get("Name")
+		            set fileCnt = fileCnt + 1
+		            set NewfName = svnDirec _ $PIECE(fNm,"/",*)
+		            // set message =  message _   fNm 
+		            if ( ##class(%File).Exists(NewfName))
+		            {
+			            Set diff = ##class(%File).Compare(fNm, NewfName)
+			            if (' diff)
+			            {
+				            set numDiff = numDiff + 1
+				            set sendEmail = 1
+			            	set message =  message _ "<br /><B>" _ numDiff _ ". DIFF in " _ $PIECE(fNm,"/",*) _ " --- </B>"
+			            	set cmd = "diff -w -B --suppress-common-lines " _ fNm _ " '" _ NewfName _ "' > " _ diffFile
+						    Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+						    // set message =  message _  diffFile
+						    Set file=##class(%File).%New(diffFile)
+							// Write file.Size
+							Do file.Open("R")
+							While 'file.AtEnd 
+						    {
+						         set message =  message _  "<br />  " _ file.ReadLine(, .sc, .stat)
+						    }
+
+					     }
+							            
+		            }
+		            else
+		            {
+			            // set message =  message _  " -- NOT FOUND: " _ NewfName
+			            set fileNotFound = fileNotFound + 1
+			            SET $LIST(LfileNotFound, fileNotFound) = NewfName
+			            set sendEmail = 1
+		            }
+		            
+		       }
+		 	   Do tRS.Close()
+		 	   Do ##class(%File).Delete(diffFile)
+		 	
+			
+			set message =  message _  "<br />--- List of components without setting files in SVN:"
+			SET ptr=0,count=0
+		    WHILE $LISTNEXT(LfileNotFound,ptr,value) {
+		      SET count=count+1
+		      set message =  message _ "<br />" _ count _". " _ value 
+		   }
+		   set message =  message _  "<br />---"
+		   set message =  message _  "<br />System: " _ sysEnv
+		   set message =  message _  "<br /> Number of Components in Ensemble: " _ fileCnt 
+		   set message =  message _  "<br />  Settings files not found in SVN: " _ fileNotFound  
+		   set message =  message _  "<br />  Number of components with settings that are differnt: " _ numDiff
+
+			set message =  message _  "<br /><br />-=-= Completed comparing -=-=" 
+    
+     } Catch eException {
+		set message =  message _  eException.AsStatus()
+	}
+    
+   
+   
+  if (sendEmail = 1)
+  { 
+  	set $NAMESPACE = "ITFCOMMON"
+  	$$$LOGINFO( "Send email, message size: " _ $L(message))
+  	Set msg = ##class(%Net.MailMessage).%New()
+    set msg.From = "Jay.Narasipura@imail.org"
+   
+    SET count=$LENGTH(..EmailAddrs, ",")
+    SET countup=1
+    for reps=1:1:count
+    {
+	    SET extract=$PIECE(..EmailAddrs, ",", countup)
+	    Do msg.To.Insert(extract)
+	    SET countup=countup+1
+    }
+    
+     
+    
+    Set msg.Subject="Components with different settings in SubVersion on " _ $SYSTEM
+    Set msg.IsBinary=0
+    Set msg.IsHTML=1
+    Do msg.TextData.Write(message)
+    
+    $$$LOGINFO( "Created message")
+    Set adp= ##class(EnsLib.EMail.OutboundAdapter).%New()
+    set adp.SMTP = ##class(%Net.SMTP).%New()
+    Do adp.SMTPServerSet("smtp.co.ihc.com")
+    Do adp.SMTPPortSet(25)
+    
+    set tSc= adp.SendMail(msg, .list)
+    $$$LOGINFO( "SendMail: " _ tSc)
+    return tSc
+  }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
