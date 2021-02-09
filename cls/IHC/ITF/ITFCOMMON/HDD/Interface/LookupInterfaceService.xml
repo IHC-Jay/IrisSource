@@ -51,6 +51,84 @@ is returned as blank..</Description>
 <InitialExpression>"1259,2000,367"</InitialExpression>
 </Property>
 
+<UDLText name="T">
+<Content><![CDATA[
+// Added by Shankar on 02/05/2021
+
+]]></Content>
+</UDLText>
+
+<Method name="GetUniqueParent">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.UniqueParentRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Interface.HddObject
+	
+	set listInd = pRequest.listOfHDDUniqueParentIbj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	while ( listInd '= "")
+	{
+		set ncid = ""
+		set reqObj = pRequest.listOfHDDUniqueParentIbj.GetAt(listInd)
+		$$$TRACE("NCID(InsPlanID-GetUniqueParent): " _ reqObj.NCID) 	
+	  Do ..GetUniqueParentForInsurance(reqObj.NCID, "529857609","2000", .InsCompNcid)
+	 
+	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	  set hddObj.Comment = "Gets Unique Ncid for Representation"
+	  set hddObj.NCID = InsCompNcid
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHDDUniqueParentIbj.Next(listInd)
+	}
+	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+		
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueParentForInsurance">
+<FormalSpec><![CDATA[childNcid:%String,relationshipNcid:%String,contextNcid:%String,&insCompNcid:%String]]></FormalSpec>
+<Implementation><![CDATA[
+  try 
+  {
+	  $$$TRACE(" In GetUniqueParentForInsurance method: ChildNcid: " _ childNcid _ " RelNcid: "_relationshipNcid _" context ncid: "_ contextNcid) 
+	
+	set insCompNcid = ..GetUniqueParentFromCache(childNcid)
+	$$$TRACE(" After GetUniqueParentFromCache call .."_insCompNcid)
+    if ( insCompNcid '= "")
+    {
+	    return
+    }
+	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
+  
+    set servicePort.Location = ..Location	 
+    $$$TRACE(" From Cache GetUniqueParentForInsurance ..Before WebService Call ")
+    Set code = servicePort.getUniqueParent(childNcid, relationshipNcid, contextNcid, ..dbEnv, 0) 
+    $$$TRACE(" From Cache GetUniqueParentForInsurance ..After WebService Call ")
+    if $GET(code){
+		Set insCompNcid = code.ncid
+		if ( insCompNcid '= ""){
+			$$$TRACE("GetUniqueParentForInsurance(insCompNcid) " _ insCompNcid) 	
+			Do ..InsertValuesToHddGetUniqueParentCache(childNcid,insCompNcid)
+			Quit
+		}
+		$$$TRACE(" GOT the InsuranceCompanyID: .."_insCompNcid)			
+	}
+    
+    $$$TRACE("GetUniqueParentForInsurance: " _ insCompNcid) 
+ 	
+  } 	
+    CATCH exceptionvar
+    {
+	  Set insCompNcid = ""  
+	  $$$TRACE($ZERROR)
+	  If $ZERROR["<ZSOAP>" {
+	      throw exceptionvar
+	  }      
+    }
+]]></Implementation>
+</Method>
+
 <Method name="GetUniqueParentRepByChildRep">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
@@ -1146,6 +1224,12 @@ is returned as blank..</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="InsertValuesToHddGetUniqueParentCache">
+<FormalSpec>insPlanNcid:%String,insCompNcid:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentCache(InsPlanNcid, InsCompanyNcid) values(:insPlanNcid, :insCompNcid))
+]]></Implementation>
+</Method>
+
 <Method name="InsertValuesToHddRepCache">
 <FormalSpec>ncid:%String,cnxt:%String,rep:%String</FormalSpec>
 <Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddRepCache(Ncid, HddContext, Representation) values(:ncid, :cnxt, :rep))
@@ -1215,6 +1299,17 @@ is returned as blank..</Description>
 	Do ..ClearHddTables()
 	&sql(select Text into :retText from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentRepByChildRepCache where ChildRep = :childRep and ChildDomainNcid = :childDomainNcid and ChildRepContextNcid = :childRepContextNcid and ChildDomainRelationship = :childDomainRelationship and  RelationshipTypeNcid = :relationshipTypeNcid and  ParentRepContextNcid=:parentRepContextNcid )
 	return retText
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueParentFromCache">
+<FormalSpec>insPlanIdNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set insCompanyId = "" 
+	Do ..ClearHddTables()
+	&sql(select InsCompanyNcid into :insCompanyId from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentCache where InsPlanNcid = :insPlanIdNcid )
+	return insCompanyId
 ]]></Implementation>
 </Method>
 
@@ -1381,7 +1476,8 @@ is returned as blank..</Description>
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddIsRodsApptCache)	
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddGetComputritionCache)
 	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddMultiNcidsCache)
-	 	 
+	 &sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentCache)
+	 	 	 
 	  // Get refresh date and time
 	  set hddUpdateDay = ..HddUpdateDay ; Sunday: 0, Monday: 1, Saturday: 6
 	  if ( (hddUpdateDay < 0) || (hddUpdateDay > 7))
@@ -1458,7 +1554,9 @@ is returned as blank..</Description>
 	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest"> 	
 		<Method>GetUniqueParentRepByChildRep</Method>
 	</MapItem>	
-	
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.UniqueParentRequest"> 	
+		<Method>GetUniqueParent</Method>
+	</MapItem>	
 	</MapItems>
 ]]></Data>
 </XData>
