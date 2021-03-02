@@ -14,7 +14,6 @@
 <Description>
 Name of the log directory </Description>
 <Type>%String</Type>
-<InitialExpression>"/itf-share/itf-tmp/test"</InitialExpression>
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
@@ -37,7 +36,7 @@ how many times have we retried?</Description>
 	$$$TRACE("$$$$$ Inside OnInit() method...")	
 	#dim status as %Status
 	set status = $$$OK	
-	$$$TRACE("IHC.ITF.Operation.OpCdrDsqlGetReportDate. OnInit.. Load JarFile "_ ..JarFiles)
+	$$$TRACE("IHC.ITF.Operation.OpInitiateDemogrJsonInitiateTasks.. OnInit.. Load JarFile "_ ..JarFiles)
 	Set p=1
 	
 		For {
@@ -67,9 +66,15 @@ how many times have we retried?</Description>
 	 
 	  Set pResponse = ##class(IHC.ITF.Response.InitiateInfo).%New()	
     
-	  $$$TRACE(" **1**")
-	  try{		 
-	      set objIniTasks = ##class(org.ihc.itf.cern.drc.InitiateTaskSearch).%New(..JavaGateway, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))     	 
+	  $$$TRACE(" **1**"_..LogDirectory)
+	  $$$TRACE(" JavaGateWay Host : " _ ..Address)
+	  $$$TRACE(" JavaGateWay Port : " _ ..Port)
+	  
+	  try{
+		  set gtw = ##class(%Net.Remote.Gateway).%New()
+		  set sc = gtw.%Connect(..Address,..Port,,,)
+		  $$$TRACE(" **SC**"_sc)		 
+	      set objIniTasks = ##class(org.ihc.itf.cern.drc.InitiateTaskSearch).%New(gtw, ..LogDirectory _"/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName))     	 
 	      $$$TRACE(" **2**")   
 	     $$$TRACE("Object name: " _ objIniTasks.%ClassName(1))
 		 set reportDate = pRequest.StringValue		
@@ -78,20 +83,39 @@ how many times have we retried?</Description>
 		 set iniHostUser = retVal
 		 set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrXmlEpsEMPIINVESTIGATOR.InitiateMpiProperties","INITIATE_HOST_NAME",.retVal) 
 		 set iniHostName = retVal
+		 $$$TRACE("iniHostName: " _ iniHostName)
 		 set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrXmlEpsEMPIINVESTIGATOR.InitiateMpiProperties","INITIATE_HOST_PASSWORD",.retVal) 
 		 set iniHostPwd = retVal
 		 set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.GenericDemogrXmlEpsEMPIINVESTIGATOR.InitiateMpiProperties","INITIATE_HOST_PORT",.retVal) 
 		 set iniHostPort = retVal
 		 $$$TRACE("IniHostPort " _ iniHostPort)
+		$$$TRACE("iniHostPwd: [" _ iniHostPwd_"]")
+		$$$TRACE("iniHostUser [" _ iniHostUser_"]")
 		
-		$$$TRACE(" Searching Initiate tasks abd get list of MRNs from Initiate. Please wait..... " )
-		//set reportDate = "19-APR-2020 19:15:48"
-		set initiateInfoObj = objIniTasks.getMrnListFromInitiate(reportDate,iniHostUser,iniHostPwd,iniHostName,iniHostPort)
+		set initiateInfoObj = ##class(org.ihc.itf.cern.drc.InitiateInfo).%New()	 
+		set listObj = ##class(%ListOfObjects).%New()  
+		$$$TRACE(" Searching Initiate tasks and getting list of MRNs from Initiate. Please wait..... " )
+		try{
+			set listObj = objIniTasks.getMrnListFromInitiate(reportDate,iniHostUser,iniHostPwd,iniHostName,iniHostPort)
+			$$$TRACE(" Search DONE....")
+		}catch err{			
+			$$$TRACE("err.Name-->"_err.Name)
+			$$$TRACE("err.Location -->"_err.Location)
+			$$$TRACE("err.Code-->"_err.Code)
+			$$$TRACE("err.Data-->"_err.Data)
+			$$$TRACE(" Error while getting MRNs list from Initiate... "_listObj.Size )
+			set errTxt = "Error while getting MRNs list from Initiate..."_err		
+			$$$TRACE(" errTxt.. "_errTxt ) 
+		    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-INITIATETASKS",errTxt)	  		 		  		 		 
+		}
 				
 		if ('$isObject(initiateInfoObj)){
 	   		$$$TRACE(">>>>> initiateInfoObj is not an object")
        		set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError("Op-Initiate-Demogr-Json-INITIATETASKS", " Initiate Row returned a null reference. Unable to read data from Initiate. Skipping the record." )
        	}
+		     
+		     $$$TRACE(" initiateInfoObj..."_initiateInfoObj)
+		     $$$TRACE(" listObj..."_listObj)
 		     	
 		$$$TRACE(" Searching Initiate tasks and get list of MRNs from Initiate. Completed!! " _initiateInfoObj)
 		
@@ -100,9 +124,10 @@ how many times have we retried?</Description>
      	set iniInfo.ListOfInitiateRowLists = ##class(%ListOfObjects).%New()   
      	
     	$$$TRACE("initiateInfoObj information <"_ initiateInfoObj _">")
-    	if ($isObject(initiateInfoObj)){	 
-            set rowListObj = initiateInfoObj.getIniRowList()  
-            $$$TRACE("rowListObj information11 <"_ rowListObj _">")            
+    	//if ($isObject(initiateInfoObj)){	 
+           // set rowListObj = initiateInfoObj.getIniRowList()  
+                       set rowListObj = listObj
+            $$$TRACE("rowListObj information11 <"_ rowListObj.size() _">")            
 	        if (($isObject(rowListObj)) && (rowListObj.size() > 0)){
 		         $$$TRACE("rowListObj count <"_ rowListObj.size() _">") 
 		         For rowListObjIndex=0:1:rowListObj.size()-1 {
@@ -144,7 +169,7 @@ how many times have we retried?</Description>
 				    }
 					do iniInfo.ListOfInitiateRowLists.Insert(initiateRowListTaskObj)					
 				 }
-            }	     	  	
+          //  }	     	  	
        }
      
 	       	
@@ -153,7 +178,7 @@ how many times have we retried?</Description>
 	  	
 		}catch err{
 			$$$TRACE(" Unknown Exception: " _ err)
-			 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Initiate API to get the list of MRNs  "_err)		 
+			 set errTxt = "Unknown Exception while calling Initiate API to get the list of MRNs  "_err	 
 			 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-INITIATETASKS",errTxt)	  		 		  		 		 
 		}
 
