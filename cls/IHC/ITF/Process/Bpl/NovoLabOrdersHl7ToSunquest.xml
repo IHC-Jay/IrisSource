@@ -64,6 +64,23 @@ Timeout in Seconds for the Sync call to HelpEncWebServiceOperation</Description>
 <Default><![CDATA[HelpEncWebServiceOperation:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},CernerEncWebServiceOperation:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FailureEmailSubject:Alerting,FailureEmailBody:Alerting,TimeOutCernerEncWebServiceOperation:Additonal,TimeOutHelpEncWebServiceOperation:Additonal]]></Default>
 </Parameter>
 
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+    Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement; SubBody="_SubBody)
+	Quit SubBody
+]]></Implementation>
+</Method>
+
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
 <DefaultData>NovoLabOrdersHl7ToSunquestDefaultData</DefaultData>
@@ -106,23 +123,6 @@ Timeout in Seconds for the Sync call to HelpEncWebServiceOperation</Description>
 <Subscript>"IHC.ITF.Process.Bpl.NovoLabOrdersHl7ToSunquest.valueToBeReplaced"</Subscript>
 </Data>
 </Storage>
-
-<Method name="replaceWithParticularFormat">
-<FormalSpec>SubBody:%String</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-	
-    Set key = ""
-    For
-    {
-	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
-	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
-	    Quit:key=""
-    }
-    $$$TRACE("Done with replacement; SubBody="_SubBody)
-	Quit SubBody
-]]></Implementation>
-</Method>
 
 <XData name="BPL">
 <Description>
@@ -191,9 +191,21 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50000' />
 </parameters>
 </property>
+<property name='busStartTime' type='%String' initialexpression='"08:00:00"' instantiate='0' >
+<annotation><![CDATA[Business hour starts.]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='busEndTime' type='%String' initialexpression='"17:00:00"' instantiate='0' >
+<annotation><![CDATA[Business hour ends.]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='4050' >
-<scope xpos='200' ypos='250' xend='200' yend='3950' >
+<sequence xend='200' yend='4150' >
+<scope xpos='200' ypos='250' xend='200' yend='4050' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -298,25 +310,65 @@ BPL Definition</Description>
 </code>
 <assign name="EMPI" property="context.empiNumber" value="$Zstrip(request.{PIDgrp.PID:PatientIDInternalID(1).PatientID},&quot;&lt;&quot;,&quot;0&quot;)" action="set" xpos='200' ypos='850' />
 <assign name="AccNumber" property="context.encNumber" value="request.{PIDgrp.PID:PatientAccountNumber.PatientID}" action="set" xpos='200' ypos='950' />
-<trace name='Trace EMPI Acc no' value='"EMPI : "_context.empiNumber_" Acc no : "_context.encNumber' xpos='200' ypos='1050' />
-<if name='Check EMPI' condition='$Number(context.empiNumber,"I")=""' xpos='200' ypos='1150' xend='200' yend='1400' >
+<code name='Skip &amp; Support Email for invalid OBR-2.2' xpos='200' ypos='1050' >
+<![CDATA[ //AIKB-12423 - Update Lab Order Interface to Include Error Monitoring for Medicity orders
+ set nowInt = ""
+  
+ //set obr22 = request.GetValueAt("OBR:2.2")
+ //source.{ORCgrp().OBRuniongrp.OBRunion.OBR:PlacerOrderNumber.placerapplication}
+ set obr22 = request.GetValueAt("ORCgrp(1).OBRuniongrp.OBRunion.OBR:PlacerOrderNumber.placerapplication")
+
+ $$$TRACE("Obr2.2 is "_obr22)
+ 
+ if ( obr22 = "IH")
+ {
+   $$$TRACE("IH in Obr2.2 is the valid code.  "_obr22)
+ }
+ else
+ {
+   set nowInt = $ZTIME($PIECE($HOROLOG,",",2),1) 
+  $$$TRACE("nowInt is "_nowInt)
+  if (nowInt = "")
+  {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"nowInt :["_nowInt_"] is empty after calling $ZTIME() for current time for the record with PID (" _context.empiNumber_ ") and FIN (" _context.encNumber_  ").")
+
+  }
+   $$$TRACE("nowInt is ->"_nowInt) 
+   $$$TRACE("context.busStartTime is ->"_context.busStartTime) 
+   $$$TRACE("context.busEndTime is ->"_context.busEndTime) 
+ 
+  if ( (nowInt > context.busStartTime ) && (nowInt < context.busEndTime) )
+  {
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Medicity (Novo) Order came in with the wrong extension [" _obr22_ "] on the order ID in OBR2.2, which should be 'IH'.  Skip the message and send support email as configured in the ITFCOMMONFailMsgError (10105) support page during business hours.")
+   $$$TRACE("Use business hours (" _nowInt_ ") support email to send the error message for invalid OBR-2.2 (" _obr22_ ").")
+  }
+  else
+  {
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).SuspendMsgError(process.%ConfigName,"Medicity (Novo) Order came in with the wrong extension [" _obr22_ "] on the order ID in OBR2.2, which should be 'IH'.  Skip the message and send support email as configured in the ITFCOMMONSuspendMsgError (10104) support page outside business hours.")
+   $$$TRACE("Use off business hours (" _nowInt_ ") support email to send the error message for invalid OBR-2.2 (" _obr22_ ").")
+  }
+ }
+    ]]]]><![CDATA[>
+</code>
+<trace name='Trace EMPI Acc no' value='"EMPI : "_context.empiNumber_" Acc no : "_context.encNumber' xpos='200' ypos='1150' />
+<if name='Check EMPI' condition='$Number(context.empiNumber,"I")=""' xpos='200' ypos='1250' xend='200' yend='1500' >
 <true>
-<code name='InputDataError' xpos='335' ypos='1300' >
+<code name='InputDataError' xpos='335' ypos='1400' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"EMPI Number :["_context.empiNumber_"] is not a number and is invalid.")]]]]><![CDATA[>
 </code>
 </true>
 </if>
-<if name='Check EncNumber' condition='context.encNumber=""' xpos='200' ypos='1500' xend='200' yend='1750' >
+<if name='Check EncNumber' condition='context.encNumber=""' xpos='200' ypos='1600' xend='200' yend='1850' >
 <true>
-<code name='InputDataError' xpos='335' ypos='1650' >
+<code name='InputDataError' xpos='335' ypos='1750' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Patient Account number in PID-18 does not exist")]]]]><![CDATA[>
 </code>
 </true>
 </if>
-<trace name='Trace context.encNumber' value='"$Length(context.encNumber)  "_$Length(context.encNumber)_" ****  "_context.encNumber' xpos='200' ypos='1850' />
-<if name='Chk EncNumber length' condition='$Length(context.encNumber)&lt;10' xpos='200' ypos='1950' xend='200' yend='2950' >
+<trace name='Trace context.encNumber' value='"$Length(context.encNumber)  "_$Length(context.encNumber)_" ****  "_context.encNumber' xpos='200' ypos='1950' />
+<if name='Chk EncNumber length' condition='$Length(context.encNumber)&lt;10' xpos='200' ypos='2050' xend='200' yend='3050' >
 <true>
-<code name='Build Help Request' xpos='740' ypos='2100' >
+<code name='Build Help Request' xpos='740' ypos='2200' >
 <![CDATA[ 
  Set context.HelpReq = ##class(IHC.ITF.ITFCOMMON.Request.HelpEncWebService.getEncountersRequest).%New()
  Set context.HelpReq.unitNumber = context.empiNumber
@@ -326,8 +378,8 @@ BPL Definition</Description>
   $$$TRACE("context.HelpReq"_context.HelpReq)
  ]]]]><![CDATA[>
 </code>
-<trace name='Trace2' value='"Before callinng Help service"_context.HelpReq.db' xpos='740' ypos='2200' />
-<code name='Call Help webservice' xpos='740' ypos='2300' >
+<trace name='Trace2' value='"Before callinng Help service"_context.HelpReq.db' xpos='740' ypos='2300' />
+<code name='Call Help webservice' xpos='740' ypos='2400' >
 <![CDATA[  set HelpTimeout=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutHelpEncWebServiceOperation",.pstatus)
  
  set tStatus=process.SendRequestSync(context.HelpEncWebServiceOperation,context.HelpReq,.HelpResponse,HelpTimeout)
@@ -337,14 +389,14 @@ BPL Definition</Description>
     set context.HelpResp=HelpResponse
  }]]]]><![CDATA[>
 </code>
-<trace name='Get Help Resp EncNumber' value='context.HelpResp.EncValid' xpos='740' ypos='2400' />
-<if name='CheckHelpResp' condition='context.HelpResp.EncValid' xpos='740' ypos='2500' xend='740' yend='2850' >
+<trace name='Get Help Resp EncNumber' value='context.HelpResp.EncValid' xpos='740' ypos='2500' />
+<if name='CheckHelpResp' condition='context.HelpResp.EncValid' xpos='740' ypos='2600' xend='740' yend='2950' >
 <true>
-<assign name="Set isEncExists" property="context.isEncExists" value="1" action="set" xpos='740' ypos='2650' />
+<assign name="Set isEncExists" property="context.isEncExists" value="1" action="set" xpos='740' ypos='2750' />
 </true>
 <false>
-<assign name="Set isEncExists" property="context.isEncExists" value="0" action="set" xpos='1010' ypos='2650' />
-<code name='Skip Record and Email alert' xpos='1010' ypos='2750' >
+<assign name="Set isEncExists" property="context.isEncExists" value="0" action="set" xpos='1010' ypos='2750' />
+<code name='Skip Record and Email alert' xpos='1010' ypos='2850' >
 <![CDATA[ $$$TRACE("Record not in Help, so skip the record")
  
  //code to replace the placeholders in email alert subject and body 
@@ -371,7 +423,7 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<code name='Build Cerner Request' xpos='200' ypos='2100' >
+<code name='Build Cerner Request' xpos='200' ypos='2200' >
 <![CDATA[ try
  {
  set context.CernerReq=##class(IHC.ITF.ITFCOMMON.Request.validateEmpiFinRequest).%New()
@@ -384,8 +436,8 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<trace name='Trace1' value='"Before calling cerner service"' xpos='200' ypos='2200' />
-<code name='Call Cerner webservice' xpos='200' ypos='2300' >
+<trace name='Trace1' value='"Before calling cerner service"' xpos='200' ypos='2300' />
+<code name='Call Cerner webservice' xpos='200' ypos='2400' >
 <![CDATA[ set CernerTimeout=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutCernerEncWebServiceOperation",.pstatus)
  
  set tStatus=process.SendRequestSync(context.CernerEncWebServiceOperation,context.CernerReq,.CernResponse,CernerTimeout)
@@ -396,13 +448,13 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<trace name='cerner resp' value='context.CernerResp.return' xpos='200' ypos='2400' />
-<if name='CheckCernerResp' condition='context.CernerResp.return="VALID"' xpos='200' ypos='2500' xend='200' yend='2750' >
+<trace name='cerner resp' value='context.CernerResp.return' xpos='200' ypos='2500' />
+<if name='CheckCernerResp' condition='context.CernerResp.return="VALID"' xpos='200' ypos='2600' xend='200' yend='2850' >
 <true>
-<assign name="Set isEncExists" property="context.isEncExists" value="1" action="set" xpos='470' ypos='2650' />
+<assign name="Set isEncExists" property="context.isEncExists" value="1" action="set" xpos='470' ypos='2750' />
 </true>
 <false>
-<code name='Skip Record and Email alert' xpos='200' ypos='2650' >
+<code name='Skip Record and Email alert' xpos='200' ypos='2750' >
 <![CDATA[ $$$TRACE("Record not in Cerner , so skip the record")
  
  //code to replace the placeholders in email alert subject and body 
@@ -429,14 +481,14 @@ BPL Definition</Description>
 </if>
 </false>
 </if>
-<if name='Check Service result' condition='context.isEncExists' xpos='200' ypos='3050' xend='200' yend='3700' >
+<if name='Check Service result' condition='context.isEncExists' xpos='200' ypos='3150' xend='200' yend='3800' >
 <true>
-<transform name='NovoToSunquest Transform' class='IHC.ITF.Transform.Dtl.NovoLabOrdersHl7ToSunquest' source='request' target='context.TransformedHl7' xpos='335' ypos='3200' />
-<trace name='After transform' value='"After Transform"' xpos='335' ypos='3300' />
-<code name='ResetErrorCode' xpos='335' ypos='3400' >
+<transform name='NovoToSunquest Transform' class='IHC.ITF.Transform.Dtl.NovoLabOrdersHl7ToSunquest' source='request' target='context.TransformedHl7' xpos='335' ypos='3300' />
+<trace name='After transform' value='"After Transform"' xpos='335' ypos='3400' />
+<code name='ResetErrorCode' xpos='335' ypos='3500' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigNames' xpos='335' ypos='3500' >
+<code name='GetTargetConfigNames' xpos='335' ypos='3600' >
 <annotation><![CDATA[Get TargetConfigNames from component Settings]]]]><![CDATA[></annotation>
 <![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
      
@@ -449,7 +501,7 @@ BPL Definition</Description>
      Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
  }]]]]><![CDATA[>
 </code>
-<foreach name='SendToAllTargets' property='context.targetList' key='context.k1' xpos='335' ypos='3600' xend='200' yend='450' >
+<foreach name='SendToAllTargets' property='context.targetList' key='context.k1' xpos='335' ypos='3700' xend='200' yend='450' >
 <annotation><![CDATA[Send message to all targets]]]]><![CDATA[></annotation>
 <trace value='"In loop " _  context.k1 _ ", Send to: " _ context.targetList.GetAt(context.k1)' xpos='200' ypos='250' />
 <call name='call traget' target='@context.targetList.GetAt(context.k1)' async='1' xpos='200' ypos='350' >
@@ -464,7 +516,7 @@ BPL Definition</Description>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3800' xend='200' yend='350' >
+<catchall xpos='200' ypos='3900' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
