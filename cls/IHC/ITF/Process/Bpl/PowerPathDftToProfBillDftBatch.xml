@@ -77,6 +77,41 @@ Secret Key Password</Description>
 <Default><![CDATA[FileTargetConfigNames:Additional,FilePath:Additional,ServiceIdTargetConfigNamesMap:Additional,PowerPathTargetConfigNames:Additional,TargetConfigNamesEncryption:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},IHCKEYRINGPATH:Additional,IHCSECRETKEYRINGFILE:Additional,IHCPUBLICKEYRINGFILE:Additional,-NextOperation,-TargetConfigMask]]></Default>
 </Parameter>
 
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>PowerPathDftToProfBillDftBatchDefaultData</DefaultData>
+<Data name="PowerPathDftToProfBillDftBatchDefaultData">
+<Subscript>"PowerPathDftToProfBillDftBatch"</Subscript>
+<Value name="1">
+<Value>FileTargetConfigNames</Value>
+</Value>
+<Value name="2">
+<Value>FilePath</Value>
+</Value>
+<Value name="3">
+<Value>ServiceIdTargetConfigNamesMap</Value>
+</Value>
+<Value name="4">
+<Value>PowerPathTargetConfigNames</Value>
+</Value>
+<Value name="5">
+<Value>TargetConfigNamesEncryption</Value>
+</Value>
+<Value name="6">
+<Value>IHCKEYRINGPATH</Value>
+</Value>
+<Value name="7">
+<Value>IHCSECRETKEYRINGFILE</Value>
+</Value>
+<Value name="8">
+<Value>IHCPUBLICKEYRINGFILE</Value>
+</Value>
+<Value name="9">
+<Value>SecretKeyPassword</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -184,6 +219,8 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='cryptoRequest' type='IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoRequest' instantiate='0' />
+<property name='cryptoResponse' type='IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoResponse' instantiate='0' />
 </context>
 <sequence xend='200' yend='4050' >
 <scope xpos='200' ypos='250' xend='200' yend='3950' >
@@ -411,41 +448,72 @@ BPL Definition</Description>
       quit:'$$$ISOK(tStatus)
       set tStatus=file.Write("FTS|"_^IHCPowerPathToProfBill("Counter",process.%SessionId,context.serviceIDForSession)_"|")
       quit:'$$$ISOK(tStatus)
-      // Call Encryption operation
-      set encRequest=##class(IHC.ITF.ITFCOMMON.DStruc.FileEncrypt).%New()
-      set encRequest.unencryptedDirectory=process.FilePath
-      set encRequest.unencryptedFilename=process.%SessionId_context.serviceIDForSession_".TXT"
-      set encRequest.encryptedDirectory=process.FilePath
-      set encRequest.encryptedFilename="enc"_encRequest.unencryptedFilename
-      set encRequest.publicKeyRingFile=process.IHCPUBLICKEYRINGFILE
-      set encRequest.secretKeyRingFile=process.IHCSECRETKEYRINGFILE 
-      set encRequest.publicKeyName=context.encryptionKeyName
-      set encRequest.secretKeyRingPwd=""
-  
-      //Get the Encrypted Stream.
-      set tStatus=process.SendRequestSync(process.TargetConfigNamesEncryption,encRequest,.response)
+     
+   // Call Encryption operation
+    set context.cryptoRequest = ##class(IHC.ITF.ITFCOMMON.Operation.Util.Crypto.CryptoRequest).%New()
+ 
+   set context.cryptoRequest.Operation = "Encrypt"
+   $$$TRACE("This is an encryption process.")
+    
+   set context.cryptoRequest.EncryptKey = context.encryptionKeyName
+   $$$TRACE("EncryptKey  is "_context.cryptoRequest.EncryptKey)
+
+   set context.cryptoRequest.DestFileName = process.FilePath _ "enc"_process.%SessionId_context.serviceIDForSession_".TXT"
+   $$$TRACE("Destination file name is "_context.cryptoRequest.DestFileName)
+ 
+   $$$TRACE("Ready to call Encrypt Operation: " _ process.FilePath _ "/"_process.%SessionId_context.serviceIDForSession_".TXT" _ ", Output: " _ context.cryptoRequest.DestFileName)
+ 
+   set context.cryptoRequest.SrcFileName = process.FilePath _ process.%SessionId_context.serviceIDForSession_".TXT"
+   $$$TRACE("Request Source File name is "_process.FilePath _ process.%SessionId_context.serviceIDForSession_".TXT")
+	
+   //Get the Encrypted Stream.
+      set tStatus=process.SendRequestSync(process.TargetConfigNamesEncryption,context.cryptoRequest,.response)
       quit:'$$$ISOK(tStatus)
-      If ('##class(%File).Exists(process.FilePath_encRequest.encryptedFilename)){
+      
+      
+   set context.cryptoResponse = response
+   $$$TRACE("Attempting to create Encrypted File")
+   $$$TRACE("Dest File name : "_context.cryptoResponse.DestFileName)		
+
+  
+   Set tStream=##class(%FileBinaryStream).%New()
+   $$$TRACE("Set parameters name:" _context.cryptoResponse.DestFileName)
+   Do tStream.LinkToFile(context.cryptoResponse.DestFileName)
+   Do context.cryptoResponse.FileStream.Rewind()
+ 
+   Set tSC=tStream.CopyFrom(context.cryptoResponse.FileStream)
+   $$$TRACE("Copy stream " _ tSC) 
+   
+   Do tStream.Flush()
+   
+   Set tSC=tStream.%Save()
+   $$$TRACE("Save stream " _ tSC) 
+      
+      
+    If ('##class(%File).Exists(context.cryptoRequest.DestFileName)){
 	      set tStatus= ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "File Encryption for context.FileName Failed.")
 	      Quit
       }
-      //Create stream from Encrypted file.
+
+  //Create stream from Encrypted file.
       // Create Stream from the file . Also add the control record at the end of strind
       Set streamFile=##class(%FileCharacterStream).%New()
-      Do streamFile.LinkToFile(process.FilePath_encRequest.encryptedFilename)
+      Do streamFile.LinkToFile(context.cryptoRequest.DestFileName)
 	  set stream=##class(%Stream.GlobalCharacter).%New()
       Set tStatus = stream.CopyFrom(streamFile)
       quit:'$$$ISOK(tStatus)
       set ftpRequest=##class(Ens.StreamContainer).%New(stream)
-      set ftpRequest.OriginalFilename = encRequest.encryptedFilename
+      set ftpRequest.OriginalFilename = "enc"_process.%SessionId_context.serviceIDForSession_".TXT"
       // Call Ftp Operation
       do process.SendRequestAsync(context.ftpOperationName,ftpRequest)
   
   }while(0)
   set status=tStatus
   try {
-	  set tStatus=##class(%Library.File).Delete(process.FilePath_encRequest.encryptedFilename)
-  }Catch{}]]]]><![CDATA[>
+	  set tStatus=##class(%Library.File).Delete(context.cryptoRequest.DestFileName)
+  }Catch{}
+  
+   ]]]]><![CDATA[>
 </code>
 </true>
 <false>
@@ -515,40 +583,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>PowerPathDftToProfBillDftBatchDefaultData</DefaultData>
-<Data name="PowerPathDftToProfBillDftBatchDefaultData">
-<Subscript>"PowerPathDftToProfBillDftBatch"</Subscript>
-<Value name="1">
-<Value>FileTargetConfigNames</Value>
-</Value>
-<Value name="2">
-<Value>FilePath</Value>
-</Value>
-<Value name="3">
-<Value>ServiceIdTargetConfigNamesMap</Value>
-</Value>
-<Value name="4">
-<Value>PowerPathTargetConfigNames</Value>
-</Value>
-<Value name="5">
-<Value>TargetConfigNamesEncryption</Value>
-</Value>
-<Value name="6">
-<Value>IHCKEYRINGPATH</Value>
-</Value>
-<Value name="7">
-<Value>IHCSECRETKEYRINGFILE</Value>
-</Value>
-<Value name="8">
-<Value>IHCPUBLICKEYRINGFILE</Value>
-</Value>
-<Value name="9">
-<Value>SecretKeyPassword</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
