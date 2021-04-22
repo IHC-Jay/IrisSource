@@ -83,7 +83,7 @@ Ldap Search Target: Used to assing the target of Ldap search requests.</Descript
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2350' width='2000' >
+<process language='objectscript' request='Ens.Request' height='2550' width='2000' >
 <context>
 <property name='TargetConfigIndex' type='%Integer' instantiate='0' />
 <property name='TargetList' type='%String' collection='list' instantiate='0' />
@@ -105,9 +105,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='SpecimenList' type='%String' collection='list' instantiate='0' />
+<property name='OrganismArray' type='%String' collection='array' instantiate='0' />
 </context>
-<sequence xend='200' yend='2100' >
-<scope xpos='200' ypos='250' xend='200' yend='2000' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -151,7 +153,7 @@ BPL Definition</Description>
     set context.ValidationPassed=0
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1750' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1950' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='Setup filtering' xpos='470' ypos='1000' >
@@ -267,9 +269,29 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<if name='Process Record' condition='context.ProcessRecord' xpos='470' ypos='1100' xend='470' yend='1650' >
+<if name='Process Record' condition='context.ProcessRecord' xpos='470' ypos='1100' xend='470' yend='1850' >
 <true>
-<code name='Setup room and location map' xpos='740' ypos='1250' >
+<code name='Verify OBX-5 length and truncate if too long' xpos='740' ypos='1250' >
+<![CDATA[ set orcIndex =""
+ set obxIndex =""
+ set obx5New =""
+ for {
+    set orcIndex=request.GetNextIndex("PIDgrpgrp(1).ORCgrp()",orcIndex,.tSCTrans) Quit:orcIndex=""
+    for {
+       set obxIndex=request.GetNextIndex("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp()",obxIndex,.tSCTrans) Quit:obxIndex=""
+       set obx2 =request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:ValueType")
+       if ((obx2 ="CE") || (obx2 ="CWE")) {
+          set obx5Text =request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:ObservationValue(1).Text")
+          set obx5Length = $L(obx5Text)
+          if (obx5Length > 250) {
+             set obx5New =$EXTRACT(obx5Text,1,250)
+             do request.SetValueAt(obx5New, "PIDgrpgrp(1).ORCgrp("_orcIndex_").OBXgrp("_obxIndex_").OBX:ObservationValue(1).Text")
+          } 
+       } 
+    }
+ }]]]]><![CDATA[>
+</code>
+<code name='Setup room and location map' xpos='740' ypos='1350' >
 <![CDATA[ set ldapLocationCount = $LENGTH(context.ProvidersLdapLocations)
  $$$TRACE("In location mapping. Provider ID: "_context.ProviderID_". Match location: "_context.MatchLdapLocationWithPV1_". Room found: "_context.RoomFound)
  if ((context.UnknownProviderID=context.ProviderID) || (context.MatchLdapLocationWithPV1)) {
@@ -286,8 +308,65 @@ BPL Definition</Description>
     } 
  }]]]]><![CDATA[>
 </code>
-<transform name='Transform Data' class='IHC.ITF.Transform.Dtl.SunquestResultsHl7To4MedicaLabHL725' source='request' target='response' xpos='740' ypos='1350' />
-<foreach name='Send To Each Target' property='context.TargetList' key='context.TargetConfigIndex' xpos='740' ypos='1450' xend='200' yend='800' >
+<code name='Setup specimens' xpos='740' ypos='1450' >
+<![CDATA[ set spm8= "" 
+ set spm14 =""
+ set orcIndex =""
+ set spmIndex =""
+ set specimenList =""
+ for { 
+    set orcIndex=request.GetNextIndex("PIDgrpgrp(1).ORCgrp()",orcIndex,.tSCTrans)  Quit:orcIndex=""
+    for { 
+       set spmIndex=request.GetNextIndex("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp()",spmIndex,.tSCTrans)  Quit:spmIndex=""
+       if (request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.NameOfCodingSystem") ="L") {
+          set spm41=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.Identifier")
+          set spm42=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.Text")
+          if (context.SpecimenList.Find("CE:"_spm41_"^"_spm42) <1) {
+             do context.SpecimenList.Insert("CE:"_spm41_"^"_spm42)
+             $$$TRACE("SPM-4.1 has value")
+          }
+       }elseif (request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.NameOfAlternateCodingSystem") ="L") {
+          set spm44=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.AlternateIdentifier")
+          set spm45=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenType.AlternateText")
+          if (context.SpecimenList.Find("CE:"_spm44_"^"_spm45) <1) {
+             do context.SpecimenList.Insert("CE:"_spm44_"^"_spm45)
+             $$$TRACE("SPM-4.4 has value")
+          }
+       }
+       if (request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.NameOfCodingSystem") ="L") {
+          set spm81=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.Identifier")
+          set spm82=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.Text")
+          if (context.SpecimenList.Find("CE:"_spm81_"^"_spm82) <1) {
+             do context.SpecimenList.Insert("CE:"_spm81_"^"_spm82)
+             $$$TRACE("SPM-8.1 has value")
+          }
+       }elseIf (request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.NameOfAlternateCodingSystem") ="L") {
+          set spm84=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.AlternateIdentifier")
+          set spm85=request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenSourceSite.AlternateText")
+          if (context.SpecimenList.Find("CE:"_spm84_"^"_spm85) <1) {          
+             do context.SpecimenList.Insert("CE:"_spm84_"^"_spm85)  
+             $$$TRACE("SPM-8.4 has value")     
+          }
+       }
+       set spm14 = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenDescription()")
+       if (spm14 '="") {
+          set spm14Index =""
+          $$$TRACE("spm-14 has value")
+          for { 
+             set spm14Index=request.GetNextIndex("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenDescription()",spm14Index,.tSCTrans)  Quit:spm14Index=""
+             set currentSpm14 = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_orcIndex_").SPMgrp("_spmIndex_").SPM:SpecimenDescription("_spm14Index_")")
+             if ($FIND(currentSpm14,"Performed at") =13) {
+                if (context.SpecimenList.Find("FT:"_currentSpm14) <1) {               
+                   do context.SpecimenList.Insert("FT:"_currentSpm14)
+                }
+             }
+          }
+       }
+    }
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform Data' class='IHC.ITF.Transform.Dtl.SunquestResultsHl7To4MedicaLabHL725' source='request' target='response' xpos='740' ypos='1550' />
+<foreach name='Send To Each Target' property='context.TargetList' key='context.TargetConfigIndex' xpos='740' ypos='1650' xend='200' yend='800' >
 <trace name='In Send' value='"In Send"' xpos='200' ypos='250' />
 <if name='Room found?' condition='context.RoomFound' xpos='200' ypos='350' xend='200' yend='700' >
 <true>
@@ -318,7 +397,7 @@ BPL Definition</Description>
 </false>
 </if>
 </foreach>
-<code name='Reset Error' xpos='740' ypos='1550' >
+<code name='Reset Error' xpos='740' ypos='1750' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
@@ -338,7 +417,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1850' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
