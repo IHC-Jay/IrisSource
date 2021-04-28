@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.GetSystemParameters">
+<IncludeCode>Ensemble,EnsSQLTypes</IncludeCode>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>65846,47392.691963</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Adapter">
+<Type>EnsLib.SQL.OutboundAdapter</Type>
+</Property>
+
+<Parameter name="INVOCATION">
+<Default>Queue</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.Request,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$LOGERROR("Invalid Request Type")
+	quit $$$ERROR(5001,"Invalid Request")
+]]></Implementation>
+</Method>
+
+<Method name="SystemParameters">
+<FormalSpec>req:IHC.ITF.ITFCOMMON.DataStructure.StoredProcName,*pResponse:IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Get parameters for: " _ req.Name)
+	set pResponse = ""
+	set tSC = $$$OK
+	
+	$$$TRACE("Get existing object")
+		 
+   	&sql(SELECT top 1
+        ID INTO :id from IHC_ITF_ITFCOMMON_DataStructure.StoredProcParamsCollection where ProcName = :req.Name)
+   	IF SQLCODE=0 
+   	{
+    	$$$TRACE("Got existing Id: "_id)
+    	set pExist= ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection).%OpenId(id,,.tSC)
+    	$$$TRACE("%OpenId: " _ tSC)
+		set pResponse = pExist.%ConstructClone(1)
+   	}
+   	IF ( (SQLCODE '= 0) || ($$$ISERR(tSC)) ) 
+   	{ 	   
+		$$$TRACE("Call sys.objects")
+		set pResponse= ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection).%New()
+		 SET queryStr= "SELECT Parameter.name AS Name,  TYPE_NAME(Parameter.user_type_id) AS Datatype, max_length, is_output " _
+			 " FROM sys.objects AS o INNER JOIN sys.parameters AS Parameter " _
+			 "	ON o.object_id = Parameter.object_id WHERE o.object_id = OBJECT_ID('" _ req.Name _ "')"
+			 
+						 
+		Set tSC = ..Adapter.ExecuteQuery(.tResult, queryStr)
+		if ($$$ISERR(tSC))
+		{
+			$$$LOGERROR(tSC)
+			Quit tSC
+		}
+		set pResponse.ProcName = req.Name
+	
+	  	//Get the result
+	  	set numRows = 0
+	   WHILE tResult.Next() {
+	     Set tOutParms = tResult.GetData(1)
+	     
+	     set colData = ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcParams).%New()
+	     set colData.Name = $REPLACE(tResult.GetData(1),"@", "")
+	     set colData.Type = tResult.GetData(2)
+	     set colData.MaxLength = tResult.GetData(3)
+	     set colData.IsOutput = tResult.GetData(4)
+	     
+	     set numRows = numRows + 1
+	     $$$TRACE(numRows _ ". SQL Output: " _ tResult.GetData(1) _ ", type: " _ tResult.GetData(2))
+	     
+	     Do pResponse.MyProp.Insert(colData)
+	   }
+	   $$$TRACE("Query output: " _ numRows )
+   }
+   
+   Do pResponse.%Save()
+   
+   $$$TRACE(" Return tSC: " _ tSC _", count #: " _ pResponse.MyProp.Count() _ pResponse.MyProp.GetAt(1).Name)
+   Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.DataStructure.StoredProcName">
+	<Method>SystemParameters</Method>
+	</MapItem>
+  </MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
