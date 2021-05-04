@@ -20,6 +20,7 @@ Idx Adt StoredProc Name </Description>
 <Description>
 Reconciler Error Handler</Description>
 <Type>%String</Type>
+<InitialExpression>"InterfaceErrorHandler"</InitialExpression>
 <Parameter name="MAXLEN" value="256"/>
 </Property>
 
@@ -27,7 +28,7 @@ Reconciler Error Handler</Description>
 <Description>
 TargetConfigName for GetSystemParameters</Description>
 <Type>%String</Type>
-<InitialExpression>"Op-GetSystemParameters"</InitialExpression>
+<InitialExpression>"Op-TouchWorks-Jdbc-GETSYSTEMPARAMETERS"</InitialExpression>
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
@@ -50,7 +51,6 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' height='3800' width='2000' >
 <context>
-<property name='targetConfigIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
@@ -84,6 +84,7 @@ BPL Definition</Description>
 <property name='chartLocation' type='%String' initialexpression='""' instantiate='0' />
 <property name='StoredProcParamsCollection' type='IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection' instantiate='0' />
 <property name='GetMrnsFromStoreProc' type='IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection' instantiate='0' />
+<property name='mergesStoreProc' type='IHC.ITF.ITFCOMMON.DataStructure.StoredProcParamsCollection' instantiate='0' />
 <property name='idxAdtStoredProcName' type='%String' initialexpression='""' instantiate='0' />
 <property name='opGetSystemParametersTargetConfigName' type='%String' initialexpression='""' instantiate='0' />
 <property name='errorHandlerTargetConfigName' type='%String' initialexpression='""' instantiate='0' />
@@ -94,7 +95,8 @@ BPL Definition</Description>
 <property name='OMRGMrn' type='%String' instantiate='0' />
 <property name='EMRGMrn' type='%String' instantiate='0' />
 <property name='msgType' type='%String' instantiate='0' />
-
+<property name='isMergeMsgType' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='orgMrnForMerge' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='3550' >
 <scope xpos='200' ypos='250' xend='200' yend='3450' >
@@ -102,11 +104,11 @@ BPL Definition</Description>
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
 <code name='Check ReplyCodeActions' xpos='200' ypos='450' >
-<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<annotation><![CDATA[ReplyCodeAction settings ]]]]><![CDATA[></annotation>
 <![CDATA[  
   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
- 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")
  }
  ]]]]><![CDATA[>
 </code>
@@ -135,41 +137,11 @@ BPL Definition</Description>
     set context.ValidationPassed=0
  	}]]]]><![CDATA[>
 </code>
-<code name='Set MaxError' xpos='200' ypos='750' >
-<annotation><![CDATA[Set MaxError]]]]><![CDATA[></annotation>
-<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
- $$$TRACE("Max Errors: " _ maxErr)   
- 
- //Read TargetConfigNames
- set configValue = "" 
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = "")){
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
- }else{
-      $$$TRACE("TargetConfigNames: " _configValue )
- } 
- 
- set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
-    $$$TRACE("Count: " _ context.targetList.Count())
-      
- ]]]]><![CDATA[>
-</code>
+
+
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='850' xend='200' yend='3200' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='335' ypos='1000' />
-
-<code name='GetStoredProcName' xpos='335' ypos='1100' >
-<annotation><![CDATA[GetStoredProcName]]]]><![CDATA[></annotation>
-<![CDATA[
-      set context.idxAdtStoredProcName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","IdxAdtStoredProcName",.pstatus)
- 	  if ($$$ISOK(pstatus)){
- 		$$$TRACE("Adt Stored Procedure Name: " _ context.idxAdtStoredProcName)
- 	  }else{
-		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No IdxAdtStoredProcName found in the Ensemble settings")
- 	  }
-]]]]><![CDATA[>
-</code>
-
 
 <code name='GetSystemParametersTargetConfigName' xpos='470' ypos='1850' >
 <![CDATA[ 
@@ -192,6 +164,74 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
+
+<code name='getTargetConfigList' xpos='470' ypos='1700' >
+<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count() )
+ ]]]]><![CDATA[>
+</code>
+
+<code name='DatabaseLookups - Adt ProviderId' xpos='335' ypos='2800' >
+<annotation><![CDATA[Database Lookups]]]]><![CDATA[></annotation>
+<![CDATA[
+      set isDbLookup = "0"
+      set context.isMergeMsgType = 0
+      set entryCodeIDForProvider = 0
+      set context.orgMrnForMerge = ""
+      set providerId = request.GetValueAt("PD1:PatientPrimaryFacility(1).IDNumber")
+      $$$TRACE("providerId from IDX HL7:[" _ providerId_"]" )
+      set mrgPriorPatientId = ""
+      Set context.msgType =request.GetValueAt("MSH:9.2")
+      if (context.msgType="A40"){
+	      set context.isMergeMsgType = 1
+      	set mrgPriorPatientId = request.GetValueAt("MRG(1):PriorPatientIdentifierList(1).IDNumber")
+      	$$$TRACE("Merge PriorPatientID from IDX(MRG-1):[" _mrgPriorPatientId_"]" )
+      }
+      set providerId = "42"
+      set mrgPriorPatientId = "1000002"
+      if (($L(providerId)>0) || ($L(mrgPriorPatientId)>0) ){
+	      set isDbLookup = "1"
+      }
+      
+      $$$TRACE(" $$$ isDbLookup :"_isDbLookup)
+      if (isDbLookup="1"){
+        set context.databaseLookupTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DatabaseLookupTargetConfigName",.pstatus)
+ 		if ($$$ISOK(pstatus)){
+ 			$$$TRACE("DatabaseLookupTargetConfigName: " _ context.databaseLookupTargetConfigName)
+ 			set context.databasLookupRequest = ##class(IHC.ITF.Request.IdxDatabaseLookupRequest).%New()
+ 			set context.databasLookupRequest.ProviderId = providerId
+ 			set context.databasLookupRequest.MergePriorPatientId = mrgPriorPatientId
+ 			set tStatus=process.SendRequestSync(context.databaseLookupTargetConfigName, context.databasLookupRequest ,.response)
+		    if ($$$ISOK(tStatus)){      			
+      			set entryCodeIDForProvider = response.EntryCodeIDForProviderId      			     
+     	        $$$TRACE("entryCodeIDForProvider: " _ entryCodeIDForProvider )
+     	        set context.orgMrnForMerge = response.OrgMrnForMerge      			     
+     	        $$$TRACE("OrgMrnForMerge: " _ context.orgMrnForMerge )
+		    }else{
+      			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling : "_context.databaseLookupTargetConfigName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+       		}    		
+ 		}else{
+	 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DatabaseLookupTargetConfigName found in the Ensemble settings")
+ 		}
+      }  
+]]]]><![CDATA[>
+</code>
+
+
+<if name='isNotAMergeMsgType' condition='context.isMergeMsgType&apos;=1' xpos='200' ypos='850' xend='200' yend='3200' >
+<true>
+<code name='GetStoredProcName' xpos='335' ypos='1100' >
+<annotation><![CDATA[GetStoredProcName]]]]><![CDATA[></annotation>
+<![CDATA[
+      set context.idxAdtStoredProcName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","IdxAdtStoredProcName",.pstatus)
+ 	  if ($$$ISOK(pstatus)){
+ 		$$$TRACE("Adt Stored Procedure Name: " _ context.idxAdtStoredProcName)
+ 	  }else{
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No IdxAdtStoredProcName found in the Ensemble settings")
+ 	  }
+]]]]><![CDATA[>
+</code>
+
 
 
 <code name='CheckForLookupTables' xpos='335' ypos='1100' >
@@ -258,10 +298,10 @@ BPL Definition</Description>
     	set context.chartLocation=retVal
     }else{
 	   	$$$TRACE("Value of chartLocation from IDX(NV) message:"_context.chartLocation_" is not defined in the lookup table.")
-	   	set context.chartLocation=""
+	   	set context.chartLocation=" "
 	} 	 
  }else{
-	set context.chartLocation="" 
+	set context.chartLocation=" " 
  }
  ]]]]><![CDATA[>
 </code>
@@ -296,11 +336,11 @@ BPL Definition</Description>
     		set context.relationship=retVal
     	}else{
 	    	$$$TRACE("Value of relationship from IDX(NV) message:"_context.relationship_" is not defined in the lookup table.")
-	    	set context.relationship=""
+	    	set context.relationship=" "
 		}
  	 
  }else{
-	set context.relationship="" 
+	set context.relationship=" " 
  }
  
  set context.insRelationship=request.GetValueAt("IN1grp(1).IN1:InsuredsRelationshipToPatien.Identifier")
@@ -378,11 +418,11 @@ BPL Definition</Description>
     		set context.gender=retVal
     	}else{
 	    	$$$TRACE("Value of Gender from IDX(NV) message:"_context.gender_" is not defined in the lookup table.")
-	    	set context.gender=""
+	    	set context.gender=" "
 		}
  	 
  }else{
-	set context.gender="" 
+	set context.gender=" " 
  }
  
  set context.GuarGender=request.GetValueAt("GT1(1):9")
@@ -394,10 +434,10 @@ BPL Definition</Description>
     		set context.GuarGender=retVal
     	}else{
 	    	$$$TRACE("Value of Guarantor Gender from IDX(NV) message:"_context.gender_" is not defined in the lookup table.")
-	    	set context.GuarGender=""
+	    	set context.GuarGender=" "
 		}
  }else{
-	set context.GuarGender="" 
+	set context.GuarGender=" " 
  }
  
  set context.nk1Sex=request.GetValueAt("NK1(1):AdministrativeSex")
@@ -409,10 +449,10 @@ BPL Definition</Description>
     		set context.nk1Sex=retVal
     	}else{
 	    	$$$TRACE("Value of NextOfKin Gender from IDX(NV) message:"_context.nk1Sex_" is not defined in the lookup table.")
-	    	set context.nk1Sex=""
+	    	set context.nk1Sex=" "
 		} 	 
  }else{
-	set context.nk1Sex="" 
+	set context.nk1Sex=" " 
  }
  ]]]]><![CDATA[>
 </code>
@@ -675,11 +715,11 @@ BPL Definition</Description>
  	if ((retVal '="") && (retVal '="Unknown")){
 	 			set context.language=retVal
     	}else{
-	    	set context.language=""
+	    	set context.language=" "
 		}
  	 
  }else{
-	set context.language="" 
+	set context.language=" " 
  }
  ]]]]><![CDATA[>
 </code>
@@ -703,61 +743,19 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
-<code name='Call Operation GetSystemParametersTargetConfigName' xpos='200' ypos='550' >
+<code name='CallOperationToGetAdtStoredProcedureParamsAndTypes' xpos='200' ypos='550' >
 <![CDATA[  
   set procNm = ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcName).%New()
   set procNm.Name = context.idxAdtStoredProcName
-  set tStatus=process.SendRequestSync(context.opGetSystemParametersTargetConfigName, procNm ,.response,20)
-
-  $$$TRACE("ret from Op-GetSystemParameters:" _ response)
-  set context.StoredProcParamsCollection = response
-   $$$TRACE("Count from GetSystemParametersTarget:" _ context.StoredProcParamsCollection.MyProp.Count())
- 
+  set tStatus=process.SendRequestSync(context.opGetSystemParametersTargetConfigName, procNm ,.response)
+  if ($$$ISOK(tStatus)){
+	  $$$TRACE("ret from Op-TouchWorks-Jdbc-GETSYSTEMPARAMETERS: " _ response)
+ 	  set context.StoredProcParamsCollection = response
+      $$$TRACE("Count from GetSystemParametersTarget:" _ context.StoredProcParamsCollection.MyProp.Count()) 
+  }else{
+	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the "_context.opGetSystemParametersTargetConfigName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+  }  
  ]]]]><![CDATA[>
-</code>
-
-<code name='DatabaseLookups - Adt ProviderId' xpos='335' ypos='2800' >
-<annotation><![CDATA[Database Lookups]]]]><![CDATA[></annotation>
-<![CDATA[
-      set isDbLookup = "0"
-      set entryCodeIDForProvider = 0
-      set orgMrnForMerge = ""
-      set providerId = request.GetValueAt("PD1:PatientPrimaryFacility(1).IDNumber")
-      $$$TRACE("providerId from IDX HL7:[" _ providerId_"]" )
-      Set context.msgType =request.GetValueAt("MSH:9.2")
-      set mrgPriorPatientId = ""
-      if (context.msgType="A47"){
-      	set mrgPriorPatientId = request.GetValueAt("MRG(1):PriorPatientIdentifierList(1).IDNumber")
-      	$$$TRACE("Merge PriorPatientID from IDX(MRG-1):[" _mrgPriorPatientId_"]" )
-      }
-      set providerId = "42"
-      set mrgPriorPatientId = "1000002"
-      if (($L(providerId)>0) || ($L(mrgPriorPatientId)>0) ){
-	      set isDbLookup = "1"
-      }
-      
-      $$$TRACE(" $$$ isDbLookup :"_isDbLookup)
-      if (isDbLookup="1"){
-        set context.databaseLookupTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DatabaseLookupTargetConfigName",.pstatus)
- 		if ($$$ISOK(pstatus)){
- 			$$$TRACE("DatabaseLookupTargetConfigName: " _ context.databaseLookupTargetConfigName)
- 			set context.databasLookupRequest = ##class(IHC.ITF.Request.IdxDatabaseLookupRequest).%New()
- 			set context.databasLookupRequest.ProviderId = providerId
- 			set context.databasLookupRequest.MergePriorPatientId = mrgPriorPatientId
- 			set tStatus=process.SendRequestSync(context.databaseLookupTargetConfigName, context.databasLookupRequest ,.response,20)
-		    if ($$$ISOK(tStatus)){      			
-      			set entryCodeIDForProvider = response.EntryCodeIDForProviderId      			     
-     	        $$$TRACE("entryCodeIDForProvider: " _ entryCodeIDForProvider )
-     	        set orgMrnForMerge = response.OrgMrnForMerge      			     
-     	        $$$TRACE("OrgMrnForMerge: " _ orgMrnForMerge )
-		    }else{
-      			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the TouchWorks DB lookup") 
-    		}    		
- 		}else{
-	 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DatabaseLookupTargetConfigName found in the Ensemble settings")
- 		}
-      }  
-]]]]><![CDATA[>
 </code>
 
 
@@ -775,59 +773,118 @@ BPL Definition</Description>
   $$$TRACE(" PID4: "_pid4)
    set context.GetMrnsFromStoreProc.MyProp.GetAt(1).Value = pid3
    set context.GetMrnsFromStoreProc.MyProp.GetAt(2).Value = pid4
-   set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.GetMrnsFromStoreProc,.response,20)  
-   set context.TouchWorksResponse = response
-   $$$TRACE("Out Param1 (EMRN) : "_context.TouchWorksResponse.outList.GetAt(1))
-   $$$TRACE("Out Param2 : (OMRN) : "_context.TouchWorksResponse.outList.GetAt(2))
-   set context.OMRGMrn = context.TouchWorksResponse.outList.GetAt(2)
-   set context.EMRGMrn = context.TouchWorksResponse.outList.GetAt(1)
-   $$$TRACE("RETURNVALUE(MRNs) : "_context.TouchWorksResponse.RETURNVALUE)
+   set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.GetMrnsFromStoreProc,.response)  
+   if ($$$ISOK(tStatus)){
+   		set context.TouchWorksResponse = response
+   		$$$TRACE("Out Param1 (EMRN) : "_context.TouchWorksResponse.outList.GetAt(1))
+   		$$$TRACE("Out Param2 : (OMRN) : "_context.TouchWorksResponse.outList.GetAt(2))
+   		set context.OMRGMrn = context.TouchWorksResponse.outList.GetAt(2)
+   		set context.EMRGMrn = context.TouchWorksResponse.outList.GetAt(1)
+   		$$$TRACE("RETURNVALUE(MRNs) : "_context.TouchWorksResponse.RETURNVALUE)
+   }else{
+	   set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the "_context.targetList.GetAt(1)_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+   }
    
 ]]]]><![CDATA[>
 </code>
-
-
 <transform name='TransformDTL' class='IHC.ITF.Transform.Dtl.IdxAdtHl7ToTouchWorks' source='request' target='context.StoredProcParamsCollection' xpos='335' ypos='3000' >
 <annotation><![CDATA[translates NV idx Hl7 to TouchWorks Request]]]]><![CDATA[></annotation>
 </transform>
-<code name='Print StoredProcParamsCollection' xpos='200' ypos='1050' >
-<![CDATA[ 
- $$$TRACE("Count from Op:" _ context.StoredProcParamsCollection.MyProp.Count())
- For ind = 1:1:context.StoredProcParamsCollection.MyProp.Count(){
-  //  $$$TRACE(ind _ ". MyProp: " _ context.StoredProcParamsCollection.MyProp.GetAt(ind).Name _ " / " _ context.StoredProcParamsCollection.MyProp.GetAt(ind).Type _ "= " _ context.StoredProcParamsCollection.MyProp.GetAt(ind).Value)
- }
-]]]]><![CDATA[>
-</code>
 
 <code name='Call Operation to store the data' xpos='200' ypos='1150' >
 <![CDATA[	
-  set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.StoredProcParamsCollection,.response,20)  
-  set context.TouchWorksResponse = response
-  $$$TRACE("RETURNVALUE from " _ context.targetList.GetAt(1) _ ": " _ context.TouchWorksResponse.RETURNVALUE)
+  set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.StoredProcParamsCollection,.response) 
+  if ($$$ISOK(tStatus)){ 
+  	set context.TouchWorksResponse = response
+  	$$$TRACE("RETURNVALUE from " _ context.targetList.GetAt(1) _ ": " _ context.TouchWorksResponse.RETURNVALUE)
+  }else{
+	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the "_context.targetList.GetAt(1)_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+  }  
 ]]]]><![CDATA[>
 </code>
 
+
 <if name='Error' condition='context.TouchWorksResponse.RETURNVALUE &apos;= 0' xpos='200' ypos='1250' xend='200' yend='1600' >
 <true>
-<code name='ReconcilerTargetConfigName' xpos='335' ypos='1400' >
-<![CDATA[  
- set context.errObj = ##class(IHC.ITF.ITFCOMMON.DataStructure.InterfaceErrorEvent).%New()
- set context.errObj.MessageId = request.%Id() 
- set context.errObj.ErrorCode = context.TouchWorksResponse.RETURNVALUE
- set context.errObj.InterfaceName = process.%ConfigName
- set context.errObj.SourceMessage = request.RawContent
- set context.errObj.TimeStamp = $ZDATETIME($ZTIMESTAMP,3,,9)
- set context.errObj.StoredProcParamsCollection = context.StoredProcParamsCollection ]]]]><![CDATA[>
+<code name='Send error' xpos='347' ypos='1406' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.InterfaceErrorHandler).ProcessError(process, context.TouchWorksResponse.RETURNVALUE, context.errorHandlerTargetConfigName, context.StoredProcParamsCollection)]]]]><![CDATA[>
 </code>
-<call name='InterfaceErrorHandler' target='@context.errorHandlerTargetConfigName' async='1' xpos='335' ypos='1500' >
-<request type='Ens.Request' >
-<assign property="callrequest" value="context.errObj" action="set" />
-</request>
-</call>
 </true>
 </if>
+<code name='RESETERROR' xpos='200' ypos='950' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
 
 
+</true>
+<false>
+
+  <code name='OperationMerges' xpos='200' ypos='550' >
+<![CDATA[  
+  $$$TRACE(" $$$ isMergeMsgType :"_context.isMergeMsgType_ " Calling TW Merges...")
+   set procNm = ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcName).%New()
+   set procNm.Name = "Works.dbo.FilePatientMerge_CMS"
+   set tStatus=process.SendRequestSync(context.opGetSystemParametersTargetConfigName, procNm ,.response)
+   if ($$$ISOK(tStatus)){ 
+   		$$$TRACE("ret from Op-GetSystemParameters(Merges):" _ response)
+   		set context.mergesStoreProc = response
+   		$$$TRACE("Count from GetSystemParametersTarget(Merges):" _ context.mergesStoreProc.MyProp.Count())
+   }else{
+	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the "_context.opGetSystemParametersTargetConfigName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+  }
+   set pid3 = request.GetValueAt("PID:PatientIdentifierList(1).IDNumber")
+   set pid4 = request.GetValueAt("PID:AlternatePatientIDPID(1).IDNumber")
+   $$$TRACE(" PID3: "_pid3)
+   $$$TRACE(" PID4: "_pid4)
+   if (pid3=""){
+	   set NewPatientMRN = "XID"_pid4
+   }else{
+	   set NewPatientMRN = pid3
+   }
+   set OldPatientMRN = context.orgMrnForMerge
+   set OrganizationID = "3"
+   set OldPatientMRNStr = " "
+   set NewPatientMRNStr = " "
+   set OldPatientXIDStr = " "
+   set NewPatientXIDStr = " "
+   set Status = "0"
+   
+   set context.mergesStoreProc.MyProp.GetAt(1).Value = OldPatientMRN
+   set context.mergesStoreProc.MyProp.GetAt(2).Value = NewPatientMRN
+   set context.mergesStoreProc.MyProp.GetAt(3).Value = OrganizationID
+   set context.mergesStoreProc.MyProp.GetAt(4).Value = OldPatientMRNStr
+   set context.mergesStoreProc.MyProp.GetAt(5).Value = NewPatientMRNStr
+   set context.mergesStoreProc.MyProp.GetAt(6).Value = OldPatientXIDStr
+   set context.mergesStoreProc.MyProp.GetAt(7).Value = NewPatientXIDStr
+   set context.mergesStoreProc.MyProp.GetAt(8).Value = Status
+   
+   set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.mergesStoreProc,.response)  
+   if ($$$ISOK(tStatus)){
+   		set context.TouchWorksResponse = response
+   		$$$TRACE("Out Param1 (Status) : "_context.TouchWorksResponse.outList.GetAt(1))
+   		$$$TRACE("RETURNVALUE(Merges) : "_context.TouchWorksResponse.RETURNVALUE)  
+   }else{
+	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the "_context.targetList.GetAt(1)_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+   } 
+ 
+ ]]]]><![CDATA[>
+</code>
+  <if name='Error' condition='context.TouchWorksResponse.RETURNVALUE &apos;= 0' xpos='200' ypos='1250' xend='200' yend='1600' >
+<true>
+<code name='Send error' xpos='347' ypos='1406' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.InterfaceErrorHandler).ProcessError(process, context.TouchWorksResponse.RETURNVALUE, context.errorHandlerTargetConfigName, context.mergesStoreProc)]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<code name='RESETERROR' xpos='200' ypos='950' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+
+</false>
+
+</if>
 </true>
 </if>
 <faulthandlers>
