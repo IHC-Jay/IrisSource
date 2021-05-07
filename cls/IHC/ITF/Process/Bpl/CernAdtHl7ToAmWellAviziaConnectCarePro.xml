@@ -22,6 +22,13 @@ Processing ID : MSH-11, Set "P" for Production environment and "T"for Non-Prod e
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="DischargeDays">
+<Description>
+Discharge days to filter out on A08s</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="AllowedGenderValues">
 <Description>
 Allowed values for Gender. If not in allowed list of gender values, default gender value "Other" is mapped.</Description>
@@ -30,7 +37,7 @@ Allowed values for Gender. If not in allowed list of gender values, default gend
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,ProcessingId:Additional,AllowedGenderValues:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>DischargeDays:Additional,HddTargetConfigName:Additional,ProcessingId:Additional,AllowedGenderValues:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -83,8 +90,10 @@ BPL Definition</Description>
 
 <property name='AviziaEndPointPV131' type='%String' instantiate='0' initialexpression='""'/>
 <property name='priorPatLoc' type='%String' instantiate='0' initialexpression='""'/>
+<property name='dischargeDays' type='%String' instantiate='0' initialexpression='""'/>
 
 <property name='isTransferToA03' type='%String' instantiate='0' initialexpression='"0"'/>
+
 
 </context>
 <sequence xend='200' yend='3300' >
@@ -150,9 +159,41 @@ BPL Definition</Description>
    
  ]]]]><![CDATA[>
 </code>
+
+<code name='FilterOutUpdatesOnDischargePatients' xpos='470' ypos='1500' >
+<annotation><![CDATA[FilterOutUpdatesOnDischargePatients]]]]><![CDATA[></annotation>
+<![CDATA[  
+
+      set discharge = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DischargeDays",.pstatus)
+ if ($$$ISOK(pstatus) || (discharge '= "")){
+	 set context.dischargeDays = discharge
+ 	$$$TRACE("Discharge days " _ context.dischargeDays)
+ }else{	 
+ 	 $$$TRACE("Config setting dischargeDays not set. Using default value of "_context.dischargeDays)	 
+ }
+        
+      set extractDischargeDate = 0
+        Set context.msgType =request.GetValueAt("MSH:9.2")
+        $$$TRACE("Trigger Event: " _ context.msgType)
+      if (context.msgType="A08"){
+      	set dischargeDateTime = request.GetValueAt("PV1:45(1).1")
+      	if ($L(dischargeDateTime)> 7){
+      		set extractDischargeDate = $ZDTH($E(dischargeDateTime,1,8),8)
+      		$$$TRACE("*** extractDischargeDate: ***"_extractDischargeDate) 
+      	}
+      	set curDate = $ZDTH($ZDATE($HOROLOG,8),8)
+      	$$$TRACE("*** curDate: ***"_curDate)
+      	$$$TRACE("Diff (in days):"_ (curDate-extractDischargeDate))
+      	if ((curDate-extractDischargeDate) > context.dischargeDays){
+	      $$$TRACE("discharge date is more than 7 days. Filterout the records..")
+	      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.msgType, "Not Avizia allowed Event Type: ["_ context.msgType_"]. Skipping the record." )
+	  	} 
+      } 
+ ]]]]><![CDATA[>
+</code>
+
 <code name='check event type' xpos='470' ypos='1600' >
-<![CDATA[  Set context.msgType =request.GetValueAt("MSH:9.2")
-  $$$TRACE("Trigger Event: " _ context.msgType) 
+<![CDATA[  
   set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToAmWellAviziaConnectCarePro.AllowedEventTypes", context.msgType, .retVal )
 
   if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
@@ -166,6 +207,9 @@ BPL Definition</Description>
    
   ]]]]><![CDATA[>
 </code>
+
+
+	  
 
 <code name='ValidateAviziaRequiredFields' xpos='470' ypos='1500' >
 <annotation><![CDATA[ValidateRequiredFields]]]]><![CDATA[></annotation>
@@ -283,8 +327,8 @@ BPL Definition</Description>
 		         }else{
 			         if (context.msgType ="A02") {  
 			            $$$TRACE(" Patient Location PV1-3.1 [" _ context.pv131PatLocPointOfCare_"] is NOT in Adult/Ped domain set. ")
-						Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("Avizia - PV1-3 not defined in HDD."," Patient Location PV1-3.1 [" _ context.pv131PatLocPointOfCare_"] is NOT in Adult/Peda domain set. Converting Transfer to Discharge..",process.%ConfigName)
-					    do process.SendAlert(emailAlertRequest)
+						//Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("Avizia - PV1-3 not defined in HDD."," Patient Location PV1-3.1 [" _ context.pv131PatLocPointOfCare_"] is NOT in Adult/Peda domain set. Converting Transfer to Discharge..",process.%ConfigName)
+					    //do process.SendAlert(emailAlertRequest)
 					    
 			         	set context.priorPatLoc = request.GetValueAt("ZZ2:ZZ215")
 			         	$$$TRACE("Hdd isMember request(checking Peds or Adults Valueset) PV1-6.1: " _ context.priorPatLoc)
@@ -472,6 +516,9 @@ BPL Definition</Description>
 </Value>
 <Value name="3">
 <Value>AllowedGenderValues</Value>
+</Value>
+<Value name="4">
+<Value>DischargeDays</Value>
 </Value>
 </Data>
 </Storage>
