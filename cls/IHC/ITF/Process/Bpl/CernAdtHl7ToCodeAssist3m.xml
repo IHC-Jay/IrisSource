@@ -12,9 +12,44 @@ Translation from iCentra LegacyPlus ADT to the 3M CodeAssist System</Description
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask,PV1TwentyAllowedFinClass:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,PV1TwentyAllowedFinClass:Additional,HddTargetConfigName:Additional</Default>
 </Parameter>
+
+<Method name="hddWork">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>process:IHC.ITF.Process.Bpl.CernAdtHl7ToCodeAssist3m,hddTargetConfigName:%String,hddNcid:%String,hddContext:%String,hl7Detail:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    $$$TRACE("HDD work for NCID to REP starting now")
+	set HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
+	do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(HddRepRequest, hddNcid, hddContext, hl7Detail)
+	$$$TRACE("Created HDD request object for: " _hl7Detail_ ". For NCID: "_hddNcid _" Using HddTargetConfigName: " _hddTargetConfigName_ " Using HDD Context: " _hddContext)
+	$$$TRACE("Actually sending the HDD REQUEST from local class method...")
+	set tStatus=process.SendRequestSync(hddTargetConfigName,HddRepRequest,.hddResponse)
+	if ('tStatus){
+	    set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure")
+    }else{
+		
+		$$$TRACE("Actually received HDD RESPONSE")
+		set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
+		if (hddObj '= ""){
+				set hddreturnrep = hddObj.Rep
+				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddObj.NCID_ ", HDD Context: " _hddContext )
+				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
+		}else{
+				//throw error
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected Error - no or null value returned from HDD Call!")
+		}	
+	}
+	quit hddreturnrep
+]]></Implementation>
+</Method>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
@@ -23,6 +58,9 @@ Translation from iCentra LegacyPlus ADT to the 3M CodeAssist System</Description
 <Subscript>"CernAdtHl7ToCodeAssist3m"</Subscript>
 <Value name="1">
 <Value>PV1TwentyAllowedFinClass</Value>
+</Value>
+<Value name="2">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -38,6 +76,22 @@ BPL Definition</Description>
 <property name='empiNumber' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pointOfCareUnit' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='hddncidtorepcontext' type='%String' initialexpression='526002809' instantiate='0' >
+<annotation><![CDATA[iCentra Display (15 char) ex. SFDE_Derm]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='150' />
 </parameters>
 </property>
 <property name='MSH92' type='%String' instantiate='0' >
@@ -77,9 +131,17 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='500' />
 </parameters>
 </property>
+<property name='OBXIndex' type='%Integer' instantiate='0' />
+<property name='GOTCPMCLINIC' type='%String' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[0 does not send to 3M
+1 does send to 3M]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2200' >
-<scope name='StartBPLScopeCodeAssist3M' xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2800' >
+<scope name='StartBPLScopeCodeAssist3M' xpos='200' ypos='250' xend='200' yend='2700' >
 <annotation><![CDATA[Entering the scope of the BPL for error handling for the CodeAssist3M ADT translation]]]]><![CDATA[></annotation>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Log out that BPL code is started for CodeAssist3M]]]]><![CDATA[></annotation>
@@ -121,7 +183,33 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<code name='SetAllowedFinClass' xpos='200' ypos='850' >
+<code name='HddTargetConfigName Property' xpos='200' ypos='850' >
+<annotation><![CDATA[Verify and Get HddTargetConfigName Property from component property settings]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName",.configValue)
+
+ $$$TRACE("PSTATUS is: "_pstatus)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   $$$TRACE("HddTargetConfigName check error: " _pstatus)
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get HDDTargetConfigName from property settings and it is required to do any HDD calls!")
+ }
+ else
+ {
+ 	$$$TRACE("Found Property HddTargetConfigName, set value is: " _configValue)
+ 	 set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+     if ($$$ISOK(pstatus)){
+ 	     $$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+     }else{
+         Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get HDDTargetConfigName from property settings and it is required to do any HDD calls!")
+     }
+ 	
+ }
+  
+]]]]><![CDATA[>
+</code>
+<code name='SetAllowedFinClass' xpos='200' ypos='950' >
 <annotation><![CDATA[Setting Allowed Rooms Table]]]]><![CDATA[></annotation>
 <![CDATA[ 
  set configValue = ""
@@ -134,7 +222,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='CheckLookUpTable' xpos='200' ypos='950' >
+<code name='CheckLookUpTable' xpos='200' ypos='1050' >
 <annotation><![CDATA[Verify Lookup Table Exists]]]]><![CDATA[></annotation>
 <![CDATA[ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.AllowedFinClass)
   if (retVal = 0){
@@ -147,7 +235,7 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<code name='GetMSH_10_MsgControlID' xpos='200' ypos='1050' >
+<code name='GetMSH_10_MsgControlID' xpos='200' ypos='1150' >
 <annotation><![CDATA[Get MSH-10 Message Control ID]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting MSH:MessageControlID - MSH-10 value. ")
   set context.MSH10 = request.GetValueAt("MSH:MessageControlID")
@@ -155,7 +243,7 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<code name='GetMSH4FacilityValidateFacility' xpos='200' ypos='1150' >
+<code name='GetMSH4FacilityValidateFacility' xpos='200' ypos='1250' >
 <annotation><![CDATA[Get MSH-4 value and ensure facility value is valid numeric value]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate msh4Facility(MSH-4)...") 
  Set context.msh4Facility=request.GetValueAt("MSH:SendingFacility.namespaceID")
@@ -166,7 +254,7 @@ BPL Definition</Description>
 	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid msh4Facility number: ["_context.msh4Facility_"]. ***HL7 MsgControlID:" _ context.MSH10)
 	   }]]]]><![CDATA[>
 </code>
-<code name='NotAllowedEventsSetting' xpos='200' ypos='1250' >
+<code name='NotAllowedEventsSetting' xpos='200' ypos='1350' >
 <annotation><![CDATA[NotAllowedEvents Setting]]]]><![CDATA[></annotation>
 <![CDATA[
  if ($GET(^IHC.CernAdtHl7ToCodeAssist3m("NotAllowedEvents"))'=""){
@@ -176,7 +264,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetMSH_9_2ValidateEvent' xpos='200' ypos='1350' >
+<code name='GetMSH_9_2ValidateEvent' xpos='200' ypos='1450' >
 <annotation><![CDATA[Get MSH_9_2 Trigger Event Validate Event against NotAllowedEvents setting]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting message type")
   set context.MSH92 = request.GetValueAt("MSH:MessageType.triggerevent")
@@ -193,7 +281,7 @@ BPL Definition</Description>
   $$$TRACE("Finished checking for allowed MSH-9.2 Events!!!!")
   ]]]]><![CDATA[>
 </code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1450' >
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1550' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate EMPI PID-3.1...") 
  Set context.empiNumber=request.GetValueAt("PID:PatientIdentifierList(1).ID")
@@ -207,22 +295,24 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1550' >
-<annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
- Set pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
- $$$TRACE("PID-18.1 Account/Encounter (Cerner FIN) number:  " _pid18)
- $$$TRACE("$ISVALIDNUM(pid18) is: "_$ISVALIDNUM(pid18))
- if ($ISVALIDNUM(pid18)=1){	  
-	  $$$TRACE("Account/Encounter (Cerner FIN) number is a VALID number...")
-	  set context.finPID18 = pid18
- }else{
-	 $$$TRACE("Account/Encounter (Cerner FIN) number is NOT a VALID number ")
-	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message has invalid or missing Account/Encounter (Cerner FIN) number: ["_pid18_"].   ****HL7 MessageControlID: " _ context.MSH10)
- }
+<code name='GetPV1EightTeenAndValidate' xpos='200' ypos='1650' >
+<annotation><![CDATA[Get PV1-18 From Z119PatientTypeNcid
+and Validate it]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Get PV1-18 and Validate it...") 
+ Set pv1PatientType=request.GetValueAt("ZZ1:ZZ119PatientTypeNcid")
+ $$$TRACE("pv1PatientType: " _ pv1PatientType) 
+  if ($LISTFIND($GET(^IHC.CernAdtHl7ToCodeAssist3m("PV1PatientTypeAllowed")),pv1PatientType)>0) {
+	  $$$TRACE("Patient Type is allowed.")
+       
+  }else{
+	  $$$TRACE("Found a PV1-18 Patient Type that is not allowed. Found:"_pv1PatientType)
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a non-allowed Patient Type. Skipping Record! ****")
+	  
+	  
+  }
 ]]]]><![CDATA[>
 </code>
-<code name='GetPV1TwentyAndValidate' xpos='200' ypos='1580' >
+<code name='GetPV1TwentyAndValidate' xpos='200' ypos='1750' >
 <annotation><![CDATA[Get PV1-20 iCentra FIN Class and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting PV1-20 Financial Class - iCentra FINANCIAL (FIN) class...")
  Set pv1Twenty=request.GetValueAt("PV1:FinancialClass(1).FinancialClass")
@@ -249,21 +339,113 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCodeAssist3m' source='request' target='response' xpos='200' ypos='1650' />
-<foreach name='Send To Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1750' xend='200' yend='350' >
+<foreach name='Work OBX Group' property='request.{OBX()}' key='context.OBXIndex' xpos='200' ypos='1850' xend='200' yend='350' >
+<annotation><![CDATA[Find CPA or CPM in OBX]]]]><![CDATA[></annotation>
+<code name='CheckOBXThree' xpos='200' ypos='250' >
+<annotation><![CDATA[Check OBC-3 for CPM OR CPM]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Getting OBX-3")
+ set obx3=request.GetValueAt("OBX("_context.OBXIndex_"):ObservationIdentifier")
+ $$$TRACE("OBX-3 is: "_obx3)
+ 
+ if (obx3 = "CPA_OR_CPM"){
+   set obx5=request.GetValueAt("OBX("_context.OBXIndex_"):ObservationValue(1)")
+   $$$TRACE("OBX-5 is: "_obx5)
+   if (obx5="CPM"){
+      set context.GOTCPMCLINIC = "1"
+      $$$TRACE("Found CPM Clinic - Sending to 3M")
+      
+   
+   }else{
+   
+     set context.GOTCPMCLINIC = "0"
+     $$$TRACE("Did Not Found CPM Clinic - Not Sending to 3M. Found OBX-5: "_obx5)
+   
+   }
+   break
+ 
+ }else{
+ 
+    $$$TRACE("Did Not Found CPM Clinic - Not Sending to 3M")
+ 
+ }]]]]><![CDATA[>
+</code>
+</foreach>
+<trace name='BackFromWorkingOBX' value='"BackFromWorkingOBX"' xpos='200' ypos='1950' />
+<code name='FilterInCPMClinics' xpos='200' ypos='2050' >
+<annotation><![CDATA[check context.GOTCPMCLINIC to see it is "1"]]]]><![CDATA[></annotation>
+<![CDATA[ if (context.GOTCPMCLINIC="1"){
+     $$$TRACE("Sending CPM Clinic to 3M")
+ 
+ }else{
+     $$$TRACE("Not Sending ADT to 3M")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a non-CPM Clinic ADT. Not Sending to 3M. Skipping Record! ****")
+
+ 
+ 
+ 
+ } ]]]]><![CDATA[>
+</code>
+<code name='WorkPV1ThreePocUnitFromZZ1' xpos='200' ypos='2150' >
+<annotation><![CDATA[Get PV1-3.1 Point of Care Unit and do HDD lookup from  ZZ1:ZZ114PointOfCareNcid]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ $$$TRACE("Get ZZ1:ZZ114PointOfCareNcid")
+ Set pv1ThreePOC=request.GetValueAt("ZZ1:ZZ114PointOfCareNcid")
+ $$$TRACE("pv1ThreePOC " _ pv1ThreePOC) 
+  set Ncid = pv1ThreePOC 
+  set HL7SpecValue= "PV1:AssignedPatientLocation.pointofcare - iCentra Patient POC Unit from ZZ1:ZZ114PointOfCareNcid"
+ if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
+    
+    $$$TRACE("Set values are: Ncid: " _ Ncid _ ". Hl7 Specific Value: " _HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+    // call local HDD class Method
+    $$$TRACE("Calling local HDD class methond.")
+    
+    Try {
+    	set hddreturnrep=##class(IHC.ITF.Process.Bpl.CernAdtHl7ToCodeAssist3m).hddWork(process,context.hddTargetConfigName,Ncid,context.hddncidtorepcontext,HL7SpecValue)
+    	// work return value
+        if ($LENGTH(hddreturnrep)>0){
+	         $$$TRACE("Rep from local HDD calls call: "_hddreturnrep)
+             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
+        }else{     
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup.")  
+        }  
+    } Catch eException {
+	 	Set exceptStatus = eException.AsStatus()
+	 	$$$LOGSTATUS(exceptStatus)
+	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+    }
+    
+     
+
+   //After HDD call set context specific variable to use in setting DTL
+   set context.pointOfCareUnit = hddreturnrep
+   
+
+
+
+ }else {
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Unable to get location value for working PV1-3 POC Unitvalue for the clinic. No valid NCID found in: PV1:AssignedPatientLocation.pointofcare. Found - PHI: ["_Ncid_"]***HL7 Message Control ID: "_context.msh10MsgControlID)
+   
+ }
+
+ 
+ 
+ ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCodeAssist3m' source='request' target='response' xpos='200' ypos='2250' />
+<foreach name='Send To Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='2350' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='Reset error values' xpos='200' ypos='1850' >
+<code name='Reset error values' xpos='200' ypos='2450' >
 <![CDATA[ $$$TRACE("Resetting error count")
  set context.errorStatus="" 
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='CatchAll' xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall name='CatchAll' xpos='200' ypos='2550' xend='200' yend='350' >
 <annotation><![CDATA[Get and set error status]]]]><![CDATA[></annotation>
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
