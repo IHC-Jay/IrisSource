@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.DomCernAdtHl7ToSunquest">
+<Description>
+BPL for ADT Sunquest. It subscribes to Legacy translator and converts it to Sunquest specific.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>64063,48068.606456</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2600' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' >
+</property>
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' >
+</property>
+<property name='configValue' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='validationSetting' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' >
+</property>
+<property name='preAdmCd' type='%String' initialexpression='"PP,PR,PS,PA"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='dummyRoomEvents' type='%String' initialexpression='"A01,A05"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='dummyRoomName' type='%String' initialexpression='"RSVP"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='checkDocList' type='%String' initialexpression='"8888,9090,10999"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='targetFacility' type='%String' instantiate='0' >
+</property>
+<property name='sendingFacility' type='%String' instantiate='0' >
+</property>
+<property name='broadCastFacilityList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='300' />
+</parameters>
+</property>
+<property name='bcFacIndex' type='%Integer' initialexpression='1' instantiate='0' >
+</property>
+<property name='updatedResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='35000' />
+</parameters>
+</property>
+<property name='broadCastFacility' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='bcFacId' type='%Integer' instantiate='0' >
+</property>
+<property name='newResponse' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2250' >
+<scope xpos='200' ypos='250' xend='200' yend='2150' >
+<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
+<code name='Initialization &amp; Validation' xpos='200' ypos='550' >
+<annotation><![CDATA[initialize the bp using the configuration and validate the rules]]]]><![CDATA[></annotation>
+<![CDATA[ //Max Errors
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+
+ //ReplyCodeActions validation
+ set context.replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.replyCodeActions= "")) {
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get replyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ context.replyCodeActions)
+ }
+ 
+ //TargetConfigNames validation
+ set context.targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pStatus)
+ if ( ($$$ISERR(pstatus)) || (context.targetConfigNames= "") ) {
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ context.targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
+ }
+ 
+ //CheckForLookupTables
+ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer")
+ if (retVal = 0){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer not exists")  
+ }
+ 
+ //Validate the message against schema
+ set context.validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.validationSetting = "")) {
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get validationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ context.validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSetting)
+	if (pStatus'=$$$OK) {
+	    set context.isValidationPassed=0
+	    set context.errorStatus=pStatus
+	    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Message Validation failed using"_ context.validationSetting _" .")
+	}
+ } 
+ 
+ //Filter message if PID-3.1 is empty
+ set pid3 = request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ if (pid3 ="") {
+     $$$TRACE("PID-3.1 is empty, so skip message")
+     set context.isValidationPassed=0
+     set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-3 is empty. Skipping the record.")
+ }
+ 
+ //Filter message if MSH-4 is '122' and PV1-3.2 is 'CRLR' 
+ set msh4 = request.GetValueAt("MSH:SendingFacility.namespaceID") 
+ set pv132Room = request.GetValueAt("PV1:AssignedPatientLocation.room") 
+ set outofnetworkvalue = request.GetValueAt("ZZZ(2):37OutOfNetworkFlag")
+
+ $$$TRACE("outofnetworkvalue : "_outofnetworkvalue)
+
+ if ( (msh4 = "122") && (pv132Room = "CRLR") ) {
+     $$$TRACE("MSH-4 is 122 & PV1-3.2 is CRLR, so skip message")
+     set context.isValidationPassed=0
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-4 is 122 & PV1-3.2 is CRLR. Skipping the record.")
+ }
+ 
+ //Filter message if MSH-9.2 is 'A31' 
+ set msh92 = request.GetValueAt("MSH:9.2")  
+ if ( msh92 = "A31" ) {
+     $$$TRACE("MSH-9.2 is A31, so skip message")
+     set context.isValidationPassed=0
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "MSH-9.2 is A31. Skipping the record.")
+ }]]]]><![CDATA[>
+</code>
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='650' xend='200' yend='1900' >
+<true>
+<if name='isOutOfNetwork' condition='request.GetValueAt("ZZZ(2):37OutOfNetworkFlag") = "1"' xpos='335' ypos='800' xend='335' yend='1050' >
+<true>
+<code name='StoreOldLocationToCacheTable' xpos='470' ypos='950' >
+<![CDATA[ Set FinNo =  request.GetValueAt("PID:PatientAccountNumber")
+ Set OriginalLocation = request.GetValueAt("PV1:AssignedPatientLocation.pointofcare")
+ Set EmpiNo = request.GetValueAt("PID:PatientIdentifierList(1).ID")
+ $$$TRACE("EmpiNo : "_EmpiNo)
+ $$$TRACE("Outofnetwork value is 1")
+ if ( FinNo = "" ) || ( OriginalLocation = "" )
+ {
+	$$$TRACE("Fin Number or Location is empty. Doing nothing")
+ }
+ else
+ {
+	 set isExists = ##class(IHC.ITF.Process.Bpl.StoreOriginalPatientLocation).%ExistsId(FinNo)
+	 
+	 if 'isExists 
+	 {
+		 $$$TRACE("value does not exist")
+		 set LocationObj =  ##class(IHC.ITF.Process.Bpl.StoreOriginalPatientLocation).%New()
+		 
+		 set LocationObj.FinNumber = FinNo
+		 set LocationObj.EMPI = EmpiNo
+		 set LocationObj.Location = OriginalLocation
+		 
+		 set clock=$NOW()  //Get current Date
+		 set LocationObj.DateTime = $ZDATETIME(clock,1,1,2)
+		 Do LocationObj.%Save()
+	 
+	 }
+	 else
+	 {
+		 $$$TRACE("value exist")
+		 set LocationObj =  ##class(IHC.ITF.Process.Bpl.StoreOriginalPatientLocation).%OpenId(FinNo)
+		 $$$TRACE("Location from Table :"_LocationObj.Location)
+		 
+		 if LocationObj.Location '= OriginalLocation
+		 {
+			set LocationObj.Location = OriginalLocation
+		 	set clock=$NOW()  //Get current Date
+		 	set LocationObj.DateTime = $ZDATETIME(clock,1,1,2)
+		 	$$$TRACE("Timestamp from Table :"_LocationObj.DateTime)
+		 	Do LocationObj.%Save()
+		 }
+		 else
+		 {
+			$$$TRACE("No table update needed as Location did not change")	 
+		 }
+		 
+		 
+	 }
+	
+ }]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='1150' >
+<annotation><![CDATA[translate Cerner Legacy ADT to Sunquest ADT format]]]]><![CDATA[></annotation>
+</transform>
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1250' />
+<code name='getBroadcastFacilities' xpos='335' ypos='1350' >
+<annotation><![CDATA[Facility names from Loopup Table]]]]><![CDATA[></annotation>
+<![CDATA[
+ set context.sendingFacility = request.GetValueAt("MSH:SendingFacility.namespaceID") 
+ $$$TRACE("Initial Facility Id: "_context.sendingFacility)
+    
+ set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer", context.sendingFacility, .retVal )	        
+ if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+     //Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Invalid Facility:["_context.sendingFacility_"]. Skipping the record.")	  	      	
+     set context.broadCastFacility = ""
+     $$$TRACE("Value of BroadCastFacilities: "_context.sendingFacility )
+   }else{
+     set context.broadCastFacility = retVal
+     set list = $LISTFROMSTRING(context.broadCastFacility, ",")      
+     for index=1:1:$LISTLENGTH(list){	  
+         set st = context.broadCastFacilityList.Insert($LIST(list,index))
+     }  
+     $$$TRACE("Value of BroadCastFacilities: "_context.broadCastFacility )
+     $$$TRACE("Value of MSH-9.2: "_ response.GetValueAt("MSH:9.2"))
+     $$$TRACE("Value of PV1-18.1 "_response.GetValueAt("PV1:18.1") )
+ }]]]]><![CDATA[>
+</code>
+<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1450' xend='335' yend='1700' >
+<annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
+<true>
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1600' xend='200' yend='700' >
+<code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
+<![CDATA[ set context.bcFacId = context.broadCastFacilityList.GetAt(context.bcFacIndex)
+ $$$TRACE(" Sending Cerner Facility to targetFacility: "_context.bcFacId )    
+ Do response.SetValueAt(context.bcFacId, "MSH:SendingFacility.namespaceID")
+ Do response.SetValueAt(context.bcFacId, "MSH:ReceivingFacility.namespaceID")
+ Do response.SetValueAt(context.bcFacId, "PID:PatientIdentifierList(1).assigningauthority")
+ 
+ //Filter message if MSH-4 is '122' and PV1-3.2 is 'CRLR' 
+ set pv132Room = request.GetValueAt("PV1:AssignedPatientLocation.room") 
+ if ( (context.bcFacId = "122") && (pv132Room = "CRLR") ) {
+     $$$LOGINFO("MSH-4 is <122> & PV1-3.2 is <CRLR>, so skip message")
+     set context.isValidationPassed=0     
+ } else {
+     set context.isValidationPassed=1
+ }
+ ]]]]><![CDATA[>
+</code>
+<if name='isValid' condition='context.isValidationPassed' xpos='200' ypos='350' xend='200' yend='600' >
+<true>
+<foreach name='Send To Each Broadcast Fac' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='500' xend='200' yend='800' >
+<switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
+<code name='Send 2 Msgs' xpos='470' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A01", "MSH:9.2")
+ do context.newResponse.SetValueAt("A01", "EVN:1")
+]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A01' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; ((response.GetValueAt("PV1:18.1") = "O") || (response.GetValueAt("PV1:18.1") = "E"))' name='A04 case' >
+<code name='Send 2 Msgs' xpos='740' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A04", "MSH:9.2")
+ do context.newResponse.SetValueAt("A04", "EVN:1")
+]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A04' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<default>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</default>
+</switch>
+</foreach>
+</true>
+</if>
+</foreach>
+</true>
+<false>
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1600' xend='200' yend='800' >
+<switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
+<code name='Send 2 Msgs' xpos='470' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A01", "MSH:9.2")
+ do context.newResponse.SetValueAt("A01", "EVN:1")]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A01' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='470' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; ((response.GetValueAt("PV1:18.1") = "O") || (response.GetValueAt("PV1:18.1") = "E"))' name='A04 case' >
+<code name='Send 2 Msgs' xpos='740' ypos='400' >
+<![CDATA[ set context.newResponse = response.%ConstructClone(1)
+ do context.newResponse.SetValueAt("A04", "MSH:9.2")
+ do context.newResponse.SetValueAt("A04", "EVN:1")]]]]><![CDATA[>
+</code>
+<call name='CallTargetConfigNames A04' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='500' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.newResponse" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='740' ypos='600' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</case>
+<default>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='0' xpos='200' ypos='400' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</default>
+</switch>
+</foreach>
+</false>
+</if>
+<code name='Reset Error' xpos='335' ypos='1800' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='2000' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
