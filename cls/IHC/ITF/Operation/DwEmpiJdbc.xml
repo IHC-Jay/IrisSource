@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.DwEmpiJdbc">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>65883,41749.208163</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="AddOrUpdate">
+<FormalSpec>pRequest:Ens.StringContainer,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$TRACE("Inside Select Method")  
+  #dim tSC As %Status=$$$OK
+  set lpi=pRequest.StringValue
+  $$$TRACE("LPI:"_lpi)
+  set pResponse = ##class(Ens.StringResponse).%New()
+  set pResponse.StringValue=""
+  // So this get all the records
+  set pRes = ##class(EnsLib.SQL.Snapshot).%New()
+  set pRes.MaxRowsToGet = -1
+  try {
+	set tSQL = "SELECT REL_CREATED_DT FROM empi.dbo.LU_EMPI WHERE LPI=?" 
+	//set tSQL = "SELECT format(REL_CREATED_DT,'yyyy-MM-dd hh:mm:ss') FROM empi.dbo.LU_EMPI WHERE LPI=?" 
+	set ioParms=1
+	set ioParms(1)=lpi
+	set ioParms(1,"SqlType")=12
+	
+ 	set tSC = ..Adapter.ExecuteQueryParmArray(.pRes,tSQL,.ioParms)
+ 	
+ 	 	
+	if tSC = 1
+	{
+		If ($ISOBJECT(pRes)&&(pRes.RowCount>0)){
+			$$$TRACE("Retrieve REL_CREATED_DT from the Response")
+			set rowNum=pRes.Next(.sc)
+			$$$TRACE("Error Status"_sc)
+			if ($$$ISERR(sc)){
+				$$$TRACE("Error Reading result set")
+				set tSC=$$$ERROR("Error Reading Result set")
+			}else{
+				set ldt=pRes.Get("REL_CREATED_DT")
+		        $$$TRACE("Last Created_DT:"_ldt)
+				set pResponse.StringValue = ldt
+			}
+		}
+	}
+	else
+	{
+		$$$TRACE("Failed to execute Query:"_tSQL)	
+	}
+  } 
+  Catch eException {
+       $$$TRACE("Inside Catch")
+ 	   set errTxt = $System.Status.GetErrorText(%objlasterror)
+       $$$LOGERROR("Exception when check add/update LU_EMPI table: " _errTxt _ ", Excp:" _ eException.Name _ " " _ eException.Code _ " " _ eException.Location_" for Lpi: "_lpi)
+       $$$LOGERROR($ZERROR)
+       set tSC=0
+  }
+	
+  Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="UpdateDwEmpi">
+<FormalSpec>pRequest:IHC.ITF.DataStructure.DwEmpi,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+  $$$TRACE("Inside Update Method")
+	//quit $$$OK
+	
+  d ..Adapter.SetAutoCommit(0)
+	
+  #dim tSC As %Status=$$$OK
+  Set pResponse=##class(Ens.StringContainer).%New()
+  set pResponse.StringValue="No of Rows affected"
+  Set empiRequest=##class(Ens.StringContainer).%New()
+  set empiRequest.StringValue=pRequest.Lpi
+  try {
+	set tSc = ..AddOrUpdate(empiRequest, .response)
+	if (('$ISOBJECT(response)) || (response.StringValue="")){
+		set tSC=..AddEmpi(pRequest,.pResponse)
+	}
+	If $$$ISOK(tSC){
+		set lastDt=response.StringValue
+		$$$TRACE("lastDt: "_lastDt_" NewDT: "_pRequest.processedDtTm)
+		if $ZDATETIMEH(pRequest.processedDtTm,3,,3) < $ZDATETIMEH(lastDt_"00",3,,3)  {
+		  if pRequest.Empi=pRequest.oldEmpi {
+		    set tSC=..UpdateEmpi(pRequest,.pResponse)
+		  }
+		  else {
+		    set tSC=..UpdateLpi(pRequest,.pResponse)
+		  }
+		}
+		Else {
+		  $$$TRACE("Data is not new, Skip update...")
+		}
+	}
+  } 
+  Catch eException {
+       $$$TRACE("Inside Catch")
+ 	   set errTxt = $System.Status.GetErrorText(%objlasterror)
+       $$$LOGERROR("Exception when update empi.dbo.lu_empi table: " _errTxt _ ", Excp:" _ eException.Name _ " " _ eException.Code _ " " _ eException.Location_" for Lpi: "_pRequest.Lpi)
+       $$$LOGERROR($ZERROR)
+  }
+  If $$$ISOK(tSC){
+		d ..Adapter.Commit()  
+  }Else{
+		d ..Adapter.Rollback() 
+  }	
+		
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Method for updating dbo.LU_EMPI table
+
+]]></Content>
+</UDLText>
+
+<Method name="UpdateEmpi">
+<FormalSpec>pRequest:IHC.ITF.DataStructure.DwEmpi,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set pResponse=##class(Ens.StringContainer).%New()
+	set pResponse.StringValue="No Of Rows affected"
+	$$$TRACE("Inside UpdateEmpi Method") 
+	set tSQL= "UPDATE empi.dbo.lu_empi set EMPI=?,REL_CREATED_DT=?,DATESTAMP=? WHERE Lpi=?"
+
+	// Set Parameter
+	set ioParms(1)=pRequest.Empi
+	set ioParms(1,"SqlType")=12
+	set ioParms(2)=pRequest.processedDtTm
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=$ZDATETIME($ZTIMESTAMP,3,,3)
+	set ioParms(3,"SqlType")=93
+	set ioParms(4)=pRequest.Lpi
+	set ioParms(4,"SqlType")=12
+	set ioParms=4
+	$$$TRACE("Executing Query:"_tSQL)
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,tSQL,.ioParms)
+ 	
+ 	if ($$$ISERR(tSC)) {
+	  set errText=" Error when insert data to empi.dbo.lu_empi table for empi: "_pRequest.Lpi
+	  $$$TRACE("Error when insert data to empi.dbo.lu_empi table for empi: "_pRequest.Lpi_", "_$System.Status.GetErrorText(tSC)) 
+	  Set tSC = $$$ERROR($System.Status.GetErrorCodes(tSC),$System.Status.GetErrorText(tSC)_":"_errText)
+	}
+ 	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="UpdateLpi">
+<FormalSpec>pRequest:IHC.ITF.DataStructure.DwEmpi,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set pResponse=##class(Ens.StringContainer).%New()
+	set pResponse.StringValue="No Of Rows affected"
+	$$$TRACE("Inside UpdateEmpi Method") 
+	set tSQL= "UPDATE empi.dbo.lu_empi set LPI=?,REL_CREATED_DT=?,DATESTAMP=? WHERE EMPI=?"
+
+	// Set Parameter
+	set ioParms(1)=pRequest.Lpi
+	set ioParms(1,"SqlType")=12
+	set ioParms(2)=pRequest.processedDtTm
+	set ioParms(2,"SqlType")=93
+	set ioParms(3)=$ZDATETIME($ZTIMESTAMP,3,,3)
+	set ioParms(3,"SqlType")=93
+	set ioParms(4)=pRequest.Empi
+	set ioParms(4,"SqlType")=12
+	set ioParms=4
+	$$$TRACE("Executing Query:"_tSQL)
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,tSQL,.ioParms)
+ 	
+ 	if ($$$ISERR(tSC)) {
+	  set errText=" Error when insert data to empi.dbo.lu_empi table for lpi: "_pRequest.Empi
+	  $$$TRACE("Error when insert data to empi.dbo.lu_empi table for lpi: "_pRequest.Empi_", "_$System.Status.GetErrorText(tSC)) 
+	  Set tSC = $$$ERROR($System.Status.GetErrorCodes(tSC),$System.Status.GetErrorText(tSC)_":"_errText)
+	}
+ 	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="AddEmpi">
+<FormalSpec>pRequest:IHC.ITF.DataStructure.DwEmpi,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set pResponse=##class(Ens.StringContainer).%New()
+	set pResponse.StringValue="No Of Rows affected"
+	$$$TRACE("Inside AddEmpi Method") 
+	set addSqlStr= "insert into empi.dbo.LU_EMPI (EMPI, LPI, LPI_SYSTEM_KEY, REL_CREATED_DT, DATESTAMP) values (?,?,?,?,?)"
+	
+	// Set Parameter
+    set ioParms=5
+	set ioParms(1)=pRequest.Empi
+	set ioParms(1,"SqlType")=12
+	set ioParms(2)=pRequest.Lpi
+	set ioParms(2,"SqlType")=12
+	set ioParms(3)=1
+	set ioParms(3,"SqlType")=3
+	set ioParms(4)=pRequest.processedDtTm
+	set ioParms(4,"SqlType")=93
+	set ioParms(5)=$ZDATETIME($ZTIMESTAMP,3,,3)
+	set ioParms(5,"SqlType")=93
+	$$$TRACE("Executing Query:"_addSqlStr)
+	set tSC = ..Adapter.ExecuteUpdateParmArray(.pRows,addSqlStr,.ioParms)
+ 	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+<MapItem MessageType="Ens.StringContainer">
+	<Method>AddOrUpdate</Method>
+</MapItem>
+<MapItem MessageType="IHC.ITF.DataStructure.DwEmpi">
+	<Method>UpdateDwEmpi</Method>
+</MapItem>
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>

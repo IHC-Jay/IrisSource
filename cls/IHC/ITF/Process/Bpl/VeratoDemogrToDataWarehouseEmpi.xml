@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.VeratoDemogrToDataWarehouseEmpi">
+<Description><![CDATA[
+Calls Verato Notification service & Store the EMPI to DW ]]></Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65815,41983.829153</TimeCreated>
+
+<Property name="MaxSeqQueryTimeOut">
+<Type>%String</Type>
+<InitialExpression>"120"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="InsertQueryTimeOut">
+<Type>%String</Type>
+<InitialExpression>"180"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="numMsgPg">
+<Type>%Integer</Type>
+<InitialExpression>10</InitialExpression>
+</Property>
+
+<Property name="searchTimeRange">
+<Type>%Integer</Type>
+<InitialExpression>1800</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-NextOperation,-TargetConfigMask,numMsgPg:Additional,searchTimeRange:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>VeratoDemogrToDataWarehouseEmpiDefaultData</DefaultData>
+<Data name="VeratoDemogrToDataWarehouseEmpiDefaultData">
+<Subscript>"VeratoDemogrToDataWarehouseEmpi"</Subscript>
+<Value name="1">
+<Value>MaxSeqQueryTimeOut</Value>
+</Value>
+<Value name="2">
+<Value>InsertQueryTimeOut</Value>
+</Value>
+<Value name="3">
+<Value>numMsgPg</Value>
+</Value>
+<Value name="4">
+<Value>searchHours</Value>
+</Value>
+<Value name="5">
+<Value>searchTimeRange</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='3550' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='jsonRequest' type='Ens.StringRequest' instantiate='0' />
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='VeratoSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='opRequest' type='IHC.ITF.DataStructure.DwEmpi' instantiate='0' />
+<property name='notificationList' type='IHC.ITF.DataStructure.DwEmpi' collection='list' instantiate='0' />
+<property name='trackId' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='pageNum' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='hasNext' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='numMsg' type='%Integer' initialexpression='10' instantiate='0' />
+<property name='endDt' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='startDt' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='ntKey' type='%Integer' instantiate='0' />
+<property name='sTm' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='dtTm' type='%Integer' instantiate='0' />
+</context>
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<trace name='incomingMessage' value=' "New SearchNotification call "' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Set MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Set MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)   
+ 
+ //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ } 
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("Count: " _ context.targetList.Count())
+      
+ ]]]]><![CDATA[>
+</code>
+<trace name='setup new request' value='"Set up Verato SearchNotification request"' xpos='200' ypos='650' />
+<code name='Initial request' xpos='200' ypos='750' >
+<![CDATA[ $$$TRACE("Set Initial Request Json string... ")
+ set context.dtTm=$ZDATETIME($H, -2)
+ $$$TRACE("Timestamp: "_context.dtTm)
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"numMsgPg",.numMsg)
+ if ($$$ISERR(pstatus)){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"numMsgPg Setting is not found. Required for processing data.")  
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"searchTimeRange",.sTm)
+ if ($$$ISERR(pstatus)){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"SearchTimeRange Setting is not found. Required for processing data.")  
+ }
+ $$$TRACE("Number of messages per page: "_numMsg)
+ if (numMsg=0) {
+   set numMsg=10
+   $$$TRACE("Number of messages per page is set to 0. Use default value 10")
+ }
+ if ((sTm="") || (sTm=0)) {
+   set sTm=1800
+   $$$TRACE("Search Time Range is not set. Use default value 1800")
+ }
+ set context.sTm=sTm
+  set context.trackId="TestNS"_context.dtTm
+ $$$TRACE("Tracking ID: "_context.trackId)
+  set context.numMsg=numMsg
+  set context.startDt=$ZDATETIME($ZDATETIMEH(^lastStartDt,-2),3,7)
+  set context.endDt=$ZDATETIME($ZDATETIMEH((^lastStartDt+sTm),-2),3,7)
+  $$$TRACE("Start at: "_context.startDt_" End at: "_context.endDt)]]]]><![CDATA[>
+</code>
+<while name='Service call loop' condition='context.hasNext' xpos='200' ypos='850' xend='200' yend='650' >
+<trace value='"In service call loop: "_context.pageNum' xpos='200' ypos='250' />
+<code name='set request Json string' xpos='200' ypos='350' >
+<![CDATA[
+  set context.jsonRequest=##class(Ens.StringRequest).%New()
+  set context.jsonRequest.StringValue="{"_$CHAR(34)_"content"_$CHAR(34)_": {"_$CHAR(34)_"pageNumber"_$CHAR(34)_": "_context.pageNum_","_$CHAR(34)_"endDate"_$CHAR(34)_": "_$CHAR(34)_context.endDt_$CHAR(34)_","_$CHAR(34)_"pageSize"_$CHAR(34)_": "_context.numMsg_","_$CHAR(34)_"startDate"_$CHAR(34)_": "_$CHAR(34)_context.startDt_$CHAR(34)_"},"_$CHAR(34)_"trackingId"_$CHAR(34)_": "_$CHAR(34)_context.trackId_$CHAR(34)_"}"
+   $$$TRACE("Json request string: "_context.jsonRequest.StringValue)
+]]]]><![CDATA[>
+</code>
+<transform name='create Verato service call request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.VeratoSvcRequest' xpos='200' ypos='450' />
+<code name='Call Verato Notification service' xpos='200' ypos='550' >
+<![CDATA[  $$$TRACE("Call Verato REST Operation")
+      set statusCode=""
+      set statusDesc=""
+      set ns=0
+  if (context.VeratoSvcRequest'="") {
+    $$$TRACE("Call Verato REST Service.... ")
+    set status=process.SendRequestSync("Op-Verato-Wscr-NSJSON",context.VeratoSvcRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set context.restHttpResponse=httpRESTResponse
+      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+	set statusCode=$piece(statusLine," ",2)
+	set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+  // If status code is 200 the check the reponse to see if it got processed correctly or not
+      if (statusCode'="200"){
+        if (statusCode="403"){
+          $$$TRACE("StatusCode "_statusCode_" No Data Returned, Skip!")
+        //set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Notification service response with code: "_statusCode_"  Desc: "_statusDesc) 
+        }
+        else {
+           set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Notification service response with code: "_statusCode_"  Desc: "_statusDesc) 
+        }
+      }
+      else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        set text=""
+        While 'tcharStream.AtEnd {
+          Set text = text_tcharStream.Read($$$MaxStringLength)
+        } 
+        Set text = ##class(Ens.Util.FunctionSet).ReplaceStr(text,"\","")
+        Set text = ##class(Ens.Util.FunctionSet).ReplaceStr(text,$C(34)_"{","{")  
+        Set text = ##class(Ens.Util.FunctionSet).ReplaceStr(text,"}"_$C(34),"}")    
+        $$$TRACE("REST service response: "_text)
+	$$$TRACE("REST Service response Status Code: "_statusCode)
+	If ($$$IsdefObject(tcharStream)) {
+	  Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(text)
+	  $$$TRACE("Success Status: "_tConsumedJSON.%Get("success"))
+	  set iter = tConsumedJSON.%GetIterator()
+	  set statusKey=""
+	  set statusCode=""
+	  #dim contentIter As %Iterator.Object
+	  #dim notificationIter As %Iterator.Array
+	  do iter.%GetNext(.key , .value )
+	  //set iter = value.%GetIterator()
+	  while iter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="content" {
+	        set contentIter=value.%GetIterator()
+	     }
+	     else {
+	        continue
+	     }
+	  }
+	  set nval=""
+	  while contentIter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="notifications" {
+	        set nval=value
+	     }
+	     elseif key="hasNext" {
+	       set context.hasNext=value
+	     }
+	     else {
+	        continue
+	     }
+	  }
+	  if (##class(Ens.Util.FunctionSet).Contains(nval,"DynamicArray")) {
+	    set notificationIter=nval.%GetIterator()
+	    set source=""
+	    while notificationIter.%GetNext(.key , .value ) {
+	      $$$TRACE("nkey = "_key_" , nvalue = "_value)
+	      set dtlItter=value.%GetIterator()
+	      set rec=##class(IHC.ITF.DataStructure.DwEmpi).%New()
+	      while dtlItter.%GetNext(.key , .value ) {
+	        if key="body" {
+	      	  set bdIter=value.%GetIterator()
+	          while bdIter.%GetNext(.key , .value ) {
+	            $$$TRACE("key = "_key_" , value = "_value)
+	            if key="nativeId" {
+	              $$$TRACE("EMPI: "_value)
+	              if value'="" {
+	               set rec.Lpi=value
+	              }
+	            }
+	            elseif key="newLinkId" {
+	              set rec.Empi=value
+	            }
+	            elseif key="previousLinkId" {
+	              set rec.oldEmpi=value
+	            }
+	            elseif key="source" {
+	              set source=value
+	            }
+	          }
+                }
+                elseif key="ts" {
+                  $$$TRACE("TS: "_value)
+                  set strLen=##class(Ens.Util.FunctionSet).Length(value)
+                  set ns = ##class(Ens.Util.FunctionSet).SubString(value,0,strLen-3)
+                  set rec.processedDtTm=$ZDATETIME($ZDATETIMEH(ns,-2),3,,3)
+                  $$$TRACE("TS: "_rec.processedDtTm)
+                }
+	        else {
+	          continue
+	        }
+	      }
+	      if ((source="inmt.nvpm") && (rec.Lpi'="")) {
+	        do context.notificationList.Insert(rec)
+	      }
+	    }
+	    if context.hasNext {
+	      set context.pageNum=context.pageNum+1
+	    }
+	  }
+        }
+      }
+    }
+    ELse {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post iCentra Attending Doctor search service request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+  }
+
+  set ^lastStartDt=^lastStartDt+context.sTm
+  if ^lastStartDt > context.dtTm {
+    set ^lastStartDt=context.dtTm
+  }]]]]><![CDATA[>
+</code>
+</while>
+<trace name='total message count' value='"Total message Count: "_context.notificationList.Count()' xpos='200' ypos='950' />
+<foreach name='Call DW operation loop' property='context.notificationList' key='context.ntKey' xpos='200' ypos='1050' xend='200' yend='550' >
+<trace name='Call DW Operation' value='"Store #:"_context.ntKey' xpos='200' ypos='250' />
+<code name='set operation request' xpos='200' ypos='350' >
+<![CDATA[ set context.opRequest=context.notificationList.GetAt(context.ntKey)
+ //$$$TRACE("LinkId: "_context.opRequest.Empi)]]]]><![CDATA[>
+</code>
+<call name='call DW operation' target='Out-DataWarehouse-Demogr-Jdbc-EMPI' async='0' xpos='200' ypos='450' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.opRequest" action="set" />
+</request>
+</call>
+</foreach>
+<code name='RESETERROR' xpos='200' ypos='1150' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1250' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
