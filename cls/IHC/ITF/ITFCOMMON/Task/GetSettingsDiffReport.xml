@@ -33,6 +33,12 @@ This is defined in subclasses.</Description>
 <InitialExpression>"tzghty6n"</InitialExpression>
 </Property>
 
+<Property name="excludePattern">
+<Type>%String</Type>
+<InitialExpression>"Enabled"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
 <Method name="OnTask">
 <Description>
 The OnTask() method is called to execute the task</Description>
@@ -98,7 +104,7 @@ The OnTask() method is called to execute the task</Description>
 			 	
 			 	
 			 	set diffFile = 	##class(%Library.File).TempFilename()
-			 	
+			 	set grpFile = 	##class(%Library.File).TempFilename()
 			 	Set tRS = ##class(%ResultSet).%New("%File:FileSet")
 		 		Set tSC = tRS.Execute(newDirec)
 		        For {
@@ -112,18 +118,41 @@ The OnTask() method is called to execute the task</Description>
 			            Set diff = ##class(%File).Compare(fNm, NewfName)
 			            if (' diff)
 			            {
-				            set numDiff = numDiff + 1
+				            
 				            set sendEmail = 1
-			            	set message =  message _ "<br /><B>" _ numDiff _ ". DIFF in " _ $PIECE(fNm,"/",*) _ " --- </B>"
-			            	set cmd = "diff -w -B --suppress-common-lines " _ fNm _ " '" _ NewfName _ "' > " _ diffFile
+				            set cmd = "diff -w -B --suppress-common-lines " _ fNm _ " '" _ NewfName _ "' > " _ diffFile
+			            	
 						    Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-						    // set message =  message _  diffFile
+
 						    Set file=##class(%File).%New(diffFile)
-							// Write file.Size
-							Do file.Open("R")
-							While 'file.AtEnd 
+						    if (file.Size > 0)
 						    {
-						         set message =  message _  "<br />  " _ file.ReadLine(, .sc, .stat)
+							    set cmd = "grep -v -E '" _ ..excludePattern _ "' "_ diffFile _ " > " _ grpFile
+							    Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+							    Set file=##class(%File).%New(grpFile)
+							    if (file.Size > 0)
+							    {
+
+									 Do file.Open("R")
+									 set diffMessage = ""
+									 While 'file.AtEnd 
+								     {
+									     set diffLn = file.ReadLine(, .sc, .stat)
+									     if (diffLn [ "<") ||  (diffLn [ ">")
+									     {
+										     set diffMessage =  diffMessage _  "<br />  " _ diffLn
+									     }
+								     }
+								     Do file.Close()
+								     if $L(diffMessage) > 0
+									 {
+									     set numDiff = numDiff + 1
+										 set message =  message _ "<br /><B>" _ numDiff _ ". DIFF in " _ $PIECE(fNm,"/",*) _ " --- </B>"
+
+									   	 set message =  message  _ diffMessage _  "<br />  "
+									 }
+
+							    }
 						    }
 
 					     }
@@ -140,6 +169,7 @@ The OnTask() method is called to execute the task</Description>
 		       }
 		 	   Do tRS.Close()
 		 	   Do ##class(%File).Delete(diffFile)
+		 	   Do ##class(%File).Delete(grpFile)
 		 	
 			
 			set message =  message _  "<br />--- List of components without setting files in SVN:"
