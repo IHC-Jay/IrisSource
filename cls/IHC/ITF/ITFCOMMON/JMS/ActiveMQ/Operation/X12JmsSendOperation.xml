@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.JMS.ActiveMQ.Operation.X12JmsSendOperation">
+<Super>EnsLib.JavaGateway.AbstractOperation</Super>
+<TimeCreated>65911,54792.693379</TimeCreated>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Author: Jay N
+
+]]></Content>
+</UDLText>
+
+<Property name="JarFile">
+<Type>%String</Type>
+<InitialExpression>"/WORK/common/class/IhcItfActiveMQ.jar"</InitialExpression>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Property name="JarDebug">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="JMSJarPath">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Property name="JmsUrl">
+<Description>
+URL of the ActiveMQ</Description>
+<Type>%String</Type>
+<InitialExpression>"tcp://webitfmsg-dev.co.ihc.com:61616"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="QueueName">
+<Type>%String</Type>
+<InitialExpression>"Q_X12_Outbound"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="LogDirectory">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/FromComComToOutEdifecs837Sh"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="TempFileName">
+<Type>%String</Type>
+<InitialExpression>"ComComClaims%Q.Txt"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="ActMqObj">
+<Type>%ObjectHandle</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>JMSJarPath:Additional,JarFile:Additional,JarDebug:Additional,JmsUrl:Additional,QueueName:Additional,LogDirectory:Additional,TempFileName:Additional</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.EDI.X12.Document,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$OK
+	set pResponse=##class(Ens.StringContainer).%New()
+	set pResponse.StringValue="SUCCESS"
+	$$$TRACE("Inside OnMessage ..")
+	try
+	{
+		if ( ($IsObject(..JavaGateway)) && ($IsObject(..ActMqObj)))
+		{
+			set x12Str = pRequest.RawContent
+			If ($L(x12Str) > 0)
+			{
+				$$$TRACE("EnsLib.EDI.X12.Document RawContent: length: " _ $L(x12Str) _ ", X12: " _ x12Str)
+				// Do ##class(org.ihc.itf.activemq.IhcActiveMQUtils).SendMessageToActiveMQ(..JavaGateway,..MQUrl,..QueueName,x12Str)
+				Do ..ActMqObj.sendMsg(x12Str)
+				$$$TRACE("Message Sent")
+				set pResponse.StringValue="SUCCESS"
+			}else {
+				set stat=$$$ERROR($$$GeneralError,"Data "_ x12Str _" Not valid")
+				set pResponse.StringValue="FAILURE"
+			}
+		}
+		ELSE
+		{
+			set stat=$$$ERROR($$$GeneralError,"JavaGateway or ActMqObj are Not valid")
+		}
+		
+			
+	}catch errobj {
+		set ..ActMqObj = $$$NULLOREF
+	    $$$LOGERROR("Error in OnMessage: "  _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	    set pResponse.StringValue="FAILURE"
+	    set stat = $$$ERROR("Error in OnMessage " _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	}
+	return stat
+]]></Implementation>
+</Method>
+
+<Method name="Connect">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStat = $$$OK
+	
+	
+	 SET localhost=$SYSTEM.INetInfo.LocalHostName()            /* get host name */
+     $$$TRACE($NAMESPACE _", local host name is " _ localhost)
+
+	// get an instance of JavaGateway and connect to JavaGateway Super Server
+	try {
+		
+		if ($L(..JMSJarPath) = 0)
+		{
+		   	$$$TRACE("JMSJarPath does not have class path for the jar files ")
+		}
+		else
+		{
+					
+			Set listArray = ##class(%ListOfDataTypes).%New()
+			Set p=1
+			For {
+				Set piece=$P(..JMSJarPath,":",p)
+				Quit:piece=""
+				do listArray.Insert(piece)
+				set p = p+1
+				Do ..JavaGateway.%Import(piece)
+				$$$TRACE("Import Jar file: " _ piece)
+			}
+
+		}
+		$$$TRACE("Imported Jar, creating ActiveMQClass to connect to " _ ..JmsUrl _ ", Queue: " _ ..QueueName  )
+		set ..ActMqObj = ##class(IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass).%New(..JavaGateway, ..JmsUrl, ..QueueName, ..LogDirectory _ "/" _$$$JobConfigName _".log", $$$ConfigTrace($$$JobConfigName) )
+		
+		$$$TRACE("Created class IHC.ITF.ITFCOMMON.JMS.ActiveMQ.ActiveMQClass: " _ ..JmsUrl _ ", " _ ..QueueName)
+		$$$TRACE("JavaGateway: " _ $IsObject(..JavaGateway) _ ", ActMqObj:" _$IsObject(..ActMqObj))
+
+		Do ..ActMqObj.CreateProducer()
+		$$$TRACE("Created Producer")
+		
+	} catch err
+     {
+	     $$$TRACE("In exception")
+	     if $GET(%objlasterror) '= ""
+	    {
+	        set errMsg =  $System.Status.GetErrorText(%objlasterror)
+	    }
+	    else
+	    {
+		    set errMsg = "No objlasterror"
+	    }
+   	    Set tStat=$$$ERROR($$$GeneralError, "OnInit : " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+     }
+     return tStat
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<Description>
+This user callback method is called just after %OnNew() to initialize the connection among other things.
+If you need to override this code, invoke the method in the superclass or add to the original code.</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("IHC.ITF.ITFCOMMON.JMS.ActiveMQ.Operation.X12JmsSendOperation1 OnInit")
+	set tSC=##super()
+	If tSC {
+		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CreateDirectory(..LogDirectory)
+		set tSC= ..Connect()
+	}
+	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+<MapItem MessageType="EnsLib.EDI.X12.Document">
+		<Method>OnMessage</Method>
+ </MapItem>
+ 
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
