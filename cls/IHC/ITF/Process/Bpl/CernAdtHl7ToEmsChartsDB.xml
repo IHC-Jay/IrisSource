@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToEmsChartsDB">
+<Description>
+Translates iCentra Adt to EmsCharts</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65461,61245.361625</TimeCreated>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='3000' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='EventType' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='dtl' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='dtlList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1750' >
+<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<![CDATA[ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ } ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "No TargetConfigNames found, shutting down.")  
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+  
+
+
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<![CDATA[ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ValidationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)
+	if (pStatus'=$$$OK) {
+	    $$$TRACE("Message validation failed against schema")
+	    set context.ValidationPassed = 0
+	}
+ }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1400' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<code name='Read DB to get the logic' xpos='470' ypos='1000' >
+<![CDATA[  	&sql(DECLARE C1 CURSOR FOR select ExecOrder, Hl7Field, LookupValues, OnEmpty, OnFailure, OnSuccess, Dtl, Target into :execOrder, :hl7Str, :lookupStr, :onEmpty, :onFailure, :onSuccess, :dtlStr, :targetStr from IHC_ITF_Process_Table.AdtHl7EmsCharts order by ExecOrder)		
+ &sql(OPEN C1)
+      if (SQLCODE'=0)
+      {
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "No TargetConfigNames found, shutting down.")  
+      }
+  &sql(FETCH C1)
+  set rowInd = 1
+  WHILE (SQLCODE = 0) 
+  {
+     set pStat = 0
+     
+     $$$TRACE("ExecOrder: " _ execOrder)
+     $$$TRACE("Hl7Field : " _ hl7Str _", LookupValues : " _ lookupStr)
+     set hl7Value = $ZSTRIP(request.GetValueAt(hl7Str),"<>WC") 
+	 set lookupStr = $ZSTRIP(lookupStr,"<>WC") 
+	 set dtlStr = $ZSTRIP(dtlStr,"<>WC")
+	 set targetStr = $ZSTRIP(targetStr,"<>WC")
+     $$$TRACE("Inbound HL7 field value for " _ hl7Str _ ": >" _ hl7Value _"<, Length: " _ $L(hl7Value))
+	 
+     // Set DTL and target to empty string
+     Do context.dtlList.InsertAt("", rowInd)
+     Do context.targetList.InsertAt("", rowInd)
+	 
+     if ($L(hl7Value) <= 0)
+     {
+        $$$TRACE(hl7Str _ " is EMPTY in the inbound record. onEmpty: " _ onEmpty )
+        if (onEmpty = "Skip")
+        {
+            $$$TRACE(hl7Str _ " is EMPTY, and onEmpty is " _  onEmpty _", sending SkipMsgError")
+            set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, hl7Str _ " is EMPTY, and onEmpty is " _  onEmpty _". Skip the message.")
+        }
+		elseif (onEmpty = "Process")
+		{
+		    $$$TRACE("QUIT. Last condition to check. " _ hl7Str _ " is EMPTY, and Lookup status: " _ pStat _", onEmpty: " _  onEmpty)
+			Do context.dtlList.SetAt(dtlStr, rowInd)
+			Do context.targetList.SetAt(targetStr, rowInd)
+            QUIT
+		}
+     }
+     else // hl7Value is not EMPTY
+     {
+     
+       SET lookupList = $LISTFROMSTRING(lookupStr, ",")
+       SET findInd = $LISTFIND(lookupList, hl7Value)
+       $$$TRACE("Lookup= # of values:" _ $LISTLENGTH(lookupList) _" Lookup: " _ findInd)
+       if (findInd > 0) 
+       {
+          $$$TRACE("FOUND the VALUE in LOOKUP!")
+          if (onSuccess = "Skip")
+		  {
+		    $$$TRACE(hl7Str _ " is not found in LOOKUP, and onSuccess is " _  onSuccess _". Skip the message.")
+			set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, hl7Str _ " is not found in LOOKUP, and onSuccess is " _  onSuccess _". Skip the message.")
+		  }
+		  else
+		  {
+		  
+			  $$$TRACE(rowInd _ ". PROCESS the record. onSuccess: " _ onSuccess _ "DTL/Target: " _ dtlStr _ " / " _ targetStr)
+			  set pStat = 1
+			  if ($L(dtlStr) > 1)
+			  {
+				 set pStat = context.dtlList.SetAt(dtlStr, rowInd)
+			  }
+			  if ($L(targetStr) > 1)
+			  {
+				 set pStat = context.targetList.SetAt(targetStr, rowInd)
+			  }
+			     // $$$TRACE("List count: " _ context.dtlList.Count() _ " / " _ context.targetList.Count())
+			 			  
+	      }
+             
+       }
+       else // LISTFIND - Not found in lookupList
+       {
+          $$$TRACE("NOT FOUND VALUE in LOOKUP!")
+          if (onFailure = "Skip")
+          {
+              $$$TRACE(hl7Str _ " is not found in LOOKUP, and onFailure is " _  onFailure _", sending SkipMsgError")
+              set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, hl7Str _ " is not found in LOOKUP, and onFailure is " _  onFailure _". Skip the message.")
+          }
+          else{
+				 set pStat = 1
+				 $$$TRACE(rowInd _ ". PROCESS the record. onFailure: " _ onFailure _ "DTL/Target: " _ dtlStr _ " / " _ targetStr)
+				 if ($L(dtlStr) > 1)
+				 {
+					set pStat = context.dtlList.SetAt(dtlStr, rowInd)
+				 }
+				 if ($L(targetStr) > 1)
+				 {
+					set pStat = context.targetList.SetAt(targetStr, rowInd)
+				 }
+				 // $$$TRACE("List count: " _ context.dtlList.Count() _ " / " _ context.targetList.Count())
+		  }
+          
+       } // Not found in lookupList
+       
+              
+       // To fetch next row or not
+       if ( ((pStat = 1) && (onSuccess = "Continue")) ||
+            ((pStat = 0) && (onFailure = "Continue")) 
+          )
+       {
+          $$$TRACE("Continue to next condition. status: " _ pStat _ ", onSuccess: " _ onSuccess _", onFailure: " _ onFailure)
+       }
+       if ( ((pStat = 1) && (onSuccess = "Process")) ||
+            ((pStat = 0) && (onFailure = "Process")) 
+          )
+       {
+          $$$TRACE("QUIT. Last condition to check. Lookup status: " _ pStat _", onSuccess: " _  onSuccess  _ ", onFailure: " _ onFailure)
+          QUIT
+       }
+       
+     } // hl7Value is not EMPTY
+     
+     &sql(FETCH C1) 
+     set rowInd = rowInd + 1
+  }
+  &sql(CLOSE C1)
+  
+  
+  ]]]]><![CDATA[>
+</code>
+<code name='Print List' xpos='470' ypos='1100' >
+<![CDATA[ set rowInd = 1
+  $$$TRACE("translation / target List count: " _ context.dtlList.Count() _ " / " _ context.targetList.Count())
+  WHILE (rowInd <= context.dtlList.Count() ) 
+  {
+       $$$TRACE(rowInd _ ". List - DTL/Target: " _ context.dtlList.GetAt(rowInd) _ " / " _ context.targetList.GetAt(rowInd) )
+       set rowInd = rowInd + 1
+  }]]]]><![CDATA[>
+</code>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1200' xend='200' yend='1350' >
+<trace value='"DTL/Send: " _ context.targetConfigIndex' xpos='200' ypos='250' />
+<if name='if targetList is not empty' condition='context.targetList.GetAt(context.targetConfigIndex) &apos;= ""' xpos='200' ypos='350' xend='200' yend='1250' >
+<true>
+<if name='Call DTL if different or first' condition='((context.targetConfigIndex = 1) || (context.dtlList.GetAt(context.targetConfigIndex) &apos;= context.dtl) )' xpos='470' ypos='500' xend='470' yend='950' >
+<true>
+<trace name='DTL name' value='"DTL: " _ context.dtlList.GetAt(context.targetConfigIndex)' xpos='740' ypos='650' />
+<transform name='Transform' class='@context.dtlList.GetAt(context.targetConfigIndex)' source='request' target='response' xpos='740' ypos='750' >
+<annotation><![CDATA[Translates Cerner Adt to EmsCharts Hl7 Adt]]]]><![CDATA[></annotation>
+</transform>
+<assign name="get DTL name" property="context.dtl" value="context.dtlList.GetAt(context.targetConfigIndex)" action="set" xpos='740' ypos='850' />
+</true>
+<false>
+<trace value='"Same DTL: " _ context.dtl _ ", Not calling DTL again"' xpos='470' ypos='650' />
+</false>
+</if>
+<trace value='"Send a record to " _ context.targetList.GetAt(context.targetConfigIndex)' xpos='470' ypos='1050' />
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='470' ypos='1150' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</true>
+<false>
+<trace value='"Target is Empty, skip"' xpos='200' ypos='500' />
+</false>
+</if>
+</foreach>
+<code name='RESETERROR' xpos='470' ypos='1300' >
+<![CDATA[   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Message Validation Failed' xpos='200' ypos='900' >
+<![CDATA[ set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Validation against data structure is failed. Skipping the record.")]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1500' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
