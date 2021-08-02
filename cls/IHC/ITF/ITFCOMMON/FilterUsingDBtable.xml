@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.FilterUsingDBtable">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>65958,42469.366346</TimeCreated>
+
+<Property name="SKIP">
+<Type>%Integer</Type>
+<InitialExpression>99</InitialExpression>
+</Property>
+
+<Property name="PROCESS">
+<Type>%Integer</Type>
+<InitialExpression>100</InitialExpression>
+</Property>
+
+<Method name="ExecuteLogic">
+<FormalSpec>configName:%String,request:EnsLib.HL7.Message,dtlList:%ListOfDataTypes,targetList:%ListOfDataTypes</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSc = $$$OK
+	set execValue = 1
+	set rowInd = 1
+	
+	SET tStatement = ##class(%SQL.Statement).%New(1)
+	
+	SET myquery=2
+  	SET myquery(1)="select ExecOrder, Hl7Field, LookupValues, OnEmpty, OnNotFound, OnFound, Dtl, Target "
+  	SET myquery(2)=" from IHC_ITF_Process_Table.AdtHl7EmsChartsDB where ExecOrder = ?"	
+  	SET qStatus = tStatement.%Prepare(.myquery)
+  	
+    IF qStatus'=1 {
+	    set tSc = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(configName, "SQL error in reading from IHC_ITF_Process_Table.AdtHl7EmsChartsDB, shutting down.")  
+	    QUIT tSc
+	}
+    SET rset = tStatement.%Execute(execValue)
+    while (rset.%Next()) 
+    {
+     set pStat = 0
+     
+     $$$TRACE("ExecOrder: " _ rset.ExecOrder)
+     $$$TRACE("Hl7Field : " _ rset.Hl7Field _", LookupValues : " _ rset.LookupValues)
+     set val = request.GetValueAt(rset.Hl7Field, , .stat)
+     if ($$$ISERR(stat))
+     {
+        $$$TRACE("request.GetValueAt: " _ rset.Hl7Field _ ", stat: " _ stat _ " / " _ $system.Status.DisplayError(stat))
+        set tSc = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(configName, " Unable to read " _ rset.Hl7Field _ ", IHC_ITF_Process_Table.AdtHl7EmsChartsDB - rset.ExecOrder:" _ rset.ExecOrder _ ", Skipping the record. Hl7 Msg:" _ request.RawContent) 
+        QUIT
+     }
+     
+     set hl7Value = $ZSTRIP(val,"<>WC") 
+     set rsetLookupValues = $ZSTRIP(rset.LookupValues,"<>WC") 
+     set rsetDtl = $ZSTRIP(rset.Dtl,"<>WC")
+     set rsetTarget = $ZSTRIP(rset.Target,"<>WC")
+     $$$TRACE("Inbound HL7 field value for " _ rset.Hl7Field _ ": >" _ hl7Value _"<, Length: " _ $L(hl7Value))
+	 
+     // Set DTL and target to empty string
+     Do dtlList.InsertAt("", rowInd)
+     Do targetList.InsertAt("", rowInd)
+	 
+     if ($L(hl7Value) <= 0)
+     {
+		    $$$TRACE(rset.Hl7Field _ " is EMPTY in the inbound record. rset.OnEmpty: " _ rset.OnEmpty )
+		    if (rset.OnEmpty = ..SKIP)
+		    {
+		            $$$TRACE(rset.Hl7Field _ " is EMPTY, and rset.OnEmpty is " _  rset.OnEmpty _", sending SkipMsgError")
+		            set tSc = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(configName, "ExecOrder: " _ rset.ExecOrder _ ". " _ rset.Hl7Field _ " is EMPTY, and rset.OnEmpty is " _  rset.OnEmpty _". Skip the message.")
+		            QUIT
+		    }
+			elseif (rset.OnEmpty = ..PROCESS)
+			{
+				$$$TRACE("QUIT. Last condition to check. " _ rset.Hl7Field _ " is EMPTY, and Lookup status: " _ pStat _", rset.OnEmpty: " _  rset.OnEmpty)
+				Do dtlList.SetAt(rsetDtl, rowInd)
+				Do targetList.SetAt(rsetTarget, rowInd)
+		        QUIT
+			}
+			else
+			{
+				set execValue = rset.OnEmpty
+			}
+     }
+     else // hl7Value is not EMPTY
+     {
+     
+       SET lookupList = $LISTFROMSTRING(rsetLookupValues, ",")
+       SET findInd = $LISTFIND(lookupList, hl7Value)
+       $$$TRACE("Lookup= # of values:" _ $LISTLENGTH(lookupList) _" Lookup: " _ findInd)
+       if (findInd > 0) 
+       {
+          $$$TRACE("FOUND the VALUE in LOOKUP!")
+          set pStat = 1
+          set execValue = rset.OnFound
+          if (rset.OnFound = ..SKIP)
+          {
+		    $$$TRACE(rset.Hl7Field _ " is not found in LOOKUP, and rset.OnFound is " _  rset.OnFound _". Skip the message.")
+			set tSc = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(configName, "ExecOrder: " _ rset.ExecOrder _ ". " _ rset.Hl7Field _ "= " _ hl7Value _ " is found in LOOKUP " _ rsetLookupValues _ ", and rset.OnFound is " _  rset.OnFound _". Skip the message.")
+			QUIT
+		  }
+		 
+		  if (rset.OnFound = ..PROCESS)
+		  {
+			  
+				  $$$TRACE(rowInd _ ". PROCESS the record. rset.OnFound: " _ rset.OnFound _ ", DTL/Target: " _ rsetDtl _ " / " _ rsetTarget)
+				  
+				  if ($L(rsetDtl) > 1)
+				  {
+					 set pStat = dtlList.SetAt(rsetDtl, rowInd)
+				  }
+				  if ($L(rsetTarget) > 1)
+				  {
+					 set pStat = targetList.SetAt(rsetTarget, rowInd)
+				  }
+				     // $$$TRACE("List count: " _ dtlList.Count() _ " / " _ targetList.Count())
+				 			  
+		  }
+             
+       }
+       else // LISTFIND - Not found in lookupList
+       {
+          $$$TRACE("NOT FOUND VALUE in LOOKUP!")
+          set execValue = rset.OnNotFound
+          if (rset.OnNotFound = ..SKIP)
+          {
+              $$$TRACE(rset.Hl7Field _ " is not found in LOOKUP, and rset.OnNotFound is " _  rset.OnNotFound _", sending SkipMsgError")
+              set tSc = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(configName, "ExecOrder: " _ rset.ExecOrder _ ". " _ rset.Hl7Field _ "= " _ hl7Value _ " is not found in LOOKUP " _ rsetLookupValues _ ", and rset.OnNotFound is " _  rset.OnNotFound _". Skip the message.")
+              QUIT
+          }
+		  if (rset.OnNotFound = ..PROCESS){
+					 $$$TRACE(rowInd _ ". PROCESS the record. rset.OnNotFound: " _ rset.OnNotFound _ ", DTL/Target: " _ rsetDtl _ " / " _ rsetTarget)
+					 if ($L(rsetDtl) > 1)
+					 {
+						set pStat = dtlList.SetAt(rsetDtl, rowInd)
+					 }
+					 if ($L(rsetTarget) > 1)
+					 {
+						set pStat = targetList.SetAt(rsetTarget, rowInd)
+					 }
+					 // $$$TRACE("List count: " _ dtlList.Count() _ " / " _ targetList.Count())
+		  }
+          
+       } // Not found in lookupList
+       
+              
+       // To fetch next row or not
+       
+       if ( ((pStat = 1) && (rset.OnFound = ..PROCESS)) ||
+            ((pStat = 0) && (rset.OnNotFound = ..PROCESS)) 
+          )
+       {
+          $$$TRACE("QUIT. Last condition to check. Lookup status: " _ pStat _", rset.OnFound: " _  rset.OnFound  _ ", rset.OnNotFound: " _ rset.OnNotFound)
+          QUIT
+       }
+       else
+       {
+	      $$$TRACE("Continue to next condition. status: " _ pStat _ ", rset.OnFound: " _ rset.OnFound _", rset.OnNotFound: " _ rset.OnNotFound)
+       }
+       
+     } // hl7Value is not EMPTY
+      if ( (execValue = "") || (execValue = ..PROCESS) || (execValue = ..SKIP) )
+	  {
+		  $$$TRACE("Completed the processing. execValue: " _ execValue)
+		  QUIT
+	  }
+	  else
+	  {
+		$$$TRACE("Get next row #: " _ execValue)
+	  	SET rset = tStatement.%Execute(execValue)
+	  }  
+	  set rowInd = rowInd + 1
+  }
+  QUIT tSc
+]]></Implementation>
+</Method>
+</Class>
+</Export>
