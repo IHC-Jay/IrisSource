@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.IreferralDonorHttpsJson">
+<Description>
+Calls iReferral Donor Orders </Description>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>64091,41385.380782</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<FormalSpec>pRequest:IHC.ITF.Request.IreferralDonorHttpsRequest,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+     
+    $$$TRACE("Json Messge: "_pRequest.ireferralDonorMsg) // json messaga
+  
+     set jsonData = pRequest.ireferralDonorMsg
+ 	$$$TRACE("Hl7 Data1: "_jsonData)
+			
+			
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	
+	
+	Set httprequest.Server = ..Adapter.HTTPServer
+	$$$TRACE("Http Server: "_httprequest.Server)   
+	Set httprequest.Port = ..Adapter.HTTPPort
+	$$$TRACE("Http Port: "_httprequest.Port)
+	Set httprequest.Location = ..Adapter.URL_"/"_pRequest.partnerCode       //  ---> url here
+	
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	
+	/*
+	Set httprequest.Server = ..HTTPServer
+	Set httprequest.Location = ..URL
+	Set httprequest.SSLConfiguration = ..SSLConfig
+	
+	*/
+	Set httprequest.Https="1"
+	
+	Set httprequest.ContentType="application/json"
+	do httprequest.SetHeader("ITX-AUTHORIZATION",pRequest.authToken)  // ---> token   ITX-AUTHORIZATION  082593A1-030B-4B01-BDEF-99FDA135172D 
+
+ /*	
+ //	do httprequest.SetHeader("cookie",pRequest.authToken)  // ---> token   ITX-AUTHORIZATION  082593A1-030B-4B01-BDEF-99FDA135172D 
+ */		
+	//-----Do httprequest.SetHeader("partnercode",pRequest.partnerCode) //	-->   remove
+	
+    Do httprequest.EntityBody.Write(jsonData)     // ---> data
+    
+    try	{
+     Set writer=##class(%Net.MIMEWriter).%New()
+     Set status=writer.OutputToStream(httprequest.EntityBody)
+     s postStatus = httprequest.Post(,2)    
+    $$$TRACE("Resp Status:  "_postStatus)
+    if (postStatus =1){
+	    $$$TRACE(" iReferral Donor..Post Successful.")   
+	    set len = httprequest.HttpResponse.ContentLength     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA ???? "_respData)   
+    	set indexMSA = $F(respData, "MSA|AA")    /// will not work need to fix
+    	  
+    	if (indexMSA > 0){
+	    	$$$TRACE("SUCCESS!!!..Ack received from iReferral Donor. "_respData)   
+		}else{
+			set errTxt = " SKIP. ERROR!!!..NACK received from McKesson Retail. RESPONSE: ["_respData_"]"
+			$$$TRACE("ERROR!!!..NACK received from iReferral Donor. "_respData)   				
+			Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(..%ConfigName,errTxt) 
+			set tSC = $$$OK				    
+		}
+    }else{	
+          set errTxt = " RETRY. Ireferral service post request failed."    
+          $$$TRACE(" Post Failed.. " _ errTxt)    	
+          set tSC = $$$ERROR( 6246, "RETRY. Ireferral Donor Http service post request failed. ")          
+	  }
+    }
+	catch e
+	{
+		 $$$TRACE(" Unknown Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling iReferral Donor Https service. "_e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errTxt)	  
+		 set tSC = $$$OK		  		 		 
+	}    
+	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.httpsRequest">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
