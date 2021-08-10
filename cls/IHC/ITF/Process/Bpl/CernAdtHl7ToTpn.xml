@@ -13,9 +13,30 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="WebEdgeHWTargetConfigName">
+<Description>
+WebEdge service call Operation: The target name used for WebEdge calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>HddTargetConfigName:Additional,WebEdgeHWTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CernAdtHl7ToTpnDefaultData</DefaultData>
+<Data name="CernAdtHl7ToTpnDefaultData">
+<Subscript>"CernAdtHl7ToTpn"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>WebEdgeHWTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -33,6 +54,11 @@ BPL Definition</Description>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
 <property name='hddOpNm' type='%String' initialexpression='"HddInterfaceWebserviceOperation"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hwOpNm' type='%String' initialexpression='"Op-CernEdge-Wsrc-HEIGHTWEIGHT"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -67,9 +93,39 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='enc' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='jsonRequest' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='icentraSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='height' type='%Integer' instantiate='0' />
+<property name='dweight' type='%Integer' instantiate='0' />
+<property name='mweight' type='%Integer' instantiate='0' />
+<property name='dweightUnit' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='mweightUnit' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='heightUnit' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1850' >
-<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<sequence xend='200' yend='2150' >
+<scope xpos='200' ypos='250' xend='200' yend='2050' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -104,6 +160,7 @@ BPL Definition</Description>
     $$$TRACE("Count: " _ context.targetList.Count())
  
    set context.hddOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+   set context.hwOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","WebEdgeHWTargetConfigName",.pstatus)
 
  	  ]]]]><![CDATA[>
 </code>
@@ -116,7 +173,7 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1500' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1800' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='Filter By message type' xpos='470' ypos='1000' >
@@ -146,15 +203,146 @@ BPL Definition</Description>
   }
  ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTpn' source='request' target='response' xpos='470' ypos='1200' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1300' xend='200' yend='350' >
+<code name='Get Patient height and weight data' xpos='470' ypos='1200' >
+<![CDATA[ $$$TRACE("Get enc... ")
+ set context.enc= request.GetValueAt("PID:18.1") 
+ $$$TRACE("PID-18.1: "_context.enc)
+ if (context.enc ="") {
+    $$$TRACE("Patient Encounter number is null...")
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Patient Encounter number is null, skip message...")
+ }
+ else {
+   set context.jsonRequest=##class(Ens.StringRequest).%New()
+   set context.jsonRequest.StringValue="{"_$CHAR(34)_"ATT_JSON"_$CHAR(34)_":{"_$CHAR(34)_"fin"_$CHAR(34)_":"_$CHAR(34)_context.enc_$CHAR(34)_"}}"
+ }]]]]><![CDATA[>
+</code>
+<transform name='get service call request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='470' ypos='1300' />
+<code name='process response of the height/weight service call' xpos='470' ypos='1400' >
+<![CDATA[ $$$TRACE("Call REST Operation")
+      set statusCode=""
+      set statusDesc=""
+  if (context.icentraSvcRequest'="") {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync(context.hwOpNm,context.icentraSvcRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set context.restHttpResponse=httpRESTResponse
+      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+	set statusCode=$piece(statusLine," ",2)
+	set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+		  // If status code is 200 the check the reponse to see if it got processed correctly or not
+      if (statusCode'="200"){
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"REST service response with code: "_statusCode_"  Desc: "_statusDesc) 
+      }
+      else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        set text=""
+        While 'tcharStream.AtEnd {
+          Set text = text_tcharStream.Read($$$MaxStringLength)
+        } 
+        $$$TRACE("REST service response: "_text)
+        If ($$$IsdefObject(tcharStream)) {
+	  Do tcharStream.Rewind()
+	  Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(tcharStream)
+	  $$$TRACE("Status Message: "_tConsumedJSON.%Get("message"))
+	  set iter = tConsumedJSON.%GetIterator()
+	  set statusKey=""
+	  set statusCode=""
+	  #dim statusIter As %Iterator.Object
+	  #dim detailIter As %Iterator.Array
+	  do iter.%GetNext(.key , .value )
+	  set iter = value.%GetIterator()
+	  while iter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="service-status" {
+	        set statusIter=value.%GetIterator()
+	     }
+	     elseif ((key="code") && (statusKey="service-status")) {
+	       set statusCode=value
+	     }
+	     if key="status-details" {
+                set detailIter = value.%GetIterator()
+	     }
+	     else {
+	        continue
+	     }
+	  }
+	  while statusIter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="code" {
+	        set statusCode=value
+	        if statusCode="000" {
+	          while detailIter.%GetNext(.key , .value ) {
+	            $$$TRACE("key = "_key_" , value = "_value)
+	            //set dtlItter=value.%GetIterator()
+	            //while dtlItter.%GetNext(.key , .value ) {
+	               if key="MEASURED-HEIGHT-UNITS" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.heightUnit=##class(Ens.Util.FunctionSet).ToUpper(value)
+	               }
+	               elseif key="MEASURED-WEIGHT-UNITS" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.mweightUnit=##class(Ens.Util.FunctionSet).ToUpper(value)
+	               }
+	               elseif key="DOSAGE-WEIGHT-UNITS" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.dweightUnit=##class(Ens.Util.FunctionSet).ToUpper(value)
+	               }
+	               elseif key="MEASURED-HEIGHT" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.height=value
+	               }
+	               elseif key="DOSAGE-WEIGHT" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.dweight=value
+	               }
+	               elseif key="MEASURED-WEIGHT" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  set context.mweight=value
+	               }	               
+	            // }
+	          }
+	        }
+	        else {
+	          set status=##class(IHC.ITF.ITFCOMMON.Utility).ProcessErrorExt(process.%ConfigName,"iCentra service failed to query height and weight for FIN:"_context.enc_" with Status: "_value)
+	          quit
+	        }
+	     }
+	  }
+        }
+	$$$TRACE("REST Service response Status Code: "_statusCode)
+      }
+    }
+    ELse {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+  } 
+  if ((context.heightUnit="IN") || (context.heightUnit="INCH") ) {
+     set context.height=context.height*2.54
+  }
+  if ((context.mweightUnit="LB") || (context.mweightUnit="POUND") ) {
+     set context.mweight=context.mweight*0.453592
+  }
+  if ((context.dweightUnit="LB") || (context.dweightUnit="POUND") ) {
+     set context.dweight=context.dweight*0.453592
+  }
+  $$$TRACE("Height and Wiehgts(dose,messured): "_context.height_" "_context.heightUnit_""_context.dweight_" "_context.dweightUnit_" "_context.mweight_" "_context.mweightUnit)]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTpn' source='request' target='response' xpos='470' ypos='1500' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1600' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='1400' >
+<code name='RESETERROR' xpos='470' ypos='1700' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
@@ -166,7 +354,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<catchall xpos='200' ypos='1900' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -179,16 +367,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-<DefaultData>CernAdtHl7ToTpnDefaultData</DefaultData>
-<Data name="CernAdtHl7ToTpnDefaultData">
-<Subscript>"CernAdtHl7ToTpn"</Subscript>
-<Value name="1">
-<Value>HddTargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
