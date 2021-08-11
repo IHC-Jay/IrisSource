@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.OpenDocOrdersHl7ToVisageRadiology">
+<Description>
+BPL for OpenDoctor Radiology Orders to Visage.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65955,51801.04612</TimeCreated>
+
+<Property name="HddTargetConfigName">
+<Description>
+HddTargetConfigName:Custom setting to select Configuration item(s) to  request to HDD lookup operation</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='4450' width='2000' >
+<context>
+<property name='targetNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='targetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[Get ReplyCodeActions from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='Check Hdd Configuration' xpos='200' ypos='550' >
+<annotation><![CDATA[Get HDD configuration from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //HddTargetConfigName validation
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pStatus)
+ if (($$$ISERR(pstatus)) || (context.hddTargetConfigName = "")){
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get HddTargetConfigName, shutting down.")
+ } else {
+    $$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)   
+ }]]]]><![CDATA[>
+</code>
+<code name='Validate message structure' xpos='200' ypos='650' >
+<annotation><![CDATA[Get Validation setting from settings & test against the structure]]]]><![CDATA[></annotation>
+<![CDATA[
+ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ValidationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)
+	if (pStatus'=$$$OK) {
+	    $$$TRACE("Message validation failed against schema")
+	    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Validation against data structure is failed. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent  _"]")
+	}
+ }]]]]><![CDATA[>
+</code>
+<code name='Get Targets' xpos='200' ypos='750' >
+<![CDATA[
+ 
+  set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName,context.targetList)
+ 
+ $$$TRACE(context.targetList.Count())
+ if ( ($$$ISERR(pstatus)) || (context.targetList.Count()= 0) ){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.OpenDocOrdersHl7ToVisageRadiology' source='request' target='response' xpos='200' ypos='850' >
+<annotation><![CDATA[translate to Visage format]]]]><![CDATA[></annotation>
+</transform>
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='950' >
+<annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
+</trace>
+<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
+<annotation><![CDATA[Publish to facility Target based on the lookup table]]]]><![CDATA[></annotation>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='Reset Error' xpos='200' ypos='1150' >
+<annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
+<![CDATA[
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1250' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>OpenDocOrdersHl7ToVisageRadiologyDefaultData</DefaultData>
+<Data name="OpenDocOrdersHl7ToVisageRadiologyDefaultData">
+<Subscript>"OpenDocOrdersHl7ToVisageRadiology"</Subscript>
+<Value name="1">
+<Value>HddTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
