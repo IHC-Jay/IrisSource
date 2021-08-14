@@ -1,0 +1,740 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil">
+<Super>Ens.Rule.FunctionSet</Super>
+<TimeCreated>65958,47905.155501</TimeCreated>
+
+<Method name="getRepByRep">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[SrcRep:%String,SrcRepFieldName:%String,SrcContext:%String,DomainNcid:%String,TargetContext:%String,hddOp:%String,&process:Ens.BusinessProcess,*retRep:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+	set retRep = ""
+	
+	set errMsg = "Error while calling the Hdd method: getUniqueRepByRep. fromRep:["_SrcRep_"] in "_SrcRepFieldName_". fromContextNcid:["_SrcContext_"]. domainNcid:["_DomainNcid_"]. toContextNcid:["_TargetContext_"]. "
+	if ((SrcRep="") || ($ISVALIDNUM(DomainNcid)'="1") || ($ISVALIDNUM(SrcContext)'="1") || ($ISVALIDNUM(TargetContext)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)		
+	}
+			
+ 	set retRep=..getRepByRepFromCache(SrcRep, SrcContext, DomainNcid, TargetContext)
+	$$$TRACE("Cache returned rep: " _ retRep)
+	if (retRep'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.UniqueRepByRepLookupRequest).%New()
+	set reqObj.listOfHDDUniqueRepByRepObj = ##class(%ListOfObjects).%New()
+	set newHddObj.SrcRep = SrcRep
+	set newHddObj.SrcContext = SrcContext
+	set newHddObj.GlobalDomainContext=DomainNcid
+	set newHddObj.ReturnRepContext=TargetContext
+	set newHddObj.FieldName=SrcRepFieldName
+	Do reqObj.listOfHDDUniqueRepByRepObj.Insert(newHddObj)
+    $$$TRACE("########Call HDD lookup for rep of : " _ SrcRep)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+	   set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	   $$$TRACE(" ERROR(In UTIL): "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+    }
+    else { 
+      set repObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	     If repObj.Rep'=""{
+  	        set retRep = repObj.Rep
+            $$$TRACE("From Service Call: "_retStr_" for rep: " _ SrcRep)
+	     }else {
+		     If repObj.errText'=""{
+		        set status = ..ExceptionHandler(repObj.errText, process)	        				       				
+		     }		 
+         }
+      }
+    }
+
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getRepByRepFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>srcRep:%String,srcContext:%String,domainNcid:%String,returnRepContext:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set repStr = "" 
+	//Do ..ClearHddTables()
+	&sql(select Representation into :repStr from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueRepByRepCache where SrcRep = :srcRep and SrcContext = :srcContext and GlobalDomainContext = :domainNcid and  ReturnRepContext = :returnRepContext)		
+	return repStr
+]]></Implementation>
+</Method>
+
+<Method name="getRepFromNcid">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[ncid:%String,SrcNcidFieldName:%String,context:%String,hddOp:%String,&process:Ens.BusinessProcess,*retRep:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retRep=""
+	$$$TRACE("**** In getRepFromNcid() *******")
+	set errMsg = "Error while calling the Hdd method: GetUniqueRepByNcid. ncid:["_ncid_"] in "_SrcNcidFieldName_". contextNcid:["_context_"]. "
+	
+	if ((ncid="") || ($ISVALIDNUM(ncid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)		
+	}
+ 	set retRep=..getRepByNcidFromCache(ncid, context)
+	$$$TRACE("Cache returned rep: " _ retRep)
+	if (retRep'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest).%New()
+	set reqObj.listOfHddRepObj = ##class(%ListOfObjects).%New()
+	set newHddObj.NCID = ncid
+	set newHddObj.Context = context
+	set newHddObj.FieldName=SrcNcidFieldName
+	Do reqObj.listOfHddRepObj.Insert(newHddObj)
+    $$$TRACE("########Calling Hdd Service#### " _ ncid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(" ERROR(In UTIL): "_$System.Status.GetOneStatusText(status))
+	  $$$ThrowOnError(status)
+    }else{
+	    set repObj = hddRepResponse.listOfHDDobj.GetAt(1)
+	    if ( repObj'="") {
+	     If repObj.Rep'=""{
+  	        set retRep = repObj.Rep
+            $$$TRACE("From Service Call: "_retRep_" for Ncid: " _ ncid)
+	     }else {
+			If repObj.errText'=""{
+		        set status = ..ExceptionHandler(repObj.errText, process)	        						        				
+		    }		      
+      	 }
+	    }
+    }
+    quit status
+]]></Implementation>
+</Method>
+
+<Method name="getRepByNcidFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ncid:%String,context:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   set repStr=""   
+   &sql(select Representation into :repStr from IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddRepCache where Ncid = :ncid and HddContext = :context)
+   quit repStr
+]]></Implementation>
+</Method>
+
+<Method name="getNcidFromRep">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[rep:%String,repFieldName:%String,domainNcid:%String,contextNcid:%String,hddOp:%String,&process:Ens.BusinessProcess,*retNcid:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retNcid=""
+	
+	set errMsg = "Error while calling the Hdd method: getUniqueNcidByRep. representation: ["_rep_"] in "_repFieldName_". domainNcid: ["_domainNcid_"]. contextNcid: ["_contextNcid_"]."
+	
+	if ((rep="") || ($ISVALIDNUM(domainNcid)'="1") || ($ISVALIDNUM(contextNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)
+	}
+ 	set retNcid=..getNcidByRepFromCache(rep, domainNcid, contextNcid)
+	$$$TRACE("From Cache: " _ retNcid)
+	if (retNcid'="") {
+	  quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.NcidLookupRequest).%New()
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	set newHddObj.Rep = rep
+	set newHddObj.Domain = domainNcid
+	set newHddObj.Context = contextNcid
+	set newHddObj.FieldName=repFieldName
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)
+    $$$TRACE("##############Calling HDD Service for the rep of: " _ rep)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddNcidResponse)
+    $$$TRACE("tStatus-->"_tStatus)
+    if ('tStatus) {
+	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(" ERROR(In UTIL: "_$System.Status.GetOneStatusText(status))
+	  $$$ThrowOnError(status)
+    }else { 
+      $$$TRACE("else part-->"_tStatus)
+      set repObj = hddNcidResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	      If repObj.NCID'=""{
+	      	set retNcid = repObj.NCID
+          	$$$TRACE("Web service returned Ncid: "_retNcid_" for Rep: " _ rep)	     
+	      }else {
+	      	$$$TRACE("****Web service returned exception*******")
+		    If repObj.errText'=""{
+		        set status = ..ExceptionHandler(repObj.errText, process)	        				       				
+		    }
+         }
+      }
+    }
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getNcidByRepFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>rep:%String,domainNcid:%String,context:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   set retStr=""
+   &sql(select Ncid into :retStr from IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddNcidCache where Representation = :rep and HddDomain = :domainNcid and HddContext = :context)
+   quit retStr
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueParent">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[childNcid:%String,childNcidFieldName:%String,hddOp:%String,&process:Ens.BusinessProcess]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retInsCompanyNcid = ""
+	$$$TRACE(" Inside getUniqueParent() method ... ")
+		
+	set errMsg = "Error while calling the Hdd method: getUniqueParent. childNcid: ["_childNcid_"] in "_childNcidFieldName_". relationshipNcid: [529857609]. contextNcid: [2000]. "
+
+	if ($ISVALIDNUM(childNcid)'="1"){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are invalid/empty.")
+		$$$ThrowOnError(status)
+	}
+	//&sql(DELETE IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentCache)
+	set retInsCompanyNcid = ..getUniqueParentFromCache(childNcid)
+	$$$TRACE("Cache returned Insurance Company NCID: " _ retInsCompanyNcid)
+	if (retInsCompanyNcid'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.UniqueParentRequest).%New()
+	set reqObj.listOfHDDUniqueParentIbj = ##class(%ListOfObjects).%New()
+	set newHddObj.NCID = childNcid	
+	set newHddObj.FieldName=childNcidFieldName
+	Do reqObj.listOfHDDUniqueParentIbj.Insert(newHddObj)
+    $$$TRACE("########Call HDD lookup for Insurance Plan NCID of : " _ childNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    }else { 
+      set repObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	     If repObj.NCID'=""{
+  	        set retInsCompanyNcid = repObj.NCID
+            $$$TRACE("Web service returned Insurance Company NCID: "_retInsCompanyNcid_" for Insurance Plan Ncid: " _ childNcid)
+	     }else {
+	        If repObj.errText'=""{
+		        set status = ..ExceptionHandler(repObj.errText, process)	        				
+		    }
+         }
+      }
+    }
+
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueParentFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>insPlanIdNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set insCompanyId = "" 
+	&sql(select InsCompanyNcid into :insCompanyId from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentCache where InsPlanNcid = :insPlanIdNcid )
+	return insCompanyId
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueParentRepByChildRep">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[childRep:%String,childRepFieldName:%String,childDomainNcid:%String,childRepContextNcid:%String,childDomainRelationship:%String,relationshipTypeNcid:%String,parentRepContextNcid:%String,hddOp:%String,&process:Ens.BusinessProcess,*retText:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retInsCompanyNcid = ""
+	$$$TRACE(" Inside getUniqueParentRepByChildRep() method ... ")
+		
+	set errMsg = "Error while calling the Hdd method: getUniqueParentRepByChildRep. childRep: ["_childRep_"] in "_childRepFieldName_". childDomainNcid: ["_childDomainNcid_"]. childRepContextNcid: ["_childRepContextNcid_"]. childDomainRelationship: ["_childDomainRelationship_"]. relationshipTypeNcid: ["_relationshipTypeNcid_"]. parentRepContextNcid: ["_parentRepContextNcid_"]."
+
+	if (childRep="" || ($ISVALIDNUM(childDomainNcid)'="1") || ($ISVALIDNUM(childRepContextNcid)'="1") || ($ISVALIDNUM(childDomainRelationship)'="1") || ($ISVALIDNUM(relationshipTypeNcid)'="1") || ($ISVALIDNUM(parentRepContextNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are invalid/empty.")
+		$$$ThrowOnError(status)
+	}
+	set retText = ..getUniqueParentRepByChildRepCache(childRep)
+	$$$TRACE("Cache returned Insurance Company NCID: " _ retText)
+	if (retText'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueParentRepByChildRepRequest).%New()
+	 
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	set newHddObj.ChildRep = childRep	
+	set newHddObj.ChildDomainNcid=childDomainNcid
+	set newHddObj.ChildRepContextNcid = childRepContextNcid	
+	set newHddObj.ChildDomainRelationship=childDomainRelationship
+	set newHddObj.RelationshipTypeNcid = relationshipTypeNcid	
+	set newHddObj.ParentRepContextNcid=parentRepContextNcid	
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)
+    $$$TRACE("######## getUniqueParentRepByChildRep() Call to get the Text from childRep " _ childRep)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddTextResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    }else { 
+      set hddObj = hddTextResponse.listOfHDDobj.GetAt(1)
+      if ( hddObj'="") {
+	     If hddObj.Rep'=""{
+  	        set retText = hddObj.Rep
+            $$$TRACE("Web service returned Text: "_retText_" for childRep: " _ childRep)
+	     }else {
+	        If hddObj.errText'=""{
+		        set status = ..ExceptionHandler(hddObj.errText, process)	        				
+		    }
+         }
+      }
+    }
+
+	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueParentRepByChildRepCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>childRep:%String,childDomainNcid:%String,childRepContextNcid:%String,childDomainRelationship:%String,relationshipTypeNcid:%String,parentRepContextNcid:%String</FormalSpec>
+<Implementation><![CDATA[
+	set retText = "" 
+	&sql(select Text into :retText from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueParentRepByChildRepCache where ChildRep = :childRep and ChildDomainNcid = :childDomainNcid and ChildRepContextNcid = :childRepContextNcid and ChildDomainRelationship = :childDomainRelationship and  RelationshipTypeNcid = :relationshipTypeNcid and  ParentRepContextNcid=:parentRepContextNcid )
+	return retText
+]]></Implementation>
+</Method>
+
+<Method name="isMember">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[domainNcid:%String,domainNcidFieldName:%String,memberNcid:%String,memberNcidFieldName:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retStr=""
+	set errMsg = "Error while calling the Hdd method: isMember. domainNcid: ["_domainNcid_"] in "_domainNcidFieldName_". memberNcid:["_memberNcid_"] in "_ memberNcidFieldName
+	
+	if (($ISVALIDNUM(memberNcid)'="1") || ($ISVALIDNUM(domainNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)		
+	}
+
+ 	set retStr=..getIsMemberFromCache(domainNcid, memberNcid)
+	$$$TRACE("Cache returned from isMember(): " _ retStr)
+	if (retStr'="") {
+	  quit retStr
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.IsMemberLookupRequest).%New()
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	set newHddObj.memberNcid = memberNcid
+	set newHddObj.domainNcid = domainNcid
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)
+    $$$TRACE("##############Call HDD lookup for isMember : " _ memberNcid _"/"_domainNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddMemResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    }else { 
+      set repObj = hddMemResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	     If repObj.Rep'=""{
+  	        set retStr = repObj.Rep
+            $$$TRACE("From Service Call: "_retStr_" for domainNcid: ["_domainNcid_"] in "_domainNcidFieldName_". memberNcid:["_memberNcid_"] in "_ memberNcidFieldName)
+	     }else {
+		    If hddObj.errText'=""{
+		    	set status = ..ExceptionHandler(hddObj.errText, process)	        				
+		    }         	
+    	 }  
+    	}
+ 	}
+ 	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getIsMemberFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>DomainNcid:%String,MemberNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set retStr = "" 
+	&sql(select Representation into :retStr from IHC_ITF_ITFCOMMON_DataStructure.HddIsMemberCache where domainNcid = :DomainNcid and memberNcid = :MemberNcid)
+	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="getNcidsByRep">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[representation:%String,representationFieldName:%String,domainNcid:%String,contextNcid:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+	set retStr=""
+	set errMsg = "Error while calling the Hdd method: getNcidsByRep. representation: ["_representation_"] in "_representationFieldName_". domainNcid:["_domainNcid_"]. contextNcid: ["_ contextNcid_"]"
+	
+	if ((representation="") || ($ISVALIDNUM(domainNcid)'="1") || ($ISVALIDNUM(contextNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)		
+	}
+
+ 	set retStr=..getHddMultiNcidsFromHddRepCache(representation, domainNcid,contextNcid)
+	$$$TRACE("Cache returned for getNcidsByRep(): " _ retStr)
+	if (retStr'="") {
+	  quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.MultiNcidsLookupRequest).%New()
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	set newHddObj.Rep = representation
+	set newHddObj.Domain = domainNcid
+	set newHddObj.Context = contextNcid
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)
+    $$$TRACE("##############Call HDD lookup for getNcidsByRep : " _ representation _"/"_domainNcid_"/"_contextNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddNcidsResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    }else { 
+      set ncidsObj = hddNcidsResponse.listOfHDDobj.GetAt(1)
+      if ( ncidsObj'="") {
+	     If ncidsObj.NCID'=""{
+  	        set retStr = ncidsObj.NCID
+            $$$TRACE("From Service Call: "_retStr_" for domainNcid: ["_domainNcid_"] representation: ["_representation_"]. contextNcid:["_contextNcid_"]")
+	     }else {
+		    If ncidsObj.errText'=""{
+		    	set status = ..ExceptionHandler(ncidsObj.errText, process)	        				
+		    }         	
+    	 }  
+    	}
+ 	}
+ 	quit status
+]]></Implementation>
+</Method>
+
+<Method name="getHddMultiNcidsFromHddRepCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>rep:%String,dom:%String,cnxt:%String</FormalSpec>
+<ReturnType>%ListOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE(" Inside GetHddMultiNcidsFromHddRepCache.... "_rep)
+	set multiNcid = "" 
+	&sql(select Ncids into :multiNcid from IHC_ITF_ITFCOMMON_DataStructure.InterfaceHddMultiNcidsCache where Representation = :rep and HddDomain = :dom and HddContext = :cnxt)	
+	$$$TRACE(" multiNcid.... "_multiNcid)
+	return multiNcid
+]]></Implementation>
+</Method>
+
+<Method name="getComputrition">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[locationNcid:%String,locationNcidFieldName:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+    set retStr=""
+    set errMsg = "Error while calling the Hdd method: getComputrition. locationNcid:["_locationNcid_"] in "_locationNcidFieldName
+    if (locationNcid=""){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)
+	}
+
+ 	set retStr=..getComputritionFromCache(locationNcid)
+	$$$TRACE("Cache returned computrition: " _ retStr)
+	if (retStr'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.GetComputritionRequest).%New()
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	set newHddObj.locNcid = locationNcid
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)	
+
+    $$$TRACE("###############Call HDD lookup for getComputrition: " _ locationNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddCompResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	   $$$TRACE(errMsg)
+	   $$$ThrowOnError(status)
+    }
+    else { 
+      set hddObj = hddCompResponse.listOfHDDobj.GetAt(1)
+      if ( hddObj'="") {
+	     If hddObj.Rep'=""{
+  	        set retStr = hddObj.Rep
+	        $$$TRACE("Web service returned computrition: "_retStr_" for "_locationNcid)
+	     }
+         Else {
+	        If hddObj.errText'=""{
+		        set status = ..ExceptionHandler(hddObj.errText, process)	        				
+		    }
+         }
+      }
+    }
+
+	return status
+]]></Implementation>
+</Method>
+
+<Method name="getComputritionFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>locationNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set objRep = "" 
+	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddGetComputritionCache where LocationNcid = :locationNcid )
+	return objRep
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueChild">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[parentNcid:%String,parentNcidFieldName:%String,relationshipNcid:%String,contextNcid:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	#dim status As %Status=$$$OK
+    set retStr=""
+    set errMsg = "Error while calling the Hdd method: getUniqueChild. parentNcid:["_parentNcid_"] in "_parentNcidFieldName_". relationshipNcid: ["_relationshipNcid_"]. contextNcid :["_contextNcid_"]."
+    
+    
+    if (($ISVALIDNUM(parentNcid)'="1") || ($ISVALIDNUM(relationshipNcid)'="1") || ($ISVALIDNUM(contextNcid)'="1") ){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)
+	}
+
+ 	set retStr=..getUniqueChildFromHddRepCache(parentNcid, relationshipNcid, contextNcid)
+	$$$TRACE("Cache returned getUniqueChildFromHddRepCache: " _ retStr)
+	if (retStr'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildLookupRequest).%New()
+	set reqObj.listOfHddNcidObj = ##class(%ListOfObjects).%New()
+	
+	set newHddObj.NCID = parentNcid
+	set newHddObj.Context = relationshipNcid
+	set newHddObj.GlobalDomainContext = contextNcid	
+	
+	Do reqObj.listOfHddNcidObj.Insert(newHddObj)	
+
+    $$$TRACE("###############Call HDD lookup for getUniqueChild: " _ parentNcid_"/"_relationshipNcid_"/"_contextNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	   $$$TRACE(errMsg)
+	   $$$ThrowOnError(status)
+    }
+    else { 
+      set hddObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      if ( hddObj'="") {
+	     If hddObj.Rep'=""{
+  	        set retStr = hddObj.Rep
+	        $$$TRACE("Web service returned computrition: "_retStr_" for "_parentNcid_"/"_relationshipNcid_"/"_contextNcid)
+	     }
+         Else {
+	        If hddObj.errText'=""{
+		        set status = ..ExceptionHandler(hddObj.errText, process)	        				
+		    }
+         }
+      }
+    }
+
+	return status
+]]></Implementation>
+</Method>
+
+<Method name="getUniqueChildFromHddRepCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>objNcid:%String,objRelshipNcid:%String,objContextNcid:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set objRep = "" 	
+	&sql(select Representation into :objRep from IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildCache where Ncid = :objNcid and Context = :objRelshipNcid and GlobalDomainContext=:objContextNcid)
+	return objRep
+]]></Implementation>
+</Method>
+
+<Method name="getHelp1PatRelationship">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[relNcid:%String,relNcidFieldName:%String,sexNcid:%String,sexNcidFieldName:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+    set retStr=""
+    set errMsg = "Error while calling the Hdd method: getHelp1PatRelationship. relNcid:["_relNcid_"] in "_relNcidFieldName_". sexNcid:["_sexNcidFieldName_"] in "_sexNcidFieldName
+	
+    if (($ISVALIDNUM(sexNcid)'="1") || ($ISVALIDNUM(relNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)
+	}
+
+ 	set retStr=..getHelp1PatRelationshipFromCache(relNcid_"|"_sexNcid)
+	$$$TRACE("Cache returned Pat Rel: " _ retStr)
+	if (retStr'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Help1PatientRelationshipLookupRequest).%New()
+	set reqObj.listOfHDDRelationshipObj = ##class(%ListOfObjects).%New()
+	set newHddObj.Help1RelationshipType  = relNcid_"|"_sexNcid		
+	Do reqObj.listOfHDDRelationshipObj.Insert(newHddObj)	
+
+    $$$TRACE("############Call HDD lookup for Pat Rel: " _ relNcid_"|"_sexNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    } else { 
+      set repObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	     If repObj.Rep'=""{
+  	        set retStr = repObj.Rep
+            $$$TRACE("From Service Call: "_retStr_" for rep: " _ relNcid_"|"_sexNcid)
+	     }else {
+		    set hddObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      		if ( hddObj'="") {
+	     		If hddObj.Rep'=""{
+  	        		set retText = hddObj.Rep
+            		$$$TRACE("Web service returned Text: "_retStr_"  for "_ relNcid_"|"_sexNcid)
+	     		}else {
+	        		If hddObj.errText'=""{
+		        		set status = ..ExceptionHandler(hddObj.errText, process)	        				
+		    		}
+         		}
+      		}
+    	}
+      }
+    
+    }
+	return status
+]]></Implementation>
+</Method>
+
+<Method name="getHelp1PatRelationshipFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>relNcids:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   set retStr=""
+   &sql(select Help1RelationshipType into :retStr from IHC_ITF_ITFCOMMON_DataStructure.HddHelp1RelationshipCache where RelationshipNcid = :relNcids)
+   quit retStr
+]]></Implementation>
+</Method>
+
+<Method name="getBillingType">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[patientTypeNcid:%String,ptNcidFieldName:%String,svcNcid:%String,svcNcidFieldName:%String,hddOp:%String,&process:Ens.BusinessProcess,*retStr:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim status As %Status=$$$OK
+    set retStr=""
+    
+    set errMsg = "Error while calling the Hdd method: getHelp1BillingType. patientTypeNcid: ["_patientTypeNcid_"] in "_ptNcidFieldName_". svcNcid:["_svcNcid_"] in "_svcNcidFieldName
+    
+    if (($ISVALIDNUM(patientTypeNcid)'="1")){
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$ThrowOnError(status)
+		
+	}
+
+ 	set retStr=..getBillingTypeFromCache(patientTypeNcid_"|"_svcNcid)
+	$$$TRACE("Cache returned Billing Type: " _ retStr)
+	if (retStr'="") {
+		quit status
+	}
+	set newHddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	set reqObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.BillingTypeLookupRequest).%New()
+	set reqObj.listOfHDDBillTypeobj = ##class(%ListOfObjects).%New()
+	set newHddObj.BillingType  = patientTypeNcid_"|"_svcNcid		
+	Do reqObj.listOfHDDBillTypeobj.Insert(newHddObj)	
+
+    $$$TRACE("###############Call HDD lookup for Billing Type: " _ patientTypeNcid_"|"_svcNcid)
+    set tStatus=process.SendRequestSync(hddOp,reqObj,.hddRepResponse)
+    if ('tStatus) {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_" "_" Unexpected Error. Shutting down..")
+	  $$$TRACE(errMsg)
+	  $$$ThrowOnError(status)
+    }
+    else { 
+      set repObj = hddRepResponse.listOfHDDobj.GetAt(1)
+      if ( repObj'="") {
+	     If repObj.BillingType '=""{
+		    set retStr = repObj.BillingType
+	        $$$TRACE("Web service returned billing type: "_retStr_" for " _ patientTypeNcid_"|"_svcNcid)
+	     }else{
+		     If repObj.errText'=""{
+		        set status = ..ExceptionHandler(repObj.errText, process)	        				
+		    }
+		 }
+      }
+    }
+
+	return status
+]]></Implementation>
+</Method>
+
+<Method name="getBillingTypeFromCache">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>btNcids:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   set retStr=""
+	&sql(select BillingTypeRep into :retStr from IHC_ITF_ITFCOMMON_DataStructure.HddBillingTypeCache where BillingTypeNcid = :btNcids)
+   quit retStr
+]]></Implementation>
+</Method>
+
+<Method name="ExceptionHandler">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[errMsg:%String,&process:Ens.BusinessProcess]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Error Text(In Util): "_errMsg)
+	if (errMsg["faultstring=1"){
+	   	$$$TRACE("**** faultstring=1 *******")
+	   	set status=##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,errMsg)
+		$$$TRACE("Hdd Data ERROR:(In Util) "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+	}elseif(errMsg["faultstring=2"){
+	   	$$$TRACE("**** faultstring=2 *******")
+	   	set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,errMsg)
+		$$$TRACE("Data retrieval ERROR(in Util):(Retry) "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+	}elseif(errMsg["faultstring=3"){
+		$$$TRACE("**** faultstring=3 *******")
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,errMsg_". "_" One or more parameters are empty.")
+		$$$TRACE("Missing data ERROR(in Util):(Input) "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+	}elseif(errMsg["ERROR #6097"){
+	   	$$$TRACE("**** ERROR #6097 *******")
+	   	set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg_".")
+		$$$TRACE("Unexpected error(in Util):(Disable) "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+	}elseif(errMsg["ERROR #5001"){
+	   	$$$TRACE("**** ERROR #5001 *******")
+	   	set status=##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,errMsg_".")
+		$$$TRACE("Unexpected error(in Util):(WarnMsgError) "_$System.Status.GetOneStatusText(status))
+		$$$ThrowOnError(status)
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
