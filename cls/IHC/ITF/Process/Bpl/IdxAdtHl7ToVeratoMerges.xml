@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.IdxAdtHl7ToVeratoMerges">
+<Description>
+Translates IDX merges to Verato service </Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65815,41983.829153</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='3550' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='idxPid' type='%String' instantiate='0' />
+<property name='deleteIdxPid' type='%String' instantiate='0' />
+<property name='empiNum' type='%String' instantiate='0' />
+<property name='msgType' type='%String' instantiate='0' initialexpression='"100"' />
+
+</context>
+<sequence xend='200' yend='3300' >
+<scope xpos='200' ypos='250' xend='200' yend='3200' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Set MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Set MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)   
+ 
+ //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ } 
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("Count: " _ context.targetList.Count())
+      
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='750' >
+<annotation><![CDATA[CheckValidationSetting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='850' xend='200' yend='2950' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1000' />
+
+<code name='ValidateIdxPIDs' xpos='200' ypos='650' >
+<![CDATA[  
+   Set context.idxPid=request.GetValueAt("PID:AlternatePatientIDPID(1).IDNumber")        
+   $$$TRACE("EMPI: " _ context.idxPid) 
+   if ($ISVALIDNUM(context.idxPid)'="1"){	  
+    $$$TRACE("Empi# is NOT a VALID number ")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid IDX pid/xid in PID-4: ["_context.idxPid_"]. Skipping the record.")
+   }
+   Set context.msgType =request.GetValueAt("MSH:9.2")
+   set context.deleteIdxPid = request.GetValueAt("MRG(1):PriorPatientIdentifierList(1).IDNumber")
+   $$$TRACE("deleteIdxPid: " _ context.deleteIdxPid) 
+   if ($ISVALIDNUM(context.deleteIdxPid)'="1"){	  
+    $$$TRACE("Empi# is NOT a VALID number ")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid delete idx PID/XID in MRG-1 ["_context.deleteIdxPid_"]. Skipping the record.")
+   }
+  ]]]]><![CDATA[>
+</code>
+
+  <transform name='Transform' class='IHC.ITF.Transform.Dtl.IdxAdtHl7ToVeratoMerges' source='request' target='response' xpos='470' ypos='1500' >
+  <annotation><![CDATA[translates IDX Adt Hl7 demographics to Xml Verato request]]]]><![CDATA[></annotation>
+</transform>
+
+ <code name='ConvertVeratoXmlToJSON and Call Verato service for MergeIdentity' xpos='470' ypos='1600' >
+<![CDATA[  
+   $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr)
+    $$$TRACE("JSON string: "_json)    
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 23, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue) 
+    
+    set httpRequestObj=##class(IHC.ITF.Request.httpsRequestForVerato).%New()
+	
+    set httpVeratoServiceRequestObj=##class(IHC.ITF.Request.httpsRequestForVerato).%New() 
+    set httpVeratoServiceRequestObj.jsonStreamObject = jsonProcessRequest
+    set httpVeratoServiceRequestObj.ihcMrn = context.idxPid
+    set httpVeratoServiceRequestObj.msgType = context.msgType
+    
+    
+    $$$TRACE(" Calling Verato Service for mergr - BEGIN ")
+    set status = process.SendRequestSync(context.targetList.GetAt(1),httpVeratoServiceRequestObj,.veratoServiceResponse)
+    $$$TRACE(" Calling Verato Service for merge - END ")   
+    
+    $$$TRACE(" Status : Verato Service Call "_status)    
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)                          
+ ]]]]><![CDATA[>
+</code>
+
+
+<code name='RESETERROR' xpos='200' ypos='950' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+
+
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='1000' />
+<code name='Skip message' xpos='200' ypos='1100' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='3050' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+</Storage>
+</Class>
+</Export>
