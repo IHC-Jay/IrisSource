@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.CareInMotionAdtHl7ToPmd">
+<Description>
+Translates CIM Adt hl7 to pMD</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65822,46242.914087</TimeCreated>
+
+<Property name="DatabaseLookupTargetConfigName">
+<Description>
+DatabaseLookups</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-TouchWorks-Adt-Sql-IDXDBLOOKUP"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>DatabaseLookupTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>CareInMotionAdtHl7ToPmdDefaultData</DefaultData>
+<Data name="CareInMotionAdtHl7ToPmdDefaultData">
+<Subscript>"CareInMotionAdtHl7ToPmd"</Subscript>
+<Value name="1">
+<Value>DatabaseLookupTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2100' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='databaseLookupTargetConfigName' type='%String' initialexpression='""' instantiate='0' />
+<property name='databaseLookupRequest' type='IHC.ITF.Request.IdxDatabaseLookupRequest' instantiate='0' />
+<property name='ssn' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='11' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='0' instantiate='0' />
+</context>
+<sequence xend='200' yend='1750' >
+<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='550' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tStatus'=$$$OK){
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Message Validation failed! Skipping the record.")
+ }]]]]><![CDATA[>
+</code>
+<code name='Set MaxError' xpos='200' ypos='650' >
+<annotation><![CDATA[Set MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)   
+ 
+ //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ } 
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("Count: " _ context.targetList.Count())
+      
+ ]]]]><![CDATA[>
+</code>
+<code name='set message type' xpos='200' ypos='750' >
+<![CDATA[ set msgType=request.GetValueAt("MSH:9.1")]]]]><![CDATA[>
+</code>
+<if name='check message type' condition='msgType="ADT"' xpos='200' ypos='850' xend='200' yend='1400' >
+<true>
+<code name='DatabaseLookups - CheckPatientExists in TW' xpos='335' ypos='1000' >
+<annotation><![CDATA[Database Lookups]]]]><![CDATA[></annotation>
+<![CDATA[
+  set idxPid = request.GetValueAt("PID:PatientIdentifierList(1).ID")
+  if ##class(Ens.Util.FunctionSet).StartsWith(idxPid,"XID") {
+    set idxPid=##class(Ens.Util.FunctionSet).SubString(idxPid,4)
+  }   
+  set context.ssn=request.GetValueAt("PID:SSNNumberPatient")
+  if context.ssn="" {
+  $$$TRACE("Idx PID/XID from IDX HL7:[" _idxPid_"]" )
+  set context.databaseLookupTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DatabaseLookupTargetConfigName",.pstatus)
+  if ($$$ISOK(pstatus)){
+    $$$TRACE("DatabaseLookupTargetConfigName: " _ context.databaseLookupTargetConfigName)
+    set context.databaseLookupRequest = ##class(IHC.ITF.Request.IdxDatabaseLookupRequest).%New()
+    set context.databaseLookupRequest.IdxPidSsn = idxPid
+    set tStatus=process.SendRequestSync(context.databaseLookupTargetConfigName, context.databaseLookupRequest ,.response) 
+    if ($$$ISOK(tStatus)){      			
+      	set context.ssn = response.ssn      			     
+     	$$$TRACE("TW SSN: " _ context.ssn )     	        
+    }else{
+      	set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling : "_context.databaseLookupTargetConfigName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+    }    		
+  }else{
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DatabaseLookupTargetConfigName found in the Ensemble settings")
+  }        
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CareInMotionAdtHl7ToPmd' source='request' target='response' xpos='335' ypos='1100' >
+<annotation><![CDATA[translates TouchWorks Hl7 to TouchWorks Request]]]]><![CDATA[></annotation>
+</transform>
+<foreach name='SendToEachTargetconfigurations' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1200' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='Reset Error count' xpos='335' ypos='1300' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1500' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
