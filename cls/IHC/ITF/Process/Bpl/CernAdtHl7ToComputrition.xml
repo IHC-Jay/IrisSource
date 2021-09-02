@@ -143,6 +143,16 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='Facility' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddErrorMessage' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='2700' >
 <scope xpos='200' ypos='250' xend='200' yend='2600' >
@@ -176,12 +186,13 @@ BPL Definition</Description>
  }
  
  $$$TRACE("Validate Facility(MSH-4)...") 
+ set context.Facility = request.GetValueAt("MSH:SendingFacility.namespaceID")
  Set context.FacNcid=request.GetValueAt("ZZZ(2):12VisitRemarks")
  
- $$$TRACE("Facility NCID : " _ context.FacNcid) 
- if ($ISVALIDNUM(context.FacNcid)'="1"){	  
+ $$$TRACE("Facility: " _ context.Facility) 
+ if ($ISVALIDNUM(context.Facility)'="1"){	  
 	  $$$TRACE("Facility# is NOT a VALID number ")
-	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message has invalid facility number: ["_context.FacNcid_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message has invalid facility number: ["_context.Facility_"]. Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
  }
 ]]]]><![CDATA[>
 </code>
@@ -237,7 +248,7 @@ BPL Definition</Description>
   }
  
  
- if (context.FacNcid '="199") {
+ if (context.FacNcid '="525935320") {// this NCID is 199
     set targetStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToComputrition.lookup.HospitalToTarget", context.FacNcid, .retVal )
     if ($$$ISERR(targetStat) || (retVal = "Unknown") || (retVal ="")) {       
        $$$TRACE("Unable to get Target from the lookup table not a transaction needed on this pathway, skipping record")
@@ -256,6 +267,8 @@ BPL Definition</Description>
  set bedNcid = request.GetValueAt("ZZZ(2):16VisitAdmitDXCode")
  set facilityNcid = request.GetValueAt("ZZZ(2):12VisitRemarks")
  
+ set context.HddErrorMessage = " HDD Computrition Filter for Facility: "_facilityNcid_" Nursing unit: "_nurseUnitNcid_" Room Ncid: "_roomNcid_" Bed Ncid: "_bedNcid 
+  
  set context.ComputritionHddFilter = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateComputritionReqObject()
  do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddComputritionReqObject(context.ComputritionHddFilter, facilityNcid_"^"_nurseUnitNcid_"^"_roomNcid_"^"_bedNcid, "computritionfilter")
  $$$TRACE("Ending hdd filtering setup")]]]]><![CDATA[>
@@ -285,13 +298,12 @@ BPL Definition</Description>
        }elseif (hddObj.Rep = "Y"){
           //Wanted by computrition so keep processing.       
        }else {
-          set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Invalid response from the hdd for computrition filter. Failing message. See ZZZ(2):14VisitAdmitSource, ZZZ(2):15VisitPatientType, ZZZ(2):16VisitAdmitDXCode, and ZZZ(2):12VisitRemarks on inbound record for values used for lookup")
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Invalid response from the Hdd for Computrition filter"_context.HddErrorMessage)
        }
-    }else {
-        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 hdd message filtering failed, Skipping the record.")
+    }else {        set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Invalid response from the Hdd for Computrition filter"_context.HddErrorMessage_", Skipping the record.")
     }
  }else {
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 hdd message filtering failed, Skipping the record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Invalid response from the Hdd for Computrition filter"_context.HddErrorMessage_", Skipping the record.")
  }
  $$$TRACE("Ending processing of hdd filtering")]]]]><![CDATA[>
 </code>
@@ -371,7 +383,7 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToComputrition' source='request' target='response' xpos='470' ypos='1600' />
-<if name='Not enterprise change' condition='context.FacNcid &apos;= "199"' xpos='470' ypos='1700' xend='470' yend='2150' >
+<if name='Not enterprise change' condition='context.Facility &apos;= "199"' xpos='470' ypos='1700' xend='470' yend='2150' >
 <true>
 <call name='Send' target='@context.Target' async='1' xpos='470' ypos='1850' >
 <request type='Ens.Request' >
@@ -418,7 +430,7 @@ BPL Definition</Description>
 </code>
 <code name='Change loop values' xpos='200' ypos='350' >
 <![CDATA[ set context.NewResponse = response.%ConstructClone(1)
- do context.NewResponse.SetValueAt(context.FacNcid, "MSH:SendingFacility.namespaceID")]]]]><![CDATA[>
+ do context.NewResponse.SetValueAt(context.Facility, "MSH:SendingFacility.namespaceID")]]]]><![CDATA[>
 </code>
 <call name='Send' target='@context.Target' async='1' xpos='200' ypos='450' >
 <request type='Ens.Request' >
