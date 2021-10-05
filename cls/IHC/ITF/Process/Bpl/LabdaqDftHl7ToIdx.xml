@@ -8,9 +8,29 @@
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>65841,39305.386444</TimeCreated>
 
+<Property name="TwDBLookupTargetConfigName">
+<Type>%String</Type>
+<InitialExpression>"Op-TouchWorks-Jdbc-LOOKUP"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask</Default>
+<Default>TwDBLookupTargetConfigName,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>LabdaqDftHl7ToIdxDefaultData</DefaultData>
+<Data name="LabdaqDftHl7ToIdxDefaultData">
+<Subscript>"LabdaqDftHl7ToIdx"</Subscript>
+<Value name="1">
+<Value>DatabaseLookupTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>TwDBLookupTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -51,9 +71,20 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='cntr' type='%Integer' instantiate='0' />
+<property name='twDbLookupRequrst' type='IHC.ITF.Request.IdxDatabaseLookupRequest' instantiate='1' />
+<property name='OpTwDbLookupName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='idxPid' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1950' >
-<scope xpos='200' ypos='250' xend='200' yend='1850' >
+<sequence xend='200' yend='2050' >
+<scope xpos='200' ypos='250' xend='200' yend='1950' >
 <trace name='InsideBP' value='"Inside configName "_process.%ConfigName' xpos='200' ypos='350' />
 <code name='ValidateMessage' xpos='200' ypos='450' >
 <annotation><![CDATA[Check if the message passes the message validation as set in the Validation Settings]]]]><![CDATA[></annotation>
@@ -66,18 +97,40 @@ BPL Definition</Description>
 <assign name="RetrieveMessageType" property="context.msgType" value="request.GetValueAt(&quot;MSH:9.1&quot;)" action="set" xpos='200' ypos='550' />
 <trace name='MessageType' value='"Message Type : "_context.msgType' xpos='200' ypos='650' />
 <assign name="retrieveEventType" property="context.eventType" value="request.GetValueAt(&quot;MSH:9.2&quot;)" action="set" xpos='200' ypos='750' />
-<if name='DFT Message' condition='context.msgType="DFT"' xpos='200' ypos='850' xend='200' yend='1600' >
+<if name='DFT Message' condition='context.msgType="DFT"' xpos='200' ypos='850' xend='200' yend='1700' >
 <annotation><![CDATA[IF the Messagetype is DFT]]]]><![CDATA[></annotation>
 <true>
 <trace name=' DFT Message' value='"Its a DFT Message"' xpos='470' ypos='1000' />
-<assign name="Patient AccountNumber" property="context.PatientAccountNo" value="request.GetValueAt(&quot;PID:PatientAccountNumber.ID&quot;)" action="set" xpos='470' ypos='1100' />
-<transform name='Transform labdaq dft to idx' class='IHC.ITF.Transform.Dtl.LabdaqDftHl7ToIdx' source='request' target='response' xpos='470' ypos='1200' />
-<code name='Get "send  to" targets ' xpos='470' ypos='1300' >
+<code name='get IDX PID' xpos='470' ypos='1100' >
+<![CDATA[  set twPid = request.GetValueAt("PID:PatientIdentifierList(1).ID")
+   
+  $$$TRACE("TW PID from CIM HL7: " _twPid)
+  set context.OpTwDbLookupName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TwDBLookupTargetConfigName",.pstatus)
+  if ($$$ISOK(pstatus)){
+    $$$TRACE("DatabaseLookupTargetConfigName: " _ context.OpTwDbLookupName)
+    set context.twDbLookupRequrst = ##class(IHC.ITF.ITFCOMMON.Request.IdxDatabaseLookupRequest).%New()
+    set context.twDbLookupRequrst.TwPid = twPid
+    set tStatus=process.SendRequestSync(context.OpTwDbLookupName, context.twDbLookupRequrst,.response) 
+    if ($$$ISOK(tStatus)){      			
+      	set context.idxPid=$zstrip(response.IdxPid,"*P")    			     
+     	$$$TRACE("IDX PID: " _ context.idxPid)
+        	        
+    }else{
+      	set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling : "_context.OpTwDbLookupName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+    }    		
+  }else{
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DatabaseLookupTargetConfigName found in the Ensemble settings")
+  }        
+]]]]><![CDATA[>
+</code>
+<assign name="Patient AccountNumber" property="context.PatientAccountNo" value="request.GetValueAt(&quot;PID:PatientAccountNumber.ID&quot;)" action="set" xpos='470' ypos='1200' />
+<transform name='Transform labdaq dft to idx' class='IHC.ITF.Transform.Dtl.LabdaqDftHl7ToIdx' source='request' target='response' xpos='470' ypos='1300' />
+<code name='Get "send  to" targets ' xpos='470' ypos='1400' >
 <![CDATA[
  
    set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)]]]]><![CDATA[>
 </code>
-<foreach name='LoopThroughTargetConfig List' property='context.targetList' key='context.cntr' xpos='470' ypos='1400' xend='200' yend='450' >
+<foreach name='LoopThroughTargetConfig List' property='context.targetList' key='context.cntr' xpos='470' ypos='1500' xend='200' yend='450' >
 <call name='Call  Operation' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -85,7 +138,7 @@ BPL Definition</Description>
 </call>
 <trace name='Send to target' value=' "Iteration="_context.cntr_", message sent to target=" _context.targetList' xpos='200' ypos='350' />
 </foreach>
-<code name='Reset Error' xpos='470' ypos='1500' >
+<code name='Reset Error' xpos='470' ypos='1600' >
 <![CDATA[
   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
@@ -97,7 +150,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1700' xend='200' yend='350' >
+<catchall xpos='200' ypos='1800' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -110,9 +163,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
