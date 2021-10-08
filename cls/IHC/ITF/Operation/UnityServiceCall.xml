@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.UnityServiceCall">
+<IncludeCode>%systemInclude</IncludeCode>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>65995,53466.943617</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SOAP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="usrNm">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="pswrd">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="serviceId">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="AppName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="servicePswrd">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>AppName:Additional,-NextOperation</Default>
+</Parameter>
+
+<Method name="AssessmentPdfToTwProcess">
+<FormalSpec>pRequest:IHC.ITF.Request.AssessmentUnityRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+ $$$TRACE("call web service ")
+ if pRequest.PatientMrn="" {
+	 $$$TRACE("Request is missing TW mrn, ignored...")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(..%ConfigName, " Request is empty... ")       
+     Quit %objlasterror
+ }
+ //Quit $$$OK
+
+ if ^UnitySecurityToken="" {
+	$$$TRACE("call API:GetSecurityToken...")
+	set tSC=..GetSecurityTokenUserAuthentication() Quit:$$$ISERR(tSC) tSC
+ }
+ $$$TRACE("call API:GetPatientByMRN...")
+ Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+ Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetPatientByMRN",..usrNm,..AppName,"",^UnitySecurityToken,pRequest.PatientMrn,"","","","","","")
+ if $$$ISERR(tSC) {
+    set errMsg=$System.Status.GetErrorText(%objlasterror)
+    //if ##class(Ens.Util.FunctionSet).Contains(errMsg,"you have been logged out due to inactivity") {
+    if errMsg'="" {
+	   set tSC=..RetireSecurityToken() Quit:$$$ISERR(tSC) tSC
+	   set tSC=..GetSecurityTokenUserAuthentication() Quit:$$$ISERR(tSC) tSC
+       Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetPatientByMRN",..usrNm,..AppName,"",^UnitySecurityToken,pRequest.PatientMrn,"","","","","","")
+    }
+    else {
+	    Quit tSC
+    }
+ }
+ If $IsObject(MagicResult) {
+	If MagicResult.Next(.sc) {
+	   set pid=MagicResult.GetDataByName("ID")
+	   set pLastNm=MagicResult.GetDataByName("lastname")
+	   $$$TRACE("Patient lastname(TW): "_pLastNm)
+	   set pFirstNm=MagicResult.GetDataByName("firstname")
+	   $$$TRACE("Patient firststname(TW): "_pFirstNm)
+	   $$$TRACE("PatientId: "_pid)
+	   set pOrg=""
+	   if pid'="" {
+		 $$$TRACE("Call API:GetPatient...")
+         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetPatient",..usrNm,..AppName,pid,^UnitySecurityToken,"","","","","","","")  Quit:$$$ISERR(tSC) tSC
+         If $IsObject(MagicResult) {
+	        If MagicResult.Next(.sc) {
+	           set mrn=MagicResult.GetDataByName("mrn")
+	           $$$TRACE("Patient MRN(TW): "_mrn)
+	           set pOrg=MagicResult.GetDataByName("patientorg")
+	           $$$TRACE("Patient ORG(TW): "_pOrg)
+	        }
+         }
+         $$$TRACE("Call API:SaveDocumentImage.upload...")
+         set doc=pRequest.doc1.content
+         set doc=..GetUpdatedDoc(doc,"",pLastNm,pFirstNm)
+         set doc=##class(Ens.Util.FunctionSet).SubString(doc,1,4)_##class(Ens.Util.FunctionSet).SubString(doc,57)
+         set parm1=$REPLACE(doc,"'",$CHAR(34))
+         set docVer=""
+         set docId=""
+         set userName=""
+         Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"SaveDocumentImage",..usrNm,..AppName,pid,^UnitySecurityToken,parm1,"","","","",pRequest.pdfData,"")  //Quit:$$$ISERR(tSC) tSC
+         if $$$ISERR(tSC) {
+            set errMsg=$System.Status.GetErrorText(%objlasterror)
+	        $$$TRACE("SaveDocumentImage api call failed. "_errMsg)
+	        Quit tSC
+         }
+         If $IsObject(MagicResult) {
+	        If MagicResult.Next(.sc) {
+		 	      set docVer=MagicResult.GetDataByName("documentVar")
+   		 	      $$$TRACE("Value: "_docVer)
+	        }
+         }
+         if docVer'="" {
+           $$$TRACE("Call API:SaveDocumentImage.commit...")
+           set doc=pRequest.doc2.content
+           set doc=..GetUpdatedDoc(doc,docVer,pLastNm,pFirstNm)
+           set doc2=##class(Ens.Util.FunctionSet).SubString(doc,1,4)_##class(Ens.Util.FunctionSet).SubString(doc,57)
+           set parm1=$REPLACE(doc2,"'",$CHAR(34))
+           $$$TRACE("DOC2: "_parm1)
+           //set parm1="<![CDATA["_doc2_"]]]]><![CDATA[>"
+           Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"SaveDocumentImage",..usrNm,..AppName,pid,^UnitySecurityToken,parm1,"","","","","","")  Quit:$$$ISERR(tSC) tSC
+           If $IsObject(MagicResult) {
+	        If MagicResult.Next(.sc) {
+		 	       set docId=MagicResult.GetDataByName("documentID")
+   		 	       $$$TRACE("Doc ID: "_docId)
+	        }
+           }
+           if docId'="" {
+	         $$$TRACE("Call API:GetDocumentByAccession...")
+	         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetDocumentByAccession",..usrNm,..AppName,pid,^UnitySecurityToken,docId,"","","","","","")  Quit:$$$ISERR(tSC) tSC
+             If $IsObject(MagicResult) {
+	           If MagicResult.Next(.sc) {
+		         set recCnt=MagicResult.GetColumnCount()
+                 if recCnt > 0 {
+                   for i=1:1:recCnt {
+		 	         set tColNm=MagicResult.GetColumnName(i)
+		             $$$TRACE("Column Name: "_tColNm)
+		 	         set val=MagicResult.GetDataByName(tColNm)
+   		 	         $$$TRACE("Value: "_val)
+	               }
+                 }
+	           }
+             }
+           }
+           if pRequest.entryCode'="" {
+	         $$$TRACE("Call API:GetProvider...")
+	         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetProviders",..usrNm,..AppName,"",^UnitySecurityToken,"",pRequest.entryCode,"","","","","")  Quit:$$$ISERR(tSC) tSC
+             If $IsObject(MagicResult) {
+	           If MagicResult.Next(.sc) {
+		         set recCnt=MagicResult.GetColumnCount()
+		         $$$TRACE("Row Count: "_recCnt)
+                 if recCnt > 0 {
+		 	         set userName=MagicResult.GetDataByName("UserName")
+   		 	         $$$TRACE("userName: "_userName)
+                 }
+	           }
+             }
+           }
+           else {
+	         $$$TRACE("Provider entryCode is null, Quit GetProvider api call...")
+           }
+           if userName'="" {
+	    	 $$$TRACE("Call API:SaveTask...")
+	         set param5="<taskdata><taskpriority>Routine</taskpriority><subject></subject>"_
+	            		"<activatedate>"_pRequest.activateDate_"</activatedate>"_
+		                "<overduedate>"_pRequest.dueDate_"</overduedate>"_
+		                "<orgid>"_pOrg_"</orgid></taskdata>"
+	         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"SaveTask",..usrNm,..AppName,pid,^UnitySecurityToken,"CDVerTran",userName,docId,pRequest.comment,param5,"","")  Quit:$$$ISERR(tSC) tSC
+             If $IsObject(MagicResult) {
+	           If MagicResult.Next(.sc) {
+		         set recCnt=MagicResult.GetColumnCount()
+		         $$$TRACE("Row Count: "_recCnt)
+                 if recCnt =1 {
+		 	         set userName=MagicResult.GetDataByName("UserName")
+   		 	         $$$TRACE("userName: "_userName)
+                 }
+	           }
+             }
+           }
+           else {
+	          $$$TRACE("Provider userName is not found, Quit SaveTask api call...")
+           }
+         }
+	   }
+	}
+	else {
+	   set errMsg="GetPatientByMRN does bot find the match patient with MRN: "_pRequest.PatientMrn_". Skip the request..."
+	   $$$TRACE(errMsg)
+	   set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError("Out-TouchWorks-Wssc-ASSESSMENTSPDF",errMsg) 
+       //set tSC=$$$ERROR(errMsg)
+       Quit $$$OK
+    }
+ }
+
+ if ('$$$ISERR(tSC)) {
+    $$$TRACE("Document has been uploaded successfully...") 
+ }
+ else {
+	  $$$TRACE("Calling UnityService failed ...")
+	  set pResponse.StringValue="Calling UnityService failed..."
+	  Set msg=$system.Status.GetErrorText(tSC) 
+      set tSC=$$$ERROR("Calling UnityService failed: "_msg)
+ }
+
+   Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="Status">
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+ Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+  $$$TRACE("Call API:Status... ")
+
+ Set tSC = ..Adapter.InvokeMethod("Status",.StatusResult)  Quit:$$$ISERR(tSC) tSC
+ $$$TRACE("Check Status API response... ")
+
+ Set pReq=##class(Request.StatusRequest).%New()
+ Set tSC = pReq.NewResponse(.pResp)  Quit:$$$ISERR(tSC) tSC
+ Set pResp.StatusResult=$get(StatusResult)
+ $$$TRACE("response: "_pResp.StatusResult)
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="RetireSecurityToken">
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+ Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+ Set tSC = ..Adapter.InvokeMethod("RetireSecurityToken",,^UnitySecurityToken,..AppName)  Quit:$$$ISERR(tSC) tSC
+ $$$TRACE("Last SecurityToken is retired...")
+ Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUpdatedDoc">
+<FormalSpec>iDoc:%String,dVer:%String,pLnm:%String,pFnm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+    $$$TRACE("Get Updated Doc.")
+    //$$$TRACE("Incoming Doc: "_iDoc)
+    set empStr=""
+    set tdoc=##class(EnsLib.EDI.XML.Document).ImportFromString(iDoc) 
+    set tdoc.DocType="UnityDoc-schema:doc" 
+    
+    if dVer'="" {
+       Set tSC1=tdoc.SetValueAt(dVer,"item(6).value","set","")
+    }
+    Set tSC1=tdoc.SetValueAt(pFnm,"item(13).value","set","")
+    Set tSC1=tdoc.SetValueAt(pLnm,"item(14).value","set","")
+       for i=1:1:12 {
+	       if tdoc.GetValueAt("item("_i_").value","","")="" {
+		       $$$TRACE("Reset #: "_i)
+	          Set tSC1=tdoc.SetValueAt(empStr,"item("_i_").value","set","")
+	       }
+	   }
+
+    set retDoc=tdoc.OutputToString()
+    //$$$TRACE("DOC: "_retDoc)
+
+	Quit retDoc
+]]></Implementation>
+</Method>
+
+<Method name="GetSecurityTokenUserAuthentication">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+    $$$TRACE("Get SecurityToken...")    
+    Set tSC = ..Adapter.InvokeMethod("GetSecurityToken",.result,"Healt-eb53-CiM-test","H%dLthCfr%pdRtn%rsN1v@b@C6mTcs") Quit:$$$ISERR(tSC) tSC
+    Set pReq=##class(Request.GetSecurityTokenRequest).%New()
+    Set tSC = pReq.NewResponse(.pResp)  Quit:$$$ISERR(tSC) tSC
+    Set pResp.GetSecurityTokenResult=$get(result)
+    $$$TRACE("response: "_pResp.GetSecurityTokenResult)
+    if pResp.GetSecurityTokenResult'="" {
+          $$$TRACE("Security Token: "_pResp.GetSecurityTokenResult)
+          $$$TRACE("Get UserAuthentication...")
+	      Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetUserAuthentication",..usrNm,..AppName,"",pResp.GetSecurityTokenResult,..pswrd,"","","","","","")  Quit:$$$ISERR(tSC) tSC
+          If $IsObject(MagicResult) {
+	         If MagicResult.Next(.sc) {
+		        set data=MagicResult.GetDataByName("ValidUser")
+		        if data="YES" {
+			       $$$TRACE("UserAuthentication passed")
+                   set ^UnitySecurityToken=pResp.GetSecurityTokenResult
+		        }
+		        else {
+			       $$$TRACE("GetUserAuthentication API returns NO ...")
+		        }
+	         }
+	         else {
+	            $$$TRACE("GetUserAuthentication API returns null ...")
+		     }
+          }
+          else {
+	         $$$TRACE("GetUserAuthentication API call returns null ...")
+	         $$$TRACE("login failed ...")
+	         set pResponse.StringValue="Login failed..."
+	         Set msg=$system.Status.GetErrorText(tSC) 
+             set tSC=$$$ERROR("Unity service login failed: "_msg)
+		  }
+       }
+       else {
+	      $$$TRACE("GetSecurityToken API return null security token ...")
+	   }
+   
+
+    $$$TRACE("Operation restarted ...")
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+    Set ..Adapter.WebServiceClientClass = "TW1.basichttp"
+    set ..usrNm = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Username")
+    set ..pswrd = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Password")
+    set ..serviceId = ##class(Ens.Config.Credentials).GetValue(..Adapter.SOAPCredentials, "Username")
+    set ..servicePswrd = ##class(Ens.Config.Credentials).GetValue(..Adapter.SOAPCredentials, "Password")
+    //set ^UnitySecurityToken=""   //This token will be cycled when the component is cycled.
+
+    $$$TRACE("Application Name: "_..AppName)    
+    $$$TRACE("Operation restarted ...")
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.AssessmentUnityRequest">
+		<Method>AssessmentPdfToTwProcess</Method>
+	</MapItem>	
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
