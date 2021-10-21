@@ -14,8 +14,14 @@
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="DwDBLookupTargetConfigName">
+<Type>%String</Type>
+<InitialExpression>"Op-Dw-Jdbc_Query"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>TwDBLookupTargetConfigName,-NextOperation,-TargetConfigMask</Default>
+<Default>TwDBLookupTargetConfigName:Additional,DwDBLookupTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -28,6 +34,9 @@
 </Value>
 <Value name="2">
 <Value>TwDBLookupTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>DwDBLookupTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -82,9 +91,20 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='mnemonic' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='OpDwDbLookupName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='mnemonicRequest' type='Ens.StringContainer' initialexpression='""' instantiate='0' />
 </context>
-<sequence xend='200' yend='2050' >
-<scope xpos='200' ypos='250' xend='200' yend='1950' >
+<sequence xend='200' yend='2150' >
+<scope xpos='200' ypos='250' xend='200' yend='2050' >
 <trace name='InsideBP' value='"Inside configName "_process.%ConfigName' xpos='200' ypos='350' />
 <code name='ValidateMessage' xpos='200' ypos='450' >
 <annotation><![CDATA[Check if the message passes the message validation as set in the Validation Settings]]]]><![CDATA[></annotation>
@@ -97,7 +117,7 @@ BPL Definition</Description>
 <assign name="RetrieveMessageType" property="context.msgType" value="request.GetValueAt(&quot;MSH:9.1&quot;)" action="set" xpos='200' ypos='550' />
 <trace name='MessageType' value='"Message Type : "_context.msgType' xpos='200' ypos='650' />
 <assign name="retrieveEventType" property="context.eventType" value="request.GetValueAt(&quot;MSH:9.2&quot;)" action="set" xpos='200' ypos='750' />
-<if name='DFT Message' condition='context.msgType="DFT"' xpos='200' ypos='850' xend='200' yend='1700' >
+<if name='DFT Message' condition='context.msgType="DFT"' xpos='200' ypos='850' xend='200' yend='1800' >
 <annotation><![CDATA[IF the Messagetype is DFT]]]]><![CDATA[></annotation>
 <true>
 <trace name=' DFT Message' value='"Its a DFT Message"' xpos='470' ypos='1000' />
@@ -123,14 +143,35 @@ BPL Definition</Description>
   }        
 ]]]]><![CDATA[>
 </code>
-<assign name="Patient AccountNumber" property="context.PatientAccountNo" value="request.GetValueAt(&quot;PID:PatientAccountNumber.ID&quot;)" action="set" xpos='470' ypos='1200' />
-<transform name='Transform labdaq dft to idx' class='IHC.ITF.Transform.Dtl.LabdaqDftHl7ToIdx' source='request' target='response' xpos='470' ypos='1300' />
-<code name='Get "send  to" targets ' xpos='470' ypos='1400' >
+<code name='get provider mnemonic' xpos='470' ypos='1200' >
+<![CDATA[ set npi=request.GetValueAt("PV1:7.1")
+  $$$TRACE("NPI: "_npi)
+    set context.OpDwDbLookupName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DwDBLookupTargetConfigName",.pstatus)
+  if ($$$ISOK(pstatus)){
+    $$$TRACE("DatabaseLookupTargetConfigName: " _ context.OpDwDbLookupName)
+    set context.mnemonicRequest = ##class(Ens.StringContainer).%New()
+    set context.mnemonicRequest.StringValue = npi
+    set tStatus=process.SendRequestSync(context.OpDwDbLookupName, context.mnemonicRequest,.response) 
+    if ($$$ISOK(tStatus)){      			
+      	set context.mnemonic=response.StringValue   			     
+     	$$$TRACE("MNEMONIC: " _ context.mnemonic)
+        	        
+    }else{
+      	set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling : "_context.OpDwDbLookupName_" Error Text: "_$System.Status.GetErrorText(tStatus)) 
+    }    		
+  }else{
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DatabaseLookupTargetConfigName found in the Ensemble settings")
+  }  
+  ]]]]><![CDATA[>
+</code>
+<assign name="Patient AccountNumber" property="context.PatientAccountNo" value="request.GetValueAt(&quot;PID:PatientAccountNumber.ID&quot;)" action="set" xpos='470' ypos='1300' />
+<transform name='Transform labdaq dft to idx' class='IHC.ITF.Transform.Dtl.LabdaqDftHl7ToIdx' source='request' target='response' xpos='470' ypos='1400' />
+<code name='Get "send  to" targets ' xpos='470' ypos='1500' >
 <![CDATA[
  
    set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)]]]]><![CDATA[>
 </code>
-<foreach name='LoopThroughTargetConfig List' property='context.targetList' key='context.cntr' xpos='470' ypos='1500' xend='200' yend='450' >
+<foreach name='LoopThroughTargetConfig List' property='context.targetList' key='context.cntr' xpos='470' ypos='1600' xend='200' yend='450' >
 <call name='Call  Operation' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -138,7 +179,7 @@ BPL Definition</Description>
 </call>
 <trace name='Send to target' value=' "Iteration="_context.cntr_", message sent to target=" _context.targetList' xpos='200' ypos='350' />
 </foreach>
-<code name='Reset Error' xpos='470' ypos='1600' >
+<code name='Reset Error' xpos='470' ypos='1700' >
 <![CDATA[
   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
@@ -150,7 +191,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1800' xend='200' yend='350' >
+<catchall xpos='200' ypos='1900' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
