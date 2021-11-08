@@ -10,6 +10,38 @@
 <InitialExpression>"http://lp-itfprdvp4:23976/csp/healthshare/deployhist/IHC.ITF.SrcCtrlPkg.SrcCtrlDeploymentWS.cls"</InitialExpression>
 </Property>
 
+<Method name="ValidateUser">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[usrNm:%String,&pUser:%String,&pPassword:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$OK
+		
+		 set Credential = "eai_chef@SVN"
+		 set statement=##class(%SQL.Statement).%New()
+		 set stat=statement.%Prepare("Select ID,Username, Password,BusinessPartner from Ens_Config.Credentials where ID = '" _ Credential _"'")
+		 if $$$ISERR(stat) { Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,stat) }
+		 else
+		 {
+			 set resultset=statement.%Execute()
+			 while resultset.%Next() {
+			    
+			    set pUser = resultset.%Get("Username")
+			    set pPassword = resultset.%Get("Password")
+			 }
+			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Using user:" _ pUser _ " to access SubVersion")
+	 
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,$SYSTEM _ ": " _ $USERNAME _ ", Process.UserName: " _ $SYSTEM.Process.UserName())
+			
+			set cmd = $$$LIBDIR _ "  --username " _ pUser _ " --password '" _ pPassword _ "' --non-interactive --no-auth-cache  info " _ $$$SVNSRCURL
+			// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Checking SVN: " _ cmd)
+	        Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(cmd)
+	        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Check SVN: " _ $$$SVNSRCURL _ ", stat: " _ stat)
+		 }
+		return stat
+]]></Implementation>
+</Method>
+
 <Method name="CreateListOfFilesInSvn">
 <Description>
 Insert information of all files that are checked-in to SVN into a table IHC_ITF_SrcCtrlPkg.ClassInfo</Description>
@@ -50,11 +82,11 @@ Insert information of all files that are checked-in to SVN into a table IHC_ITF_
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CreateListOfFilesInSvn: " _ "Delete temp file: " _ tempFile _ ", stat: " _ stat)
 	}
 	
- 	Set cmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password '" _ passwd _ "' '" _ fullPath _"'"
+ 	Set cmd = $$$SVNUPDATEALL _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _ fullPath _"'"
     Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CreateListOfFilesInSvn: " _ $$$SVNUPDATEALL _ " for " _ fullPath _": "_stat)
 
-    Set cmd = $$$SVNINFO _ " -R --username " _ usrNm _ " --password '" _ passwd  _ "' '" _ fullPath _ "' > " _ svnTempFile
+    Set cmd = $$$SVNINFO _ " -R --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd")  _ "' '" _ fullPath _ "' > " _ svnTempFile
 	Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _ "for " _ fullPath _" : " _ stat)
@@ -104,6 +136,15 @@ Insert information of all files that are checked-in to SVN into a table IHC_ITF_
 		         elseif(readStr [ "Author: ")
 		         {
 			         set author = $E(readStr,  $F(readStr , "Author: "), *)
+			         if (author = "eai_chef")
+			         {
+			         	// For new commits - Get author from Log
+			         	set authStr = ..GetSvnInformation(file, usrNm , passwd , 1)
+			         	set authInd = $F(authStr, ", Commited by ")
+			         	set author = $E(authStr, authInd, authInd +7)
+			         	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(file _ " - Author from LOG: >" _ author _"<")
+			         }
+			         
 		         }
 		         elseif(readStr [   "Date: ")
 		         {
@@ -320,7 +361,7 @@ Get the information about classes from Audit table into the source control table
 
 <Method name="GetSvnInformation">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>Selectedfiles:%String,usrNm:%String,passwd:%String</FormalSpec>
+<FormalSpec>Selectedfiles:%String,usrNm:%String,passwd:%String,depth:%Integer=0</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
    
@@ -348,8 +389,16 @@ Get the information about classes from Audit table into the source control table
 	         Set cmd= $$$SVNINFO _ " '" _ fullFileNm _ "' >> " _ tempFile
 	
 			 Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-	
-	         Set cmd=  $$$SVNLOG _" --username " _ usrNm _ " --password '" _ passwd _ "' '" _ fullFileNm _ "' >> " _ tempFile 
+			 
+			 if (depth > 0)
+			 {
+				  Set cmd=  $$$SVNLOG _" --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _ fullFileNm _ "' -l " _ depth _ " >> " _ tempFile 
+
+			 }
+			 else
+			 {
+	        	 Set cmd=  $$$SVNLOG _" --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _ fullFileNm _ "' >> " _ tempFile 
+			 }
 	
 			 Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	  		
@@ -410,6 +459,7 @@ Get the information about classes from Audit table into the source control table
 	  	{
 			Do ##class(%Library.File).Delete(diffFile)
 	  	}
+	  	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fileNm _ ", full NM: " _ fullFileNm)
      if ( (fileNm '= "") && (##class(%File).Exists(fullFileNm) ) )
      {
      
@@ -553,7 +603,7 @@ Get the information about classes from Audit table into the source control table
 			{		
 			  Set cmd= $$$SVNUPDATE 
 			}
-			Set cmd= cmd _ " --username " _ usrNm _ " --password '" _ passwd _ "' '" _  fileNm _"'"
+			Set cmd= cmd _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _  fileNm _"'"
 	
 			Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 			If ##class(%File).Exists(fileNm)
@@ -798,9 +848,9 @@ Get the information about classes from Audit table into the source control table
 	if (files '= "" )
     {
 	    set tempFile = 	##class(%Library.File).TempFilename()
-	    Do ..WriteToFile(tempFile, comment)
+	    Do ..WriteToFile(tempFile, comment _ ", Commited by " _ usrNm)
 	    
-	    Set cmd = $$$SVNCOMMIT _ " --username " _ usrNm _ " --password '" _ passwd  _ "' -F "" " _ tempFile _ " "" " _ files  ; a non-recursive commit (-N)
+	    Set cmd = $$$SVNCOMMIT _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd")  _ "' -F "" " _ tempFile _ " "" " _ files  ; a non-recursive commit (-N)
 	    Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	    
         Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit " _ files _ ", stat: " _ stat)
@@ -815,6 +865,41 @@ Get the information about classes from Audit table into the source control table
     Do ..CreateListOfFilesInSvn(usrNm, nmSp )
     
      Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="UpdateNSForFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,Selectedfiles:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	// Set usrNm = $username
+	set files = ""
+	set SelectedIntfiles = ""
+		
+	if ( Selectedfiles = "") 
+	{
+		Quit $$$ERROR($$$EnsErrGeneral, "FileNames is empty")
+	}
+	For I=1:1:$L(Selectedfiles,",")
+	{
+		Set relativeFileNm = $P(Selectedfiles,",",I)
+		
+		if ( relativeFileNm '= "")
+		{
+			set fileName = "%" _ relativeFileNm _ "%"
+        	&sql(UPDATE IHC_ITF_SrcCtrlPkg.ClassInfo 
+        	SET Namespace = :nmSp
+        	WHERE FileName like :fileName )
+        	// Write !, "SQL: " _ SQLCODE 
+			
+			if SQLCODE '= 0 {
+					Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Failed to update NmSp for the file: " _ fileName  _ ": " _nmSp)
+	  				return 0
+  				}
+		}
+	}
+	return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -1296,7 +1381,7 @@ If needed, create and add all directories from root to SVN</Description>
 	set destDirec = fullPath _ $PIECE(svnPath,"/",1, *-1)
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(svnPath _ ", last part: " _ destDirec)
 	
-	Set cmd = $$$SVNINFO _ " --username " _ usrNm _ " --password '" _ passwd _ "' '" _ destDirec _ "'"
+	Set cmd = $$$SVNINFO _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _ destDirec _ "'"
 	Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN INFO: " _ destDirec _ " stat: " _ stat)
 	If stat '= 0 	
@@ -1307,6 +1392,11 @@ If needed, create and add all directories from root to SVN</Description>
 		{
 			set dirName = $PIECE(svnPath, "/", ind)
 			set fullPath = fullPath _ "/" _ dirName
+			if ( ##class(%Library.File).Exists(fullPath _"/" _ ".svn"))
+			{
+				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fullPath _ " already in svn")
+				continue
+			}
 			if ( ' ##class(%Library.File).Exists(fullPath))
 			{
 				Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddDirectoriesToSvn, create directory: " _fullPath)
@@ -1330,21 +1420,22 @@ If needed, create and add all directories from root to SVN</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set stat = 0
-	Set cmd = $$$SVNINFO _ " --username " _ usrNm _ " --password '" _ passwd _ "' '" _ fullPath _ "'"
-	Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+	Set cmd = $$$SVNINFO _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _ fullPath _ "'"
+	Set infoStat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: " _ fullPath _ " svn info:" _ stat)
-	If stat '= 0 	
+	If infoStat '= 0 	
 	{
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _" returned no information, add to SVN" )
-		Set cmd = $$$SVNADD _ " --username " _ usrNm _ " --password '" _ passwd _ "' '" _  fullPath _ "'" ; a non-recursive commit (-N)   
+		Set cmd = $$$SVNADD _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' '" _  fullPath _ "'" ; a non-recursive commit (-N)   
 		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn add:" _ stat)
-	}
-	if ((stat = 0) && (commit = 1))
-	{		
-		  Set cmd = $$$SVNCOMMIT _ " --username " _ usrNm _ " --password '" _ passwd _ "' -m ""Initialization""  " _ fullPath  ; a non-recursive commit 
-		  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn commit:" _ stat)	
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn add:" _ stat_ ", path: " _ fullPath)
+	
+		if ((stat = 0) && (commit = 1))
+		{		
+			  Set cmd = $$$SVNCOMMIT _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' -m ""Initialization""  " _ fullPath  _ ", Commited by " _ usrNm ; a non-recursive commit 
+			  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+			  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("AddToSvn: svn commit:" _ stat _ ", path: " _ fullPath)	
+		}
 	}
 	Quit stat
 ]]></Implementation>
@@ -1532,7 +1623,7 @@ If needed, create and add all directories from root to SVN</Description>
 	 set fullPath = svnSrcTrunk _ "cls" // cls directory should exists when checkout is successful
 	 IF ' ##class(%File).DirectoryExists(fullPath)
 	 {
-	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ $$$SVNSRCURL _ " " _ svnSrcTrunk 
 	   Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	   if (status '= 0)
 		{
@@ -1553,7 +1644,7 @@ If needed, create and add all directories from root to SVN</Description>
 	 IF ' ##class(%File).DirectoryExists(fullPath)
 	 {
 	   Do ##class(%File).CreateDirectory(svnRelTrunk)
-	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ usrNm _ " --password '" _ passwd _ "'  " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk 
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "'  " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk 
 	   Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	   if (status '= 0)
 		{
@@ -1565,58 +1656,37 @@ If needed, create and add all directories from root to SVN</Description>
 	 }
 	 else
 	 {
-		set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _ svnSrcTrunk 
+		set svnCmd = $$$SVNUPDATEALL _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ svnSrcTrunk 
 	  
 	 	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnSrcTrunk _ ", stat: " _ status)
 
 	 }
 	 
-	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "settings/"	 
+	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "settings/"
 	 set fullPath = svnRelTrunk _ ".svn"
-	 Set tSC = ..CreateSvnDirecs($$$SVNSETTINGURL, svnRelTrunk, fullPath , usrNm , passwd)
-	 if $$$ISERR(tSC)
-	 {
-		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Error in : " _ svnRelTrunk)
-		 Quit tSC
-	 }
-	 Set svnTabTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "table/"	 
-	 set fullPath = svnTabTrunk _ ".svn"
-	 set url = $ZSTRIP($$$SVNRELEASEURL, "*W") _ "/table"
-	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Checkout: " _ url)
-	 Set tSC = ..CreateSvnDirecs(url, svnTabTrunk, fullPath , usrNm , passwd)
-	 
-	 Quit tSC
-]]></Implementation>
-</Method>
-
-<Method name="CreateSvnDirecs">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>svnUrl:%String,svnTrunk:%String,fullPath:%String,usrNm:%String,passwd:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
- Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CreateSvnDirecs: Check if source control directory: " _ svnTrunk)	
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("DoSvnSetup: Check if source control SETTING directory: " _ svnRelTrunk)
      IF ' ##class(%File).DirectoryExists(fullPath)
 	 {
-		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ svnTrunk)
-	     Do ##class(%File).CreateDirectoryChain(svnTrunk)
-	     set svnCmd = $$$SVNCHECKOUT _ " --depth infinity --username " _ usrNm _ " --password '" _ passwd _ "'  " _ svnUrl _ " " _ svnTrunk 
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ fullPath)
+	     Do ##class(%File).CreateDirectoryChain(fullPath)
+	     set svnCmd = $$$SVNCHECKOUT _ " --depth infinity --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "'  " _ $$$SVNSETTINGURL _ svnRelTrunk 
 	   	 Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	     if (status '= 0)
 		 {
-			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " failed for " _ svnUrl)
-			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ usrNm _ ", SVN URL:" _ svnUrl _ " to" _ svnTrunk)
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " failed for " _ $$$SVNSETTINGURL)
+			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ usrNm _ ", SVN URL:" _ $$$SVNSETTINGURL _ " to" _ svnRelTrunk)
 			Quit tSC
 		 }
-	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " --depth infinity " _ svnUrl _ " " _ svnTrunk _ " " _ status)
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " --depth infinity " _ $$$SVNSETTINGURL _ " " _ svnRelTrunk _ " " _ status)
 
 	 }
 	 
-	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ usrNm _ " --password '" _ passwd _ "' " _ svnTrunk 
+	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ svnRelTrunk 
 	  Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
-	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " of " _ svnTrunk _ ", stat: " _ status)
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " of " _ svnRelTrunk _ ", stat: " _ status)
 	 
-	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CreateSvnDirecs: OK " _ svnTrunk)
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckSvnSetup: OK ")
      Quit $$$OK
 ]]></Implementation>
 </Method>
@@ -1901,6 +1971,7 @@ Return the name of this item without the prefix </Description>
 	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("ExecuteShellCmd: " _ cmd)
 	
 	SET delim=" "
+	set stat = $$$OK
    		SET countdown=$LENGTH(cmd,delim)
    		SET countup=2
    		SET arrInd=1
@@ -1915,7 +1986,7 @@ Return the name of this item without the prefix </Description>
    		}
    		
 
-   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($ZDATETIME($HOROLOG) _ "In EnsembleSrcCtrlClass.ExecuteShellCmd: " _ linuxCmd )
+   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($ZDATETIME($HOROLOG) _ "In EnsembleSrcCtrlClass.ExecuteShellCmd: " _ linuxCmd _", parameter: " _ countdown)
    		
    		FOR reps=countdown:-1:1 {
       		SET extract=$PIECE(cmd,delim,countup)
@@ -1960,7 +2031,15 @@ Return the name of this item without the prefix </Description>
       		SET countup = countup+1
    		}
 		try {
-        	set stat = $ZF(-100, "/STDOUT= """ _ tempOutFile _ """ /STDERR= """ _ tempFile _ """ /SHELL", linuxCmd, .cmdArr)
+			if (countdown >= 2)
+			{
+				set stat = $ZF(-100, "/STDOUT= """ _ tempOutFile _ """ /STDERR= """ _ tempFile _ """ /SHELL", linuxCmd, .cmdArr)
+			}
+			else
+			{
+        		set stat = $ZF(-100, "/STDOUT= """ _ tempOutFile _ """ /STDERR= """ _ tempFile _ """ /SHELL", linuxCmd)
+			}
+        	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( "$ZF: " _ stat _", out: " _ ##class(%File).GetFileSize(tempOutFile) _ ", err: " _ ##class(%File).GetFileSize(tempFile))
         } catch err
  		{
 	 		SET $NAMESPACE = "ITFCOMMON"
@@ -1983,6 +2062,10 @@ Return the name of this item without the prefix </Description>
 	   		{
 	   			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("$ZF stat: " _ stat _ ", /STDOUT: " _ $EXTRACT(outStr, 1, 1000))
 	   		}
+	   		elseif linuxCmd '[ "svn"
+	   		{
+		   		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("$ZF stat: " _ stat _ ", /STDOUT: " _ $EXTRACT(outStr, 1, 1000))
+	   		}
 		   		
 	   	}
 
@@ -2000,8 +2083,8 @@ Return the name of this item without the prefix </Description>
 		 	NEW $NAMESPACE
      		set $NAMESPACE = "ITFCOMMON"
 	 		set depCl = ##class(SrcCtrlDeploymentInfoWebService.SrcCtrlDeploymentInfoWebServiceSoap).%New()
-	 		set depCl.Username = usrNm
-		 	set depCl.Password = passwd
+	 		set depCl.Username = %session.Data("srcHistUsrNm")
+		 	set depCl.Password = %session.Data("srcHistPsWd")
 		 	Set depCl.Location = ..WSLocation
 	 		set tSC = depCl.InsertITFCOMMONClass(fileName, usrNm, env, rev, dttm, desc)
 	 		return tSC
