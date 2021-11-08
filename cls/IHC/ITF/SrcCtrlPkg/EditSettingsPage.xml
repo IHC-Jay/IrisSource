@@ -5,6 +5,16 @@
 <Super>IHC.ITF.SrcCtrlPkg.Template</Super>
 <TimeCreated>65743,44218.072547</TimeCreated>
 
+<Property name="compNm">
+<Type>%ZEN.Datatype.string</Type>
+<Parameter name="ZENURL" value="SessionCompNm"/>
+</Property>
+
+<Property name="nmSp">
+<Type>%ZEN.Datatype.string</Type>
+<Parameter name="ZENURL" value="SessionNmSp"/>
+</Property>
+
 <Parameter name="APPLICATION">
 <Description>
 Class name of application this page belongs to.</Description>
@@ -190,11 +200,12 @@ cellDraw: called when cell is about to be drawn in dynaGrid</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	
-	if ($get(%session.Data("PsWd")) = "")
+	if ($get(%session.Data("svnPsWd")) = "")
 	{
 		&js<alert('Server Method, login required');>
 		Quit $$$ERROR($$$EnsErrGeneral, "Please login")		
 	}
+	
 	
 	return $$$OK
 ]]></Implementation>
@@ -204,14 +215,18 @@ cellDraw: called when cell is about to be drawn in dynaGrid</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
  Do %page.%SetValueById("namespLbl",$NAMESPACE)
- Do %page.%SetValueById("userLbl",$get(%session.Data("UsNm")))
+ Do %page.%SetValueById("userLbl",$USERNAME)
  Do %page.%SetValueById("systemLbl", $SYSTEM)
+ 
+	
  set button = %page.%GetComponentById("changeFunc")
  if $ISOBJECT(button)
  {
 	 set button.caption = "Deployment"
  }
   try {
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), %session.Username _ ", ID: " _ %session.SessionId )
+
 	Set img = %page.%GetComponentById("TemplateLogo")
     Set stream=##class(%FileBinaryStream).%New()
 
@@ -246,10 +261,17 @@ cellDraw: called when cell is about to be drawn in dynaGrid</Description>
 	Do %page.%SetValueById("labelEnv", env)
 	Do %page.%SetValueById("labelDispEnv", lblEnv)
 	
+    set cmp = $get(%request.Data("SessionCompNm",1))
+ 	set nmSp = $get(%request.Data("SessionNmSp", 1))
+ 
+ 	Do %page.%SetValueById("comp", cmp)
+ 	Do %page.%SetValueById("Namespace", nmSp)
+
    
-   
+   Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "Edit Settings: " _ cmp _ ", " _nmSp)
  } catch err
  {
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "Excep in %OnAfterCreatePage: " _ err.DisplayString())
  }
  return $$$OK
 ]]></Implementation>
@@ -361,8 +383,8 @@ Get new values for the grid from the server.</Description>
 <Implementation><![CDATA[
 	//zenPage.setTraceOption('js',true);
 	var grid = zenPage.getComponentById('dynaGrid');
-	var comp = zenPage.getComponentById('comp').getValue();
-	var nmSp = zenPage.getComponentById('Namespace').getValue();
+	var comp = zenPage.getComponentById('comp').getValue().replace(/^\s+|\s+$/g, '');
+	var nmSp = zenPage.getComponentById('Namespace').getValue().replace(/^\s+|\s+$/g, '');
 	
     if ((comp != '') && (nmSp!= ''))
     {
@@ -383,7 +405,16 @@ Get new values for the grid from the server.</Description>
 			   		var tempFile2 = zenPage.LoadSettingFile(comp, env, nmSp, 'SVN', 1, zenPage.getComponentById('lblAccess'));
 			   		if (tempFile2.startsWith('ERROR') != true)
 		   			{
-			   			this.GetDiffDataSet(grid, tempFile1, tempFile2, env, "replace");
+			   			var numDiff = this.GetDiffDataSet(grid, tempFile1, tempFile2, env, "replace");
+			   			if (numDiff > 0)
+			   			{
+			   				zenPage.getComponentById('lblAccess').setValue('Number of differences: ' + numDiff);
+			   			}
+			   			else
+			   			{
+				   			zenPage.getComponentById('lblAccess').setValue('No differences found between Ensemble/Subversion for: ' + comp)
+			   			}
+			   			zenPage.getComponentById('lblAccess').setProperty('hidden', false);
 			   			grid.setColumnProperty(1, 'readOnly', false)
 			   			grid.set
 		   			}
@@ -451,8 +482,8 @@ Get new values for the grid from the server.</Description>
 <Implementation><![CDATA[
 	//zenPage.setTraceOption('js',true);
 	var grid = zenPage.getComponentById('dynaGrid');
-	var comp = zenPage.getComponentById('comp').getValue();
-	var nmSp = zenPage.getComponentById('Namespace').getValue();
+	var comp = zenPage.getComponentById('comp').getValue().replace(/^\s+|\s+$/g, '');
+	var nmSp = zenPage.getComponentById('Namespace').getValue().replace(/^\s+|\s+$/g, '');
     var env = zenPage.getComponentById('envRS').getValue();
     if ((comp != '') && (nmSp!= ''))
     {
@@ -471,7 +502,7 @@ Get new values for the grid from the server.</Description>
 <ClientMethod>1</ClientMethod>
 <Implementation><![CDATA[
 	
-   var comp = zenPage.getComponentById('comp').getValue();
+   var comp = zenPage.getComponentById('comp').getValue().replace(/^\s+|\s+$/g, '');
    var cmt = zenPage.getComponentById('CheckInComment').getValue();
    var env = zenPage.getComponentById('envRS').getValue();
    var nmSp = zenPage.getComponentById('Namespace').getValue();
@@ -617,6 +648,7 @@ Get a new dataset from the server.</Description>
 Get a new dataset from the server.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pGrid:%ZEN.Component.dynaGrid,fileName1:%String,fileName2:%String,env:%String,pMode:%String=""</FormalSpec>
+<ReturnType>%Integer</ReturnType>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
 	#dim pDataSet As %ZEN.Auxiliary.dataSet
@@ -633,7 +665,7 @@ Get a new dataset from the server.</Description>
 		
 	set file = ##class(%File).%New(fileName1)
 	set stat = file.Open("R")	
-	
+	set numDiff = 0
 	if ($$$ISOK(stat))
 	{
 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "Diff: " _ fileName1)
@@ -678,7 +710,10 @@ Get a new dataset from the server.</Description>
 						         if ( (typeStr = typeStr2) && (keyStr = keyStr2) )
 						         {
 						         	Do pDataSet.%SetValue(valueStr2,rowId,2,1)
-						         	
+						         	if (valueStr '= valueStr2)
+						         	{
+							         	set numDiff = numDiff + 1
+						         	}
 						         	QUIT
 						         }
 							}
@@ -700,7 +735,7 @@ Get a new dataset from the server.</Description>
 #;make sure grid gets redrawn
 	Do pGrid.%ForceClientRender()
 
-	Quit
+	return numDiff
 ]]></Implementation>
 </Method>
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.SrcCtrlPkg.SrcCtrlPage">
-<IncludeCode>EnsErrors</IncludeCode>
+<IncludeCode>EnsErrors,itfSrcCtrl</IncludeCode>
 <Super>IHC.ITF.SrcCtrlPkg.Template</Super>
 <TimeCreated>63935,56995.601657</TimeCreated>
 
@@ -126,10 +126,20 @@ This XML block defines the contents of this page.</Description>
   
    <spacer height="10" width="20"/>
    <checkbox caption="Display Classes" id="IncClasses" onclick="zenPage.CheckIncAllSvn()" value="1" title="Display CLS files" />
-
-  <spacer height="10" width="20"/>
+     <spacer height="10" width="20"/>
    <checkbox caption="Display Other files" id="IncOthers" onclick="zenPage.CheckIncAllSvn()" title="Display Tasks, Lookup, Include files" />
+   
+<vgroup id = "UpdNmSpGrp" align="center" valign="top" hidden="true" >
+   <spacer height="15" width="10"/>
+  <label value="Display in a new Namespace:" controlStyle="color: red; background:yellow" align="center" title="Select a file to show in a differnt namespace"/>
   
+  
+   <spacer height="10" width="10"/>
+   <dataCombo id="chgNmSp" align="left" label="Select New Namespace" editable="false" displayColumns="1" valueColumn="1" choiceColumn="1"
+     queryClass="%SYS.Namespace" queryName="List" />
+     <spacer height="5" /> 
+  <button caption="Update" align="center" onclick="zenPage.updNSforFiles();" title="Update the Namespace for the files" />
+</vgroup>  
   
   </fieldSet>
   
@@ -202,7 +212,7 @@ This XML block defines the contents of this page.</Description>
          cellStyle="padding: 2px; padding-left: 5px; padding-right: 5px;">
          <hgroup>
          <label value="FileName:" />
-<text id="ChkInFile" name="ChkInFile"  required="true" size="50" />
+<text id="ChkInFile" name="ChkInFile"  required="true" size="50"/>
 </hgroup>
          <hgroup>
          <label value="Tracker:" />
@@ -289,34 +299,46 @@ This XML block defines the contents of this page.</Description>
  	}
  	else
  	{
-	 	Quit null
- 	}
- 	
-  
+	 	// Build WHERE clause based on filters
+   		set filterStr = $GET(pInfo.filters("FileName"))
+    	If (filterStr'="") {
+        	Set sql = sql _ " where FileName [  '" _ filterStr _ "'"        
+    	}
+    	
+	 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(sql)
+	 	Set tRS = ##class(%Library.ResultSet).%New()
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("stat: " _ tSC )
+    	If $IsObject(tRS) {
+	    	Set tSC = tRS.Prepare(sql)
+	    	Set pInfo.queryText = sql	
+    	}
+	    return tRS
+    }
+
  	Set incVal = $get(%session.Data("IncAllSvn"))
  	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("IncAllSvn  " _ incVal)
  	if (incVal = "1")
  	{
 	 	Set sql = sql _ " OR Namespace IS NULL"
  	}
- 	Set sql = sql _ ")"
+	Set sql = sql _ ")"
 	
 	if ( ($get(%session.Data("IncClasses")) = 1) && ($get(%session.Data("IncOthers")) = 1) )
     {
     	Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetOtherFiles(%session.Data("NmSp"))
     }
-    elseif ($get(%session.Data("IncClasses")) = 1)
+	elseif ($get(%session.Data("IncClasses")) = 1)
     {
 	    Set sql = sql _ " AND ( (InternalName like '%CLS') OR (InternalName like '%cls') "
 	    if (incVal = "1")
  		{ 
  			Set sql = sql _ "OR (InternalName IS NULL) )"
  		}
- 		else
+	else
  		{
 	 		Set sql = sql _ ")"
  		}
-    }
+	}
     elseif ($get(%session.Data("IncOthers")) = 1)
     {
        	Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetOtherFiles(%session.Data("NmSp"))
@@ -347,7 +369,8 @@ This XML block defines the contents of this page.</Description>
     	Set tSC = tRS.Prepare(sql)
     	Set pInfo.queryText = sql
     
-    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(sql _ ", stat: " _ tSC _" INC: " _ incVal)
+    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(sql )
+    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SQL stat: " _ tSC _" INC: " _ incVal)
     }
 
    Quit tRS
@@ -428,6 +451,38 @@ This XML block defines the contents of this page.</Description>
 	 grp = zenPage.getComponentById('svnInfoGroup');
 	
 	grp.setProperty('hidden',  stat);
+]]></Implementation>
+</Method>
+
+<Method name="updNSforFiles">
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+	var letters = /[0-9a-zA-Z]+/;
+	var table = zenPage.getComponentById('srcCtrlTable');
+	var nmval =  zenPage.getComponentById('nmSp').getValue();
+	var chgNmval =  zenPage.getComponentById('chgNmSp').getValue();
+	
+	// alert(table.selectedRows);
+   if(!table.selectedRows.match(letters)) 
+   {
+	   var group = this.createComponent('modalGroup');
+       group.show('Error Message','msgBox',
+        'Select files to change the namespace</B> !');
+
+   }
+  
+   else if (nmval != chgNmval)
+   {
+	
+	var txt = zenPage.UpdateNSForFiles(nmval, chgNmval, table.selectedRows);
+	zenPage.setText(txt, false);
+	//refresh data in the table
+  	table.executeQuery(); 
+  	zenPage.getComponentById('lblAccess').setProperty('hidden', false);
+    zenPage.getComponentById('lblAccess').setValue('Updated the namespace to ' + chgNmval + ' for files for ' + table.selectedRows);
+     		
+   }
 ]]></Implementation>
 </Method>
 
@@ -514,9 +569,10 @@ This XML block defines the contents of this page.</Description>
 	table.setProperty("selectedRows", "")
 	var val =  zenPage.getComponentById('nmSp').getValue();
 	zenPage.getComponentById('namespLbl').setValue(val);
-
+    zenPage.setNmSp(val)
     if(val != '')
     {
+	    zenPage.getComponentById('UpdNmSpGrp').setProperty('hidden', true);
 	   try
 	    {
 	   		zenSynchronousMode = false;
@@ -544,6 +600,10 @@ This XML block defines the contents of this page.</Description>
 		    clearInterval(this);
 		    zenSynchronousMode = true;
 	    }
+	}
+	else
+	{
+		zenPage.getComponentById('UpdNmSpGrp').setProperty('hidden', false);
 	}
 	
 	var table = zenPage.getComponentById('srcCtrlTable');
@@ -769,11 +829,7 @@ This XML block defines the contents of this page.</Description>
 
 	// Do ##class(IHC.ITF.ITFCOMMON.Utility).ClearItfDebug($get(%session.Data("UsNm")))
 	
-	if (nmSp = "")
-	{
-		set nmSp = $NAMESPACE
-	}
-
+	
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Start " _ nmSp)
 	 Do %page.%SetValueById("namespLbl", nmSp)
 	 Do %page.%SetValueById("systemLbl", $SYSTEM)
@@ -808,10 +864,13 @@ This XML block defines the contents of this page.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="changeSQLPage">
-<Language>javascript</Language>
-<ClientMethod>1</ClientMethod>
-<Implementation><![CDATA[	zenPage.gotoPage("IHC.ITF.SrcCtrlPkg.SqlOperPage.cls");
+<Method name="setNmSp">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String</FormalSpec>
+<ZenMethod>1</ZenMethod>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	set %session.Data("NmSp") = nmSp
 ]]></Implementation>
 </Method>
 
@@ -820,7 +879,8 @@ This XML block defines the contents of this page.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set tSC = $$$OK
-	if ($get(%session.Data("PsWd")) = "")
+	set %session.Data("NmSp") = ""
+	if ($get(%session.Data("svnPsWd")) = "")
 	{		
 		&js<alert('Server Method, login required');>
 		Set %response.Redirect = "IHC.ITF.SrcCtrlPkg.Login.cls"
@@ -840,8 +900,12 @@ This XML block defines the contents of this page.</Description>
 		        set tSC = $$$ERROR($$$EnsErrGeneral, "Please select valid namespace")
 		         Quit 
 	        }
+	        else
+	        {
+		        // set %session.Data("NmSp") = $NAMESPACE
+	        }
         }
-      set %session.Data("NmSp") = $NAMESPACE
+      // 
       Quit tSC
 ]]></Implementation>
 </Method>
@@ -853,10 +917,31 @@ This XML block defines the contents of this page.</Description>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
 	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckInFiles ROWS: " _ rows _ ", comment: " _ comment)
-	  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CheckinFiles($get(%session.Data("NmSp")), rows, comment, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+	  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CheckinFiles($get(%session.Data("NmSp")), rows, comment, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")))
 	  if $$$ISOK(stat)
 	  {
 		  return ""
+		  
+	  }
+	  else
+	  {
+		  return $get(%objlasterror)
+	  }
+]]></Implementation>
+</Method>
+
+<Method name="UpdateNSForFiles">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,newNmSp:%String,rows:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<ZenMethod>1</ZenMethod>
+<Implementation><![CDATA[
+	
+	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("UpdateNSForFiles ROWS: " _ rows _ " to " _ newNmSp)
+	  Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateNSForFiles(newNmSp, rows)
+	  if $$$ISOK(stat)
+	  {
+		  return "Updated the namespace for " _ rows _ " to " _ newNmSp
 		  
 	  }
 	  else
@@ -875,7 +960,7 @@ This XML block defines the contents of this page.</Description>
 	  // Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("rev " _ rev )
 	  
 	  Set ensCls = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).%New()
-	  Set tStatus = ensCls.Checkout($get(%session.Data("NmSp")), rows, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")), rev)
+	  Set tStatus = ensCls.Checkout($get(%session.Data("NmSp")), rows, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")), rev)
 	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(rows _ ": " _ tStatus)
 	  if $$$ISOK(tStatus)
 	  {
@@ -894,7 +979,7 @@ This XML block defines the contents of this page.</Description>
 <ReturnType>%String</ReturnType>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
-	 Set fileTxt = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetSvnInformation(rows, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+	 Set fileTxt = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetSvnInformation(rows, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")))
 	 return fileTxt
 ]]></Implementation>
 </Method>
@@ -965,7 +1050,7 @@ This XML block defines the contents of this page.</Description>
 	try
 	{
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Start  GetSVNItems")	
-	Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CreateListOfFilesInSvn( $get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+	Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CreateListOfFilesInSvn( $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")))
 	Do ..UpdateTime()
 	} catch err
 	{
@@ -1070,7 +1155,7 @@ This XML block defines the contents of this page.</Description>
 		set %session.Data("NmSp") = val
 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("In ChangeNmSp:  " _ val)	
 	
-		Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CreateListOfFilesInSvn($get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+		Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CreateListOfFilesInSvn($get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")))
 	    Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).UpdateClassesFromAudit()
 	    if ($get(%session.Data("IncOthers")) = 1)
 	    {
@@ -1124,15 +1209,13 @@ CheckSubversionStatus</Description>
 <ZenMethod>1</ZenMethod>
 <Implementation><![CDATA[
 	#dim %page as %ZEN.Component.page
+	set stat = 1
 	Try {
 	
-		set un = $get(%session.Data("UsNm"))
-		set pw = $get(%session.Data("PsWd"))
-		
-		 
+		 set un = $get(%session.Data("UsNm"))
 		 Set key = $QUERY(^itfDebug(un))
-		 set stat = 1
 		 
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(un, "Search itfDebug for " _ un)
 		 While (key '= "") {
 		     
 		     if ( (key [ un))
@@ -1152,11 +1235,11 @@ CheckSubversionStatus</Description>
 			     quit
 		     }
 		 }
- 		
+ 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(un, "No errors in itfDebug")
 		if (stat = 1)
 		{
-			set cmd = "LD_LIBRARY_PATH=/lib64:"_$SYSTEM.Util.BinaryDirectory()_";svn --username " _ un _ " --password '" _ pw _ "' --non-interactive --no-auth-cache  info https://subversion.co.ihc.com/ITF_Ensemble"
-			
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(un, "Run SVN INFO ")
+			set cmd = $$$SVNINFO _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ $$$SVNSRCURL
 	        Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(cmd)
 
 	        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(un, "Check SVN info: " _ un _ ", stat: " _ stat)
