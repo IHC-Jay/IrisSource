@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.SrcCtrlPkg.Deployment">
-<IncludeCode>EnsErrors</IncludeCode>
+<IncludeCode>itfSrcCtrl,EnsErrors</IncludeCode>
 <Super>IHC.ITF.SrcCtrlPkg.Template</Super>
 <TimeCreated>63460,51845.359716</TimeCreated>
 
@@ -79,8 +79,11 @@ This XML block defines the contents of this pane.</Description>
          cellStyle="padding: 2px; padding-left: 5px; padding-right: 5px;" width="100%">
 
 </form>
-<spacer height="10"/>
+
 <hgroup align="center">
+<button caption="Update SVN" align="center" onclick="zenPage.refreshSVNInfo();" title="Reload files from the SubVersion" />
+   
+<spacer width="10"/>
   <button id="butCreateDep" caption="Create Deployment" onclick="zenPage.DoCreateFiles();" title="Create a new deployment file" />
   <spacer width="10"/>
   <button caption="Find Deployment" onclick="zenPage.FindFiles();"  title="Find all deployment files for a component"  />
@@ -244,7 +247,8 @@ This XML block defines the contents of this pane.</Description>
      Set oid=stream.%Oid()
      Set img.streamId = oid 
    }
-   
+	
+      
  } catch err
  {
  }
@@ -324,6 +328,21 @@ This client event, if present, is fired when the page is loaded.</Description>
     else
     {
 	    zenPage.getComponentById('lblAccess').setValue('Required fileds are missing: Component and Namespace')
+    }
+]]></Implementation>
+</Method>
+
+<Method name="refreshSVNInfo">
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+	try
+	{
+		var stat = zenPage.UpdateSVN();
+		zenPage.getComponentById('lblAccess').setValue(stat);
+		
+	} catch(e){
+        alert('Catch error:' +e.message);
     }
 ]]></Implementation>
 </Method>
@@ -875,19 +894,20 @@ This client event, if present, is fired when the page is loaded.</Description>
 	
 	set retStr = ""
 	try {
-
-	set createDeployCls = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentFiles).%New()
-	set comp = $ZSTRIP(comp,"<>WC")
-	// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "GetVersions:" _ comp _ "$")
-	set retStr = createDeployCls.GetVersions(comp, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")), 1 )
-	if ($L(retStr) <= 0)
-	{
-		set retStr = "Could not find Deployment files for " _ comp
-	}
-	if ( $FIND(retStr, "Last Changed Rev") > 0)
-	{
-		set retStr = $REPLACE(retStr, "Last Changed Rev", "<B>Last Changed Rev</B>", 0, 1, 1)
-	}
+		
+				
+		set createDeployCls = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentFiles).%New()
+		set comp = $ZSTRIP(comp,"<>WC")
+		// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "GetVersions:" _ comp _ "$")
+		set retStr = createDeployCls.GetVersions(comp, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")), 1 )
+		if ($L(retStr) <= 0)
+		{
+			set retStr = "Could not find Deployment files for " _ comp
+		}
+		if ( $FIND(retStr, "Last Changed Rev") > 0)
+		{
+			set retStr = $REPLACE(retStr, "Last Changed Rev", "<B>Last Changed Rev</B>", 0, 1, 1)
+		}
 	} catch(err)
 	{
 		set retStr = "Could not find Deployment files " _ err.Data
@@ -976,6 +996,9 @@ This client event, if present, is fired when the page is loaded.</Description>
 	
 	set retStr = ""
 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "In VerifyRevNum " _ comp _", " _ revNum)
+	
+	
+	
 	try {
 		set deployCls = ##class(IHC.ITF.SrcCtrlPkg.DeployFilesToNamespace).%New()
 		set stat = deployCls.ValidateSvnRevision(comp, $get(%session.Data("UsNm")), $get(%session.Data("svnPsWd")), revNum )
@@ -1216,6 +1239,44 @@ This client event, if present, is fired when the page is loaded.</Description>
 			}
    		}
    		return cmps
+]]></Implementation>
+</Method>
+
+<Method name="UpdateSVN">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%String</ReturnType>
+<ZenMethod>1</ZenMethod>
+<Implementation><![CDATA[
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "In UpdateSVN " )
+	
+	set fullPath =  $$$USRRELEASEBASEDIR _ $USERNAME _  $$$SVNSRCTRUNK
+	set fileInfo = "Updated SVN path: " _ fullPath
+	
+	Set cmd= $$$SVNUPDATE _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _  fullPath 
+	
+	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+	 	
+	if (status '= 0)
+	{
+		set fileInfo = $$$SVNUPDATE _ " failed for: " _ fullPath
+	}
+	set tempFile = 	##class(%Library.File).TempFilename()
+	Set cmd= $$$SVNINFO _ fullPath _ " >> " _ tempFile
+	
+	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
+			
+	if ((status =0) && (##class(%File).Exists(tempFile)) )
+	{
+		// Call the function to get svn information
+		Set fileInfo = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).GetFileContent(tempFile)       
+	}
+	else
+	{
+		SET fileInfo = "svn command :" _ $$$SVNLOG _ " failed: " _ $$$SVNLOG
+	}
+	Do ##class(%Library.File).Delete(tempFile)
+			
+	return fileInfo
 ]]></Implementation>
 </Method>
 
