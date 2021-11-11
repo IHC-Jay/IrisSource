@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Service.CarePlanFileService">
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.EDI.XML.Service.Standard</Super>
+<System>4</System>
+<TimeCreated>66052,38320.134238</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.InboundAdapter</Default>
+</Parameter>
+
+<Property name="ReplyTargetConfigNames">
+<Description>
+ConfigName(s) of the operations or processes to which reply messages should be forwarded.</Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="MaxStringSize">
+<Type>%String</Type>
+<InitialExpression>"524288"</InitialExpression>
+<Parameter name="MAXLEN" value="7"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[ReplyTargetConfigNames::selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},MaxStringSize:Additional]]></Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<FormalSpec>pInput:%Stream.Object,pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	set k1=1
+	set msg=""
+	$$$TRACE("creating document from XML file "_pInput.Filename_" MaxStringSize: "_..MaxStringSize)
+    set msg = pInput.Read(..MaxStringSize,.sc)
+	if msg'="" {
+		   set msg=$REPLACE(msg,"ns6:ProvideAndRegisterDocumentSetRequestType","ProvideAndRegisterDocumentSetRequest")
+		   set msg=$REPLACE(msg,"ns3:","")
+		   set msg=$REPLACE(msg,"ns4:","")
+		   set msg=$REPLACE(msg,"&","")
+		   set msg=##class(Ens.Util.FunctionSet).SubString(msg,56)
+		   set sp=$FIND(msg,"ProvideAndRegisterDocumentSetRequest")
+		   set ep=$FIND(msg,">", sp)
+		       $$$TRACE("SP: "_sp_" / EP: "_ep)
+		   set msg=##class(Ens.Util.FunctionSet).SubString(msg,1,sp)_##class(Ens.Util.FunctionSet).SubString(msg,ep-1)
+    }
+    $$$TRACE("MSG "_$LENGTH(msg)_" : "_msg)
+    Set tDocIn=##class(EnsLib.EDI.XML.Document).%New(msg)
+
+	if tDocIn="" Quit %objlasterror
+	Quit ..standardOnProcessInput(tDocIn)
+]]></Implementation>
+</Method>
+
+<Method name="SendReply">
+<FormalSpec>pReplyDocument:EnsLib.EDI.Document,pOriginalDoc:EnsLib.EDI.Document=$$$NULLOREF</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	If ""=..ReplyTargetConfigNames {
+		$$$sysTRACE("Reply "_$S($IsObject(pReplyDocument):"/"_pReplyDocument.%Id(),1:"")_" not sent because no Reply Target Config Name is configured")
+		Quit $$$OK
+	}
+	Set pReplyDocument.IsMutable=0
+	Set tSC=$$$OK  For iTarget=1:1:$L(..ReplyTargetConfigNames, ",") { Set tOneTarget=$ZStrip($P(..ReplyTargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+		Set tSC1=..SendRequestAsync(tOneTarget,pReplyDocument) Quit:$$$ISERR(tSC)
+		Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+	}
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("ReplyTargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
