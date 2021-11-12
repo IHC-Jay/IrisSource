@@ -80,7 +80,7 @@ TargetConfigName for GetSystemParameters</Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2750' width='2000' >
+<process language='objectscript' request='Ens.Request' height='3000' width='2000' >
 <context>
 <property name='targetList' type='%String' collection='list' instantiate='0' >
 <parameters>
@@ -106,9 +106,11 @@ BPL Definition</Description>
 <property name='Note' type='%String' instantiate='0' />
 <property name='OrderLevelComment' type='%String' instantiate='0' />
 <property name='errorHandlerTargetConfigName' type='%String' instantiate='0' />
+<property name='StrObx5ObsValue' type='%String' instantiate='0' />
+<property name='BlockMessage' type='%String' initialexpression='"NO"' instantiate='0' />
 </context>
-<sequence xend='200' yend='2400' >
-<scope xpos='200' ypos='250' xend='200' yend='2300' >
+<sequence xend='200' yend='2750' >
+<scope xpos='200' ypos='250' xend='200' yend='2650' >
 <trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
@@ -143,7 +145,7 @@ BPL Definition</Description>
  
  $$$TRACE("Validation status: "_context.ValidationStatus)]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationStatus' xpos='200' ypos='750' xend='200' yend='2050' >
+<if name='Check If Message Is Valid' condition='context.ValidationStatus' xpos='200' ypos='750' xend='200' yend='2400' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='Get Target' xpos='470' ypos='1000' >
@@ -206,8 +208,8 @@ BPL Definition</Description>
 <annotation><![CDATA[translates NV Labdaq results Hl7 to TouchWorks Request]]]]><![CDATA[></annotation>
 </transform>
 <code name='Call Operation to store the data' xpos='200' ypos='550' >
-<![CDATA[	
-  set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.StoredProcParamsCollection,.response) 
+<![CDATA[ set wherePerformed = context.StoredProcParamsCollection.%ConstructClone(1)
+  set tStatus=process.SendRequestSync( context.targetList.GetAt(1),wherePerformed,.response) 
   if ($$$ISOK(tStatus)){ 
         $$$TRACE("Response: "_response)
   	set context.TouchWorksResponse = response
@@ -237,7 +239,43 @@ BPL Definition</Description>
 </foreach>
 </true>
 </if>
-<code name='CallOperationToResults' xpos='470' ypos='1750' >
+<code name='set result filter' xpos='470' ypos='1750' >
+<![CDATA[ set i =""
+ set strNote =""
+ set strObx5ObsValue =""
+ set hasNote =0
+ for {
+    set i = request.GetNextIndex("ORCgrp(1).OBXgrp(1).OBX:ObservationValue()",i,.tscObs)  quit:i="" 
+    set strNote = request.GetValueAt("ORCgrp(1).OBXgrp(1).OBX:ObservationValue("_i_")")
+    $$$TRACE("Result value: "_strNote)
+    if ($L(strObx5ObsValue) < 1 ) {
+       set strObx5ObsValue = strNote 
+    }else {
+       set strObx5ObsValue = strObx5ObsValue_"\r\n"_strNote
+    }
+ }  
+ if (request.GetValueAt("ORCgrp(1).OBXgrp(1).NTE(1):Comment(1)") '="") {
+    set hasNote =1
+ }      
+ $$$TRACE("context.strObx5ObsValue value is : " _ strObx5ObsValue_". Has note? "_hasNote)
+   
+   
+ if (strObx5ObsValue = "TNP") {
+    set context.BlockMessage = "YES"
+ }elseif (strObx5ObsValue = "DNR") {
+    set context.BlockMessage = "YES"
+ }elseif ((hasNote =0) && (strObx5ObsValue ="")) {
+    set context.BlockMessage = "YES"
+ }else {
+    set context.BlockMessage = "NO"
+ }
+   
+   
+ $$$TRACE("context.BlockMessage value is : " _ context.BlockMessage )]]]]><![CDATA[>
+</code>
+<if name='"Don&apos;t Block Message?"' condition='context.BlockMessage ="NO"' xpos='470' ypos='1850' xend='470' yend='2300' >
+<true>
+<code name='CallOperationToResults' xpos='740' ypos='2000' >
 <![CDATA[  
   set procNm = ##class(IHC.ITF.ITFCOMMON.DataStructure.StoredProcName).%New()
   set procNm.Name = context.ResultsStoredProcName
@@ -251,26 +289,28 @@ BPL Definition</Description>
   }  
  ]]]]><![CDATA[>
 </code>
-<foreach property='request.{ORCgrp()}' key='context.K1' xpos='470' ypos='1850' xend='200' yend='750' >
+<foreach property='request.{ORCgrp()}' key='context.K1' xpos='740' ypos='2100' xend='200' yend='750' >
 <assign property="context.OrdersIndex" value="context.K1" action="set" xpos='200' ypos='250' />
 <trace name='TraceOrdersIndex' value=' "OrdersIndex: ["_context.OrdersIndex_"]"' xpos='200' ypos='350' />
-<assign property="OrderLevelComment" value="&quot;&quot;" action="set" xpos='200' ypos='450' />
+<assign property="context.OrderLevelComment" value="&quot;&quot;" action="set" xpos='200' ypos='450' />
 <foreach property='request.{ORCgrp(context.OrdersIndex).NTEi2()}' key='context.K2' xpos='200' ypos='550' xend='200' yend='700' >
-<assign property="comment" value="request.{ORCgrp(context.OrdersIndex).NTEi2(context.K2):Comment(1)}" action="set" xpos='200' ypos='250' />
-<if condition='$L(OrderLevelComment)&gt;0' xpos='200' ypos='350' xend='200' yend='600' >
+<if condition='$L(context.OrderLevelComment)&gt;0' xpos='200' ypos='250' xend='200' yend='600' >
 <true>
+<assign property="comment" value="request.{ORCgrp(context.OrdersIndex).NTEi2(context.K2):Comment(1)}" action="set" xpos='470' ypos='400' />
 <assign property="context.OrderLevelComment" value="context.OrderLevelComment_$CHAR(13)_comment" action="set" xpos='470' ypos='500' />
 </true>
 <false>
+<assign property="comment" value="request.{ORCgrp(context.OrdersIndex).NTEi2(context.K2):Comment(1)}" action="set" xpos='200' ypos='400' />
 <assign property="context.OrderLevelComment" value="context.OrderLevelComment_comment" action="set" xpos='200' ypos='500' />
 </false>
 </if>
 </foreach>
-<foreach property='request.{ORCgrp(context.K1).OBXgrp()}' key='context.K3' xpos='200' ypos='650' xend='200' yend='1400' >
+<foreach property='request.{ORCgrp(context.K1).OBXgrp()}' key='context.K3' xpos='200' ypos='650' xend='200' yend='1500' >
 <assign property="context.ResultText" value="request.{ORCgrp(context.K1).OBXgrp(context.K3).OBX:ObservationValue(1)}" action="set" xpos='200' ypos='250' />
 <assign property="context.ResultsIndex" value="context.K3" action="set" xpos='200' ypos='350' />
 <trace name='TraceResultsIndex' value=' "ResultsIndex ["_context.ResultsIndex_"]"' xpos='200' ypos='450' />
-<foreach property='request.{ORCgrp(context.K1).OBXgrp(context.K3).NTE()}' key='context.K4' xpos='200' ypos='550' xend='200' yend='700' >
+<assign property="context.ItemLevelComment" value="&quot;&quot;" action="set" xpos='200' ypos='550' />
+<foreach property='request.{ORCgrp(context.K1).OBXgrp(context.K3).NTE()}' key='context.K4' xpos='200' ypos='650' xend='200' yend='700' >
 <assign property="context.Note" value="request.{ORCgrp(context.K1).OBXgrp(context.K3).NTE(context.K4):Comment(1)}" action="set" xpos='200' ypos='250' />
 <if condition='$L(context.ItemLevelComment) &gt;0' xpos='200' ypos='350' xend='200' yend='600' >
 <true>
@@ -281,13 +321,13 @@ BPL Definition</Description>
 </false>
 </if>
 </foreach>
-<assign property="context.UpdatedItemLevelComment" value="context.ItemLevelComment" action="set" xpos='200' ypos='650' />
-<transform name='TransformDTL' class='IHC.ITF.Transform.Dtl.QuestResultsHl7ToTouchworks' source='request' target='context.StoredProcParamsCollection' xpos='200' ypos='750' >
+<assign property="context.UpdatedItemLevelComment" value="context.ItemLevelComment" action="set" xpos='200' ypos='750' />
+<transform name='TransformDTL' class='IHC.ITF.Transform.Dtl.LabdaqResultsHl7ToTouchworks' source='request' target='context.StoredProcParamsCollection' xpos='200' ypos='850' >
 <annotation><![CDATA[translates NV Labdaq results Hl7 to TouchWorks Request]]]]><![CDATA[></annotation>
 </transform>
-<code name='Store Result' xpos='200' ypos='850' >
-<![CDATA[	
- set tStatus=process.SendRequestSync( context.targetList.GetAt(1),context.StoredProcParamsCollection,.response) 
+<code name='Store Result' xpos='200' ypos='950' >
+<![CDATA[ set newResponse = context.StoredProcParamsCollection.%ConstructClone(1)
+ set tStatus=process.SendRequestSync( context.targetList.GetAt(1),newResponse,.response) 
  if ($$$ISOK(tStatus)){ 
     set context.TouchWorksResponse = response
     $$$TRACE("RETURNVALUE from " _ context.targetList.GetAt(1) _ ": " _ context.TouchWorksResponse.RETURNVALUE)
@@ -296,9 +336,9 @@ BPL Definition</Description>
  }  
 ]]]]><![CDATA[>
 </code>
-<if name='check for error' condition='context.TouchWorksResponse.RETURNVALUE &apos;= 0' xpos='200' ypos='950' xend='200' yend='1300' >
+<if name='check for error' condition='context.TouchWorksResponse.RETURNVALUE &apos;= 0' xpos='200' ypos='1050' xend='200' yend='1400' >
 <true>
-<code name='Set error handler' xpos='335' ypos='1100' >
+<code name='Set error handler' xpos='335' ypos='1200' >
 <![CDATA[ 
  set context.errorHandlerTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ErrorHandlerTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus)){
@@ -308,17 +348,22 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='Send reconciler error' xpos='335' ypos='1200' >
+<code name='Send reconciler error' xpos='335' ypos='1300' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.InterfaceErrorHandler).ProcessError(process, context.TouchWorksResponse.RETURNVALUE, context.errorHandlerTargetConfigName, context.StoredProcParamsCollection)]]]]><![CDATA[>
 </code>
 </true>
 </if>
 </foreach>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='1950' >
+<code name='RESETERROR' xpos='740' ypos='2200' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
+</true>
+<false>
+<trace value='"Blocking message"' xpos='470' ypos='2000' />
+</false>
+</if>
 </true>
 <false>
 <code xpos='200' ypos='900' >
@@ -328,7 +373,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2150' xend='200' yend='350' >
+<catchall xpos='200' ypos='2500' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
