@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.OpenDocAdtHl7ToPowerScribe">
+<Description>
+BPL for OpenDr ADT PowerScribe. It subscribes to OpenDoctor translator and converts it to PowerScribe specific messages.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65888,41960.869939</TimeCreated>
+
+<Parameter name="SETTINGS">
+<Default>-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>OpenDocAdtHl7ToPowerScribeDefaultData</DefaultData>
+<Data name="OpenDocAdtHl7ToPowerScribeDefaultData">
+<Subscript>"OpenDocAdtHl7ToPowerScribe"</Subscript>
+<Value name="1">
+<Value>ProcessingId</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='EnsLib.HL7.Message' height='2300' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='configValue' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='failedReason' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='msgType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='isFilterInEvent' type='%Boolean' instantiate='0' />
+</context>
+<sequence xend='200' yend='2050' >
+<scope xpos='200' ypos='250' xend='200' yend='1950' >
+<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
+<code name='Check Max Errors' xpos='200' ypos='550' >
+<![CDATA[ 
+ //MaxErrors
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)]]]]><![CDATA[>
+</code>
+<code name='Check ReplyCodeActions' xpos='200' ypos='650' >
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='Check TargetConfigNames' xpos='200' ypos='750' >
+<![CDATA[
+ //TargetConfigNames validation
+ set context.targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ context.targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+<code name='Validate message structure' xpos='200' ypos='850' >
+<![CDATA[
+ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to get validationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)
+	if (pStatus'=$$$OK) {
+	    $$$TRACE("Message validation failed against schema")
+	    set context.isValidationPassed=0
+	    set context.failedReason="Validation"
+	}
+ }]]]]><![CDATA[>
+</code>
+<code name='Filter EventTypes' xpos='200' ypos='950' >
+<![CDATA[     Set context.msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+      $$$TRACE("Incoming Trigger Event: " _ context.msgType) 
+     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.OpenDocAdtHl7ToPowerScribe.Lookup.AdtEventsFilterIn", context.msgType, .retVal )
+     set context.isFilterInEvent = retVal
+     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Filter In event map value from the lookup table. Getting the default value.")
+       set context.isFilterInEvent = 0
+       set context.failedReason = "FilterEventNotMatching"
+    } else {
+	   $$$TRACE("Value of ADT Event Filter In from the lookup table :" _ context.isFilterInEvent)
+    }]]]]><![CDATA[>
+</code>
+<if name='IsValidMessageAndValidEventType' condition='(context.isValidationPassed&amp;&amp;context.isFilterInEvent)' xpos='200' ypos='1050' xend='200' yend='1700' >
+<true>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.OpenDocAdtHl7ToPowerscribe' source='request' target='response' xpos='470' ypos='1300' >
+<annotation><![CDATA[translate OpenDr ADT to PowerScribe ADT format]]]]><![CDATA[></annotation>
+</transform>
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='470' ypos='1400' />
+<foreach name='Send To Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1500' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+</foreach>
+<code name='Reset Error' xpos='470' ypos='1600' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Skip Message' xpos='200' ypos='1200' >
+<![CDATA[ 
+  $$$TRACE("Skip message...") 
+ if (context.failedReason = "Validation") {
+      set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Validation against schema failed. Skipping the record.")  
+  }
+  
+   if (context.failedReason = "FilterEventNotMatching") {
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Hl7 message event type:"_context.msgType_" is not on the lookup IHC.ITF.Process.Bpl.OpenDocAdtHl7ToPowerScribe.Lookup.AdtEventsFilterIn list. Skip message.")  
+  }
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1800' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
