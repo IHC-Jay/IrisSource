@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.PowerscribeResultsHl7ToVisage">
+<Description>
+BPL for PowerScribe Radiology Results to Visage</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>65995,38921.766795</TimeCreated>
+
+<Property name="ProcessingId">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-ProcessingId:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>PowerscribeResultsHl7ToVisageDefaultData</DefaultData>
+<Data name="PowerscribeResultsHl7ToVisageDefaultData">
+<Subscript>"PowerscribeResultsHl7ToVisage"</Subscript>
+<Value name="1">
+<Value>ProcessingId</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='4450' width='2000' >
+<context>
+<property name='targetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+</context>
+<sequence xend='200' yend='1600' >
+<scope xpos='200' ypos='250' xend='200' yend='1500' >
+<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
+<annotation><![CDATA[Log incoming message.  ]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='550' >
+<annotation><![CDATA[Get ReplyCodeActions from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='Validate message structure' xpos='200' ypos='650' >
+<annotation><![CDATA[Get Validation setting from settings & test against the structure]]]]><![CDATA[></annotation>
+<![CDATA[
+ //Validate the message against schema
+ set validationSetting=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (validationSetting = "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ValidationSetting, shutting down.")
+ } else {
+    $$$TRACE("ValidationSetting: " _ validationSetting) 
+    set pStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSetting)
+	if (pStatus'=$$$OK) {
+	    $$$TRACE("Message validation failed against schema")
+	    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Validation against data structure is failed. Skipping the record.")
+	}
+ }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerscribeResultsHl7ToVisage' source='request' target='response' xpos='200' ypos='850' >
+<annotation><![CDATA[translate to Medicalis format]]]]><![CDATA[></annotation>
+</transform>
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='950' >
+<annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
+</trace>
+<code name='setup target list' xpos='200' ypos='1050' >
+<![CDATA[   
+   
+ //TargetConfigNames validation
+ set targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
+ }
+   $$$TRACE("Count: " _ context.targetList.Count())
+ ]]]]><![CDATA[>
+</code>
+<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1150' xend='200' yend='350' >
+<annotation><![CDATA[Publish to facility Target based on the lookup table]]]]><![CDATA[></annotation>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='Reset Error' xpos='200' ypos='1250' >
+<annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
+<![CDATA[
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1350' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
