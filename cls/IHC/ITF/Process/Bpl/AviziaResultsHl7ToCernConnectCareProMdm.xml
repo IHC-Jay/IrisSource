@@ -20,8 +20,24 @@ Sending Application name</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="AccessTokenTargetConfigName">
+<Description>
+AccessToken for calling Hie Patient Service</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="AmWellEncounterTargetConfigName">
+<Description>
+AccessToken for calling AmWell Encounter Service</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-IhcHie-Wsrc-FACILITYALIAS"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>SendingAppName:Additional,NoteTypeHddNcid:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>SendingAppName:Additional,NoteTypeHddNcid:Additional,AccessTokenTargetConfigName:Additional,AmWellEncounterTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -53,6 +69,20 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='amwellEncTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='accessToken' type='%String' instantiate='0' />
 
 </context>
 <sequence xend='200' yend='2050' >
@@ -112,6 +142,13 @@ BPL Definition</Description>
  }
  
  
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+ 
   
   ]]]]><![CDATA[>
 </code>
@@ -138,7 +175,7 @@ BPL Definition</Description>
 <code name='PV14VisitTypesToiCentraSubject' xpos='200' ypos='650' >
 <annotation><![CDATA[PV14VisitTypesToiCentraSubject]]]]><![CDATA[></annotation>
 <![CDATA[     
-     Set visitTypePV14 =request.GetValueAt("PV1:AdmissionType")
+     Set visitTypePV14 =request.GetValueAt("PV1:2")
      $$$TRACE("VisitTypes(PV1-4) " _ visitTypePV14) 
      
      set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.VisitTypesToSubjectDesc", visitTypePV14, .retVal )
@@ -147,6 +184,36 @@ BPL Definition</Description>
      
     ]]]]><![CDATA[>
 </code>
+
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.AviziaResultsHl7ToCernConnectCareProMdm' source='request' target='response' xpos='470' ypos='1400' />
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1500' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
@@ -186,13 +253,18 @@ BPL Definition</Description>
 <Type>%Library.CacheStorage</Type>
 <DefaultData>AviziaResultsHl7ToCernConnectCareProMdmDefaultData</DefaultData>
 <Data name="AviziaResultsHl7ToCernConnectCareProMdmDefaultData">
-<Structure>listnode</Structure>
 <Subscript>"AviziaResultsHl7ToCernConnectCareProMdm"</Subscript>
 <Value name="1">
 <Value>NoteTypeHddNcid</Value>
 </Value>
 <Value name="2">
 <Value>SendingAppName</Value>
+</Value>
+<Value name="3">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="4">
+<Value>AmWellEncounterTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
