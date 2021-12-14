@@ -30,7 +30,7 @@ AccessToken for calling Hie Patient Service</Description>
 
 <Property name="AmWellEncounterTargetConfigName">
 <Description>
-AccessToken for calling AmWell Encounter Service</Description>
+TargetConfig for calling AmWell Encounter Service</Description>
 <Type>%String</Type>
 <InitialExpression>"Op-IhcHie-Wsrc-FACILITYALIAS"</InitialExpression>
 <Parameter name="MAXLEN" value="100"/>
@@ -83,6 +83,14 @@ BPL Definition</Description>
 </property>
 
 <property name='accessToken' type='%String' instantiate='0' />
+
+<property name='finNumber' type='%String' instantiate='0' />
+
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+
+<property name='codeValAlias' type='%String' instantiate='0' />
+
+<property name='hasEncId' type='%String' initialexpression="" instantiate='0' />
 
 </context>
 <sequence xend='200' yend='2050' >
@@ -149,16 +157,25 @@ BPL Definition</Description>
 	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
  } 
  
+ set context.amwellEncTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AmWellEncounterTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" AmWellEncounterTargetConfigName: " _ context.amwellEncTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AmWellEncounterTargetConfigName found in the Ensemble settings")
+ }
+ 
+ 
+ 
   
   ]]]]><![CDATA[>
 </code>
 <code name='CheckForFinNumber' xpos='470' ypos='1000' >
 <annotation><![CDATA[Validate Fin Number]]]]><![CDATA[></annotation>
 <![CDATA[    
-      Set finNumber = request.GetValueAt("PV1:VisitNumber.ID")
-      $$$TRACE("FinNumber: " _ finNumber)
-	  if ($ISVALIDNUM(finNumber) '= "1") {	     
-	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PV1-19 Patient Account/Fin number :["_finNumber_"] is not valid, skip message.")   		 
+      Set context.finNumber = request.GetValueAt("PV1:VisitNumber.ID")
+      $$$TRACE("FinNumber: " _ context.finNumber)
+	  if ($ISVALIDNUM(context.finNumber) '= "1") {	     
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PV1-19 Patient Account/Fin number :["_context.finNumber_"] is not valid, skip message.")   		 
 	  } 
     ]]]]><![CDATA[>
 </code>
@@ -172,18 +189,50 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 
-<code name='PV14VisitTypesToiCentraSubject' xpos='200' ypos='650' >
+<code name='ValidatePV1VistiTypeFromAmWell' xpos='200' ypos='650' >
 <annotation><![CDATA[PV14VisitTypesToiCentraSubject]]]]><![CDATA[></annotation>
 <![CDATA[     
      Set visitTypePV14 =request.GetValueAt("PV1:2")
      $$$TRACE("VisitTypes(PV1-4) " _ visitTypePV14) 
      
-     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.VisitTypesToSubjectDesc", visitTypePV14, .retVal )
-	 set context.visitTypeToSubjectDesc = retVal 		
-	 $$$TRACE("Hdd Context VisitTypeToSubjectDesc: " _ context.visitTypeToSubjectDesc)	 	 
+     if (visitTypePV14=""){
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Visit type: ["_visitTypePV14_"] in PV1-2 is blank from AmWell/Avizia. Notify to AmWell team.")
+	 }     
      
     ]]]]><![CDATA[>
 </code>
+
+<code name='LookupVisitTypeInPv12' xpos='200' ypos='650' >
+<annotation><![CDATA[LookupVisitType]]]]><![CDATA[></annotation>
+<![CDATA[     
+     Set visitTypePV14 =request.GetValueAt("PV1:2")     
+     set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.VisitTypesToSubjectDesc", visitTypePV14, .retVal )
+     if (($$$ISOK(retStatus)) ){    
+  	 	if ((retVal '="") && (retVal '="Unknown")){
+   			set context.visitTypeToSubjectDesc = retVal
+   			set context.hasEncId = "N"
+   		}else{
+	   		set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.AdtVisitTypesToSubjectDesc", visitTypePV14, .retVal )
+     		if (($$$ISOK(retStatus)) ){    
+  	 			if ((retVal '="") && (retVal '="Unknown")){
+   					set context.visitTypeToSubjectDesc = retVal
+   					set context.hasEncId = "Y"
+   				}else{
+	   				set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found the visit type: ["_visitTypePV14_"] in PV1-2 that does not match a value in the lookup tables.")
+				}
+ 	  		}else{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to load the lookup table IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.AdtVisitTypesToSubjectDesc.")
+ 	  		}    		
+		}
+ 	  }else{
+		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to load the lookup table IHC.ITF.Process.Bpl.AviziaResultsHl7ToCernConnectCareProMdm.Lookup.VisitTypesToSubjectDesc.")
+ 	  }
+	 
+	 $$$TRACE("VisitTypeToSubjectDesc: " _ context.visitTypeToSubjectDesc)	 	 
+     
+    ]]]]><![CDATA[>
+</code>
+
 
 <code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
 <![CDATA[ 
@@ -211,6 +260,31 @@ BPL Definition</Description>
        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
     }
    ]]]]><![CDATA[>
+</code>
+
+<code name='CallAmWellEncService' xpos='200' ypos='1250' >
+<![CDATA[  
+   $$$TRACE("Calling AmWell Encounter service.. ")
+   set amwellEncRequest=##class(IHC.ITF.Request.AmWellEncRequest).%New()
+   
+   if (context.hasEncId = "Y"){
+   	set amwellEncRequest.apptId = "0"
+   	set amwellEncRequest.encounterId = context.finNumber
+   }else{
+	   set amwellEncRequest.apptId = context.finNumber
+   	   set amwellEncRequest.encounterId = "0"
+   }
+   set amwellEncRequest.accessToken = context.accessToken
+
+   set status = process.SendRequestSync(context.amwellEncTargetConfigName,amwellEncRequest,.retRespObj)
+   if ($$$ISOK(status)){
+	      $$$TRACE("Call to amwell encounter service status successful... retValue:"_retRespObj.StringValue)
+	      set context.codeValAlias = retRespObj.StringValue
+    }else{
+	     $$$TRACE("Calling amwell encounter service failed!!! ")
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "AmWell Encounter service call failed, shutting down...... "_$SYSTEM.Status.GetOneErrorText(status))
+     }
+ ]]]]><![CDATA[>
 </code>
 
 
