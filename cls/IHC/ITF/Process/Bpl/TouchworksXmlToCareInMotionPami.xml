@@ -152,38 +152,48 @@ BPL Definition</Description>
  }
  
  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
- $$$TRACE("TargetList Count: " _ context.targetList.Count() )
- 
+
  ]]]]><![CDATA[>
 </code>
 <code name='Read inbound stream' xpos='200' ypos='550' >
-<![CDATA[ $$$TRACE(request.Stream _ " - stream of size: " _ request.Stream.Size) 
- 
- set fileData = ""
- set stream = request.Stream
- While 'stream.AtEnd 
+<![CDATA[ if ( ('$ISOBJECT(request.Stream)) || (request.Stream.Size <= 0) )
  {
-	set len = 32000
-	set data = stream.Read(.len, .sc)		
-	$$$TRACE("Read: stat: " _ len) 
-	set fileData = fileData _ data
-	if ( $L(fileData ) >= request.Stream.Size)
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No data in the Stream") 
+      
+ }
+ else
+ {
+   $$$TRACE(request.Stream _ " - stream of size: " _ request.Stream.Size) 
+ 
+   set fileData = ""
+   set stream = request.Stream
+   While 'stream.AtEnd 
+    {
+	 set len = 32000
+	 set data = stream.Read(.len, .sc)		
+	 $$$TRACE("Read: stat: " _ len) 
+	 set fileData = fileData _ data
+	 if ( $L(fileData ) >= request.Stream.Size)
 		 QUIT
 	} 
 
-    $$$TRACE("Inbound Data: " _ $L(fileData))
+     $$$TRACE("Inbound Data: " _ $L(fileData))
+  }
     ]]]]><![CDATA[>
 </code>
 <code name='Get Clinical Doc' xpos='200' ypos='650' >
-<![CDATA[   // <Document id="urn:uuid:7514ad34-90bd-4815-a8d9-de7e2dc5b136"><xop:Include 
+<![CDATA[    // <Document id="urn:uuid:7514ad34-90bd-4815-a8d9-de7e2dc5b136"><xop:Include 
     // href="cid:http://tempuri.org/1/637744707611774879"
+    // Get Clin ID from Document section
      
     set docStart = $FIND(fileData, "Document id")
     set hrefStart = $FIND(fileData, "tempuri.org/1/", docStart)
     set context.clinID = $EXTRACT(fileData, hrefStart, $FIND(fileData, """", hrefStart) - 2 )
     $$$TRACE("Clin ID: " _ context.clinID)
-
-   set clinFileNm = "/itf-share-nonprd-dev/itf-tmp/PAMI/ClinicalDocument_" _ context.clinID
+    
+    set direc = ##class(%File).GetDirectory(request.OriginalFilename)
+    $$$TRACE("Looking for Clinical file in " _ direc _ ", Inbound filename: " _ request.OriginalFilename)
+   set clinFileNm = direc _"/ClinicalDocument_" _ context.clinID
    set clinData = ""
     If ##class(%File).Exists(clinFileNm )
     {
@@ -202,9 +212,13 @@ BPL Definition</Description>
 		$$$TRACE("Read file: "_ data _ ", stat: " _ sc )
 		set clinData = clinData _ data
 	} while ( $L(clinData) < clinFile.Size)
-     Do clinFile.Close()
+        Do clinFile.Close()
   
-     $$$TRACE( "Process clinData: " _ $L(clinData))
+        $$$TRACE( "Process clinData: " _ $L(clinData))
+   }
+   else
+   {
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Clinical Document not found: " _ clinFileNm _" Clin ID: " _  context.clinID) 
    }]]]]><![CDATA[>
 </code>
 <code name='Get from TW Database' xpos='200' ypos='750' >
@@ -213,43 +227,54 @@ BPL Definition</Description>
     set context.organizationMrn = $EXTRACT(fileData, pidStart+1, $FIND(fileData, "^", pidStart)-2)
     $$$TRACE( "PID-3: " _ pidStart _", " _ pid3End _": " _ context.organizationMrn)
     
-    // Call context.TwDbOpName
- 		$$$TRACE("Calling: " _ context.TwDbOpName)
- 		set databasLookupRequest = ##class(IHC.ITF.ITFCOMMON.Request.IdxDatabaseLookupRequest).%New()
- 		set databasLookupRequest.TwPid = context.organizationMrn
+     if (context.organizationMrn = "")
+     {
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PID-3 is Empty  from Inbound organizationMrn : " _ context.organizationMrn) 
+      }
+      else
+      {
+    
+        // Call context.TwDbOpName
+ 	$$$TRACE("Calling: " _ context.TwDbOpName)
+ 	set databasLookupRequest = ##class(IHC.ITF.ITFCOMMON.Request.IdxDatabaseLookupRequest).%New()
+ 	set databasLookupRequest.TwPid = context.organizationMrn
 
- 		set tStatus=process.SendRequestSync(context.TwDbOpName, databasLookupRequest ,.response)
+ 	set tStatus=process.SendRequestSync(context.TwDbOpName, databasLookupRequest ,.response)
  		
-		if ($$$ISOK(tStatus)){      			
+	if ($$$ISOK(tStatus)){      			
       			      			     
      	           $$$TRACE( context.TwDbOpName _ " returned value: IdxPid: " _ response.IdxPid _ " for MRN: " _ context.organizationMrn)
 
-		}else{
+	}else{
       		   set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Error while calling : "_ context.TwDbOpName _ " Error Text: " _ $System.Status.GetErrorText(tStatus)) 
-      		}
+      	}
        		
- 		if (response.IdxPid = ""){      			
+ 	if (response.IdxPid = ""){      			
       			      			       	          
       		   set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PersonXID is Empty after calling : "_ context.TwDbOpName _ " for Inbound organizationMrn : " _ context.organizationMrn) 
-      		}
-       		
+      	}
+      	else
+      	{
+       		 
+           //Copy from TW Database lookup value
+           set context.personXID = "NV-" _ response.IdxPid
     
-    //Get from TW Database
-    set context.personXID = "NV-" _ response.IdxPid
+           set NEWPID3 = context.personXID_ "^^^CAREINMOTION_NV&amp;" _ context.oID _ "&amp;ISO"
+           
+           //Modify PID-3 in ProvideAndRegisterDocumentSetRequest
     
-    set NEWPID3 = context.personXID_ "^^^CAREINMOTION_NV&amp;" _ context.oID _ "&amp;ISO"
+           set newXmlStr = $EXTRACT(fileData, 1, pidStart)
+           set newXmlStr = newXmlStr _ NEWPID3 _ "</rim:Value>"
+           set newXmlStr = newXmlStr _ $EXTRACT(fileData, pid3End, *)
+           $$$TRACE( "After PID-3 change:" _ $L(newXmlStr))
+       }
+    }
     
-    set newXmlStr = $EXTRACT(fileData, 1, pidStart)
-    set newXmlStr = newXmlStr _ NEWPID3 _ "</rim:Value>"
-    set newXmlStr = newXmlStr _ $EXTRACT(fileData, pid3End, *)
-    $$$TRACE( "After PID-3 change:" _ $L(newXmlStr))
-    
-
 ]]]]><![CDATA[>
 </code>
 <code name='Create ClinData file' xpos='200' ypos='850' >
 <![CDATA[
-     // CLIN DATA:
+     // CLIN DATA change:
     // <patientRole><id extension="80-1512265" root="1.3.6.1.4.1.22812.3.7017002.3" />
     // TO
     // <patientRole>
@@ -258,7 +283,7 @@ BPL Definition</Description>
      set patientStart = $FIND(clinData, "<patientRole>")
      set patientEnd = $FIND(clinData, "/>", patientStart)
     
-    set NEWPATIENTEXT = "id assigningAuthorityName=""CAREINMOTION_NV"" extension=""_ context.personXID _ "" root="""  _ context.oID _ """/>"
+    set NEWPATIENTEXT = "id assigningAuthorityName=""CAREINMOTION_NV"" extension="""_ context.personXID _ """ root="""  _ context.oID _ """/>"
     
     set newClinStr = $EXTRACT(clinData, 1, patientStart)
     set newClinStr = newClinStr _ NEWPATIENTEXT 
@@ -273,14 +298,15 @@ BPL Definition</Description>
 	Do clinFile.Write(newClinStr)
 	Do clinFile.Close()
 	
-	// Get new HASH value
+	// Get new SIZE and HASH value
 	set clinFile=##class(%File).%New(newClinFileNm)
 	set clinFileSz = clinFile.Size
         set sHA1Hash = ##class(%File).SHA1Hash(newClinFileNm, 1)
         $$$TRACE("New hash for clinical Doc: " _ sHA1Hash )]]]]><![CDATA[>
 </code>
 <code name='Create ProvideAndRegisterDocumentSetRequest file' xpos='200' ypos='950' >
-<![CDATA[    // <rim:Slot name="hash"><rim:ValueList><rim:Value>91C94B16FD7B28DEDB78A990FA0ECE921985186B</rim:Value></rim:ValueList></rim:Slot>
+<![CDATA[    // Update Size and Hash in ProvideAndRegisterDocumentSetRequest
+    // <rim:Slot name="hash"><rim:ValueList><rim:Value>91C94B16FD7B28DEDB78A990FA0ECE921985186B</rim:Value></rim:ValueList></rim:Slot>
     // <rim:Slot name="size"><rim:ValueList><rim:Value>208394</rim:Value></rim:ValueList></rim:Slot>
 
     set szStart = $FIND(newXmlStr, "size")
