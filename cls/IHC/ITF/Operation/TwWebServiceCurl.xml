@@ -42,38 +42,121 @@ This is the name of the Service</Description>
 <InitialExpression>"/home/lpjnaras/AllScriptMtom/cert/key.pem"</InitialExpression>
 </Property>
 
+<Property name="CreateFileScript">
+<Type>%String</Type>
+<InitialExpression>"/WORK/CLINDEV/bin/createCurl"</InitialExpression>
+</Property>
+
+<Property name="CurlSendScript">
+<Type>%String</Type>
+<InitialExpression>"/WORK/CLINDEV/bin/EnsembleSend.cmd"</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HOST,SERVICENAME,Community,Direction,Certificate,Key:Additional</Default>
+<Default>CreateFileScript, CurlSendScript, HOST,SERVICENAME,Community,Direction,Certificate,Key:Additional</Default>
 </Parameter>
 
 <Method name="SendData">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.DataStructure.CurlRequest,*pResponse:Ens.StringResponse</FormalSpec>
 <ReturnType>%Library.Status</ReturnType>
 <Implementation><![CDATA[
-    $$$TRACE("call web service " _ pRequest.ClinFileNm _", " _ pRequest.InXDRTouchWorksPnRFileNm)
+    $$$TRACE("call web service " _ pRequest.ClinFileNm _", " _ pRequest.InXDRTouchWorksPnRFileNm _ " with new Msg Id: " _ $EXTRACT(pRequest.clinID, 1, 12))
     set pResponse = ##class(Ens.StringResponse).%New()
     set pResponse.StringValue = "Curl to send data to WebService"
 
-    set curlOutFileNm = pRequest.workPath _ "newDataFile-" _ pRequest.clinID 
-    set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd("/WORK/CLINDEV/bin/createCurl " _ pRequest.InXDRTouchWorksPnRFileNm _ " " _ pRequest.ClinFileNm _ " " _ pRequest.clinID _ " " _ curlOutFileNm, pRequest.workPath _ "curlFileOut-"_ pRequest.clinID, pRequest.workPath _ "curlFileErr-"_ pRequest.clinID)
-    If ##class(%File).Exists(curlOutFileNm)
+    set curlDataFileNm = pRequest.workPath _ "newDataFile-" _ pRequest.clinID 
+    // MAINXMLDATA CLINDATA HREFNUM MSGID OutFileName
+
+    set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(..CreateFileScript _ " " _ pRequest.InXDRTouchWorksPnRFileNm _ " " _ pRequest.ClinFileNm _ " " _ pRequest.clinID _ " " _ $EXTRACT(pRequest.clinID, 1, 12) _ " " _ curlDataFileNm, pRequest.workPath _ "CreateDataFileOut-"_ pRequest.clinID, pRequest.workPath _ "CreateDataFileErr-"_ pRequest.clinID)
+    If ##class(%File).Exists(curlDataFileNm)
     {
-	    $$$TRACE( "Script created: " _ curlOutFileNm)
-        set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd("/WORK/CLINDEV/bin/EnsembleSend.cmd " _ curlOutFileNm, pRequest.workPath _ "curlOut-"_ pRequest.clinID, pRequest.workPath _"curlErr-"_ pRequest.clinID)
-        $$$TRACE("ExecuteShellCmd: /WORK/CLINDEV/bin/EnsembleSend.cmd: " _ stat)
+	    $$$TRACE(..CreateFileScript _ " Script created data file: " _ curlDataFileNm)
+	    set curlStdOutFile = pRequest.workPath _ "curlOut-"_ pRequest.clinID 
+	    set curlStdErrFile = pRequest.workPath _"curlErr-"_ pRequest.clinID
+        set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(..CurlSendScript _ " " _ curlDataFileNm, curlStdOutFile, curlStdErrFile)
+        $$$TRACE(..CurlSendScript _ " Stat: " _ stat)
+                		
         if (stat = 0)
         {
-        	set pResponse = ##class(Ens.StringResponse).%New()
-        	set pResponse.StringValue = "Called Curl to send data to WebService"
-        	set stat = $$$OK
+        	set pResponse.StringValue = "WebService response: "
+        	if (..CheckForReturnStatus(curlStdErrFile, "HTTP/2 200", pResponse) = $$$OK)
+        	{
+        		 
+        		if (..CheckForReturnStatus(curlStdOutFile, "ResponseStatusType:Success", pResponse) = $$$OK)
+        		{
+	        		
+	        		set stat = $$$OK
+        		}
+        		else
+        		{
+	        		
+	        		set stat = $$$ERROR($$$GeneralError, "Invalid Response from Curl: " _ pResponse.StringValue)
+        		}
+        	}
+        	else
+        	{
+	        		
+	        	set stat = $$$ERROR($$$GeneralError, "Invalid Response from Curl: " _ pResponse.StringValue)
+        	}
+        	
+        }
+        else
+        {
+	        set pResponse.StringValue = ..CurlSendScript _ " Stat: " _ stat
+	       	set stat = $$$ERROR($$$GeneralError, "Invalid Response from Curl: " _ ..CurlSendScript _ " Stat: " _ stat)
         }
     }
     else
     {
-	    set stat = $$$ERROR("Could not create curl file: " _ curlOutFileNm _", error: " _ stat)
+	    set stat = $$$ERROR($$$GeneralError, ..CreateFileScript _ " could not create MTOM Data file: " _ curlDataFileNm _", error: " _ stat)
     }
     
  QUIT stat
+]]></Implementation>
+</Method>
+
+<Method name="CheckForReturnStatus">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pFileName:%String,searchStr:%String,&pResponse:Ens.StringResponse]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$ERROR($$$GeneralError, "Check Response Failure ")
+	$$$TRACE("CheckForReturnStatus: " _ searchStr _ ", " _ pFileName)
+	if ( '##class(%File).Exists(pFileName))
+	{
+		set pResponse.StringValue = pResponse.StringValue _ " Command did not create the file: " _ pFileName
+		QUIT stat
+	} 
+	
+    Set tFile = ##class(%File).%New(pFileName)
+	if ( tFile.Size <= 0)
+	{
+		set pResponse.StringValue =pResponse.StringValue _ " Command did not generate any response in the file: " _ pFileName
+		QUIT stat
+	}
+	
+	Do tFile.Open("R")
+			
+	Do tFile.Rewind()
+	
+
+	While ('tFile.AtEnd) {
+			Set tLine = tFile.ReadLine()
+			// $$$TRACE("Search file: " _ tLine _ "::: " _ searchStr)
+			if (tLine [ searchStr)
+			{
+				set stat = $$$OK
+				set pResponse.StringValue =pResponse.StringValue _ " Found the line: " _ tLine
+				// $$$TRACE(" Found the Response: " _ tLine)
+				QUIT
+			}
+	}
+	Do tFile.Close()
+	if $$$ISERR(stat)
+	{
+		set pResponse.StringValue = pResponse.StringValue _ searchStr _ " not found in " _ pFileName
+	}
+	return stat
 ]]></Implementation>
 </Method>
 
