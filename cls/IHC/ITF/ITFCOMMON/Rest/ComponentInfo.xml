@@ -1,0 +1,625 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25" zv="Cache for UNIX (Red Hat Enterprise Linux for x86-64) 2018.1.3 (Build 414_0_20030U)" ts="2021-12-29 09:28:39">
+<Class name="IHC.ITF.ITFCOMMON.Rest.ComponentInfo">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%CSP.REST</Super>
+<TimeChanged>66107,32991.682974</TimeChanged>
+<TimeCreated>66095,76555.039374</TimeCreated>
+
+<XData name="UrlMap">
+<XMLNamespace>http://www.intersystems.com/urlmap</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/test" Method="GET" Call="Test"/>
+<Route Url="/getPath/:namespace/:component" Method="GET" Call="getPath"/>
+<Route Url="/getSettings/:namespace/:component" Method="GET" Call="getSettings"/>
+<Route Url="/getFullList/:namespace" Method="GET" Call="getFullList"/>
+<Route Url="/getFullPath/:namespace/:component" Method="GET" Call="getFullPath"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="Test">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 	Write "Test"
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="getFullPath">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,component:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   set addedPreBool = 0
+   set pathArray = {"Path": []}
+   set serviceArray = {"Services": []}
+   set processArray = {"Processes": []}
+   set outboundArray = {"Operations": []}
+   set postProcessArray = {"Processes": []}
+   set fullComponentPathArray = {"Inbounds": [], "PreProcesses": [], "CurrentComponent": [], "PostProcesses": [], "Outbounds": [] }
+   set array = ""
+   set error =""
+   set workingComponent =""
+   set workingComponentType =""
+   set workingComponentArray =""
+   set newOutList =""
+   set outList =""
+   set fullComponentList =$LFS(component)
+   set postComponentList =""
+   set $NAMESPACE = namespace
+   set fullArray = ..getFullListForInternalCall(namespace)
+   set iter = fullArray.ComponentList.%GetIterator()
+   while iter.%GetNext(.key, .value) {
+      //write !, "Component: "_key_". Value:"_value.%Get("Component")
+      set outboundComponents =""
+      set currentComponent = value.%Get("Component")
+      set currentComponentType = value.%Get("Type")
+      if (currentComponentType ="Service") { 
+         //write !, "Handling Service "_currentComponent
+         if ('##class(Ens.Util.FunctionSet).Contains(##class(Ens.Util.FunctionSet).ToUpper(currentComponent),"JAVAGATEWAY")) {
+            set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(currentComponent)
+            set tStatus = componentItem.GetSetting("TargetConfigNames",.outboundComponents)
+	     }
+	     if (tStatus =$$$OK) { 
+	        //write !, "Outbounds: "_outboundComponents
+            set componentsArray = {
+	           "ServiceComponent": (currentComponent)
+	           , "ToComponent": (outboundComponents) 
+            }
+         }else {
+	        //write !, "Need to handle some other way "_currentComponent
+	        set tStatus = componentItem.FindSettingByName("Target Config Names",.outboundComponents)
+	        //write !, "outbounds :"_outboundComponents_" status: "_tStatus
+	        set componentsArray = {
+	           "ServiceComponent": (currentComponent)
+	           , "ToComponent": (outboundComponents) 
+            }
+         }
+	     //write !, "Middle of service handle"
+	     do serviceArray.Services.%Push(componentsArray)
+	     if (currentComponent = component) {
+	        set workingComponentArray = componentsArray
+	        set workingComponentType = currentComponentType
+         }
+	     //write !,"Handled service: "_currentComponent
+      }elseif (currentComponentType ="Operation") {
+	     //write !, "Doing nothing for operation "_currentComponent 
+         //Do nothing these will just be targets of Processes
+         if (currentComponent = component) {
+            set workingComponentType = currentComponentType
+         }
+      }elseif (currentComponentType ="Process") {
+	     //write !, "Handling process "_currentComponent
+	     kill array
+		 try {
+			set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(currentComponent)
+	        do $CLASSMETHOD(componentItem.ClassName,"OnGetConnections",.array,componentItem)
+		 }catch errorCall {
+		    set error = "Component error for "_componentItem.Name_": "_errorCall.DisplayString()
+		 }
+		 set serviceCallComponents =""
+		 set outboundComponents =""
+		 set item = ""
+	     for {
+		    set item =$o(array(item))
+	        quit:(item ="")
+	        //write !, "Component Connection: "_item
+		    if ((##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(item),"OP-")) || (##class(Ens.Util.FunctionSet).Contains(##class(Ens.Util.FunctionSet).ToUpper(item),"HDD"))) {
+		       if ($F(serviceCallComponents,item) '> 0) {
+			      if (serviceCallComponents ="") {
+			         set serviceCallComponents = item
+			      }else {
+                     set serviceCallComponents = serviceCallComponents_","_item
+			      }  
+			   }
+		    }else {    
+		       If ($F(outboundComponents,item) '> 0) {
+		          if (outboundComponents = "") {
+		             set outboundComponents = item
+		          }else {
+		             set outboundComponents = outboundComponents_","_item
+		          }
+		       }
+		    }
+		 }
+		 set componentsArray = {
+	        "ProcessComponent": (currentComponent),
+	        "ServiceCallComponents": (serviceCallComponents),
+	        "ToComponents": (outboundComponents)
+		 }
+	     do processArray.Processes.%Push(componentsArray)
+	     if (currentComponent = component) {
+	        set workingComponentArray = componentsArray
+	        set workingComponentType = currentComponentType
+         }
+	     //write !, processArray.%ToJSON()
+      }
+   }
+   //write !, "Current component: "_component
+   //write !, "Current component type: "_workingComponentType
+   if (workingComponentType ="Service") {
+      do fullComponentPathArray.CurrentComponent.%Push(workingComponentArray)
+serviceNewOut   
+      //write !, "working component array: "_workingComponentArray.%ToJSON()
+      if ($LL(newOutList) =0) {
+         set out =workingComponentArray.%Get("ToComponent")
+      }else {
+	     set out =$LTS(newOutList)
+      }
+      set outList = $LFS(out,",")
+      set pointer = 0
+      set newOutList =""
+      While $ListNext(outList,pointer,piece) {
+	     //write !, "Working piece: "_piece
+	     set arrayIter = fullArray.ComponentList.%GetIterator()
+	     while arrayIter.%GetNext(.key, .value) {
+	        //write !, "Key: "_key_". Value: "_value.%ToJSON()
+	        if (value.%Get("Component") = piece) {
+		       //write !, "component info: "_value.%ToJSON()
+		       if (value.%Get("Type") = "Operation") {
+			      do outboundArray.Operations.%Push(piece) 
+			      set fullListLength = $LL(fullComponentList)
+			      set tempOutList = $LU(fullComponentList,(fullListLength+1),1:piece)
+			      set fullComponentList = tempOutList
+		       }elseif (value.%Get("Type") = "Process") {
+			      if ($LF(fullComponentList,value.%Get("Component")) =0) {
+			         set processIter = processArray.Processes.%GetIterator()
+                     while processIter.%GetNext(.processKey, .processValue) {
+	                    if (processValue.%Get("ProcessComponent") = piece) {
+                           do postProcessArray.Processes.%Push(processValue)
+                           set update = processValue.%Get("ToComponents")
+                           set updateToList = $LFS(update,",")
+                           set listpointer  = 0
+                           while $LISTNEXT(updateToList,listpointer,listValue) {
+	                          set listLength = $LISTLENGTH(newOutList)
+	                          //write !, "new components to add to list "_listValue_" current new list length: "_$LL(newOutList)
+                              set tempOutList = $LISTUPDATE(newOutList,(listLength+1),1:listValue)
+	                          set newOutList = tempOutList 
+	                          set fullListLength = $LL(fullComponentList)
+			                  set tempOutList = $LU(fullComponentList,(fullListLength+1),1:piece)
+			                  set fullComponentList = tempOutList
+                           }
+	                    } 
+	                 }
+                  }
+		       }
+	        }
+	     }
+      }
+      if ($LL(newOutList) '=0) {
+	     goto serviceNewOut
+      }
+      do fullComponentPathArray.Outbounds.%Push(outboundArray)
+      do fullComponentPathArray.PostProcesses.%Push(postProcessArray)
+   }elseif (workingComponentType ="Process") {
+newOut   
+      //write !, "working component array: "_workingComponentArray.%ToJSON()
+      if ($LL(newOutList) =0) {
+         set out =workingComponentArray.%Get("ToComponents")
+      }else {
+	     set out =$LTS(newOutList)
+      }
+      set outList = $LFS(out,",")
+      set pointer = 0
+      set newOutList =""
+      While $ListNext(outList,pointer,piece) {
+	     //write !, "Working piece: "_piece
+	     set arrayIter = fullArray.ComponentList.%GetIterator()
+	     while arrayIter.%GetNext(.key, .value) {
+	        //write !, "Key: "_key_". Value: "_value.%ToJSON()
+	        if (value.%Get("Component") = piece) {
+		       //write !, "component info: "_value.%ToJSON()
+		       if (value.%Get("Type") = "Operation") {
+			      do outboundArray.Operations.%Push(piece) 
+			      set fullListLength = $LL(fullComponentList)
+			      set tempOutList = $LU(fullComponentList,(fullListLength+1),1:piece)
+			      set fullComponentList = tempOutList
+			      set postListLength = $LL(postComponentList)
+			      set tempOutList = $LU(postComponentList,(postListLength+1),1:piece)
+			      set postComponentList = tempOutList
+		       }elseif (value.%Get("Type") = "Process") {
+			      set processIter = processArray.Processes.%GetIterator()
+                  while processIter.%GetNext(.processKey, .processValue) {
+	                 if (processValue.%Get("ProcessComponent") = piece) {
+                        do postProcessArray.Processes.%Push(processValue)
+                        set update = processValue.%Get("ToComponents")
+                        set updateToList = $LFS(update,",")
+                        set listpointer  = 0
+                        while $LISTNEXT(updateToList,listpointer,listValue) {
+	                       set listLength = $LISTLENGTH(newOutList)
+	                       //write !, "new components to add to list "_listValue_" current new list length: "_$LL(newOutList)
+                           set tempOutList = $LISTUPDATE(newOutList,(listLength+1),1:listValue)
+	                       set newOutList = tempOutList 
+	                       set fullListLength = $LL(fullComponentList)
+			               set tempOutList = $LU(fullComponentList,(fullListLength+1),1:piece)
+			               set fullComponentList = tempOutList
+			               set postListLength = $LL(postComponentList)
+			               set tempOutList = $LU(postComponentList,(postListLength+1),1:piece)
+			               set postComponentList = tempOutList
+                        }
+                        
+	                 }
+                  }
+		       }
+	        }
+	     }
+      }
+      if ($LL(newOutList) '=0) {
+	     goto newOut
+      }
+      do fullComponentPathArray.Outbounds.%Push(outboundArray)
+      do fullComponentPathArray.PostProcesses.%Push(postProcessArray)
+      do fullComponentPathArray.CurrentComponent.%Push(workingComponentArray)
+   }elseif (workingComponentType ="Operation"){
+	  do fullComponentPathArray.CurrentComponent.%Push(component)
+   }else {
+	  write !,"Unknown type"
+   }
+   //write !, "Full component list: "_fullComponentList
+   if (workingComponentType '="Service") {
+addedPre
+      set preIter = processArray.Processes.%GetIterator()
+      while preIter.%GetNext(.preKey, .preValue) {
+	     set workingComponent = preValue.%Get("ProcessComponent")
+	     if ($LF(fullComponentList,workingComponent) =0) {
+            //write !, "Pre Value: "_workingComponent
+	        set outListString = preValue.%Get("ToComponents")
+	        set outList = $LFS(outListString)
+            set pointer = 0
+	        while $LISTNEXT(outList,pointer,prePiece) {
+		       //write !, "Current preprocess publish: "_prePiece
+		       if (($LF(postComponentList,prePiece) =0) && ($LF(fullComponentList,prePiece) >0)) {
+			      set preArray = { "Processes": { "PreProcessor": (workingComponent), "ServiceCallComponents": (preValue.%Get("ServiceCallComponents")),
+	        "ToComponent": (prePiece)}}
+	              do fullComponentPathArray.PreProcesses.%Push(preArray)
+	              set addedPreBool = 1
+	              set fullListLength = $LL(fullComponentList)
+			      set tempOutList = $LU(fullComponentList,(fullListLength+1),1:workingComponent)
+			      set fullComponentList = tempOutList
+		       }
+	        }
+		 }
+	  }
+      if (addedPreBool =1) {
+	     set addedPreBool = 0
+	     goto addedPre
+      }
+      set inIter = serviceArray.Services.%GetIterator()
+      while inIter.%GetNext(.inKey, .inValue) {
+	     set outListString = inValue.%Get("ToComponent")
+	     set outList = $LFS(outListString)
+	     set pointer = 0
+	     while $LISTNEXT(outList,pointer,inPiece) {
+		    //write !, "Current inbound publish: "_inPiece
+		    if (($LF(postComponentList,inPiece) =0) &&($LF(fullComponentList,inPiece) >0)) {
+			   set inArray = { "ServiceComponent": (inValue.%Get("ServiceComponent")),
+	        "ToComponent": (inPiece)}
+	           //write !,inArray.%ToJSON()
+	           do fullComponentPathArray.Inbounds.%Push(inArray)
+		    }
+	     }
+	  }
+   }
+   write !, fullComponentPathArray.%ToJSON()
+   quit 1
+]]></Implementation>
+</Method>
+
+<Method name="getFullListForInternalCall">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	//write !, "In full list"
+    set componentArray ={"ComponentList": []}
+    set $NAMESPACE = namespace
+    set componentItem =""
+	set type =""
+	set tSQL ="SELECT ID FROM Ens_Config.Item where Production = '"_namespace_"."_namespace_"'"
+	set tStatement=##class(%SQL.Statement).%New()
+	set tStatus = tStatement.%Prepare(tSQL)
+	set tResult = tStatement.%Execute()
+	while tResult.%Next() {
+		set id = tResult.%Get("ID")
+	    set componentItem = ##class(Ens.Config.Item).%New()
+	    set componentItem = componentItem.%OpenId(id)
+		//write !, "Component: "_componentItem.Name
+		set type = componentItem.GetBusinessType(componentItem.ClassName,componentItem)
+		set type = $CASE(type,0:"Unknown",1:"Service",2:"Process",3:"Operation",4:"Actor",:"Unknown")
+		set listItem = { "Component": (componentItem.Name), "Type": (type) }
+		do componentArray.ComponentList.%Push(listItem)
+	}
+	Quit componentArray
+]]></Implementation>
+</Method>
+
+<Method name="getFullList">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	//write !, "In full list"
+    set componentArray ={"ComponentList": []}
+    set $NAMESPACE = namespace
+    set componentItem =""
+	set type =""
+	set tSQL ="SELECT ID FROM Ens_Config.Item where Production = '"_namespace_"."_namespace_"'"
+	set tStatement=##class(%SQL.Statement).%New()
+	set tStatus = tStatement.%Prepare(tSQL)
+	set tResult = tStatement.%Execute()
+	while tResult.%Next() {
+		set id = tResult.%Get("ID")
+	    set componentItem = ##class(Ens.Config.Item).%New()
+	    set componentItem = componentItem.%OpenId(id)
+		//write !, "Component: "_componentItem.Name
+		set componentArrayItemSettings = ..getSettingsForOtherCalls(namespace,componentItem.Name)
+		set type = componentItem.GetBusinessType(componentItem.ClassName,componentItem)
+		set type = $CASE(type,0:"Unknown",1:"Service",2:"Process",3:"Operation",4:"Actor",:"Unknown")
+		set listItem = { "Component": (componentItem.Name), "Type": (type), "Settings": (componentArrayItemSettings) }
+		do componentArray.ComponentList.%Push(listItem)
+	}
+	write !, componentArray.%ToJSON()
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="getSettingsForOtherCalls">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,component:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set settingsArray ={"Values": []}
+	set $NAMESPACE = namespace
+	set componentItem =""
+	set staticSettings =""
+	set hostSettings =""
+	set adapterSettings =""
+	set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
+	set tStatus = ##class(Ens.Director).GetHostSettings(component,.hostSettings)
+	if ($DATA(hostSettings) > 0) {	
+       set settingName = ""
+	   for {
+	      set settingName = $ORDER(hostSettings(settingName))
+	      quit:(settingName = "")
+          set currentValue = hostSettings(settingName)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Values.%Push(setting)
+	   }
+	}
+    set tStatus = ##class(Ens.Director).GetAdapterSettings(component,.adapterSettings)
+    if ($DATA(adapterSettings) > 0) {	
+       set settingName = ""
+       for {
+          set settingName = $ORDER(adapterSettings(settingName))
+	      quit:(settingName = "")
+          set currentValue = adapterSettings(settingName)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Values.%Push(setting)
+	   }
+	}
+	set tStatus = componentItem.GetStaticSettings(.staticSettings)
+	if ($DATA(staticSettings) > 0) {
+	   set settingName = ""
+	   set ind = 1
+	   set settingName = ""
+	   set settingIndex = ""
+	   for {
+	      set settingIndex = $ORDER(staticSettings(settingIndex))
+		  quit:(settingIndex = "")
+		  set settingList = staticSettings(settingIndex)
+		  set settingName = $LG(settingList,2)
+		  set currentValue = $LG(settingList,3)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Values.%Push(setting)					
+	   }
+	}
+	quit settingsArray
+]]></Implementation>
+</Method>
+
+<Method name="getSettings">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,component:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set settingsArray ={"Settings": []}
+	set $NAMESPACE = namespace
+	set componentItem =""
+	set staticSettings =""
+	set hostSettings =""
+	set adapterSettings =""
+	set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
+	set tStatus = ##class(Ens.Director).GetHostSettings(component,.hostSettings)
+	if ($DATA(hostSettings) > 0) {	
+       set settingName = ""
+	   for {
+	      set settingName = $ORDER(hostSettings(settingName))
+	      quit:(settingName = "")
+          set currentValue = hostSettings(settingName)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Settings.%Push(setting)
+	   }
+	}
+    set tStatus = ##class(Ens.Director).GetAdapterSettings(component,.adapterSettings)
+    if ($DATA(adapterSettings) > 0) {	
+       set settingName = ""
+       for {
+          set settingName = $ORDER(adapterSettings(settingName))
+	      quit:(settingName = "")
+          set currentValue = adapterSettings(settingName)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Settings.%Push(setting)
+	   }
+	}
+	set tStatus = componentItem.GetStaticSettings(.staticSettings)
+	if ($DATA(staticSettings) > 0) {
+	   set settingName = ""
+	   set ind = 1
+	   set settingName = ""
+	   set settingIndex = ""
+	   for {
+	      set settingIndex = $ORDER(staticSettings(settingIndex))
+		  quit:(settingIndex = "")
+		  set settingList = staticSettings(settingIndex)
+		  set settingName = $LG(settingList,2)
+		  set currentValue = $LG(settingList,3)
+		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		  do settingsArray.Settings.%Push(setting)					
+	   }
+	}
+	write !, settingsArray.%ToJSON()
+	quit 1
+]]></Implementation>
+</Method>
+
+<Method name="getPath">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,component:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set $NAMESPACE = namespace
+	set array = ""
+	set error =""
+	set inboundComponents = ""
+	set outboundComponents = ""
+	set serviceCallComponents =""
+	if (##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(component),"IN-")) {
+	   set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
+	   set tStatus = componentItem.GetSetting("TargetConfigNames",.targetConfigNamesPiece)
+	   for i=1:1:$L(targetConfigNamesPiece,",") {
+	      set target = $P(targetConfigNamesPiece,",",i)
+		  if ($F(outboundComponents,target) '> 0) {
+		     if (outboundComponents = "") {
+		        set outboundComponents = target
+		     }else {
+			    set outboundComponents = outboundComponents_","_target
+		     }
+		  }
+	   }
+	   set componentsArray = {
+	   "From Component": (inboundComponents), 
+	   "Current Component": (component),
+	   "Service Call Component": (serviceCallComponents),
+	   "To Component": (outboundComponents)
+	   }
+	   if (error '="") {
+          set componentsArray.Error = error
+	   }
+	   write !, componentsArray.%ToJSON()
+	}else {
+	   set tSQL ="SELECT ID FROM Ens_Config.Item where Production = ?"
+       set tStatement=##class(%SQL.Statement).%New()
+	   set tStatus = tStatement.%Prepare(tSQL)
+	   set tResult = tStatement.%Execute(namespace_"."_namespace)
+	   while tResult.%Next() {
+	      set id =tResult.%Get("ID")
+	      set componentItem =""
+	      set componentItem = ##class(Ens.Config.Item).%New()
+	      set componentItem = componentItem.%OpenId(id)
+	      //write !, "Component: "_componentItem.Name_" Class: "_componentItem.ClassName
+	      if ('(##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(componentItem.Name),"IN-")) && '(##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(componentItem.Name),"OUT-")) && '(##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(componentItem.Name),"OP-"))) {
+		     kill array
+		     try {
+	            do $CLASSMETHOD(componentItem.ClassName,"OnGetConnections",.array,componentItem)
+		     }catch errorCall {
+			    set error = "Component error for "_componentItem.Name_": "_errorCall.DisplayString()
+		     }
+	         set item = ""
+	         for {
+		        set item =$o(array(item))
+	            quit:(item ="")
+	            //write !, "Component Connection: "_item
+	            if ((item = component)) {
+		           if ($F(inboundComponents,componentItem.Name) '> 0) {
+		              if (inboundComponents ="") {
+		                 set inboundComponents = componentItem.Name
+		              }else {
+			             set inboundComponents = inboundComponents_","_componentItem.Name  
+		              }
+		           }
+	            }elseif (componentItem.Name = component) {
+		           if ((##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(item),"OP-")) || (##class(Ens.Util.FunctionSet).Contains(##class(Ens.Util.FunctionSet).ToUpper(item),"HDD"))) {
+			          if ($F(serviceCallComponents,item) '> 0) {
+				          if (serviceCallComponents ="") {
+					         set serviceCallComponents = item
+				          }else {
+					         set serviceCallComponents = serviceCallComponents_","_item
+				          }  
+			          }
+		           }else {    
+		              if ($F(outboundComponents,item) '> 0) {
+		                 if (outboundComponents = "") {
+			                set outboundComponents = item
+		                 }else {
+			                set outboundComponents = outboundComponents_","_item
+		                 }
+		              }
+		           }
+	            }
+	         }
+	      }elseif (##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(componentItem.Name),"IN-")) {
+	         //write !, "ID: "_id
+	         set tSQL = "SELECT settings FROM Ens_Config.Item where ID = ?"
+	         set tStatement=##class(%SQL.Statement).%New()
+	         set tStatus = tStatement.%Prepare(tSQL)
+	         set tResultSettings = tStatement.%Execute(id)
+	         while tResultSettings.%Next() {
+	            //write !, tResultSettings.%Get("Settings")
+      	        if (##class(Ens.Util.FunctionSet).Contains(tResultSettings.%Get("Settings"),component)) {
+		           if ($F(inboundComponents,componentItem.Name) '> 0) {
+		              if (inboundComponents ="") {
+		                 set inboundComponents = componentItem.Name
+		              }else {
+			             set inboundComponents = inboundComponents_","_componentItem.Name  
+		              }
+		           }
+		        }
+	         }
+	      }
+	   }
+	   set componentsArray = {
+	   "From Component": (inboundComponents), 
+	   "Current Component": (component),
+	   "Service Call Component": (serviceCallComponents),
+	   "To Component": (outboundComponents)
+	   }
+	   if (error '="") {
+          set componentsArray.Error = error
+	   }
+	   write !, componentsArray.%ToJSON()
+	}
+	Quit 1
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+/**ClassMethod OnErrorStream(pStatus As %Status)
+{
+ 	Set tStream = ##class(%GlobalBinaryStream).%New()  $$$ASSERT($IsObject(tStream))
+	Do tStream.Write($ZConvert($$$StatusDisplayString(pStatus)_$C(13,10),"O","UTF8"))
+	Set tStream.Attributes("Content-Type")=" text/plain; charset=""UTF-8"""
+	Set tStream.Attributes("ResponseCode")="501 Internal Server Error"
+ 	Quit tStream
+}**/
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+/// Control the type and content of error returned to the REST caller
+
+]]></Content>
+</UDLText>
+</Class>
+
+
+<Project name="IPD" LastModified="2021-12-29 09:28:22.873196">
+  <Items>
+    <ProjectItem name="IHC.ITF.ITFCOMMON.Rest.ComponentInfo" type="CLS"></ProjectItem>
+  </Items>
+</Project>
+</Export>
