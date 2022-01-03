@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.Operation.TwilioLookup">
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65987,64677.830161</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="ProcessHttpsRequest">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.TwilioRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessHttpsRequest")
+	
+	$$$TRACE("phoneNumber: "_pRequest.phoneNumber) 
+	$$$TRACE("Operation Type: "_pRequest.operationType)
+	
+	set pResponse=##class(Ens.StringResponse).%New()
+	 
+	
+	if (pRequest.operationType="carrier"){
+		set tSC = ..CallTwilioGetPhoneType(pRequest,.phoneTypeResp)		
+	 }else{
+		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError("Invalid request","request: "_pRequest.operationType)
+	 }
+	 if $$$ISERR(tSC) {
+         do $system.OBJ.DisplayError()
+         Quit tSC
+     }else{
+	     set pResponse.StringValue = phoneTypeResp.StringValue
+     }		
+    quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="CallTwilioGetPhoneType">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.TwilioRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim response As %String
+	
+	Set phNumber=pRequest.phoneNumber
+	Set operType=pRequest.operationType
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.ContentType="application/json"
+	Set httprequest.Https="1"
+	Set httprequest.Location = ..Adapter.URL	
+	Set credSettings = ..Adapter.Credentials
+	Set cred=##class(Ens.Config.Credentials).%OpenId(credSettings)
+    Set httprequest.Username= cred.Username
+    Set httprequest.Password= cred.Password
+    set httprequest.Timeout=..Adapter.ResponseTimeout
+    
+	
+	set url = ..Adapter.URL_"/v1/PhoneNumbers/"_phNumber_"?Type="_operType
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	 
+    
+	set status = httprequest.Get(url)	
+		
+	if $$$ISERR(status) {
+         do $system.OBJ.DisplayError()
+         Quit status
+    } else {
+	    $$$TRACE(" Twilio service..Get Request successful..") 
+        set response=httprequest.HttpResponse        
+       	$$$TRACE("StatusLine: "_response.StatusLine) 
+       	
+       	set len = httprequest.HttpResponse.ContentLength     
+    	set respData = httprequest.HttpResponse.Data.Read()
+    	$$$TRACE("RESP DATA ???? "_respData)   
+    		
+    	set respJSONstring = respData
+        set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)
+        set jsonRespPhType = (consumedJSONobj.%Get("carrier")).%Get("type")
+       	 
+          $$$TRACE(" jsonRespPhType: "_jsonRespPhType)             
+          
+          set pResponse=##class(Ens.StringResponse).%New()
+          if jsonRespPhType="mobile"{
+	          set pResponse.StringValue = "CELLPHONE"
+	      }elseif (jsonRespPhType="landline"){
+		      set pResponse.StringValue = "HOMEPHONE"
+		  }else{
+			  set pResponse.StringValue = ""
+		  }
+    
+    }
+
+	quit status
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.TwilioRequest">
+	<Method>ProcessHttpsRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
