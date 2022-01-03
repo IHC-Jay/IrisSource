@@ -22,6 +22,14 @@ Patient Service Operation to add/update demographics into Initiate, Check mrn</D
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="TwilioServiceTargetConfigName">
+<Description>
+Twilio Service Target Config Name</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Twilio-Json-Wsrc"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Property name="A28MessageTargetConfigName">
 <Description>
 A28 message Target</Description>
@@ -30,7 +38,7 @@ A28 message Target</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,TwilioServiceTargetConfigName:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Method name="CallPatientServices">
@@ -100,6 +108,9 @@ A28 message Target</Description>
 <Value name="4">
 <Value>A28MessageTargetConfigName</Value>
 </Value>
+<Value name="5">
+<Value>TwilioServiceTargetConfigName</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -133,6 +144,7 @@ BPL Definition</Description>
 <property name='GuarantorAmWellMrn' type='%String' instantiate='0' />
 <property name='GuarantorEmpi' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
+<property name='twPhType' type='%String' instantiate='0' />
 <property name='InsSubscriberAmWellMrn' type='%String' instantiate='0' />
 <property name='InsSubscriberEmpi' type='%String' instantiate='0' />
 <property name='isNewInsSubscriberMrn' type='%String' initialexpression='"N"' instantiate='0' />
@@ -146,6 +158,11 @@ BPL Definition</Description>
 <property name='A28TargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='twilioServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
 </context>
@@ -300,6 +317,16 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
+<code name='initializeTwilioServiceTarget' xpos='470' ypos='1850' >
+<![CDATA[ 
+ set context.twilioServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TwilioServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" TwilioServiceTargetConfigName: " _ context.twilioServiceTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No TwilioServiceTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
 <code name='getMessageType' xpos='470' ypos='1950' >
 <![CDATA[  
     Set context.MsgType = request.GetValueAt("MSH:9.2")     
@@ -342,6 +369,30 @@ BPL Definition</Description>
  } 
  ]]]]><![CDATA[>
 </code>
+<code name='CallTwilioService' xpos='470' ypos='2350' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation Twilio Service: " _ context.twilioServiceTargetConfigName) 
+    set httpTwilioServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.TwilioRequest).%New()     
+    set phNumber = request.GetValueAt("PID:PhoneNumberHome(1).phonenumber1")
+    if ($L(phNumber)>0){
+    	set httpTwilioServiceRequestObj.phoneNumber = phNumber
+    	set httpTwilioServiceRequestObj.operationType = "carrier"
+     
+   		set status =  process.SendRequestSync(context.twilioServiceTargetConfigName,httpTwilioServiceRequestObj,.twilioServiceResponse)
+   		if ($$$ISOK(status)){
+      		$$$TRACE("Twilio Operation status - OK")
+      		set context.twPhType =twilioServiceResponse.StringValue
+      		$$$TRACE("Twilio Phone Type:["_context.twPhType_"]")      		                
+    	}else {
+	    	$$$TRACE("Calling Twilio operation failed!!!")	    	
+       		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Twilio Service failed!!!") 
+    	}
+    }else{
+	    $$$TRACE("Phone number is empty from AmWell. Not calling the Twilio service.")
+	}
+   ]]]]><![CDATA[>
+</code>
+
 <code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
 <![CDATA[ 
   $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
@@ -642,6 +693,16 @@ BPL Definition</Description>
 </if>
 <if name='AddOrUpdateOperationSuccess' condition='($L(context.PatientEmpi) &gt; 0)' xpos='470' ypos='6150' xend='470' yend='6500' >
 <true>
+	<code name='UpdateResponseType' xpos='605' ypos='6400' >
+	<![CDATA[   
+	if (context.twPhType="CELLPHONE"){
+	      		do context.updatedResponse.SetValueAt("194", "PID:13(1).2")
+	      	}else{
+		      	do context.updatedResponse.SetValueAt("193", "PID:13(1).2")
+		      	set context.twPhType = "HOMEPHONE"
+		    }
+		    ]]]]><![CDATA[>
+		   </code>
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='605' ypos='6300' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
