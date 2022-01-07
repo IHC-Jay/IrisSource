@@ -27,6 +27,13 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="HddNewTargetConfigName">
+<Description>
+Enhanced HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="FilterOutEventTypeForApptStatus">
 <Description>
 FilterOutEventType for Appointment status "Arrived"(A). Separated by Comma.</Description>
@@ -49,7 +56,7 @@ Allowed Address Types. Separated by Comma.</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>AllowedAddressType:Additional,FilterOutEventTypeForApptStatus:Additional,FilterOutApptStatusForEvent:Additional,UofUVisitTypeId:Additional,ProcessingId:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>AllowedAddressType:Additional,FilterOutEventTypeForApptStatus:Additional,FilterOutApptStatusForEvent:Additional,UofUVisitTypeId:Additional,ProcessingId:Additional,HddTargetConfigName:Additional,HddNewTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -89,6 +96,11 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hddNewTargetConfigName' type='%String' initialexpression='"Op-Hdd-Xml-Wssc"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -276,6 +288,19 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
+
+
+<code name='initializeHddNewTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set context.hddNewTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddNewTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddNewTargetConfigName: " _ context.hddNewTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddNewTargetConfigName found.")   	
+ } 
+  ]]]]><![CDATA[>
+</code>
+
 
 <code name='getUofUVisitTypeId' xpos='470' ypos='1200' >
 <![CDATA[ 
@@ -502,6 +527,53 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
+<code name='validateApptTypeNcid' xpos='470' ypos='1000' >
+<annotation><![CDATA[Validate Appt Ncid]]]]><![CDATA[></annotation>
+<![CDATA[    
+      Set apptTypeNcid = request.GetValueAt("SCH:7.1")
+      $$$TRACE("apptTypeNcid(SCH:7.1): " _ apptTypeNcid)
+	  if ($ISVALIDNUM(apptTypeNcid) '= "1") {	     
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "SCH-7.1 ApptTypeNcid :["_apptTypeNcid_"] is not valid, skip message.")   		 
+	  } 
+    ]]]]><![CDATA[>
+</code>
+
+<code name='getUniqueChild' xpos='200' ypos='750' >
+<annotation><![CDATA[getUniqueChild]]]]><![CDATA[></annotation>
+<![CDATA[  
+    
+     set apptTypeNcid = request.GetValueAt("SCH:7.1")
+     set parentNcidFieldName = "SCH-7.1"
+     set relationshipNcid ="529994998"
+     set contextNcid = "529994973"
+     
+     try{
+	      $$$TRACE(" Calling getUniqueChild()" )
+          set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueChild(apptTypeNcid, parentNcidFieldName, relationshipNcid, contextNcid, context.hddNewTargetConfigName, .process, .retStr)
+          set context.UofUVisitTypeId = retStr
+		  $$$TRACE(" retStr: " _ retStr)
+     }catch(exVar){
+	     set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     if exVar.Code [ "ITFCOMMON:10108" {		   
+		    set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+	   	 }elseif(exVar.Code [ "ITFCOMMON:10109") {	
+	   	     // Hdd data error. Complete. Send default UofUVisitTypeId to UofU	   	 
+		     set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)
+		 }elseif(exVar.Code [ "ITFCOMMON:10106") {		
+		     //Data retrieval error in HDD . Retry and Complete. Send default UofUVisitTypeId to UofU
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
+		 }elseif(exVar.Code [ "ITFCOMMON:10103") {		   	 
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,exVarData)		  
+		 }else{
+			 //Any other Unexpected error
+			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 }
+	 }   
+  ]]]]><![CDATA[>
+</code>
+
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToUofU' source='request' target='response' xpos='470' ypos='1300' >
 <annotation><![CDATA[Translates Cerner Hl7 to UofU]]]]><![CDATA[></annotation>
 </transform>
@@ -561,6 +633,9 @@ BPL Definition</Description>
 </Value>
 <Value name="6">
 <Value>AllowedAddressType</Value>
+</Value>
+<Value name="7">
+<Value>HddNewTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
