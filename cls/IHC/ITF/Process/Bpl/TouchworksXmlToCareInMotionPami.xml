@@ -130,9 +130,20 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='processRec' type='%Integer' instantiate='0' />
+<property name='clinData' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1048576' />
+</parameters>
+</property>
+<property name='newXmlStr' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1048576' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1600' >
-<scope xpos='200' ypos='250' xend='200' yend='1500' >
+<sequence xend='200' yend='1850' >
+<scope xpos='200' ypos='250' xend='200' yend='1750' >
 <trace name='filename' value='"Processing filename: " _ request.OriginalFilename' xpos='200' ypos='350' />
 <code name='Get Settings' xpos='200' ypos='450' >
 <annotation><![CDATA[ReplyCodeAction settings ]]]]><![CDATA[></annotation>
@@ -238,7 +249,7 @@ BPL Definition</Description>
     set direc = ##class(%File).GetDirectory(request.OriginalFilename)
     $$$TRACE("Looking for Clinical file in " _ direc _ ", Inbound filename: " _ request.OriginalFilename)
    set clinFileNm = direc _"/ClinicalDocument_" _ context.clinID
-   set clinData = ""
+   set context.clinData = ""
     If ##class(%File).Exists(clinFileNm )
     {
        $$$TRACE( "clin File exists: " _ clinFileNm )
@@ -254,11 +265,11 @@ BPL Definition</Description>
 		set data = clinFile.Read(.len, .sc)
 		
 		$$$TRACE("Read file: "_ data _ ", stat: " _ sc )
-		set clinData = clinData _ data
-	} while ( $L(clinData) < clinFile.Size)
+		set context.clinData = context.clinData _ data
+	} while ( $L(context.clinData) < clinFile.Size)
         Do clinFile.Close()
   
-        $$$TRACE( "Process clinData: " _ $L(clinData))
+        $$$TRACE( "Process context.clinData: " _ $L(context.clinData))
    }
    else
    {
@@ -299,7 +310,7 @@ BPL Definition</Description>
       	}
       	else
       	{
-       	   $$$TRACE( " Data from Operation: " _ response.IdxPid _ ", " _ response.EntryName)	 
+       	   $$$TRACE( " Data from Operation: " _ response.IdxPid)	 
            //Copy from TW Database lookup value
            set context.personXID = "NV-" _ response.IdxPid
     
@@ -307,18 +318,18 @@ BPL Definition</Description>
            
            //Modify PID-3 in ProvideAndRegisterDocumentSetRequest
     
-           set newXmlStr = $EXTRACT(fileData, 1, pidStart)
-           set newXmlStr = newXmlStr _ NEWPID3 _ "</rim:Value>"
-           set newXmlStr = newXmlStr _ $EXTRACT(fileData, pid3End, *)
-           $$$TRACE( "After PID-3 change:" _ $L(newXmlStr))
+           set context.newXmlStr = $EXTRACT(fileData, 1, pidStart)
+           set context.newXmlStr = context.newXmlStr _ NEWPID3 _ "</rim:Value>"
+           set context.newXmlStr = context.newXmlStr _ $EXTRACT(fileData, pid3End, *)
+           $$$TRACE( "After PID-3 change:" _ $L(context.newXmlStr))
        }
-       if ((response.EntryCode= "") || $NUMBER(response.EntryCode) < 0)
+       if ($L(response.EntryCode) <= 0)
      {
-       set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Insurance_Class_DE.EntryCode is Empty OR invalid number from Inbound organizationMrn : " _ context.organizationMrn) 
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Insurance_Class_DE.EntryCode is Empty for Inbound organizationMrn : " _ context.organizationMrn) 
       }
       else
       {
-        $$$TRACE( "Valid Insurance Type (EntryName): " _ $NUMBER(response.EntryCode))
+        $$$TRACE( "Operation sent Insurance Types (EntryCodes): " _ response.EntryCode)
       }
       
     }
@@ -330,56 +341,52 @@ BPL Definition</Description>
         // Call context.DwDbOpName
  	$$$TRACE("Calling DW: " _ context.DwDbOpName)
  	set databasLookupRequest = ##class(IHC.ITF.Request.DwDbInsQueryRequest).%New()
- 	set databasLookupRequest.FSCNUMBER = $NUMBER(response.EntryCode)
+ 	
+ 	   SET databasLookupRequest.FSCNUMBER = response.EntryCode
+ 	
 
  	set tStatus=process.SendRequestSync(context.DwDbOpName, databasLookupRequest ,.response)
  		
 	if ($$$ISOK(tStatus)){      			
-      			      			     
-     	       $$$TRACE( context.DwDbOpName _ " returned value: CATEGORY1: " _ response.CATEGORY1_ " for FSCNUMBER: " _ databasLookupRequest.FSCNUMBER)
-
-	}else{
-      		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Error while calling : "_ context.DwDbOpName _ " Error Text: " _ $System.Status.GetErrorText(tStatus)) 
-      	}
-       		
- 	if ((response.CATEGORYNAME1 = "") || (response.CATEGORYNAME2 = "")){      			
-      			      			       	          
-      		   set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName, "CATEGORYNAME1 is Empty after calling : "_ context.DwDbOpName _ " for Inbound FSCNUMBER : " _ databasLookupRequest.FSCNUMBER) 
-      	}
-      	else
-      	{
-       	   $$$TRACE( " Data from DW Operation: " _ response.CATEGORY1 _" / " _ response.CATEGORYNAME1 _ ", " _ response.CATEGORY2 _" / " _ response.CATEGORYNAME2)	 
-           
-           $$$TRACE( "InsuranceCategory Filter based on: " _ context.insuranceCategory )
-           if ( (context.insuranceCategory = response.CATEGORYNAME1) || (context.insuranceCategory = response.CATEGORYNAME2) )
-           {
-              $$$TRACE("Process the record")
-           }
-           else
-           {
-            set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Insurance match failed. DW return values: " _ response.CATEGORYNAME1 _ " and " _ response.CATEGORYNAME2 _ " are not the values in the setting - InsuranceCategory: " _  context.insuranceCategory _ ". Inbound organizationMrn : " _ context.organizationMrn) 
-           }
+      	  set context.processRec = 0		      			     
+     	  $$$TRACE( context.DwDbOpName _ " returned " _ response.entries.Count() _ " rows for FSCNUMBER: " _ databasLookupRequest.FSCNUMBER)
+          $$$TRACE( "InsuranceCategory Filter based on: " _ context.insuranceCategory )
+	  FOR i=1:1:response.entries.Count()
+ 	  {
+       		set insCat = response.entries.GetAt(i)
+ 	     $$$TRACE( i _ ". Data from DW Operation: " _ insCat.CATEGORY1 _" / " _ insCat.CATEGORYNAME1 _ ", " _ insCat.CATEGORY2 _" / " _ insCat.CATEGORYNAME2)	 
+                       
+             if (context.insuranceCategory = insCat.CATEGORYNAME1) || (context.insuranceCategory = insCat.CATEGORYNAME2)
+             {
+                set context.processRec = 1
+                QUIT
+             }
+          }
        }
-    
+    else{
+      	  set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Error while calling : "_ context.DwDbOpName _ " Error Text: " _ $System.Status.GetErrorText(tStatus)) 
+      	}
     
 ]]]]><![CDATA[>
 </code>
-<code name='Create ClinData file' xpos='200' ypos='1050' >
-<![CDATA[
-     // CLIN DATA change:
+<if name='Is Insurance = HMO' condition='context.processRec = 1' xpos='200' ypos='1050' xend='200' yend='1500' >
+<true>
+<code name='Create ClinData file' xpos='470' ypos='1200' >
+<![CDATA[       $$$TRACE("Process the record ")
+              // CLIN DATA change:
     // <patientRole><id extension="80-1512265" root="1.3.6.1.4.1.22812.3.7017002.3" />
     // TO
     // <patientRole>
     // <id assigningAuthorityName="CAREINMOTION_NV" extension="NV-1982283" root="1.3.6.1.4.1.22812.8.205349.2"/>
     
-     set patientStart = $FIND(clinData, "<patientRole>")
-     set patientEnd = $FIND(clinData, "/>", patientStart)
+     set patientStart = $FIND(context.clinData, "<patientRole>")
+     set patientEnd = $FIND(context.clinData, "/>", patientStart)
     
     set NEWPATIENTEXT = "id assigningAuthorityName=""CAREINMOTION_NV"" extension="""_ context.personXID _ """ root="""  _ context.oID _ """/>"
     
-    set newClinStr = $EXTRACT(clinData, 1, patientStart)
+    set newClinStr = $EXTRACT(context.clinData, 1, patientStart)
     set newClinStr = newClinStr _ NEWPATIENTEXT 
-    set newClinStr = newClinStr _ $EXTRACT(clinData, patientEnd, *)
+    set newClinStr = newClinStr _ $EXTRACT(context.clinData, patientEnd, *)
     $$$TRACE( "New Clin length:" _ $L(newClinStr))
  
     set newClinFileNm = context.workPath _ "ClinicalDocument-New-" _ context.clinID
@@ -394,29 +401,30 @@ BPL Definition</Description>
 	set clinFile=##class(%File).%New(newClinFileNm)
 	set clinFileSz = clinFile.Size
         set sHA1Hash = ##class(%File).SHA1Hash(newClinFileNm, 1)
-        $$$TRACE("New hash for clinical Doc: " _ sHA1Hash )]]]]><![CDATA[>
+        $$$TRACE("New hash for clinical Doc: " _ sHA1Hash )
+         ]]]]><![CDATA[>
 </code>
-<code name='Create ProvideAndRegisterDocumentSetRequest file' xpos='200' ypos='1150' >
+<code name='Create ProvideAndRegisterDocumentSetRequest file' xpos='470' ypos='1300' >
 <![CDATA[    // Update Size and Hash in ProvideAndRegisterDocumentSetRequest
     // <rim:Slot name="hash"><rim:ValueList><rim:Value>91C94B16FD7B28DEDB78A990FA0ECE921985186B</rim:Value></rim:ValueList></rim:Slot>
     // <rim:Slot name="size"><rim:ValueList><rim:Value>208394</rim:Value></rim:ValueList></rim:Slot>
 
-    set szStart = $FIND(newXmlStr, "size")
+    set szStart = $FIND(context.newXmlStr, "size")
     $$$TRACE( "size start: " _ szStart)
-    set szEnd = $FIND(newXmlStr, "</rim:Value>", szStart)
-    set InXDRStr = $EXTRACT(newXmlStr, 1, szStart)
+    set szEnd = $FIND(context.newXmlStr, "</rim:Value>", szStart)
+    set InXDRStr = $EXTRACT(context.newXmlStr, 1, szStart)
     set InXDRStr = InXDRStr _ "><rim:ValueList><rim:Value>" _ clinFileSz _ "</rim:Value>"
-    set InXDRStr = InXDRStr _ $EXTRACT(newXmlStr, szEnd, *)
+    set InXDRStr = InXDRStr _ $EXTRACT(context.newXmlStr, szEnd, *)
     
-    set newXmlStr = InXDRStr
-    set hStart = $FIND(newXmlStr, "hash")
+    set context.newXmlStr = InXDRStr
+    set hStart = $FIND(context.newXmlStr, "hash")
     
-    set hEnd = $FIND(newXmlStr, "</rim:Value>", hStart)
+    set hEnd = $FIND(context.newXmlStr, "</rim:Value>", hStart)
     $$$TRACE( "hash start: " _ hStart _", end: " _ hEnd _", sHA1Hash: " _ sHA1Hash)
     
-    set InXDRStr = $EXTRACT(newXmlStr, 1, hStart)
+    set InXDRStr = $EXTRACT(context.newXmlStr, 1, hStart)
     set InXDRStr = InXDRStr _ "><rim:ValueList><rim:Value>" _ sHA1Hash _ "</rim:Value>"
-    set InXDRStr = InXDRStr _ $EXTRACT(newXmlStr, hEnd, *)
+    set InXDRStr = InXDRStr _ $EXTRACT(context.newXmlStr, hEnd, *)
 
 
     set dataFileNm = context.workPath _"IN_XDR_TouchWorks_PnR-Referrals-" _ context.clinID  
@@ -429,7 +437,7 @@ BPL Definition</Description>
 	Do dataFile.Close()
 	]]]]><![CDATA[>
 </code>
-<code name='Call operation' xpos='200' ypos='1250' >
+<code name='Call operation' xpos='470' ypos='1400' >
 <![CDATA[ set outObj = ##class(IHC.ITF.ITFCOMMON.DataStructure.CurlRequest).%New()
  set outObj.OID = context.oID
  set outObj.clinID = context.clinID
@@ -456,8 +464,15 @@ BPL Definition</Description>
       		   }
       		}]]]]><![CDATA[>
 </code>
+</true>
+<false>
+<code name='Warning' xpos='200' ypos='1200' >
+<![CDATA[ $$$LOGWARNING("Insurance match failed. DW returned categories did not match the value in the setting - InsuranceCategory: " _  context.insuranceCategory _ ". Inbound organizationMrn : " _ context.organizationMrn) ]]]]><![CDATA[>
+</code>
+</false>
+</if>
 <faulthandlers>
-<catchall xpos='200' ypos='1350' xend='200' yend='350' >
+<catchall xpos='200' ypos='1600' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
