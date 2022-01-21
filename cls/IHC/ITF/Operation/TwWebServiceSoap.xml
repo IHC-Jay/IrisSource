@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.TwWebServiceSoap">
+<ProcedureBlock>1</ProcedureBlock>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>66064,52356.459076</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SOAP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="HOST">
+<Type>%String</Type>
+<InitialExpression>"gateway.acdm.allscriptscloud.com"</InitialExpression>
+</Property>
+
+<Property name="SERVICENAME">
+<Description>
+This is the name of the Service</Description>
+<Type>%String</Type>
+<InitialExpression>"/gateway/xdr.svc"</InitialExpression>
+</Property>
+
+<Property name="Community">
+<Type>%String</Type>
+<InitialExpression>"DaVita-Rhapsody-TWReferral-Test"</InitialExpression>
+</Property>
+
+<Property name="Direction">
+<Type>%String</Type>
+<InitialExpression>"Inbound"</InitialExpression>
+</Property>
+
+<Property name="Boundary">
+<Type>%String</Type>
+<InitialExpression>"178E3AD48E75EADA161638942123957"</InitialExpression>
+</Property>
+
+<Property name="Certificate">
+<Type>%String</Type>
+<InitialExpression>"/home/lpjnaras/AllScriptMtom/cert/cert.pem"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="Key">
+<Type>%String</Type>
+<InitialExpression>"/home/lpjnaras/AllScriptMtom/cert/key.pem"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="CreateFileScript">
+<Type>%String</Type>
+<InitialExpression>"/WORK/CLINDEV/bin/createCurl"</InitialExpression>
+</Property>
+
+<Property name="CurlDataTemplate">
+<Type>%String</Type>
+<InitialExpression>"/WORK/CLINDEV/bin/CurlDataTemplate"</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>CurlDataTemplate, CreateFileScript, HOST,SERVICENAME,Community,Direction,Boundary,Certificate,Key:Additional</Default>
+</Parameter>
+
+<Method name="SendData">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.DataStructure.CurlRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<ReturnType>%Library.Status</ReturnType>
+<Implementation><![CDATA[
+    $$$TRACE("TwWebServiceSoap call web service " _ pRequest.ClinFileNm _", " _ pRequest.InXDRTouchWorksPnRFileNm _ " with new Msg Id: " _ $EXTRACT(pRequest.clinID, 1, 12))
+    set pResponse = ##class(Ens.StringResponse).%New()
+    
+    If ##class(%File).Exists(pRequest.InXDRTouchWorksPnRFileNm)
+    {
+		try {
+		
+		    #dim httpRequest As %Net.HttpRequest
+			set httpRequest = ##class(%Net.HttpRequest).%New()
+		  	Set file=##class(%File).%New(pRequest.InXDRTouchWorksPnRFileNm)
+			Write file.Size
+			
+			Set stream=##class(%Stream.FileBinary).%New()
+			Set sc=stream.LinkToFile(pRequest.InXDRTouchWorksPnRFileNm)
+			
+			Do httpRequest.EntityBody.CopyFromAndSave(stream)
+			
+		    $$$TRACE( "EntityBody.Size: " _ httpRequest.EntityBody.Size )
+		    
+
+			Do httpRequest.SetParam("OID", pRequest.OID) 
+			Do httpRequest.SetParam("Community", ..Community)
+			Do httpRequest.SetParam("Direction", ..Direction)
+				
+			set port=443
+			
+		
+			do httpRequest.SetHeader("Host","https://" _ ..HOST)			
+			set httpRequest.HTTPVersion = "1.1"
+			
+			set httpRequest.Timeout=30
+			set httpRequest.Port=port
+			set httpRequest.Server=..HOST
+			
+			do httpRequest.SetHeader("Content-Type","multipart/related; type=""application/xop+xml""; start-info=""application/soap+xml""; start=""<http://tempuri.org/0>""; boundary=""uuid:"_ ..Boundary _ """")
+			//do httpRequest.SetHeader("type","""application/xop+xml""")
+			//do httpRequest.SetHeader("start-info","""application/soap+xml""")
+			//do httpRequest.SetHeader("start","""<http://tempuri.org/0>""")
+			//do httpRequest.SetHeader("boundary","""uuid:"_boundary_"""")
+			do httpRequest.SetHeader("Expect","100-continue")
+			do httpRequest.SetHeader("Accept", "*/*")
+			do httpRequest.SetHeader("Accept-Encoding","gzip, deflate")
+			do httpRequest.SetHeader("Connection","Keep-Alive")
+			do httpRequest.SetHeader("MIME-Version", "1.0")
+			set httpRequest.SSLConfiguration = "AllScripts"
+			set httpRequest.Https = 1
+			
+			
+		    
+			set stat = httpRequest.Post(..SERVICENAME)
+			$$$TRACE( "Called WS: " _ ..SERVICENAME _ " on " _..HOST _ ", Status: " _ stat)
+			if ((stat = 1) && (httpRequest.HttpResponse.StatusCode = 200))
+        	{
+			
+				$$$TRACE( "RESPONSE: " _ httpRequest.HttpResponse.StatusCode _ ", " _ httpRequest.HttpResponse.StatusLine)
+				set pResponse.StringValue = httpRequest.HttpResponse.StatusCode _ ", " _ httpRequest.HttpResponse.StatusLine
+				set stream = httpRequest.HttpResponse.Data
+				While 'stream.AtEnd 
+				{ 
+					set outStr = stream.ReadLine(,.sc,.eol)
+					$$$TRACE( outStr )
+					set pResponse.StringValue = pResponse.StringValue _ outStr _";"
+					If $$$ISERR(sc) 
+					{ 
+						$$$TRACE( "ERROR") Quit 
+					} 
+					 
+				}
+			}
+        	else
+        	{
+		        if (httpRequest.HttpResponse.StatusLine [ "SSL_ERROR_SYSCALL")
+	        	{
+		        		
+		        		Set stat = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName, "Retry the message: Error: SSL_ERROR_SYSCALL "_ httpRequest.HttpResponse.StatusCode _ ", " _ httpRequest.HttpResponse.StatusLine)	
+
+	        	}
+	        	else
+	        	{
+		              	set stat = $$$ERROR($$$GeneralError, "Invalid Response from Http call: " _ httpRequest.HttpResponse.StatusCode _ ", " _ httpRequest.HttpResponse.StatusLine)
+	        	}
+        	}
+		}
+		CATCH err {		
+		    $$$LOGERROR( "Error while Executing: "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)
+		    set tSC = $$$ERROR( "Exception "  _ err.AsSystemError() _ " _ data: " _ err.Data _ "; code:" _ err.Code)	    
+		}	
+		
+    }
+    else
+    {
+	    set stat = $$$ERROR($$$GeneralError, ..CreateFileScript _ " could not find MTOM Data file: " _ pRequest.InXDRTouchWorksPnRFileNm _", error: " _ stat)
+    }
+    
+ QUIT stat
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.DataStructure.CurlRequest"> 
+		<Method>SendData</Method>
+	</MapItem>
+
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
