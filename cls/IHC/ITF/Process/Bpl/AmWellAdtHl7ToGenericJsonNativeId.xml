@@ -1,0 +1,700 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId">
+<Description>
+Business process to translate AmWell ADT to Initiate and Cerner, calls JSON services.</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66131,70061.657263</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Ping Service Operation to get the Access Token</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="PatientServiceTargetConfigName">
+<Description>
+Patient Service Operation to add/update demographics into Initiate, Check mrn</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Initiate-Demogr-Json-Wsrc-NATIVEID"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="TwilioServiceTargetConfigName">
+<Description>
+Twilio Service Target Config Name</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Twilio-Json-Wsrc"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="A28MessageTargetConfigName">
+<Description>
+A28 message Target</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,TwilioServiceTargetConfigName:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='7500' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='AmWellMrn' type='%String' instantiate='0' />
+<property name='gender' type='%String' initialexpression='""' instantiate='0' />
+<property name='guarSex' type='%String' initialexpression='""' instantiate='0' />
+<property name='insSubsSex' type='%String' initialexpression='""' instantiate='0' />
+<property name='ihcEmpiNum' type='%String' instantiate='0' />
+<property name='MsgType' type='%String' instantiate='0' />
+<property name='PatientEmpi' type='%String' instantiate='0' />
+<property name='existsInRecordNotInInitiate' type='%String' initialexpression='"0"' instantiate='0' />
+<property name='GuarantorAmWellMrn' type='%String' instantiate='0' />
+<property name='GuarantorEmpi' type='%String' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='twPhType' type='%String' instantiate='0' />
+<property name='InsSubscriberAmWellMrn' type='%String' instantiate='0' />
+<property name='InsSubscriberEmpi' type='%String' instantiate='0' />
+<property name='isNewInsSubscriberMrn' type='%String' initialexpression='"N"' instantiate='0' />
+<property name='isNewGuarantorMrn' type='%String' initialexpression='"N"' instantiate='0' />
+<property name='isIhcMrnExists' type='%String' initialexpression='"N"' instantiate='0' />
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='restPatientServiceHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='isMrnExistsinInitiate' type='%String' instantiate='0' />
+<property name='pingDirSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='updatedResponse' type='%String' instantiate='0' />
+<property name='A28TargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='twilioServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='7250' >
+<scope xpos='200' ypos='250' xend='200' yend='7150' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr) 
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ) {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No TargetConfigNames  found in the Settings.")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+ $$$TRACE("TargetConfigNames: " _context.targetList)    
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='6900' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<if name='Check if A28 Message' condition='request.GetValueAt("MSH:9.2") = "A28"' xpos='470' ypos='1000' xend='470' yend='1450' >
+<true>
+<trace name='Trace' value='"Its a A28 message. Sending a copy of the message for Audit"' xpos='605' ypos='1150' />
+<code name='initializeA28MessageTarget' xpos='605' ypos='1250' >
+<![CDATA[ set context.A28TargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","A28MessageTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("A28MessageTargetConfigName : " _ context.A28TargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"No A28MessageTargetConfigName found in the Ensemble settings")  
+ } ]]]]><![CDATA[>
+</code>
+<call name='Send A28 Message' target='@context.A28TargetConfigName' async='1' xpos='605' ypos='1350' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="request" action="set" />
+</request>
+</call>
+</true>
+</if>
+<code name='ValidatePatientAddress' xpos='470' ypos='1550' >
+<annotation><![CDATA[ValidatePatientAddress]]]]><![CDATA[></annotation>
+<![CDATA[
+        set address=request.GetValueAt("PID:PatientAddress(1).streetaddressSAD.streetormailingaddress")
+        if ($L(address)>0){
+	        $$$TRACE("Patient Address Exists..")
+	        set zipCode=request.GetValueAt("PID:11(1).5")
+	        if ($L(zipCode)>0){
+		        $$$TRACE("Patient Address PostalCode Exists..")
+		    }else{
+			    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Patient Address postal code doesn't exists :["_context.ihcEmpiNum_"] is empty or not valid, Skipping the record." )
+			}
+	    }else{
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Patient Address doesn't exists :["_context.ihcEmpiNum_"] is empty or not valid, Skipping the record." )
+		}
+  ]]]]><![CDATA[>
+</code>
+<code name='CheckForLookupTables' xpos='470' ypos='1650' >
+<annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
+<![CDATA[
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping not exists")  
+  } 
+  ]]]]><![CDATA[>
+</code>
+<code name='loadLookupTables' xpos='470' ypos='1750' >
+<annotation><![CDATA[Gender Mapping for patient]]]]><![CDATA[></annotation>
+<![CDATA[
+ set context.gender=request.GetValueAt("PID:AdministrativeSex")
+ $$$TRACE("Value of Gender from AmWell message:"_context.gender)
+ if ($L(context.gender)>0){ 	
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping",context.gender,.retVal) 
+ 	$$$TRACE("Value of Gender from Lookup table:"_retVal)
+ 	if ($$$ISOK(pstatus)){    
+    	if (retVal '=""){
+    		set context.gender=retVal
+    	}else{
+	    	$$$TRACE("Value of Gender from AmWell message:"_context.gender_" is not defined in the lookup table.")
+	    	set context.gender=""
+	}
+ 	} else{
+		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, Unable to get the mapping value of gender from the lookup table.")
+ 	} 
+ }
+ 
+ set context.guarSex=request.GetValueAt("GT1(1):9")
+ $$$TRACE("Value of Gender from AmWell message(Guarantor):"_context.guarSex)
+ if ($L(context.guarSex)>0){ 	
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping",context.guarSex,.retVal) 
+ 	$$$TRACE("Value of Gender from Lookup table:"_retVal)
+ 	if ($$$ISOK(pstatus)){    
+    	if (retVal '=""){
+    		set context.guarSex=retVal
+    	}else{
+	    	$$$TRACE("Value of Gender from AmWell message:"_context.guarSex_" is not defined in the lookup table.")
+	    	set context.guarSex=""
+		}
+ 	} else{
+		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, Unable to get the mapping value of gender from the lookup table.")
+	} 
+ }
+ 
+ set context.insSubsSex=request.GetValueAt("IN1(1):43")
+ $$$TRACE("Value of Gender(Insurance Subscriber from AmWell message:"_context.insSubsSex)
+ if ($L(context.insSubsSex)>0){ 	
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson.GenderMapping",context.insSubsSex,.retVal) 
+ 	$$$TRACE("Value of Gender from Lookup table:"_retVal)
+ 	if ($$$ISOK(pstatus)){    
+    	if (retVal '=""){
+    		set context.insSubsSex=retVal
+    	}else{
+	    	$$$TRACE("Value of Gender from AmWell message:"_context.insSubsSex_" is not defined in the lookup table.")
+	    	set context.insSubsSex=""
+		}
+ 	} else{
+		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, Unable to get the mapping value of gender from the lookup table.")
+ 	} 
+ }
+ 
+  ]]]]><![CDATA[>
+</code>
+<code name='initializeAccessTokenTarget' xpos='470' ypos='1850' >
+<![CDATA[ 
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+<code name='initializeTwilioServiceTarget' xpos='470' ypos='1950' >
+<![CDATA[ 
+ set context.twilioServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TwilioServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" TwilioServiceTargetConfigName: " _ context.twilioServiceTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No TwilioServiceTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+<code name='getMessageType' xpos='470' ypos='2050' >
+<![CDATA[  
+    Set context.MsgType = request.GetValueAt("MSH:9.2")     
+ ]]]]><![CDATA[>
+</code>
+<code name='getIhcEmpiNum' xpos='470' ypos='2150' >
+<![CDATA[  
+     Set context.ihcEmpiNum = request.GetValueAt("PID:2.1") 
+     if ($L(context.ihcEmpiNum) > 0){ 
+      Set context.isIhcMrnExists = "Y"
+      if ($ISVALIDNUM(context.ihcEmpiNum)'="1"){	  
+	  	$$$TRACE("IHC Mrn# is NOT a VALID number or empty. ")
+	  	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "IHC MRN# from AmericanWell/Connect care :["_context.ihcEmpiNum_"] is empty or not valid, Skipping the record." )
+ 	  }
+     }
+ ]]]]><![CDATA[>
+</code>
+<code name='getAmWellMrnNumbers' xpos='470' ypos='2250' >
+<![CDATA[  
+     Set context.AmWellMrn=request.GetValueAt("PID:PatientIdentifierList(1).ID")  
+        
+     Set context.GuarantorAmWellMrn=request.GetValueAt("GT1(1):GuarantorNumber(1).ID")
+     Set context.InsSubscriberAmWellMrn=request.GetValueAt("IN1(1):InsuredsIDNumber(1).ID")
+     if (context.GuarantorAmWellMrn=context.AmWellMrn){
+	     Set context.isNewGuarantorMrn="Y"
+	 }
+	 if (context.InsSubscriberAmWellMrn=context.AmWellMrn){
+		 Set context.isNewInsSubscriberMrn="Y"
+	 }
+	 if (context.InsSubscriberAmWellMrn=context.GuarantorAmWellMrn){
+		 Set context.isNewInsSubscriberMrn="Y"
+	 }
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateAmWellMrn#' xpos='470' ypos='2350' >
+<![CDATA[  
+ if ($ISVALIDNUM(context.AmWellMrn)'="1"){	  
+	  $$$TRACE("AmWell Mrn# is NOT a VALID number or empty. ")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MRN# from AmericanWell/Connect care :["_context.AmWellMrn_"] is empty or not valid, Skipping the record." )
+ } 
+ ]]]]><![CDATA[>
+</code>
+<code name='CallTwilioService' xpos='470' ypos='2450' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation Twilio Service: " _ context.twilioServiceTargetConfigName) 
+    set httpTwilioServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.TwilioRequest).%New()     
+    set phNumber = request.GetValueAt("PID:PhoneNumberHome(1).phonenumber1")
+    if ($L(phNumber)>0){
+    	set httpTwilioServiceRequestObj.phoneNumber = phNumber
+    	set httpTwilioServiceRequestObj.operationType = "carrier"
+          
+   		set status =  process.SendRequestSync(context.twilioServiceTargetConfigName,httpTwilioServiceRequestObj,.twilioServiceResponse)
+   		if ($$$ISOK(status)){
+      		$$$TRACE("Twilio Operation status - OK")
+      		set context.twPhType =twilioServiceResponse.StringValue      		
+      		$$$TRACE("Twilio Phone Type:["_context.twPhType_"]")      		                
+    	}else{
+     	    $$$TRACE("Calling Twilio operation failed!!!")
+	    	set errorMsg = $SYSTEM.Status.GetOneErrorText(status)   
+	    	$$$TRACE(" ErrorMsg: "_errorMsg)
+       		if (errorMsg ["ERROR#404"){
+	    		$$$TRACE(" ERROR#404.... ")
+	       		set context.twPhType = "ALTPHONE"	       		
+	       		Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell to iCentra: Invalid Phone number ", errorMsg_" "_" Setting Phone type as ALTPHONE..", process.%ConfigName) 					       		
+		    	set status = process.SendAlert(emailAlertRequest)					    	
+       		}else{
+       			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Twilio Service failed!!!") 
+       		}
+    	}
+    	 	
+   }else{
+	    $$$TRACE("Phone number is empty from AmWell. Not calling the Twilio service.")
+	}
+   ]]]]><![CDATA[>
+</code>
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2550' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+<if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='2650' xend='470' yend='3550' >
+<true>
+<code name='CallPatientServiceCheckMrn' xpos='740' ypos='2800' >
+<![CDATA[ 
+     $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
+     $$$TRACE(" Target Operation to Patient service " _ process.PatientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = context.accessToken
+     set httpPingServiceRequestObj.operationType = "CHKMRN"   
+     set httpPingServiceRequestObj.identifier = context.ihcEmpiNum  
+     $$$TRACE(" Calling Patient Service - CheckMrn ")
+     set status = process.SendRequestSync(process.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService-CheckMrn Operation OK status.")      
+      set context.restPatientServiceHttpResponse=patientServiceResponse  
+      set context.isMrnExistsinInitiate = context.restPatientServiceHttpResponse.Attributes.GetAt("MRNEXISTS")
+      $$$TRACE("### isMrnExistsInInitiate: "_context.isMrnExistsinInitiate_" ####")      
+    }else {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-CheckMrn") 
+    }    
+   ]]]]><![CDATA[>
+</code>
+<if name='isIhcMrnFromAmWellExistsInInitiate' condition='(context.isMrnExistsinInitiate = "Y")' xpos='740' ypos='2900' xend='740' yend='3450' >
+<true>
+<trace name='IhcMrnFromAmWellExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,also in Initiate. Calling patient servvice update service"' xpos='740' ypos='3050' >
+<annotation><![CDATA[Ihc Mrn exists in AmWell message,also in Initiate. Calling patient service update service]]]]><![CDATA[></annotation>
+</trace>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='740' ypos='3150' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='740' ypos='3250' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)             
+    
+    $$$TRACE("Calling Update Patient service") 
+    $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
+    set operType = "UPDATE"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,context.ihcEmpiNum,jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.PatientEmpi = mrnRet
+    }else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='IhcMrnFromAmWellNotExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,but not in Initiate"' xpos='1010' ypos='3050' >
+<annotation><![CDATA[Ihc Mrn exists in AmWell message,but not in Initiate]]]]><![CDATA[></annotation>
+</trace>
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='3150' >
+<![CDATA[  
+   set context.existsInRecordNotInInitiate = "1"
+ ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='1010' ypos='3250' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='3350' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+  	
+    $$$TRACE(" IHC mrn# exists in AmWell Message, but not in Initiate ")     
+    set operType = "ADD"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.PatientEmpi = mrnRet
+    }else{
+	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    if (statusTxt["POSTSTATUS:0"){
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,statusTxt)  
+		}else{
+	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
+		}   	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</true>
+<false>
+<trace name='NoIhcMrnExistsinAmWell' value=' " No IHC Mrn exists in AmWell message: "_context.isIhcMrnExists' xpos='470' ypos='2800' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='470' ypos='2900' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='470' ypos='3000' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+  	
+    $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
+    set operType = "ADD"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.PatientEmpi = mrnRet
+    }else{
+	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    if (statusTxt["POSTSTATUS:0"){
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,statusTxt)  
+		}else{
+	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
+		}   	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='SetPatientEmpi' xpos='470' ypos='3650' >
+<![CDATA[  
+   if ($L(context.PatientEmpi) > 0){	      	    
+   		set context.updatedResponse = request.%ConstructClone(1)   		   		
+   		Do context.updatedResponse.SetValueAt(context.PatientEmpi, "ZID:PatientEmpiNumber")    		
+   		$$$TRACE(" Updated Response with Patient# in ZID (RawContent: " _ context.updatedResponse.RawContent)   		   		   		
+   	} 
+]]]]><![CDATA[>
+</code>
+<if name='A28MsgType' condition='(context.MsgType = "A28")' xpos='470' ypos='3750' xend='470' yend='6250' >
+<false>
+<if name='hasPatientEmpiNumberForAmWellMrn' condition='($length(context.PatientEmpi) &gt; 0)' xpos='605' ypos='3900' xend='605' yend='6150' >
+<true>
+<trace name='TraceHasPatientEmpiNumberForAmWellMrn' value=' "hasPatientEmpiNumberForAmWellMrn: ["_context.PatientEmpi_"]"' xpos='740' ypos='4050' />
+<if name='hasGuarantorAmWellMrn' condition='($length(context.GuarantorAmWellMrn) &gt; 0)' xpos='740' ypos='4150' xend='740' yend='5050' >
+<true>
+<if name='isGuarantorSameAsPatient' condition='(context.GuarantorAmWellMrn=context.AmWellMrn)' xpos='1010' ypos='4300' xend='1010' yend='4850' >
+<true>
+<trace name='GuarantorSameAsPatient' value=' "Guarantor AmWell MRN matches to Patient MRN: ["_context.GuarantorAmWellMrn_"]"' xpos='1010' ypos='4450' />
+<assign property="context.GuarantorEmpi" value="context.PatientEmpi" action="set" xpos='1010' ypos='4550' />
+</true>
+<false>
+<trace name='GuarantorNotSameAsPatient' value=' "Guarantor AmWell MRN not matches to Patient MRN. "' xpos='1280' ypos='4450' />
+<trace name='PatientMRN' value=' "Guarantor AmWell MRN: ["_context.GuarantorAmWellMrn_"]. Patient MRN: ["_context.AmWellMrn_"]"' xpos='1280' ypos='4550' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeIdGuarantor' source='request' target='response' xpos='1280' ypos='4650' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml for Guarantor]]]]><![CDATA[></annotation>
+</transform>
+<code name='PatientServiceAddForGuarantors' xpos='1280' ypos='4750' >
+<![CDATA[  
+    $$$TRACE("Call XML to JSON Operation for Add Patient service for Guarantors")    
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+    
+    $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
+    set operType = "ADD"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process, .mrnRet)        
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.GuarantorEmpi = mrnRet
+    }else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
+    }
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='SetGuarantorNumber' xpos='1010' ypos='4950' >
+<![CDATA[  
+         $$$TRACE(" Guarantor empi# set: [" _ context.GuarantorEmpi+"]")	    			
+         if ($L(context.GuarantorEmpi)>0){   	
+   			Do context.updatedResponse.SetValueAt(context.GuarantorEmpi, "ZID:GuarantorEmpiNumber")    	
+   		  }else{
+	   //Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError($CLASSNAME(),"Unable to get the EMPI# from Initiate. Check the Input Data.")
+	     	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Unable to get the EMPI# from Initiate for Guarantor. Check the Input Data.")
+   		}
+     ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='NoGuarantorAmWellMrn' value=' "No AmWell Mrn for the Guarantor present in the message "_request.RawContent' xpos='740' ypos='4300' />
+</false>
+</if>
+<if name='hasInsSubscriberAmWellMrn' condition='($length(context.InsSubscriberAmWellMrn) &gt; 0)' xpos='740' ypos='5150' xend='740' yend='6050' >
+<true>
+<trace name='InsuranceSubscriberExists' value=' "Insurance Subscriber Exists.. "_context.InsSubscriberAmWellMrn' xpos='1010' ypos='5300' />
+<if name='isInsSubscriberSameAsPatientAndGuarantor' condition='(context.isNewInsSubscriberMrn = "Y")' xpos='1010' ypos='5400' xend='1010' yend='5850' >
+<true>
+<trace name='InsuranceSubscriberMrnExists' value='"Insurance Subscriber MRN same as Patient and Guarantor.. "' xpos='1010' ypos='5550' />
+<code name='SetSubscriberInsuranceNumber' xpos='1010' ypos='5650' >
+<![CDATA[  
+	      if (context.InsSubscriberAmWellMrn=context.AmWellMrn){
+		 Set context.InsSubscriberEmpi=context.PatientEmpi
+	 }
+	 if (context.InsSubscriberAmWellMrn=context.GuarantorAmWellMrn){
+		 Set context.InsSubscriberEmpi=context.GuarantorEmpi
+	 }
+	 ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='InsuranceSubscriberMrnNotExists' value='"Insurance Subscriber MRN does not match with Patient and Guarantor MRN.. "' xpos='1280' ypos='5550' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeIdInsSubscriber' source='request' target='response' xpos='1280' ypos='5650' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml for Insurance Subscribers]]]]><![CDATA[></annotation>
+</transform>
+<code name='PatientServiceAddForInsuranceSubscribers' xpos='1280' ypos='5750' >
+<![CDATA[  
+    $$$TRACE("Call XML to JSON Operation for Add Patient service for Insurance Subscribers")    
+    
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)               
+    
+    $$$TRACE(" No IHC mrn# exists in AmWell Message ")     
+    set operType = "ADD"        
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)        
+    if (status=$$$OK){
+	    $$$TRACE("MRN ret "_mrnRet)
+	    set context.InsSubscriberEmpi = mrnRet
+    }else{
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
+    }    
+  ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='SetInsuranceMrn' xpos='1010' ypos='5950' >
+<![CDATA[  
+	$$$TRACE(" Insurance Subs empi# set: [" _ context.InsSubscriberEmpi+"]")	    			
+         if ($L(context.InsSubscriberEmpi)>0){   	
+   	    Do context.updatedResponse.SetValueAt(context.InsSubscriberEmpi, "ZID:InsSubscriberEmpiNumber") 
+   	    $$$TRACE(" Insurance Subscriber empi# set: [" _ context.InsSubscriberEmpi+"]")	    			
+   }else{
+	   //Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError($CLASSNAME(),"Unable to get the EMPI# from Initiate. Check the Input Data.")
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     
+   }
+     ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='InsuranceSubscriberNotExists' value=' "Insurance Subscriber NOT Exists.. "' xpos='740' ypos='5300' />
+</false>
+</if>
+</true>
+</if>
+</false>
+</if>
+<if name='AddOrUpdateOperationSuccess' condition='($L(context.PatientEmpi) &gt; 0)' xpos='470' ypos='6350' xend='470' yend='6800' >
+<true>
+<code name='UpdateResponseType' xpos='605' ypos='6500' >
+<![CDATA[   
+	if (context.twPhType="CELLPHONE"){
+	      		do context.updatedResponse.SetValueAt("194", "PID:13(1).2")
+	      	}elseif(context.twPhType="HOMEPHONE"){
+		      	do context.updatedResponse.SetValueAt("193", "PID:13(1).2")		      	
+		    }else{
+			    do context.updatedResponse.SetValueAt("68023", "PID:13(1).2")		      				    
+		    }		    
+		    ]]]]><![CDATA[>
+</code>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='605' ypos='6600' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.updatedResponse" action="set" />
+</request>
+</call>
+</foreach>
+<code name='RESETERROR' xpos='605' ypos='6700' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</true>
+</if>
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' />
+<code name='Skip message' xpos='200' ypos='1000' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='7000' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DefaultData>AmWellAdtHl7ToGenericJsonNativeIdDefaultData</DefaultData>
+<Data name="AmWellAdtHl7ToGenericJsonNativeIdDefaultData">
+<Subscript>"AmWellAdtHl7ToGenericJsonNativeId"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>TwilioServiceTargetConfigName</Value>
+</Value>
+<Value name="4">
+<Value>A28MessageTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
