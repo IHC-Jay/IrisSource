@@ -23,14 +23,9 @@ This is defined in subclasses.</Description>
 <Type>%String</Type>
 </Property>
 
-<Property name="SvnUser">
+<Property name="Credential">
 <Type>%String</Type>
 <InitialExpression>"eai_chef"</InitialExpression>
-</Property>
-
-<Property name="SvnPassWd">
-<Type>%SYS.Task.Password</Type>
-<InitialExpression>"tzghty6n"</InitialExpression>
 </Property>
 
 <Property name="excludePattern">
@@ -50,13 +45,32 @@ The OnTask() method is called to execute the task</Description>
  set num =1
  set sendEmail = 0
  set tSc = $$$OK
+ set svnUser = ""
+ set svnPassWd = ""
  try {
 	  		
   		$$$LOGINFO("Start IHC.ITF.ITFCOMMON.Task.GetSettingsDiffReport")
   		Set $NAMESPACE = "ITFCOMMON"
   		
   		// set message =  message _ " Namespace: <B>" _ $NAMESPACE _"</B><br />"
-  		
+  		 set statement=##class(%SQL.Statement).%New()
+		 set stat=statement.%Prepare("Select ID,Username, Password,BusinessPartner from Ens_Config.Credentials where ID = '" _ ..Credential _"'")
+		 if $$$ISERR(stat) { 
+		  
+		 	return $$$ERROR("Could not find Credentials: " _ ..Credential)
+		 }
+		 else
+		 {
+			 set resultset=statement.%Execute()
+			 while resultset.%Next() {
+			    
+			    set svnUser = resultset.%Get("Username")
+			    set svnPassWd = resultset.%Get("Password")
+			 }
+			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($SYSTEM.Process.UserName(), "Using user to access SubVersion : " _ svnUser _ ", Process.UserName: " _ $SYSTEM.Process.UserName())
+			
+		 }
+		 
   		set env = ""
 		set sysEnv = $ZCVT($SYSTEM, "U")
 		if ( $FIND(sysEnv, "PRD") > 0)
@@ -77,7 +91,7 @@ The OnTask() method is called to execute the task</Description>
 		}
 		
 		  set newDirec = "/itf-share/itf-tmp/itfSvnFiles/ITF_EnsembleReleasePkgs/batch/" _ env _ "/"
-		  set svnDirec = "/WORK/CLIN/deploy/" _ ..SvnUser _ "/ITF_Ensemble/trunk/settings/" _ env _ "/"
+		  set svnDirec =  "/itf-share/itf-tmp/GetSettingsDiffReport/svn/" 
 		  set message =  message _  "<B>Comparing Today's export files in </B>" 
 		  set message =  message _  "   -- " _ newDirec
 		  set message =  message _  "<B> WITH files in SVN </B>"
@@ -89,8 +103,10 @@ The OnTask() method is called to execute the task</Description>
 		  
 		  set numDiff = 0
 		  // 
-		  
-		  	 	Set stat =  ..svnUpdate(svnDirec, ..SvnUser, ..SvnPassWd)
+		  		set rmCmd = "rm -rf " _ svnDirec 
+				Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(rmCmd)
+				
+		  	 	Set stat =  ..CheckSvnSetup(svnDirec, svnUser, svnPassWd)
 			
 			 	set rmCmd = "rm -rf " _ newDirec 
 				Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(rmCmd)
@@ -99,7 +115,7 @@ The OnTask() method is called to execute the task</Description>
 			 	Set stat =  ##class(IHC.ITF.ITFCOMMON.Util.createSettingsFiles).CreateSettingFiles()
 			 	// set message =  message _  ", CreateSettingFiles: " _ stat
 			 	
-			 	
+			 	set svnDirec =  svnDirec _ env _ "/"
 			 	set diffFile = 	##class(%Library.File).TempFilename()
 			 	set grpFile = 	##class(%Library.File).TempFilename()
 			 	Set tRS = ##class(%ResultSet).%New("%File:FileSet")
@@ -237,128 +253,31 @@ The OnTask() method is called to execute the task</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="svnUpdate">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>fileNm:%String,userNm:%String,passwd:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	set tSC = $$$OK
-
-	Do ..CheckSvnSetup(userNm, passwd)
-
-	Do ##class(%File).Delete(fileNm)
-
-	
-	Set cmd= $$$SVNUPDATE	
-		
-	Set cmd= cmd _ " --username " _ userNm _ " --password '" _ passwd _ "' " _  fileNm 
-
-	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-	
-	if (status '= 0)
-	{
-		set tSC = $$$ERROR($$$GeneralError, $$$SVNUPDATE _ " failed")
-	}
-	if ##class(%File).Exists(fileNm)
-	{
-		$$$TRACE("Checked out " _ fileNm)
-	}
-
- 
-  Quit tSC
-]]></Implementation>
-</Method>
-
 <Method name="CheckSvnSetup">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>userNm:%String,passwd:%String</FormalSpec>
+<FormalSpec>direc:%String,userNm:%String,passwd:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	NEW $NAMESPACE
     SET $NAMESPACE = "ITFCOMMON"
 	
-	     	 
-	 // Release files
-	 set svnBaseDir = $$$USRRELEASEBASEDIR  _ userNm
-	 set tSC = ..createSvnDirectories(svnBaseDir)
-	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK
-	 set fullPath = svnRelTrunk _ ".svn" // .svn directory should exists when checkout is successful
-	 
-	 IF ' ##class(%File).DirectoryExists(fullPath)
+		 
+	 IF ' ##class(%File).DirectoryExists(direc)
 	 {
-	   Do ##class(%File).CreateDirectory(svnRelTrunk)
-	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ userNm _ " --password '" _ passwd _ "'  " _ $$$SVNRELEASEURL _ " " _ svnRelTrunk 
+	   Do ##class(%File).CreateDirectoryChain(direc)
+	   set svnCmd = $$$SVNCHECKOUT _ " --username " _ userNm _ " --password '" _ passwd _ "'  " _ $$$SVNSETTINGURL _ " " _ direc 
 	   Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	   if (status '= 0)
 		{
-			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ userNm _ ", SVN URL:" _ $$$SVNRELEASEURL _ " to" _ svnRelTrunk)
+			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ userNm _ ", SVN URL:" _ $$$SVNSETTINGURL _ " to" _ direc)
 			Quit tSC
 		}
 	 }
-	 else
-	 {
-		set svnCmd = $$$SVNUPDATEALL _ " --username " _ userNm _ " --password '" _ passwd _ "' " _ svnRelTrunk 
-	  
-	 	Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 
-	 }
-	 
-	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "settings/"
-	 set fullPath = svnRelTrunk _ ".svn"
-     IF ' ##class(%File).DirectoryExists(fullPath)
-	 {
-
-	     Do ##class(%File).CreateDirectoryChain(fullPath)
-	     set svnCmd = $$$SVNCHECKOUT _ " --depth infinity --username " _ userNm _ " --password '" _ passwd _ "'  " _ $$$SVNSETTINGURL _ svnRelTrunk 
-	   	 Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
-	     if (status '= 0)
-		 {
-			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ userNm _ ", SVN URL:" _ $$$SVNSETTINGURL _ " to" _ svnRelTrunk)
-			Quit tSC
-		 }
-
-	 }
-	 
-	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ userNm _ " --password '" _ passwd _ "' " _ svnRelTrunk 
+	  set svnCmd = $$$SVNUPDATEALL _ " --username " _ userNm _ " --password '" _ passwd _ "' " _ direc 
 	  Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
 	 
 
-     Quit $$$OK
-]]></Implementation>
-</Method>
-
-<UDLText name="T">
-<Content><![CDATA[
-// Create base directories
-
-]]></Content>
-</UDLText>
-
-<Method name="createSvnDirectories">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>usrBaseDir:%String</FormalSpec>
-<Implementation><![CDATA[
-	 // check for the parent directory
-
-	 IF ' ##class(%File).DirectoryExists(usrBaseDir)
-	 {
-		 if $$$ISERR( ##class(%File).CreateDirectoryChain(usrBaseDir))
-		    Quit $$$ERROR(100, "User Home directory could not be created: " _usrBaseDir)
-     }
-     
-     
-     SET svnBaseDir = usrBaseDir _ $$$SVNSRCTRUNK
-	 IF ' ##class(%File).DirectoryExists(svnBaseDir)
-     {
-
-         Do ##class(%File).CreateDirectoryChain(svnBaseDir)
-         
-	 }
-	     
-     IF ' ##class(%File).DirectoryExists(svnBaseDir)
-     {
-	     Quit $$$ERROR(100, "User SVN directory could not be created: " _ svnBaseDir)
-     }
      Quit $$$OK
 ]]></Implementation>
 </Method>
