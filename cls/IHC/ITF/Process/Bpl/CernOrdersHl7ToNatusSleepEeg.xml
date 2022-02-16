@@ -2,7 +2,7 @@
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.Process.Bpl.CernOrdersHl7ToNatusSleepEeg">
 <Description>
-iCentra Sleep and EEG Orders to Natus (Natus)</Description>
+iCentra PEDS Sleep and EEG Orders to Natus (Natus). EEG is for both Adults and PEDS</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>65696,51375.23396</TimeCreated>
 
@@ -11,6 +11,12 @@ iCentra Sleep and EEG Orders to Natus (Natus)</Description>
 HDD Operation: The target name used for HDD calls</Description>
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="FilterCompletedOrderTransaction">
+<Description>
+Boolean Proptery to determine if completed orders go to Natus - if set: completed orders will be filtered out and skipped.</Description>
+<Type>%Boolean</Type>
 </Property>
 
 <Property name="NotAllowedLocations">
@@ -22,7 +28,7 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask,NotAllowedLocations:Additional,HddTargetConfigName:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,FilterCompletedOrderTransaction,NotAllowedLocations:Additional,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <Method name="hddNcidToRepWork">
@@ -30,26 +36,38 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 <FormalSpec>process:IHC.ITF.Process.Bpl.CernOrdersHl7ToNatusSleepEeg,hddTargetConfigName:%String,hddNcid:%String,hddContext:%String,hl7Detail:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-    $$$TRACE("HDD work for NCID to REP starting now")
+	$$$TRACE("HDD work for NCID to REP starting now")
+	set hddreturnrep =""
+	set hddResponse =""
+	set hddObj =""
 	set HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
 	do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(HddRepRequest, hddNcid, hddContext, hl7Detail)
 	$$$TRACE("Created HDD request object for: " _hl7Detail_ ". For NCID: "_hddNcid _" Using HddTargetConfigName: " _hddTargetConfigName_ " Using HDD Context: " _hddContext)
 	$$$TRACE("Actually sending the HDD REQUEST from local class method...")
 	set tStatus=process.SendRequestSync(hddTargetConfigName,HddRepRequest,.hddResponse)
-	if ('tStatus){
-	    set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure for this HDD request for:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
-    }else{
-		
-		$$$TRACE("Actually received HDD RESPONSE")
-		set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
-		if ((hddObj '= "") && ($LENGTH(hddObj.Rep)>0)){
+	if $$$ISERR(tStatus){
+		$$$TRACE("CALL to HDD returned an error status or failed to execute.")
+		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure for this HDD request for:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
+	}else{
+		try{
+			$$$TRACE("Actually received HDD RESPONSE - no error encountered")
+			set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
+			$$$TRACE("hddObj.rep length: ["_$LENGTH(hddObj.Rep)_"]")
+			if ((hddObj '= "") && ($LENGTH(hddObj.Rep)>0)){
 				set hddreturnrep = hddObj.Rep
 				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddObj.NCID_ ", HDD Context: " _hddContext )
 				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
-		}else{
-				//throw error
-				set status=##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,"Unexpected Error - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
-		}	
+			}else{
+				//Log error
+				$$$TRACE("Unexpected Error - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
+			}
+			
+		}Catch eException {
+			Set exceptStatus = eException.AsStatus()
+			$$$LOGSTATUS(exceptStatus)
+			$$$TRACE("There was an issue with resolving the HDD Response.  HDD NCIDtoRep lookup:["_hl7Detail_ "]. For NCID: ["_hddNcid _"] Using HDD Context: ["_hddContext_"]  Using HddTargetConfigName: ["_hddTargetConfigName_"]  Error Caught: ****"_exceptStatus)
+			
+		}
 	}
 	quit hddreturnrep
 ]]></Implementation>
@@ -66,6 +84,9 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 <Value name="2">
 <Value>NotAllowedLocations</Value>
 </Value>
+<Value name="3">
+<Value>FilterCompletedOrderTransaction</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -74,7 +95,7 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2950' width='2000' >
+<process language='objectscript' request='Ens.Request' height='3050' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
@@ -85,13 +106,12 @@ BPL Definition</Description>
 <property name='cntr' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='NotAllowedLocations' type='%Library.String' collection='list' instantiate='0' />
 <property name='isNotValidLocation' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='doAdditionalPOCUnitLookup' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='LocationID' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='HddRepRequest' type='IHC.ITF.ITFCOMMON.HDD.Interface.RepLookupRequest' instantiate='1' />
-<property name='HddRepResponse' type='IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse' instantiate='1' />
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
@@ -114,6 +134,12 @@ BPL Definition</Description>
 </property>
 <property name='PV1ThreeLocHDDContext' type='%String' initialexpression='526065969' instantiate='0' >
 <annotation><![CDATA[iCentra Context for locations]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='PV1ThreeLocUnitOnlyHDDContext' type='%String' initialexpression='526002809' instantiate='0' >
+<annotation><![CDATA[iCentra DISPLAY Context being used to lookup outpatient clinics and unknown locations]]]]><![CDATA[></annotation>
 <parameters>
 <parameter name='MAXLEN'  value='150' />
 </parameters>
@@ -279,7 +305,7 @@ BPL Definition</Description>
             {
                 $$$TRACE("MSH-4 Has Match in the Not Allowed Location List")
 		        set context.isNotValidLocation = 1
-		        QUIT:context.isNotValidLocation=1
+		        QUIT:context.isNotValidLocation
 	        }
 	         
         }
@@ -292,19 +318,28 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 <code name='CheckIfNotValidLocation' xpos='200' ypos='1150' >
-<![CDATA[ if (context.isNotValidLocation="1")
+<![CDATA[ if (context.isNotValidLocation=1)
   { 
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PHI - Location in MSH-4 is not a wanted location value to send to Natus. Not wanted value is: ["_context.LocationID_"]. Skipping the record. ****HL7 Record - Message Control ID: " _ context.MSH10 )
   }
   else
   {
-     $$$TRACE("Value of MSH-4: "_context.LocationID _ "Is allowed to send to Natus.")  
+     $$$TRACE("Value of MSH-4: ["_context.LocationID _ "] Is allowed to send to Natus.")  
   }]]]]><![CDATA[>
 </code>
 <code name='GetEmpiValidateEmpi' xpos='200' ypos='1250' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Empi(CMRN) PID-3.1...") 
- Set context.empiNumber=request.GetValueAt("PIDgrp.PID:PatientIdentifierList(1).ID")
+<![CDATA[ $$$TRACE("GET and Validate ONLY EMPI(CMRN) PID-3.1...") 
+ 
+ set k1="",tSC=1 
+ for { 
+     set k1=request.GetNextIndex("PIDgrp.PID:PatientIdentifierList()",k1,.tSCTrans)  Quit:k1=""          
+     if (request.GetValueAt("PIDgrp.PID:PatientIdentifierList("_(k1)_").assigningauthority.namespaceID")="EMPI") {
+         set context.empiNumber=request.GetValueAt("PIDgrp.PID:PatientIdentifierList("_(k1)_").ID")       
+         quit
+     }
+ }
+ kill k1, tSC
  $$$TRACE("PID-3.1 EMPI: " _ context.empiNumber) 
  if ($ISVALIDNUM(context.empiNumber)=0){	  
 	  $$$TRACE("Empi# is NOT a VALID number ")
@@ -333,29 +368,30 @@ BPL Definition</Description>
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
 	
     set context.hddncidtorepcontext = 6490387 
-    $$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+    $$$TRACE("Set values are: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context going to be used in lookup: [" _context.hddncidtorepcontext_"]")
     
     
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToNatusSleepEeg).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
         if ($LENGTH(context.hddreturnrep)>0){
-	         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
-        }else{     
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup")  
-        }  
+	         $$$TRACE("PID-8 Rep from local HDD call: "_context.hddreturnrep)
+             $$$TRACE("HDD Ncid TO Rep PID-8 Lookup was successfuly!!!") 
+             //After HDD call set context specific variable to use in setting DTL
+             set context.PID8Gender = context.hddreturnrep
+        }else{
+             //not stopping processing
+             set context.PID8Gender = "UNKNOWN"
+        }
     } Catch eException {
-	 	Set exceptStatus = eException.AsStatus()
-	 	$$$LOGSTATUS(exceptStatus)
-	 	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup:"_exceptStatus)     
+	    Set exceptStatus = eException.AsStatus()
+		$$$LOGSTATUS(exceptStatus)
+		$$$TRACE("Try-Catch Exception Error Caught: "_exceptStatus)
+		$$$TRACE("HDD values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]")
+		//not stopping processing
+ 		set context.PID8Gender = "UNKNOWN"
     }
 
-   
-
-   //After HDD call set context specific variable to use in setting DTL
-   set context.PID8Gender = context.hddreturnrep
-   
 
  }else {
     //not stopping processing
@@ -364,101 +400,136 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 <code name='PV1-3 location Work' xpos='200' ypos='1550' >
+<annotation><![CDATA[Get PV1-3 value and  Validate it - make sure it is not blank. If good set location values for doing HDD Lookup]]]]><![CDATA[></annotation>
 <![CDATA[ 
-
+ 
    //Check the PV1-3 location values for NCIDS that iCentra used for Sleep and EEG locations
  //Check Bed first
  set Ncid = request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.bed")
+ $$$TRACE("Checking BED NCID: ["_Ncid_"]")
  if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
     set context.LocationInfo = "PIDgrp.PV1grp.PV1:AssignedPatientLocation.bed - iCentra Patient Bed "
     set context.locationNcid = Ncid
-    $$$TRACE("Set values are: Ncid: " _ context.locationNcid _ ". Location: " _context.LocationInfo_ ".  HDD Context: " _context.PV1ThreeLocHDDContext)
- }else {
-    //Otherwise check room next
+    $$$TRACE("Set Bed Location values are: Ncid: [" _ context.locationNcid _ "]   PV1-3 Location: [" _context.LocationInfo_ "]    HDD Context: [" _context.PV1ThreeLocHDDContext_"]")
+ }elseif ((request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.room")'="") && $ISVALIDNUM(request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.room"))) {
+    //If not null and valid number set room next
     set Ncid = request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.room")
-    if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-       set context.LocationInfo = "PV1:PIDgrp.PV1grp.PV1:AssignedPatientLocation.room - iCentra Patient Room"
-       set context.locationNcid = Ncid
-       $$$TRACE("Set values are: Ncid: " _ context.locationNcid _ ". Location: " _context.LocationInfo_ ".  HDD Context: " _context.PV1ThreeLocHDDContext)
-    }else {
-	   //Well, now you only have the unit (pointofcare) to check next
-       set Ncid = request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare")
-       if (Ncid '= "" && $ISVALIDNUM(Ncid)) {
-          set context.LocationInfo = "PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare - iCentra Patient POC Unit"
-          set context.locationNcid = Ncid
-          $$$TRACE("Set values are: Ncid: " _ context.locationNcid _ ". Location: " _context.LocationInfo_ ".  HDDContext: " _context.PV1ThreeLocHDDContext)
-       }
-    }
+    set context.LocationInfo = "PV1:PIDgrp.PV1grp.PV1:AssignedPatientLocation.room - iCentra Patient Room"
+    set context.locationNcid = Ncid
+    $$$TRACE("Set Room Location values are: Ncid: [" _ context.locationNcid _ "]   PV1-3 Location: [" _context.LocationInfo_ "]    HDD Context: [" _context.PV1ThreeLocHDDContext_"]")
+ }elseif((request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare")'="") && $ISVALIDNUM(request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare")))  {
+    //Now you only have the unit (pointofcare) to set next
+    set Ncid = request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare")
+    set context.LocationInfo = "PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare - iCentra Patient POC Unit"
+    set context.locationNcid = Ncid
+    $$$TRACE("Set POC Unit Location values are: Ncid: [" _ context.locationNcid _ "]   PV1-3 Location: [" _context.LocationInfo_ "]    HDD Context: [" _context.PV1ThreeLocHDDContext_"]")
+ }else{
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Unable to get required location value for setting PV1-3 values. No valid NCID found in: PV1:AssignedPatientLocation.bed, PV1:AssignedPatientLocation.room, or PV1:AssignedPatientLocation.pointofcare. Found - PHI: ["_Ncid_"]  ***HL7 MSG ID: ["_context.MSH10_"]")
  }
- if (Ncid="" || '$ISVALIDNUM(Ncid)){
-     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***Unable to get required location value for setting PV1-3 values. No valid NCID found in: PV1:AssignedPatientLocation.bed, PV1:AssignedPatientLocation.room, or PV1:AssignedPatientLocation.pointofcare. Found - PHI: "_Ncid_"***")
- }
-  
-  
+ 
 ]]]]><![CDATA[>
 </code>
-<code name='SetHDDRepRequest' xpos='200' ypos='1650' >
-<annotation><![CDATA[Set HDD Represntation Request]]]]><![CDATA[></annotation>
-<![CDATA[ //Creating HDD Request Object
- set context.HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
- do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.HddRepRequest, context.locationNcid, context.PV1ThreeLocHDDContext, context.LocationInfo)
- $$$TRACE("Created HDD request object for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _context.hddTargetConfigName_ "Using HDD Context: " _context.PV1ThreeLocHDDContext)
- 
- ]]]]><![CDATA[>
-</code>
-<code name='Lookup Location in HDD' xpos='200' ypos='1750' >
-<annotation><![CDATA[Get HDD response from the call to get representation from NCID]]]]><![CDATA[></annotation>
-<![CDATA[ // Call HDD Operation
- $$$TRACE("Actually sending the HDD REQUEST")
- set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.HddRepRequest,.hddResponse)
- if ('tStatus) {
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure")
- }
- else {
-   set context.HddRepResponse = hddResponse
-   $$$TRACE("Actually received HDD RESPONSE")
- }]]]]><![CDATA[>
-</code>
-<code name='Set Location Variables' xpos='200' ypos='1850' >
-<annotation><![CDATA[Set Location Variables and do filtering]]]]><![CDATA[></annotation>
-<![CDATA[ set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.HddRepResponse, context.LocationInfo)
- if (hddObj '= ""){
-    set patLoc = hddObj.Rep
-    $$$TRACE("Created HDD Request and got response back for " _context.LocationInfo_ " NCID: " _hddObj.NCID_ ", HDD Context: " _context.PV1ThreeLocHDDContext)
+<code name='PV1-3 Location HDD Work' xpos='200' ypos='1650' >
+<annotation><![CDATA[Do HDD Lookups and work return response]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set context.Ncid = context.locationNcid
+ set context.HL7SpecValue= context.LocationInfo
+ set context.hddncidtorepcontext = context.PV1ThreeLocHDDContext
+ $$$TRACE("PV1-3 location lookup values being used are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+
+
+ Try {
+	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToNatusSleepEeg).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+	// work return value - HDD call did not error out 
+	if ($LENGTH(context.hddreturnrep)>0){
+		$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
+		//After HDD call set context specific variable to use in setting DTL for PV1-3 location values
+		set patLoc = context.hddreturnrep
+		$$$TRACE("Created HDD Request and got response back for " _context.LocationInfo_ " NCID: " _context.Ncid_ ", HDD Context: " _context.PV1ThreeLocHDDContext)
+		$$$TRACE("Patient FIN-Encounter Location Representation received from HDD: [" _patLoc_"]")
+		
+		set patLocList = $LISTFROMSTRING(patLoc, "|")
+		set patLocListLength = $LISTLENGTH(patLocList)
+		$$$TRACE("Pat Location Cerner Rep List count: "_patLocListLength)
+
+		if (patLocListLength > 4){
+			$$$TRACE("Setting Bed, Room, and Unit")
+			set context.pointOfCareUnit = $LIST(patLocList,3) 
+			set context.room = $LIST(patLocList,4)  
+			set context.bed =   $LIST(patLocList,5)
+		}elseIF (patLocListLength = 4){
+			$$$TRACE("Setting Room and Unit")	   
+			set context.pointOfCareUnit = $LIST(patLocList,3) 
+			set context.room = $LIST(patLocList,4)   
+			set context.bed =  ""
+		}elseIF  (patLocListLength = 3){
+			$$$TRACE("Setting Unit")	   
+			set context.pointOfCareUnit = $LIST(patLocList,3) 
+			set context.room = ""   
+			set context.bed =  ""
+		}elseIF (patLocListLength < 3){
+			$$$TRACE("PV1-3 NCID does not have enough return representation to fill out PV1-3 location values. Going to try another HDD Context.")
+			set context.doAdditionalPOCUnitLookup = 1
+		}
+	}else{ 
+	    $$$TRACE("A PV1-3 numeric value was tried as an NCID yet no representation was returned from HDD. Going to try another HDD Context.")    
+		set context.doAdditionalPOCUnitLookup = 1
+	}
+ } Catch eException {
+	Set exceptStatus = eException.AsStatus()
+	$$$LOGSTATUS(exceptStatus)
+	$$$TRACE("Try-Catch Exception Error Caught: "_exceptStatus)
+	set errHL7HDDdetail = "HDD PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"
+	$$$TRACE(errHL7HDDdetail)
+	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup. HDD DETAILs: ***"_errHL7HDDdetail_" ****Exception Error Caught: "_exceptStatus)     
+	
  }
 
- $$$TRACE("Patient FIN-Encounter Location Representation received from HDD: " _patLoc)
- set patLocList = $LISTFROMSTRING(patLoc, "|")
- set patLocListLength = $LISTLENGTH(patLocList)
- $$$TRACE("Pat Location Cerner Rep List count: "_patLocListLength)
- 
- if (patLocListLength > 4){
-    $$$TRACE("Setting Bed, Room, and Unit")
-    set context.pointOfCareUnit = $LIST(patLocList,3) 
-    set context.room = $LIST(patLocList,4)  
-    set context.bed =   $LIST(patLocList,5)
-    
-	
- }elseIF (patLocListLength = 4){
-    $$$TRACE("Setting Room and Unit")	   
-    set context.pointOfCareUnit = $LIST(patLocList,3) 
-    set context.room = $LIST(patLocList,4)   
-    set context.bed =  ""
-    
-	
- }elseIF  (patLocListLength = 3){
-    $$$TRACE("Setting Unit")	   
-    set context.pointOfCareUnit = $LIST(patLocList,3) 
-    set context.room = ""   
-    set context.bed =  ""
-    
-	
- }elseIF (patLocListLength < 3){
-   $$$TRACE("Patient Location is not sufficient to set for SleepEEG Orders. Erroring Out!")
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "****HDD ERRROR****Unexpected response back from HDD. Unable to get required iCentra Location representation for setting PV1-3 values for unit, room, and bed. HDD rep returned was - PHI: "_patLoc_"HDD request created for " _context.LocationInfo_ ". For Location NCID: "_context.locationNcid _" Using HddTargetConfigName: " _context.hddTargetConfigName _ "Using HDD Context: " _context.PV1ThreeLocHDDContext_ "***")
- }]]]]><![CDATA[>
+]]]]><![CDATA[>
 </code>
-<foreach name='WorkORCgroup' property='request.{ORCgrp(context.OrcIndex).orc()}' key='context.OrcIndex' xpos='200' ypos='1950' xend='200' yend='650' >
+<code name='PV1-3 UNITPOCUnitOrclinicLocation HDD Work' xpos='200' ypos='1750' >
+<annotation><![CDATA[Do UNITPOCUnitOrclinic HDD Lookups and work return response]]]]><![CDATA[></annotation>
+<![CDATA[  
+ if (context.doAdditionalPOCUnitLookup = 1){ 
+ //starting over to resolve location value - must only have a unit or clinic NCID at this point
+ set context.Ncid = request.GetValueAt("PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare")
+ set context.HL7SpecValue= "PIDgrp.PV1grp.PV1:AssignedPatientLocation.pointofcare - iCentra Patient POC Unit"
+ set context.hddncidtorepcontext = context.PV1ThreeLocUnitOnlyHDDContext // iCentra DISPLAY Context being used to lookup outpatient clinics and unknown locations
+ $$$TRACE("Unit or clinic location lookup values being used are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
+ Try {
+	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToNatusSleepEeg).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+	// work return value - HDD call did not error out 
+	if ($LENGTH(context.hddreturnrep)>0){
+		$$$TRACE("HDD Ncid TO Rep Lookup for POC Unit-Clinic was successfuly!!!")
+		$$$TRACE("Created HDD Request and got response back for " _context.LocationInfo_ " NCID: " _context.Ncid_ ", HDD Context: " _context.PV1ThreeLocHDDContext)
+		$$$TRACE("Patient FIN-Encounter Location Representation received from HDD: [" _context.hddreturnrep_"]")
+		//After HDD call set context specific variable to use in setting DTL for PV1-3 location values
+		set context.pointOfCareUnit = context.hddreturnrep
+		set context.room = ""   
+		set context.bed =  ""
+	}else{     
+		set errHL7HDDdetail = "Got an HDD Return without a Rep. ***Error no response HDD PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"
+		$$$TRACE(errHL7HDDdetail)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup. HDD DETAILs: ***"_errHL7HDDdetail)     
+	}
+ } Catch eException {
+	Set exceptStatus = eException.AsStatus()
+	$$$LOGSTATUS(exceptStatus)
+	$$$TRACE("Try-Catch Exception Error Caught: "_exceptStatus)
+	set errHL7HDDdetail = "HDD PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"
+	$$$TRACE(errHL7HDDdetail)
+	set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing HDD Ncid TO Rep lookup. HDD DETAILs: ***"_errHL7HDDdetail_" ****Exception Error Caught: "_exceptStatus)     
+	
+ }
+}else{
+	$$$TRACE("Finished working HDD for Location Values for PV1-3")
+
+} 
+
+]]]]><![CDATA[>
+</code>
+<foreach name='WorkORCgroup' property='request.{ORCgrp(context.OrcIndex).orc()}' key='context.OrcIndex' xpos='200' ypos='1850' xend='200' yend='650' >
 <annotation><![CDATA[HDD work for ORC group]]]]><![CDATA[></annotation>
 <trace name='WorkingORC' value='"In ORC group"' xpos='200' ypos='250' />
 <code name='ORCOrderControlID' xpos='200' ypos='350' >
@@ -485,10 +556,9 @@ BPL Definition</Description>
 
    //After HDD call set context specific variable to use in setting DTL
    do context.Orc1ControlIDArr.SetAt(context.hddreturnrep,context.OrcIndex)
-   //Do any specific data manipulation of returned value
-
-
-
+ 
+ 
+ 
  }else {
     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***No NCID found - unable to get required data for doing the HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***MessageControlID: "_context.MSH10)
    
@@ -496,14 +566,21 @@ BPL Definition</Description>
 </code>
 <code name='ORCOrderStatus' xpos='200' ypos='450' >
 <annotation><![CDATA[Lookup ORC-5 OrderStatus in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
-<![CDATA[ 
+<![CDATA[
+ //Get ORC-5 Boolean check value for completed order status - if set, then skipping record
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterCompletedOrderTransaction",.filterTransFlag)  
+ $$$TRACE("FilterCompletedOrderTransaction is:"_filterTransFlag)
+ 
  set context.Ncid = request.GetValueAt("ORCgrp("_context.OrcIndex_").ORC:OrderStatus")
  set context.HL7SpecValue= "ORC:OrderStatus"
  $$$TRACE("Working: ["_context.HL7SpecValue_"] NCID found is: ["_context.Ncid_"] Checking it against Order Status - complete: ["_context.OrcStatusCompleteNcid_"]")
- if (context.OrcStatusCompleteNcid = context.Ncid){
-	do context.Orc1ControlIDArr.SetAt("DC",context.OrcIndex)
-	$$$TRACE("Status is a complete status, setting ORC-1 to DC")
+ if (context.OrcStatusCompleteNcid = context.Ncid && filterTransFlag ){
+	 //Skipping Completed Order Status Orders and not sending to Natus
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PHI - ORC-5 Completed Status Order HL7 records do not go to Natus. Skipping the record. ****HL7 Record - Message Control ID: " _ context.MSH10 )
+	
+	
  }elseif (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
+	    $$$TRACE("ORDER STATUS is not a completed ORDER.")
 		set context.hddncidtorepcontext = 526038482
 		$$$TRACE("Set values are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
 		
@@ -536,13 +613,13 @@ BPL Definition</Description>
 </code>
 <trace name='DoneWorkingOrc' value='"Done Working ORC "' xpos='200' ypos='550' />
 </foreach>
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToNatusSleepEeg' source='request' target='response' xpos='200' ypos='2050' />
-<trace name='Back From DTL Log Response' value='"Back From DTL - Response Message: " _response' xpos='200' ypos='2150' />
-<code name='GetDestinationOperations' xpos='200' ypos='2250' >
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToNatusSleepEeg' source='request' target='response' xpos='200' ypos='1950' />
+<trace name='Back From DTL Log Response' value='"Back From DTL - Response Message: " _response' xpos='200' ypos='2050' />
+<code name='GetDestinationOperations' xpos='200' ypos='2150' >
 <![CDATA[ set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2350' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.targetList' key='context.cntr' xpos='200' ypos='2250' xend='200' yend='450' >
 <call name='SendToEachTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -550,6 +627,10 @@ BPL Definition</Description>
 </call>
 <trace name='TraceOut' value='"Message Sent"' xpos='200' ypos='350' />
 </foreach>
+<code name='Reset Error' xpos='200' ypos='2350' >
+<annotation><![CDATA[Reset Error Counter]]]]><![CDATA[></annotation>
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
 <faulthandlers>
 <catchall xpos='200' ypos='2450' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
