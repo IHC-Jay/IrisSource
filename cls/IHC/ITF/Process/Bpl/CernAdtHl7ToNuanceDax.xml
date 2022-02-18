@@ -2,7 +2,7 @@
 <Export generator="Cache" version="25">
 <Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToNuanceDax">
 <Description>
-BPL for iCentra SIU to Nuance DAX</Description>
+BPL for iCentra ADT to Nuance DAX</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>66106,75672.060509</TimeCreated>
 
@@ -75,6 +75,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='IsMergeMsg' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
 <sequence xend='200' yend='2150' >
 <scope xpos='200' ypos='250' xend='200' yend='2050' >
@@ -115,7 +116,15 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
-<code name='CheckForLookupTables' xpos='200' ypos='750' >
+<code name='ValidateMessage' xpos='200' ypos='750' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+<code name='CheckForLookupTables' xpos='200' ypos='850' >
 <annotation><![CDATA[CheckLookupTables]]]]><![CDATA[></annotation>
 <![CDATA[  
  
@@ -127,40 +136,43 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<code name='Validate event type' xpos='200' ypos='850' >
+<code name='Validate event type' xpos='200' ypos='950' >
 <annotation><![CDATA[Allow only specific event types]]]]><![CDATA[></annotation>
 <![CDATA[  Set context.msgType =request.GetValueAt("MSH:9.2")
   $$$TRACE("Trigger Event: " _ context.msgType) 
   set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToNuanceDax.Lookup.NuanceDaxAllowedEventTypes", context.msgType, .retVal )
+  
 
   if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
     $$$TRACE("Message type is not in the lookup table. Skip the message...")
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.msgType, "Not NuanceDax allowed Event Type: ["_ context.msgType_"] in MSH-9.2. Skipping the record." )
-  }   
+  }  
+  
+  if ((context.msgType = "A34")||(context.msgType = "A44"))
+  {
+   $$$TRACE("Merge Message type, setting context.IsMergeMsg as 1 "_context.msgType)
+   Set context.IsMergeMsg = 1
+  } 
   ]]]]><![CDATA[>
 </code>
-<code name='Validate clinic patient' xpos='200' ypos='950' >
-<annotation><![CDATA[Allow only clinic patients]]]]><![CDATA[></annotation>
+<code name='Validate clinic patient' xpos='200' ypos='1050' >
+<annotation><![CDATA[Allow only clinic patients for non merge messages]]]]><![CDATA[></annotation>
 <![CDATA[  
 
   Set context.clinicFlag =request.GetValueAt("ZZ2:ZZ29ClinicsFlag")
   $$$TRACE("ZZ2:ZZ29ClinicsFlag : " _ context.clinicFlag ) 
+  If context.clinicFlag =""
+  {
+   Set context.clinicFlag = "N"
+  }
 
-  if (context.clinicFlag="N") {       
+  if ((context.clinicFlag="N")&&(context.IsMergeMsg=0)) {       
     $$$TRACE("Message is not from clinic. Skip the message...")
-     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.msgType, "Message is not from clinic: ["_ context.clinicFlag_"] in ZZ2:ZZ29ClinicsFlag. Skipping the record." )
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.msgType, "Message is not from clinic and also not a merge message: ["_ context.clinicFlag_"]  ZZ2:ZZ29ClinicsFlag is N or empty. So Skipping the record." )
   }   
   ]]]]><![CDATA[>
 </code>
-<code name='ValidateMessage' xpos='200' ypos='1050' >
-<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
-<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
- set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
- if (tempStatus'=$$$OK){
-    set context.ValidationPassed=0    
-    }]]]]><![CDATA[>
-</code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='1150' xend='200' yend='1800' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='1150' xend='200' yend='1700' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1300' />
 <code name='SetProcessIdMSH-11' xpos='470' ypos='1400' >
@@ -174,20 +186,10 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
-<code name='initializeHddTarget' xpos='470' ypos='1500' >
-<![CDATA[ 
- set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
- } 
-  ]]]]><![CDATA[>
-</code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToNuanceDax' source='request' target='response' xpos='470' ypos='1600' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToNuanceDax' source='request' target='response' xpos='470' ypos='1500' >
 <annotation><![CDATA[translates iCentra Adt Hl7 to Nuance DAX]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1700' xend='200' yend='350' >
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1600' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -202,6 +204,9 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
+<code name='Reset Error' xpos='200' ypos='1800' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
 <faulthandlers>
 <catchall xpos='200' ypos='1900' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
