@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.Operation.RadiantServiceCall">
+<Description>
+Pull Radiant Logic updated records by calling the service</Description>
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65192,33471.074536</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="usrNm">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="pswrd">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="credential">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="URL">
+<Type>%String</Type>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Method name="processHttpsGetRequest">
+<FormalSpec>pRequest:IHC.ITF.DStruc.Request.RLRequest,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method processHttpsGetRequest")
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set count =pRequest.count
+	Set startIndex=pRequest.startIndex
+	$$$TRACE("Start Index: "_startIndex)
+	set startDt=pRequest.startDt
+	set scSystem=pRequest.sourceSystem
+	set param="count="_count_"&startIndex="_startIndex_"&filter=sourceSystem%20eq%20"_$CHAR(34)_scSystem_$CHAR(34)_"%20and%20meta.lastModified%20gt%20"_
+	    $CHAR(34)_startDt_$CHAR(34)
+	Set httprequest.ContentType="application/json"
+	set url = ..Adapter.URL_"?"_param
+	Set httprequest.Location = url
+	//Set httprequest.Authorization="Basic aXRmcmFkaWFudDo1TE1GUUhQc3lRV014MjI0eTRFVkpzWGVlVVhIS1k="
+	Set httprequest.Authorization="Basic "_..credential
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+    
+	set tSC = httprequest.Get(url)
+
+	if $$$ISERR(tSC) {
+         do $system.OBJ.DisplayError()
+         Quit tSC
+    } else {
+	    #dim tHttpResponse As %Net.HttpResponse
+        set tHttpResponse=httprequest.HttpResponse 
+        Quit ..constructResponse(tHttpResponse, .pResponse) 
+    }            
+  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="processHttpsPostRequest">
+<Description>
+Sends back a new unit number to  Radiant Logic by calling the service PATCH api</Description>
+<FormalSpec>pRequest:IHC.ITF.DStruc.Request.RLUnitNumRequest,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method processHttpsPostRequest")
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set eId =pRequest.employeeId
+	Set pId=pRequest.positionId
+	set unitNum=pRequest.unitNum
+	$$$TRACE("Employee ID: "_eId_" Position ID: "_pId_" Unit Number: "_unitNum)
+	set param="/Worker="_eId_"%20::%20"_pId_",o=workday_primaryjob,o=staged"
+	Set httprequest.ContentType="application/json"
+	set httprequest.AcceptGzip="gzip, deflate, br"
+	set httprequest.AuthenticationErrors="SELF_SIGNED_CERT_IN_CHAIN"
+	set url = ..Adapter.URL_param
+	$$$TRACE("URL: "_url)
+	set data="{"_$CHAR(34)_"schemas"_$CHAR(34)_": ["_$CHAR(34)_"urn:ietf:params:scim:api:messages:2.0:PatchOp"_$CHAR(34)_
+             "],"_$CHAR(34)_"Operations"_$CHAR(34)_": [{"_$CHAR(34)_"op"_$CHAR(34)_": "_$CHAR(34)_"add"_$CHAR(34)_","_
+            $CHAR(34)_"value"_$CHAR(34)_": {"_$CHAR(34)_"externalId"_$CHAR(34)_": "_$CHAR(34)_unitNum_$CHAR(34)_"}}]}"
+    $$$TRACE("data content: "_data)
+    Set dataStream=##class(%Stream.GlobalCharacter).%New()
+    Do dataStream.Write(data)
+    Do dataStream.Rewind()
+    Do httprequest.EntityBody.Write()
+	do httprequest.EntityBody.CopyFrom(dataStream)
+	set cl = httprequest.ContentLength
+	$$$TRACE("Content length: "_cl)
+	Set httprequest.Authorization="Basic "_..credential
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	#dim tHttpResponse As %Net.HttpResponse
+    
+	set tSC = httprequest.Send("PATCH",url)
+	if $$$ISERR(tSC) {
+         do $system.OBJ.DisplayError()
+         Quit tSC
+    } else {
+        set tHttpResponse=httprequest.HttpResponse 
+        Quit ..constructResponse(tHttpResponse, .pResponse) 
+    }            
+  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="constructResponse">
+<Internal>1</Internal>
+<FormalSpec>pHttpResponse:%Net.HttpResponse,pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  Set tSC=$$$OK
+       	$$$TRACE("StatusLine: "_pHttpResponse.StatusLine) 
+       	set statusLine = pHttpResponse.StatusLine 
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}      
+      	$$$TRACE("StatusCode: "_statusCode)  	     
+      	$$$TRACE("StatusDesc: "_statusDesc)  
+           Set tbStream=##class(%GlobalBinaryStream).%New()
+           Set tStatus = tbStream.CopyFrom(pHttpResponse.Data)
+           $$$TRACE("tcharStream size:"_tbStream.Size)
+           set text=""
+           While 'tbStream.AtEnd {
+             Set text = text_tbStream.Read($$$MaxStringLength)
+           } 	     
+    	  if (statusCode'="200"){
+	    	if (statusCode="401"){
+		    	$$$TRACE("  CheckError... ") 
+		    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"Http Status code: ["_statusCode_"]. Invalid user credential.  Response: "_text) 
+		    }else{
+			    $$$TRACE("  DisableMsgError.... ")
+          		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"REST service response with code: "_statusCode_"  Response: "_text) 
+		    }
+          } else {
+            $$$TRACE("Radiant Logic Service call success!")
+	        Set pResponse=##class(Ens.StringContainer).%New()
+	        set pResponse.StringValue=text
+          }
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+    set ..usrNm = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Username")
+    set ..pswrd = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Password")
+    set ..credential=$SYSTEM.Encryption.Base64Encode(..usrNm_":"_..pswrd)
+
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.DStruc.Request.RLRequest">
+	<Method>processHttpsGetRequest</Method>
+	</MapItem>
+	<MapItem MessageType="IHC.ITF.DStruc.Request.RLUnitNumRequest">
+	<Method>processHttpsPostRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
