@@ -411,30 +411,40 @@ BPL Definition</Description>
 <transform name='Calling DTL' class='IHC.ITF.Transform.Dtl.ShDemogrCffToInitiateJsonNativeId' source='request' target='response' xpos='740' ypos='2550' >
 <annotation><![CDATA[Calling DTL]]]]><![CDATA[></annotation>
 </transform>
-<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='740' ypos='2650' >
+<code name='ConvertXmlToJSONAndCallPatientService' xpos='1010' ypos='3150' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
-    $$$TRACE("DTL Output: "_xmlStr)  	       
-    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
-    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
+    $$$TRACE("DTL Output: "_xmlStr)  
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails","primaryIds")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
     $$$TRACE("JSON string: "_json)             
     set jsonProcessRequest=##class(Ens.StringContainer).%New()
     set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
-    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)             
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)   
     
+    $$$TRACE("Calling Update Patient service") 
     
-    $$$TRACE(" No IHC mrn# exists in SH Message ") 
-    $$$TRACE("Calling ADD Patient service")     
     set operType = "ADD"        
-     set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJson).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)        
-   if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
-	    set context.PatientEmpi = mrnRet
+    set tarConfigName = context.targetList.GetAt(1)
+    $$$TRACE(" Target Operation: " _ tarConfigName) 
+    set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New() 
+    set httpPingServiceRequestObj.accessToken = context.accessToken
+    set httpPingServiceRequestObj.operationType = operType  
+    set httpPingServiceRequestObj.identifier = "" 
+    set httpPingServiceRequestObj.streamObject = jsonProcessRequest
+    
+    $$$TRACE(" Calling Patient Service "_operType_" - BEGIN ")
+    set status = process.SendRequestSync(process.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+    $$$TRACE(" Calling Patient Service "_operType_" - END ")
+    
+    if (status=$$$OK){
+	    set mrnFromResp = patientServiceResponse.Attributes.GetAt("MRN")
+      	$$$TRACE("### MRN#:: "_mrnFromResp_" ####") 
     }else{
 	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
-    }
-  ]]]]><![CDATA[>
+    }       
+]]]]><![CDATA[>
 </code>
 <code name='RESETERROR' xpos='740' ypos='2750' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
