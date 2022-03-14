@@ -19,12 +19,11 @@ This BPL will recieve HL7 data from Cern-Adt-Hl7_LegacyPlus and translate it int
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
-<UDLText name="T">
-<Content><![CDATA[
-// Property AllowedFacilities As %String(MAXLEN = 200) [ InitialExpression = "125,142,140,127,118,144,134,199" ];
-
-]]></Content>
-</UDLText>
+<Property name="AllowedFacilities">
+<Type>%String</Type>
+<InitialExpression>"125,142,140,127,118,144,134,199"</InitialExpression>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
 
 <Property name="HddTargetConfigName">
 <Type>%String</Type>
@@ -33,7 +32,7 @@ This BPL will recieve HL7 data from Cern-Adt-Hl7_LegacyPlus and translate it int
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>ExcludedEventTypes:Additional,HddTargetConfigName:Additional</Default>
+<Default>ExcludedEventTypes:Additional,AllowedFacilities:Additional,HddTargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -135,9 +134,14 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='MSH4Value' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='2950' >
-<scope xpos='200' ypos='250' xend='200' yend='2850' >
+<sequence xend='200' yend='3050' >
+<scope xpos='200' ypos='250' xend='200' yend='2950' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -184,7 +188,7 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2600' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2700' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='CheckAcceptedEventTypes' xpos='470' ypos='1000' >
@@ -241,7 +245,45 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='initializeHDDVariables' xpos='470' ypos='1450' >
+<code name='Get Set MSH4 Value' xpos='470' ypos='1450' >
+<![CDATA[ 
+   set AcceptedLocations=""
+  set context.Location = request.GetValueAt("MSH:SendingFacility")
+ 
+  set context.MSH4Value = "INTM"
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedFacilities",.AcceptedLocations) 
+ $$$TRACE("Trigger Location= "_context.Location)
+ if ($$$ISOK(pstatus)&&(AcceptedLocations'=""))
+ {
+    $$$TRACE("AcceptedLocations : "_AcceptedLocations) 
+    $$$TRACE("AcceptedLocations Count: "_$L(AcceptedLocations, ",")) 
+    For iTarget=1:1:$L(AcceptedLocations, ",") 
+        { 
+        
+        //$$$TRACE("For loop index "_iTarget) 
+            Set tOneTarget=$ZStrip($P(AcceptedLocations,",",iTarget),"<>W") 
+            $$$TRACE("tOneTarget.. "_tOneTarget)
+            Continue:""=tOneTarget
+            
+            //$$$TRACE(" Trig Event:  "_context.TriggerEvent) 
+            
+            if (context.Location = tOneTarget)
+            {
+	            $$$TRACE("Use received Location in MSH-4")
+	            set context.MSH4Value = context.Location
+	            QUIT
+            } 
+    
+
+         }
+
+ }else{
+	 $$$TRACE("Config setting for AcceptedLocation not Available")
+	 Set pstatus = $$$ERROR("Initialization error, No configuration for AcceptedLocation found")
+	 
+	 }]]]]><![CDATA[>
+</code>
+<code name='initializeHDDVariables' xpos='470' ypos='1550' >
 <![CDATA[ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus)){
  	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
@@ -255,7 +297,7 @@ BPL Definition</Description>
   $$$TRACE("2")
  ]]]]><![CDATA[>
 </code>
-<code name='Do Hdd' xpos='470' ypos='1550' >
+<code name='Do Hdd' xpos='470' ypos='1650' >
 <![CDATA[  set tStatus=process.SendRequestSync(context.hddTargetConfigName, context.HddRepRequest,.hddResponse)
  if ('tStatus) {
      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
@@ -269,9 +311,9 @@ BPL Definition</Description>
  $$$TRACE("DischargeDisposition : "_DischargeDisp.Rep)
 ]]]]><![CDATA[>
 </code>
-<if name='check if message type is A03' condition='context.TriggerEvent ="A03"' xpos='470' ypos='1650' xend='470' yend='2100' >
+<if name='check if message type is A03' condition='context.TriggerEvent ="A03"' xpos='470' ypos='1750' xend='470' yend='2200' >
 <true>
-<code name='If message is A03, check if the attending doctor is a hospitalist' xpos='605' ypos='1800' >
+<code name='If message is A03, check if the attending doctor is a hospitalist' xpos='605' ypos='1900' >
 <![CDATA[ $$$TRACE("Get ATT Doctor ID... ")
  set context.attDoctorId = request.GetValueAt("PV1:7.1") 
  $$$TRACE("PV1-7.1: "_context.attDoctorId)
@@ -284,8 +326,8 @@ BPL Definition</Description>
    set context.jsonRequest.StringValue="{"_$CHAR(34)_"HSPT_JSON"_$CHAR(34)_":{"_$CHAR(34)_"PROVIDER_ID"_$CHAR(34)_":"_$CHAR(34)_context.attDoctorId_$CHAR(34)_"}}"
  }]]]]><![CDATA[>
 </code>
-<transform name='get Http request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='605' ypos='1900' />
-<code name='calls the REST service to check if the doctor is a hospitalist' xpos='605' ypos='2000' >
+<transform name='get Http request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='605' ypos='2000' />
+<code name='calls the REST service to check if the doctor is a hospitalist' xpos='605' ypos='2100' >
 <![CDATA[  $$$TRACE("Call REST Operation")
       set statusCode=""
       set statusDesc=""
@@ -374,7 +416,7 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<code name='Reset BPCI  Context vars' xpos='470' ypos='2200' >
+<code name='Reset BPCI  Context vars' xpos='470' ypos='2300' >
 <![CDATA[ //
  set context.bpciFlag = ""
  set context.bpciDrg = ""
@@ -385,7 +427,7 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<foreach name='Retrieve BPCI ' property='request.{OBX()}' key='context.OBXKey' xpos='470' ypos='2300' xend='200' yend='350' >
+<foreach name='Retrieve BPCI ' property='request.{OBX()}' key='context.OBXKey' xpos='470' ypos='2400' xend='200' yend='350' >
 <code name='BPCI Info' xpos='200' ypos='250' >
 <annotation><![CDATA[Bundled Payment Care Initiative]]]]><![CDATA[></annotation>
 <![CDATA[ //OBX3  
@@ -424,8 +466,8 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCipherHealth' source='request' target='response' xpos='470' ypos='2400' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2500' xend='200' yend='350' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCipherHealth' source='request' target='response' xpos='470' ypos='2500' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2600' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -440,7 +482,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2700' xend='200' yend='350' >
+<catchall xpos='200' ypos='2800' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
