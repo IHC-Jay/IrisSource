@@ -143,9 +143,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ODSCount' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='ODSSegCount' type='%Integer' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='2600' >
-<scope xpos='200' ypos='250' xend='200' yend='2500' >
+<sequence xend='200' yend='2700' >
+<scope xpos='200' ypos='250' xend='200' yend='2600' >
 <trace name='incomingMessage' value=' "Incoming Message:: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
@@ -342,19 +343,71 @@ BPL Definition</Description>
    ]]]]><![CDATA[>
 </code>
 <trace name='" After HDD Ethinicity "' value='" After HDD Ethinicity"' xpos='200' ypos='1550' />
-<foreach name='ODS Loop' property='request.{ORCgrp(1).OBRgrp.ODS()}' key='context.ODSCount' xpos='200' ypos='1650' xend='200' yend='350' >
+<code xpos='200' ypos='1650' >
+<![CDATA[
+  
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.RedoxOrdersHl7ToComputritionAllergies.Lookup.HDDDietOrderLogic")
+ if (retVal = 0){
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.RedoxOrdersHl7ToComputritionAllergies.Lookup.HDDDietOrderLogic does not exist")  
+ }
+ else
+ {
+   set context.ODSSegCount = request.GetValueAt("ORCgrp(1).OBRgrp.ODS(*)")
+    $$$TRACE(" segment count for ODS : "_context.ODSSegCount )}]]]]><![CDATA[>
+</code>
+<foreach name='ODS Loop' property='request.{ORCgrp(1).OBRgrp.ODS()}' key='context.ODSCount' xpos='200' ypos='1750' xend='200' yend='350' >
 <code name='get ODS-3 ' xpos='200' ypos='250' >
 <![CDATA[ $$$TRACE(" inside the ODS loop ")
+
+    
+
   Set ods31 = request.GetValueAt("ORCgrp(1).OBRgrp.ODS("_context.ODSCount_"):DietSupplementorPreferenceCo().Identifier") 
   $$$TRACE(" ODS-3.1  :"_ods31 )
+  Set ods33 = request.GetValueAt("ORCgrp(1).OBRgrp.ODS("_context.ODSCount_"):DietSupplementorPreferenceCo().NameofCodingSystem") 
+  $$$TRACE(" ODS-3.3  :"_ods33 )
+  set odsvalue = ods31_"|"_ods33
+  $$$TRACE(" ODS3.3 | ODS-3.3  :"_odsvalue )
   
-  Set dietSupRep = request.GetValueAt("ORCgrp(1).OBRgrp.ODS("_context.ODSCount_"):DietSupplementorPreferenceCo().NameofCodingSystem") 
-                
-  $$$TRACE(" ODS-3.3  :"_dietSupRep )
+  // look for the value from lookup for basic order
+  set retStatus = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.RedoxOrdersHl7ToComputritionAllergies.Lookup.HDDDietOrderLogic", ods33, .retVal )
+    if (retVal '= "Unknown")
+    {
+	    $$$TRACE("Lookup value returned  : " _retVal)
+	    //get default value for the returned diet specific value
+	    set i = $FIND(retVal,"|")
+	    set SpecificDiet = $EXTRACT(retVal,1,i-2 )
+	    set defaultValue = $EXTRACT(retVal,i,*)
+	    $$$TRACE( "Default value from Lookup is : "_defaultValue)
+	     $$$TRACE( "Specific Diet value from Lookup is : "_SpecificDiet)
+	    // loop through entire ODS segment to check if the specific value ODS is present in the inbound
+	    set flag = 0
+	    
+	    for index=1:1:context.ODSSegCount
+	    {
+		    //get ODS-3.1 value 
+		    set ods3dot1 = request.GetValueAt("ORCgrp(1).OBRgrp.ODS("_index_"):DietSupplementorPreferenceCo().Identifier") 
+             $$$TRACE(" ODS-3.1  :"_ods3dot1 )
+             if ( ods3dot1 = SpecificDiet ){
+	             $$$TRACE(" Found a sepcific diet in the record")
+	             set flag = 1
+                 do context.dietSupl.SetAt("DELETE",context.ODSCount)
+                 QUIT     
+             }
+		       
+	    }
+	    if (flag = 0 )
+	    {
+		  // this means thereis no other specific diet found for this ODS-3.3 , set it to default
+		   $$$TRACE(" Did NOT find a sepcific diet in the record, DEFAULT it")
+		     do context.dietSupl.SetAt(defaultValue,context.ODSCount)
+	    }
+
+	   
+    } 
+    else
+    {
+     $$$TRACE("NOT found a diet order specific value")
   
-  set odsvalue = ods31_"|"_dietSupRep
-  
-    $$$TRACE(" ODS3.3 | ODS-3.3  :"_odsvalue )
   
    if (odsvalue  '= "" ){
   
@@ -386,15 +439,18 @@ BPL Definition</Description>
      }
      
      }
+    }
+     
+    
   ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='Just before transform' value='"before Transform"' xpos='200' ypos='1750' />
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.RedoxOrdersHl7ToComputritionAllergies' source='request' target='response' xpos='200' ypos='1850' >
+<trace name='Just before transform' value='"before Transform"' xpos='200' ypos='1850' />
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.RedoxOrdersHl7ToComputritionAllergies' source='request' target='response' xpos='200' ypos='1950' >
 <annotation><![CDATA[Translates Redox Orders to Computrition Hl7]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Send message' value='"Sending message to all targets"' xpos='200' ypos='1950' />
-<code name='getTargetOperationName' xpos='200' ypos='2050' >
+<trace name='Send message' value='"Sending message to all targets"' xpos='200' ypos='2050' />
+<code name='getTargetOperationName' xpos='200' ypos='2150' >
 <annotation><![CDATA[OperationName]]]]><![CDATA[></annotation>
 <![CDATA[
 	   
@@ -408,17 +464,17 @@ BPL Definition</Description>
     $$$TRACE("Value of Target Operation Name : "_context.targetFacility )         
 ]]]]><![CDATA[>
 </code>
-<call name='CallTargetConfigNames' target='@context.targetFacility' async='1' xpos='200' ypos='2150' >
+<call name='CallTargetConfigNames' target='@context.targetFacility' async='1' xpos='200' ypos='2250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
-<code name='RESETERROR' xpos='200' ypos='2250' >
+<code name='RESETERROR' xpos='200' ypos='2350' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
   ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2350' xend='200' yend='350' >
+<catchall xpos='200' ypos='2450' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE(" In CatchAll()")
