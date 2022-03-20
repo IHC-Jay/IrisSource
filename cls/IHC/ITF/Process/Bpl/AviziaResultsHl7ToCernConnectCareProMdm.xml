@@ -90,6 +90,9 @@ BPL Definition</Description>
 
 <property name='codeValAlias' type='%String' instantiate='0' />
 
+<property name='locFacilityCd' type='%String' instantiate='0' />
+
+
 <property name='hasEncId' type='%String' initialexpression="" instantiate='0' />
 
 </context>
@@ -247,8 +250,8 @@ BPL Definition</Description>
    set amwellEncRequest=##class(IHC.ITF.Request.AmWellEncRequest).%New()
    
    if (context.hasEncId = "Y"){
-   	set amwellEncRequest.apptId = "0"
-   	set amwellEncRequest.encounterId = context.finNumber
+   	 set amwellEncRequest.apptId = "0"
+   	 set amwellEncRequest.encounterId = context.finNumber   	 
    }else{
 	   set amwellEncRequest.apptId = context.finNumber
    	   set amwellEncRequest.encounterId = "0"
@@ -258,11 +261,22 @@ BPL Definition</Description>
    set status = process.SendRequestSync(context.amwellEncTargetConfigName,amwellEncRequest,.retRespObj)
    if ($$$ISOK(status)){
 	      $$$TRACE("Call to amwell encounter service status successful... retValue:"_retRespObj.StringValue)	      
-	      if ($ISVALIDNUM(retRespObj.StringValue)){
-		      set context.codeValAlias = retRespObj.StringValue
+	      if ($L(retRespObj.StringValue)>0){
+		      set retVal = retRespObj.StringValue
+		      set retValList = $LISTFROMSTRING(retVal, "|")
+   			  $$$TRACE("retVal List count::"_$LISTLENGTH(retValList))      			  
+   			  set context.codeValAlias = $LIST(retValList,1)
+   			  set context.locFacilityCd = $LIST(retValList,2)
 		  }else{
-			    if (retRespObj.StringValue=""){				    
-				    set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName, "AmWell Encounter service response is empty for the request: "_jsonRequest)
+			    if (context.codeValAlias=""){
+				    if (context.hasEncId = "Y"){
+					    set notificationMsg = "Where FIN NBR = "_context.finNumber_", No Inbound NCID Alias found for LOC_FACILITY_CD: "_context.locFacilityCd
+				    }else{
+					    set notificationMsg = "Where Schedule ID = "_context.finNumber_", No Inbound NCID Alias found for LOC_FACILITY_CD: "_context.locFacilityCd
+					}				    
+			  	    Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell MDM Results to iCentra", notificationMsg, process.%ConfigName) 					       		
+		            set status = process.SendAlert(emailAlertRequest)				    
+				    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "AmWell Encounter service response is empty for the request: "_jsonRequest _". Notification sent to iCentra Reg/Scheduling team.")
 			    }else{
 			   		$$$TRACE("Error response from AmWell Encounter srevice: "_retRespObj.StringValue)
 			   		set errMsg = retRespObj.StringValue _" JSON Request:"_jsonRequest
