@@ -165,6 +165,39 @@ BPL Definition</Description>
 </code>
 <if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='750' xend='200' yend='1850' >
 <true>
+
+<code name='TeleHealth Filter' xpos='335' ypos='900' >
+<![CDATA[
+	try{
+	   $$$TRACE(" Calling GetUniqueRepByNcid... " )
+	   set msh4Facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
+       set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(msh4Facility, "ZZZ(2).2", "529415645", context.HddTargetConfigName, .process, .resp) 
+        		 $$$TRACE(" Returned Rep from HDD: " _ resp)
+        		 set context.sendingFacility = resp
+        		 if ((resp="119") || (resp="190") || (resp="260")){
+	        		 set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," MSH-4 (ZZZ(2).12):"_msh4Facility_" in a TeleHealth Facility. Hdd method-getRepFromNcid returns REP "_resp_" in context 529415645. Skipping the record..")
+	        	 }
+     		}catch(exVar){
+	     		set exVarData = $ZSTRIP(exVar.Data,"*C")
+	     		$$$TRACE(" exVarData --> "_exVarData)
+	     		if exVar.Code [ "ITFCOMMON:10108" {
+		   			// InutDataError - one of the input parameters from source is blank. FIlter out the record..		   			
+		  			set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+	   	 		}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 		// HddDataError - one of the input parameters from source is invalid or not defined in HDD, send to terminalogy team
+		   			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)		   
+		 		}elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 		// RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		   			set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+		   	 	}else{
+			 		//Any other Unexpected error
+			 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 		}
+	 		}
+	 		
+ ]]]]><![CDATA[>
+</code>
+
 <code name='Facility Lookup' xpos='335' ypos='900' >
 <![CDATA[ try {
     set clinicFlag =request.GetValueAt("ZZZ(2):27UB92Condition") 
@@ -172,35 +205,36 @@ BPL Definition</Description>
        set errMsg =""
        $$$TRACE("Looking up facility Rep 1.")
        set facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
-       if (facility '="") {
-          set facilityRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
-          $$$TRACE("Looking up facility Rep 2.")
-          Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(facilityRequest,facility,context.FacilityContext,"1")
-          $$$TRACE("Looking up facility Rep 2.1.")
-          set tStatus=process.SendRequestSync(context.HddTargetConfigName,facilityRequest,.hddResponse)
-          $$$TRACE("Looking up facility Rep 2.2.")
-          if ('tStatus) {
-             $$$TRACE("Looking up facility Rep 3.")
-             set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure") 
-          }else {
-             $$$TRACE("Looking up facility Rep 4.")
-             set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, "1")
-             if (hddObj '="") {
-                $$$TRACE("Looking up facility Rep 5.")
-                if (hddObj.Rep '="") {
-                   if ($ZCONVERT(hddObj.Rep,"U") '="ERROR"){
-                      $$$TRACE("Looking up facility Rep 6.")
-                      set context.sendingFacility = hddObj.Rep
-                   }else {
-                      set errMsg = "Error returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Ncid: "_facility_", unable to send record without a facility. Skipping message."
-                      throw errMsg
-                   }
-                }else {
-                   set errMsg = "Nothing returned from HDD lookup used to retrieve facility using Context: "_context.FacilityContext_", for Ncid: "_facility_", unable to send record without a facility. Skipping message."
-                   throw errMsg       
-                }
-             }
-          }
+       if (facility '="") {			
+   			set ncid = facility  
+     		try{
+	    		 $$$TRACE(" Calling GetUniqueRepByNcid... " )
+       			 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(ncid, "ZZZ(2).2", context.FacilityContext, context.HddTargetConfigName, .process, .resp) 
+        		 $$$TRACE(" Returned Rep from HDD: " _ resp)
+        		 set context.sendingFacility = resp
+        		 
+        		 if ($ISVALIDNUM(context.sendingFacility)'="1"){	  				
+        		 	set errMsg = "Hdd method:getRepFromNcid. Context: "_context.FacilityContext_". Facility Ncid in MSH-4/ZZZ(2).12  :"_ncid_". SendingFacility rep is NOT a VALID faility: "_context.sendingFacility_" Skipping the record.."
+	  				$$$TRACE(errMsg)
+	  				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,errMsg)
+ 				 }
+     		}catch(exVar){
+	     		set exVarData = $ZSTRIP(exVar.Data,"*C")
+	     		$$$TRACE(" exVarData --> "_exVarData)
+	     		if exVar.Code [ "ITFCOMMON:10108" {
+		   			// InutDataError - one of the input parameters from source is blank. FIlter out the record..		   			
+		  			set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+	   	 		}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 		// HddDataError - one of the input parameters from source is invalid or not defined in HDD, send to terminalogy team
+		   			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)		   
+		 		}elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 		// RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		   			set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+		   	 	}else{
+			 		//Any other Unexpected error
+			 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 		}
+	 		}
        }else {
           set context.sendingFacility = request.GetValueAt("MSH:4.1")
        }
@@ -213,23 +247,48 @@ BPL Definition</Description>
     }
  }]]]]><![CDATA[>
 </code>
-<code name='ethnicity rep to rep lookup' xpos='335' ypos='1000' >
-<![CDATA[ set pid22 = request.GetValueAt("PID:EthnicGroup(1).text")
- if (pid22 '="") {
-    set ethnicityRepToRep=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getRepByRep(pid22,context.HelpToSunquestContext,context.EthnicityDomain,context.SunquestCernerOrderContext,context.HddTargetConfigName,.process)
-    if ((ethnicityRepToRep["ITFCOMMON:10109") || (ethnicityRepToRep["Web service returned(error):")){
-       $$$TRACE("HDD Call Returned Error")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_ethnicityRepToRep)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (ethnicityRepToRep="") {
-       $$$TRACE("Unable to map PID-22 ("_pid22_") from rep to rep using inbound context: "_context.SunquestCernerOrderContext_", domain: "_context.EthnicityDomain_", and outbound context: "_context.HelpToSunquestContext_", skipping record")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to map PID-22 ("_pid22_") from rep to rep using inbound context: "_context.SunquestCernerOrderContext_", domain: "_context.EthnicityDomain_", and outbound context: "_context.HelpToSunquestContext_", skipping record")
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }else {
-       set context.Ethnicity=ethnicityRepToRep
-    }
- }]]]]><![CDATA[>
+
+
+<code name='getUniqueRepByRep' xpos='200' ypos='750' >
+<annotation><![CDATA[getRepByRep-ethnicity rep to rep lookup]]]]><![CDATA[></annotation>
+<![CDATA[  
+   set pid22 = request.GetValueAt("PID:EthnicGroup(1).text")   
+     try{
+	     $$$TRACE(" Calling getRepByRep... " )
+	     set context.Ethnicity=""
+	     if (pid22'=""){
+         	set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(pid22, "PID-22", context.HelpToSunquestContext, context.EthnicityDomain,context.SunquestCernerOrderContext, context.hddTargetConfigName, .process, .resp) 
+         	$$$TRACE(" Returned Rep from HDD: " _ resp)  
+         	if (resp="") {
+       			$$$TRACE("Unable to map PID-22 ("_pid22_") from rep to rep using inbound context: "_context.SunquestCernerOrderContext_", domain: "_context.EthnicityDomain_", and outbound context: "_context.HelpToSunquestContext_", skipping record")
+       			set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Unable to map PID-22 ("_pid22_") from rep to rep using inbound context: "_context.SunquestCernerOrderContext_", domain: "_context.EthnicityDomain_", and outbound context: "_context.HelpToSunquestContext_", skipping record")
+         	}else{
+	        	 set context.Ethnicity=resp
+	     	}
+	     }
+     }catch(exVar){
+	     set exVarData = $ZSTRIP(exVar.Data,"*C")
+	     $$$TRACE(" exVarData --> "_exVarData)
+	     if exVar.Code [ "ITFCOMMON:10108" {
+		   // InutDataError - one of the input parameters from source is blank.		   
+		    // set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+		    set context.Ethnicity=""
+	   	 }elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+		      set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)		   
+		 }elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
+		 }else{
+			 //Any other Unexpected error
+			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 }
+	 }
+   
+  ]]]]><![CDATA[>
 </code>
+
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='1100' >
 <annotation><![CDATA[translate Cerner Legacy ADT to Sunquest ADT format]]]]><![CDATA[></annotation>
 </transform>
