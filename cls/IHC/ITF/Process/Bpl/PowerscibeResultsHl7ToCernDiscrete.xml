@@ -113,12 +113,9 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='ObrIndex' type='%Integer' instantiate='0' />
-<property name='skip' type='%Boolean' instantiate='0' />
-<property name='DisRsFound' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='1800' >
-<scope xpos='200' ypos='250' xend='200' yend='1700' >
+<sequence xend='200' yend='2000' >
+<scope xpos='200' ypos='250' xend='200' yend='1900' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
@@ -184,38 +181,23 @@ BPL Definition</Description>
 	}
  }]]]]><![CDATA[>
 </code>
-<foreach property='request.{PIDgrpgrp(1).ORCgrp()}' key='context.ObrIndex' xpos='200' ypos='1050' xend='200' yend='700' >
-<if name='If' condition='context.DisRsFound = 0' xpos='200' ypos='250' xend='200' yend='600' >
-<true>
-<code name='get exam code , accession no' xpos='335' ypos='400' >
-<![CDATA[ $$$TRACE(" Loop through the ORC group and get the exam code and addendum ")
+<code name='get Accession number and ExamCode' xpos='200' ypos='1050' >
+<![CDATA[
+   Set context.accessionNum = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:FillerOrderNumber.entityidentifier")
+   $$$TRACE(" accession number at OBR3.1 : "_context.accessionNum )
+    if ($LENGTH(context.accessionNum)>0){ 
+       set context.isValidationPassed = 1	  	  
+ 	}else{
+	 	$$$TRACE(" Invalid Filler Order Number: ["_context.accessionNum_"]")
+	 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skipping the record.. Invalid filler order number(AccessionNumber):["_context.accessionNum_"] Hl7 Record: " _request.RawContent)
+
+	  }
+ 	
+ 	set context.examCode =  request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceID.identifier") 
  
- 	set context.skip = 0
- 	set context.examCode =  request.GetValueAt("PIDgrpgrp(1).ORCgrp("_context.ObrIndex_").OBR:UniversalServiceID.identifier")  
  	$$$TRACE(" Exam Code at OBR-4.1 is : "_context.examCode )
- 	Set context.accessionNum = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_context.ObrIndex_").OBR:FillerOrderNumber.entityidentifier")
-        $$$TRACE(" accession number at OBR3.1 : "_context.accessionNum )
-    	
- 	if ( context.examCode '= "")
-  {
- set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PowerscibeResultsHl7CernDiscrete.Lookup.InclusiveExamCodes", context.examCode, .retVal )
- if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal =""))
-   {    
-       $$$TRACE("Unable to get a value from the lookup table InclusiveExamCodes.")
-      set context.skip=1
-  } else
-   {
-     
-       $$$TRACE("Value found from the lookup table InclusiveExamCodes:" _context.examCode )
-  }
- }
-  else
-   { $$$TRACE(" Exam Code is empty for this transaction .  ")
-   set context.skip=1
-  }
-  
-  
-  set addendum = request.GetValueAt("PIDgrpgrp(1).ORCgrp("_context.ObrIndex_").OBR:ResultStatus")
+ 	
+ 	set addendum = request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:ResultStatus")
  	
  	$$$TRACE(" ResultStatus at OBR-25 is : "_addendum  )
  	
@@ -225,44 +207,59 @@ BPL Definition</Description>
  	{
  	   set context.addendum = "0"    
  	}
-  $$$TRACE("index is at :"_context.ObrIndex)
- 	
- 	
- 	
- 	
  	]]]]><![CDATA[>
 </code>
-<code name='iActivity DB Call' xpos='335' ypos='500' >
-<![CDATA[   // make the DB calls only if he exam code is needed else go to begining of loop to find the next exam code
-    if ( context.skip=0 )
+<code name='check exam code for discrete values' xpos='200' ypos='1150' >
+<![CDATA[ 
+  if ( context.examCode '= "")
   {
-    set context.listObx31=##class(%ListOfDataTypes).%New() 
+ set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PowerscibeResultsHl7CernDiscrete.Lookup.InclusiveExamCodes", context.examCode, .retVal )
+  
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal =""))
+   {    
+     
+       $$$TRACE("Unable to get a value from the lookup table InclusiveExamCodes.")
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Exam code at ORC-4.1 is not is the lookup, skipping record. Hl7 Record: " _request.RawContent)
+  
+       
+  } else
+   {
+     
+       $$$TRACE("Value found from the lookup table InclusiveExamCodes:" _context.examCode )
+  }
+ }
+  else
+   { $$$TRACE(" Exam Code is empty for this transaction . Skip the record ")
+  set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Exam code at ORC-4.1 is empty, skipping record. Hl7 Record: " _request.RawContent)
+  
+  }]]]]><![CDATA[>
+</code>
+<code name='call database operation' xpos='200' ypos='1250' >
+<![CDATA[  set context.listObx31=##class(%ListOfDataTypes).%New() 
   set context.listObx32=##class(%ListOfDataTypes).%New() 
   set context.listObx5=##class(%ListOfDataTypes).%New() 
   set context.listObx6=##class(%ListOfDataTypes).%New() 
-       
+        
   $$$TRACE("Before Calling Database Operation, check values of accession no "_context.accessionNum_" and addendum"_context.addendum )
   set context.tacDbRequest.ACCESSIONNO = context.accessionNum
   set context.tacDbRequest.ADDENDUM = context.addendum
 
-   set tStatus=process.SendRequestSync(context.DBTargetConfigName,context.tacDbRequest,.SqlResponse)
-   if ($$$ISOK(tStatus))
-   {
+  set tStatus=process.SendRequestSync(context.DBTargetConfigName,context.tacDbRequest,.SqlResponse)
+ if ($$$ISOK(tStatus)){
    set context.SqlSnapShot = SqlResponse
    set rowCount = context.SqlSnapShot.RowCount
    set ClmCount = context.SqlSnapShot.ColCountGet() 
    
    $$$TRACE(" Row Count , Column count : "_rowCount_" , "_ClmCount)
    set context.discreteValueCnt = rowCount  
-      if ( rowCount = 0)
+   
+   if ( rowCount = 0)
    {
-  // $$$TRACE( "Skipping the record.. This filler order number(AccessionNumber):["_context.accessionNum_"] returned zero synoptic elements from the iActivity data base ")
-   //set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skipping the record.. This filler order number(AccessionNumber):["_context.accessionNum_"] returned zero synoptic elements from the iActivity data base ")
-  $$$TRACE( "This filler order number(AccessionNumber):["_context.accessionNum_"] returned zero synoptic elements from the iActivity data base ")
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skipping the record.. This filler order number(AccessionNumber):["_context.accessionNum_"] returned zero synoptic elements from the iActivity data base ")
+  
     }   
-   // Remember to break the loop once we find one successful set of values 
-    if ( rowCount '= 0)
-    {
+   
+    
    For ObxIndex = 1:1:rowCount
    {  
    set Ncid = context.SqlSnapShot.GetData(4,ObxIndex )
@@ -299,32 +296,22 @@ BPL Definition</Description>
            }   
        do context.listObx6.Insert(unit) 
        do context.listObx14.Insert(examCTime) 
-       set context.DisRsFound = 1
     }
-    
  }
  else
  { 
  set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "database call to iActivity failed")	  	  
     
  }
- $$$TRACE("After Calling Database Operation.."_tStatus)
-  
-  
-  }
- } 
-  ]]]]><![CDATA[>
+ $$$TRACE("After Calling Database Operation.."_tStatus)]]]]><![CDATA[>
 </code>
-</true>
-</if>
-</foreach>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerScribeResultsHl7ToCernDiscrete' source='request' target='response' xpos='200' ypos='1150' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerScribeResultsHl7ToCernDiscrete' source='request' target='response' xpos='200' ypos='1350' >
 <annotation><![CDATA[translate to Cerner format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1250' >
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1450' >
 <annotation><![CDATA[Echo translated output]]]]><![CDATA[></annotation>
 </trace>
-<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1350' xend='200' yend='350' >
+<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1550' xend='200' yend='350' >
 <annotation><![CDATA[Publish to each Target Configured]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -332,13 +319,13 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='1450' >
+<code name='Reset Error' xpos='200' ypos='1650' >
 <annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
 <![CDATA[
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall name='Catch Error' xpos='200' ypos='1550' xend='200' yend='350' >
+<catchall name='Catch Error' xpos='200' ypos='1750' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
