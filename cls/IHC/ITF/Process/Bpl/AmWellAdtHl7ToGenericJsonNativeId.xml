@@ -22,6 +22,20 @@ Patient Service Operation to add/update demographics into Initiate, Check mrn</D
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="SameRecordRetryAndDisableErrorCodes">
+<Description>
+RetrySameAndDisable Errors : Retry same message and disable the component</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50000"/>
+</Property>
+
+<Property name="InputDataErrorCodes">
+<Description>
+InputDataErrorCodes : Input data error codes</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50000"/>
+</Property>
+
 <Property name="A28MessageTargetConfigName">
 <Description>
 A28 message Target</Description>
@@ -30,7 +44,7 @@ A28 message Target</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>PatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,SameRecordRetryAndDisableErrorCodes:Additional,InputDataErrorCodes:Additional,A28MessageTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Method name="CallPatientServices">
@@ -40,7 +54,7 @@ A28 message Target</Description>
 <Implementation><![CDATA[
 		#dim status AS %Status=$$$OK
 		$$$TRACE(" Inside CallPatientServices()..........")
-		set mrnFromResp=""
+		set mrnPar=""
       $$$TRACE(" Operation Type: " _ opType) 
      $$$TRACE(" Target Operation: " _ process1.PatientServiceTargetConfigName) 
      set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New() 
@@ -48,39 +62,132 @@ A28 message Target</Description>
      set httpPingServiceRequestObj.operationType = opType  
      set httpPingServiceRequestObj.identifier = mrn 
      set httpPingServiceRequestObj.streamObject = jsonReq
-     $$$TRACE(" Calling Patient Service "_opType_" - BEGIN ")
-     $$$TRACE(" *************** ")
+     $$$TRACE(" Calling Patient Service "_opType_" - BEGIN ")     
      set status = process1.SendRequestSync(process1.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
      $$$TRACE(" Calling Patient Service "_opType_" - END ")
-     if ($$$ISOK(status)){
-      $$$TRACE("Call PatientService "_opType_" Operation OK status.")      
-      set restPatientServiceHttpResponse=patientServiceResponse  
-      set isOperDone = restPatientServiceHttpResponse.Attributes.GetAt(opType)       
-      if (isOperDone ="N"){
-	      $$$TRACE("### Failed to "_opType_" the patient :"_mrn_" ####")           
-	      set errTxt = restPatientServiceHttpResponse.Attributes.GetAt("ERRTXT")
-	      set errMsg = "Failed to "_opType_" this record in Initiate thru Patient Service. Skpping the record. Error Response: "_errTxt
-	     // Do ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process1.%ConfigName,   errMsg)
-	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,errMsg)
-	  }else{
-      	$$$TRACE("### Operation "_opType_" Done:: "_isOperDone_" ####")           
-      	set mrnFromResp = restPatientServiceHttpResponse.Attributes.GetAt("MRN")
-      	$$$TRACE("### MRN#:: "_mrnFromResp_" ####")           
-	  }   
-    }else {
-	    $$$TRACE("Unexpected error while calling PatientService. "_$SYSTEM.Status.GetOneErrorText(status))    
-        set errorMsg = $SYSTEM.Status.GetOneErrorText(status)
-       if (errorMsg ["ERRTOKEN"){
-          set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"Possible invalid or expired access token. Contact HIE service team for access token issue."_errorMsg) 
-       }else{
-	       if (errorMsg ["POSTSTATUS:0"){
-		       set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName," No response from the Hie patient service. Contact HIE service team."_errorMsg) 
-	       }else{
-           	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,"Unexpected error while calling PatientService. "_errorMsg)
-	       }     
-       }
-	}   
-	 set mrnPar = mrnFromResp      
+     if (status=$$$OK){
+	    $$$TRACE("Call PatientService "_opType_" Operation OK status.")      
+        set patServiceResponseData=patientServiceResponse.Stream  
+        set statusCode = patientServiceResponse.Attributes.GetAt("StatusCode")       
+        set stream =   patServiceResponseData
+       	set respData = ""
+       	While 'stream.AtEnd { 
+       		set respData = respData _ stream.ReadLine(,.sc,.eol)       		
+       	}
+        $$$TRACE(" httpStatusCode: "_statusCode)    
+        
+       // set respdata = respData _ " JSON Request: "_jsonProcessRequest.StringValue_$CHAR(10)
+        
+        if (statusCode'="200"){
+	    	if (statusCode="401"){
+		   		$$$TRACE("  CheckError... ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token. Response: ["_respData_"]. Retrying...") 
+		   	}elseif (statusCode="400"){
+		    	$$$TRACE("  In Status Code 400... ")
+		    	$$$TRACE(" respData "_respData)
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+   		    }elseif (statusCode [ "5"){
+			    $$$TRACE("  HTTP status codes starting 5.. ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respData_"].") 
+		    }else{
+		    	$$$TRACE("  DisableMsgError.... ")
+        		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName," Response from Patient Service Post Operation: "_respData) 
+		    }
+		} else {
+        		$$$TRACE("PatientService call status 200 OK !!! ")
+        		Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process1.%ConfigName) 
+        		
+        		set respJSONstring = respData          		
+          		$$$TRACE(" respData "_respData)
+          		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)          		
+          		set iterator =  consumedJSONobj.%GetIterator()
+                 while iterator.%GetNext(.key,.value) { 
+                 	$$$TRACE(" Key: "_key_" Value: "_value)
+                 	if (key="status"){
+	                 	 if (value="SUCCESS"){
+		                 	$$$TRACE(" Status: "_value)		                 	
+		                 	set primaryIdsArr = ((consumedJSONobj.%Get("data")).%Get("primaryIds"))  
+    					    $$$TRACE("  primaryIdsArr Size: "_primaryIdsArr.%Size())  		    					    
+    		 				// Loop through a JSON Array
+  							Set arrObj = primaryIdsArr.%GetIterator()
+  			  				while arrObj.%GetNext(.key, .value) {	  			
+	  						  Set arrElemObj = value.%GetIterator()		  						  
+	  			  			  while arrElemObj.%GetNext(.key, .value) {
+		  			  			$$$TRACE("  key: "_key_" Value: "_value)
+								if (value = "INMT"){
+									if (arrElemObj.%GetNext(.key, .value)){
+										$$$TRACE("  key2: "_key_" Value2: "_value)
+										set mrnPar = value										
+									}		  			  				
+		  			  			}
+	  			  			  }
+  							}             	   
+	                 	 }else{
+		                 	 $$$TRACE(" Status: "_value)
+		                 	 set context.errResp = "1"
+		                 	 $$$TRACE(" respJSONstring (ERRTXT): "_respJSONstring)	
+		                 	 set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
+	   						 Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
+	   						 $$$TRACE("  lenInDataErrCodeList : "_lenInDataErrCodeList)
+	   						 For i=1:1:lenInDataErrCodeList {
+		   						 set listItem = $List(inputDataErrCodeList,i)
+								Set isInDataErrCodeFound = respJSONstring[ listItem	
+								$$$TRACE("  isInDataErrCodeFound:"_isInDataErrCodeFound_" ErrCode:"_listItem)
+								if (isInDataErrCodeFound=1) quit				
+							 }
+							 if (isInDataErrCodeFound=1) {
+		    					$$$TRACE(" InputDataError.. errorText: "_respJSONstring)
+	        					set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process1.%ConfigName," Skipping the record... Response from Patient Service Post Operation: "_respJSONstring)
+							 }else{
+								 set retryErrCodeList = $LISTFROMSTRING(context.retrySameDisableErrorCodes, ",")
+								 Set lenRetryErrCodeList = $ListLength(retryErrCodeList)
+	   							 $$$TRACE("  lenRetryErrCodeList : "_lenRetryErrCodeList)
+	   							 For i=1:1:lenRetryErrCodeList {
+		   	 						set listItem = $List(retryErrCodeList,i)
+									Set isRetryErrCodeFound = respJSONstring[ listItem	
+									$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_listItem)
+									if (isRetryErrCodeFound=1) quit				
+								 }
+	    						if (isRetryErrCodeFound=1) {
+								    $$$TRACE(" RetryCheckError.. errorText "_respJSONstring)
+	        						Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"TimedOut. No Successful Response from Patient service: ["_respJSONstring_"]. Retrying ..")
+								}else{
+								 if respJSONstring [ "line 1 limit is 30"{
+			                 		 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process1.%ConfigName," Length of the Address1 from IDX(NV) Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
+			                 	 }else{
+								 	$$$TRACE(" Unknown/Unhandled Error. Response from the Hie Patient Service: errorText: "_respJSONstring)
+	    						 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName," Unknown/Unhandled error: "_respJSONstring) 
+			                 	 }
+								}
+							 }              	
+		                 }
+	                }
+                 	
+                }                 
+        } 
+    }else{
+	    set errTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    $$$TRACE("Call PatientService ERR TEXT: "_errTxt)
+	    set retryErrCodeList = $LISTFROMSTRING(context.retrySameDisableErrorCodes, ",")
+	   	Set lenRetryErrCodeList = $ListLength(retryErrCodeList)
+	   	$$$TRACE("  lenRetryErrCodeList : "_lenRetryErrCodeList)
+	   	For i=1:1:lenRetryErrCodeList {
+		   	 set listItem = $List(retryErrCodeList,i)
+			Set isRetryErrCodeFound = errTxt[ listItem	
+			$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_listItem)
+			if (isRetryErrCodeFound=1) quit				
+		}
+
+	    if (isRetryErrCodeFound=1) {
+		    $$$TRACE(" RetryCheckError.. errorText "_errTxt)
+	        Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"TimedOut. No Successful Response from Patient service: ["_errTxt_"]. Retrying ..")
+		}else{
+			$$$TRACE("Call PatientService ERR TEXT: "_errTxt)
+	    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName," Unknown/Unhandled error: "_errTxt) 
+		}    	   
+    } 
+	   
+	 //set mrnPar = mrnFromResp      
      quit status
 ]]></Implementation>
 </Method>
@@ -101,6 +208,12 @@ A28 message Target</Description>
 </Value>
 <Value name="4">
 <Value>A28MessageTargetConfigName</Value>
+</Value>
+<Value name="5">
+<Value>SameRecordRetryAndDisableErrorCodes</Value>
+</Value>
+<Value name="6">
+<Value>InputDataErrorCodes</Value>
 </Value>
 </Data>
 </Storage>
@@ -150,6 +263,18 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
+<property name='retrySameDisableErrorCodes' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1000' />
+</parameters>
+</property>
+
+<property name='inputDataErrorCodes' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1000' />
+</parameters>
+</property>
+
 </context>
 <sequence xend='200' yend='6950' >
 <scope xpos='200' ypos='250' xend='200' yend='6850' >
@@ -195,6 +320,22 @@ BPL Definition</Description>
 <if name='Check if A28 Message' condition='request.GetValueAt("MSH:9.2") = "A28"' xpos='470' ypos='1000' xend='470' yend='1450' >
 <true>
 <trace name='Trace' value='"Its a A28 message. Sending a copy of the message for Audit"' xpos='605' ypos='1150' />
+<code name='initializeErrorCodes' xpos='740' ypos='1350' >
+<![CDATA[ 
+ 
+ set context.retrySameDisableErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","SameRecordRetryAndDisableErrorCodes",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("RetrySameDisableErrorCodes: " _ context.retrySameDisableErrorCodes)
+ }
+ 
+ set context.inputDataErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","InputDataErrorCodes",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("InputDataErrorCodes: " _ context.inputDataErrorCodes)
+ }
+ 
+  ]]]]><![CDATA[>
+</code>
+
 <code name='initializeA28MessageTarget' xpos='605' ypos='1250' >
 <![CDATA[ set context.A28TargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","A28MessageTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus)){
@@ -371,107 +512,6 @@ BPL Definition</Description>
     }
    ]]]]><![CDATA[>
 </code>
-<if name='isIhcMrnExists' condition='(context.isIhcMrnExists = "Y")' xpos='470' ypos='2450' xend='470' yend='3350' >
-<true>
-<code name='CallPatientServiceCheckMrn' xpos='740' ypos='2600' >
-<![CDATA[ 
-     $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
-     $$$TRACE(" Target Operation to Patient service " _ process.PatientServiceTargetConfigName) 
-     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New() 
-     set httpPingServiceRequestObj.accessToken = context.accessToken
-     set httpPingServiceRequestObj.operationType = "CHKMRN"   
-     set httpPingServiceRequestObj.identifier = context.ihcEmpiNum  
-     $$$TRACE(" Calling Patient Service - CheckMrn ")
-     set status = process.SendRequestSync(process.PatientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
-     
-     if ($$$ISOK(status)){
-      $$$TRACE("Call PatientService-CheckMrn Operation OK status.")      
-      set context.restPatientServiceHttpResponse=patientServiceResponse  
-      set context.isMrnExistsinInitiate = context.restPatientServiceHttpResponse.Attributes.GetAt("MRNEXISTS")
-      $$$TRACE("### isMrnExistsInInitiate: "_context.isMrnExistsinInitiate_" ####")      
-    }else {
-      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-CheckMrn") 
-    }    
-   ]]]]><![CDATA[>
-</code>
-<if name='isIhcMrnFromAmWellExistsInInitiate' condition='(context.isMrnExistsinInitiate = "Y")' xpos='740' ypos='2700' xend='740' yend='3250' >
-<true>
-<trace name='IhcMrnFromAmWellExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,also in Initiate. Calling patient servvice update service"' xpos='740' ypos='2850' >
-<annotation><![CDATA[Ihc Mrn exists in AmWell message,also in Initiate. Calling patient service update service]]]]><![CDATA[></annotation>
-</trace>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='740' ypos='2950' >
-<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
-</transform>
-<code name='CallConvertXmlToJSonAndPatientServiceUpdate' xpos='740' ypos='3050' >
-<![CDATA[  
-    $$$TRACE("Converting XML to JSON Operation.. ")
-    set xmlStr=response.OutputToString()  
-    $$$TRACE("DTL Output: "_xmlStr)  	           
-    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails","primaryIds")
-    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
-    $$$TRACE("JSON string: "_json)             
-    set jsonProcessRequest=##class(Ens.StringContainer).%New()
-    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
-    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)             
-    
-    $$$TRACE("Calling Update Patient service") 
-    $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
-    set operType = "UPDATE"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId).CallPatientServices(operType,context.accessToken,context.ihcEmpiNum,jsonProcessRequest,process.%ConfigName,.process, .mrnRet)
-    if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
-	    set context.PatientEmpi = mrnRet
-    }else{
-	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
-    }
-  ]]]]><![CDATA[>
-</code>
-</true>
-<false>
-<trace name='IhcMrnFromAmWellNotExistsInInitiate' value=' " Ihc Mrn exists in AmWell message,but not in Initiate"' xpos='1010' ypos='2850' >
-<annotation><![CDATA[Ihc Mrn exists in AmWell message,but not in Initiate]]]]><![CDATA[></annotation>
-</trace>
-<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='2950' >
-<![CDATA[  
-   set context.existsInRecordNotInInitiate = "1"
- ]]]]><![CDATA[>
-</code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='1010' ypos='3050' >
-<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
-</transform>
-<code name='ConvertXmlToJSONAndCallPatientServiceAdd' xpos='1010' ypos='3150' >
-<![CDATA[  
-    $$$TRACE("Converting XML to JSON Operation.. ")
-    set xmlStr=response.OutputToString()  
-    $$$TRACE("DTL Output: "_xmlStr)  	       
-    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails","primaryIds")
-    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr,myList)
-    $$$TRACE("JSON string: "_json)             
-    set jsonProcessRequest=##class(Ens.StringContainer).%New()
-    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
-    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
-  	
-    $$$TRACE(" IHC mrn# exists in AmWell Message, but not in Initiate ")     
-    set operType = "ADD"        
-    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
-    if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
-	    set context.PatientEmpi = mrnRet
-    }else{
-	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
-	    if (statusTxt["POSTSTATUS:0"){
-		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,statusTxt)  
-		}else{
-	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
-		}   	   
-    }
-  ]]]]><![CDATA[>
-</code>
-</false>
-</if>
-</true>
-<false>
-<trace name='NoIhcMrnExistsinAmWell' value=' " No IHC Mrn exists in AmWell message: "_context.isIhcMrnExists' xpos='470' ypos='2600' />
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonNativeId' source='request' target='response' xpos='470' ypos='2700' >
 <annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
 </transform>
@@ -491,20 +531,16 @@ BPL Definition</Description>
     set operType = "ADD"        
     set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
     if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
+	    $$$TRACE("MRN ret(Patient): "_mrnRet)
 	    set context.PatientEmpi = mrnRet
     }else{
 	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
-	    if (statusTxt["POSTSTATUS:0"){
-		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,statusTxt)  
-		}else{
-	      set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
-		}   	   
-    }
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
+	}   	   
+    
   ]]]]><![CDATA[>
 </code>
-</false>
-</if>
+
 <code name='SetPatientEmpi' xpos='470' ypos='3450' >
 <![CDATA[  
    if ($L(context.PatientEmpi) > 0){	      	    
@@ -548,7 +584,7 @@ BPL Definition</Description>
     set operType = "ADD"        
     set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process, .mrnRet)        
     if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
+	    $$$TRACE("MRN ret(Guarantor): "_mrnRet)
 	    set context.GuarantorEmpi = mrnRet
     }else{
 	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
@@ -612,7 +648,7 @@ BPL Definition</Description>
     set operType = "ADD"        
     set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonNativeId).CallPatientServices(operType,context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)        
     if (status=$$$OK){
-	    $$$TRACE("MRN ret "_mrnRet)
+	    $$$TRACE("MRN ret(Insurance Subscriber): "_mrnRet)
 	    set context.InsSubscriberEmpi = mrnRet
     }else{
 	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))     	   
