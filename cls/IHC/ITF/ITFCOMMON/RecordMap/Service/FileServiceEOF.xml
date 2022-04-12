@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="IHC.ITF.ITFCOMMON.RecordMap.Service.FileServiceEOF">
+<Super>EnsLib.RecordMap.Service.FileService</Super>
+<TimeCreated>66161,37091.638083</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.InboundAdapter</Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<Description>
+Parse the incoming file and send the resulting objects to the targets in TargetConfigNames.</Description>
+<FormalSpec><![CDATA[pInput:%Stream.Object,*pOutput:%RegisteredObject,&pHint:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tStatus = $$$OK
+	Try {
+		Set tLookAhead = ""
+		Set tIOStream = ##class(EnsLib.RecordMap.Service.FileServiceStream).%New(pInput)
+		Set tIOStream.Name = ..GetFileName(pInput)
+
+		If ..HeaderCount {
+			Set tStatus = ..ReadHeaders(tIOStream)
+			If $$$ISERR(tStatus) Quit
+		}
+
+		While 'tIOStream.AtEnd {
+			Set tPosition = tIOStream.Position
+			Set tStatus = ..GetObject(tIOStream, .tObject,,.tLookAhead)
+			If $$$ISERR(tStatus) || (tPosition=tIOStream.Position) Quit
+
+			Set tStatus = ..SendRequest(tObject, '..SynchronousSend)
+			If $$$ISERR(tStatus) Quit
+		}
+	
+		If $$$ISERR(tStatus) Quit
+		
+		If tIOStream.AtEnd
+		{
+			$$$sysTRACE(" End of file , reached")
+			Do tIOStream.Write("EOFFile")
+            Set tStatus = ..GetObject(tIOStream, .tObject,,.tLookAhead)		
+			
+			Set tStatus = ..SendRequest(tObject, '..SynchronousSend)
+			If $$$ISERR(tStatus) Quit
+			
+		}
+		
+		If 'tIOStream.AtEnd {
+			$$$LOGWARNING($$$FormatText($$$Text("Failed to advance record stream. Stopped reading file '%1' at position %2, not at end.","Ensemble"),tIOStream.Name,tIOStream.Position))
+		}
+	}
+	Catch ex {
+		Set tStatus = $$$EnsSystemError
+	}
+	If $system.Status.Equals(tStatus,$$$EnsRecordMapErrStreamAtEnd) {
+		Set tStatus = $$$OK
+	}
+	If $get(tLookAhead) '= "" {
+		$$$LOGINFO("Discarding trailing characters: '"_tLookAhead_"'")
+	}
+	Quit tStatus
+]]></Implementation>
+</Method>
+</Class>
+</Export>
