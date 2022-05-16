@@ -28,6 +28,13 @@ NotifyTargetConfigName:Custom setting to select Configuration item(s) to send th
 <Parameter name="MAXLEN" value="100"/>
 </Property>
 
+<Property name="MergeHiePatientServiceTargetConfigName">
+<Description>
+Hie patient service merge operation</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="AddrWrapLogic">
 <Description>
 addrWrapLogic : is to decide if we need to wrap the address</Description>
@@ -172,6 +179,15 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+
+
+<property name='mergeHiePatientServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+
 
 <property name='msgType' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
@@ -378,10 +394,38 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+
  
 <if name='CheckMerge' condition='context.msgType="A34"' xpos='200' ypos='1950' xend='200' yend='3150' >
 <true>
- <code name='validateEmpiNumber' xpos='200' ypos='650' >
+ <code name='validateDeleteEmpiNumber' xpos='200' ypos='650' >
 <annotation><![CDATA[Get EMPI(DeleteMRN#)]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Empi(DeleteMRN)...") 
  set i1="" 
@@ -399,13 +443,198 @@ BPL Definition</Description>
 	     	} 			 
 	 	}		 
  	}
+ }
+ 
+ set context.mergeHiePatientServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MergeHiePatientServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.mergeHiePatientServiceTargetConfigName '="")){
+ 	$$$TRACE("MergeHiePatientServiceTargetConfigName: " _ context.mergeHiePatientServiceTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No MergeHiePatientServiceTargetConfigName found.")   	
  }     
  ]]]]><![CDATA[>
 </code>
-</true>
-</if>
 
-<code name='Get Wrap Properties' xpos='200' ypos='250' >
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7MergesToInitiateDemogrJsonNativeId' source='request' target='response' xpos='470' ypos='1000' >
+<annotation><![CDATA[translates iCentra Adt Hl7 to Initiate/Verato merges - Hie Patient Service]]]]><![CDATA[></annotation>
+</transform>
+
+
+<code name='ConvertXmlToJSONAndCallPatientServiceMerges' xpos='1010' ypos='3150' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation (Merges).. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  
+    set myList = $LISTBUILD("primaryIds","toRetireIds")
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)   
+    
+    $$$TRACE("Calling Merge Patient service") 
+    set operType = "MERGE"        
+    set tarConfigName = context.mergeHiePatientServiceTargetConfigName
+    $$$TRACE(" Target Operation: " _ tarConfigName) 
+    set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New() 
+    set httpPingServiceRequestObj.accessToken = context.accessToken
+    set httpPingServiceRequestObj.operationType = operType  
+    set httpPingServiceRequestObj.identifier = context.ihcEmpiNum 
+    set httpPingServiceRequestObj.streamObject = jsonProcessRequest
+    
+    $$$TRACE(" Calling Patient Service "_operType_" - BEGIN ")
+    set status = process.SendRequestSync(tarConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+    $$$TRACE(" Calling Patient Service "_operType_" - END ")
+    set respdata =""
+    if (status=$$$OK){
+	    $$$TRACE("Call PatientService "_operType_" Operation OK status.")      
+        set patServiceResponseData=patientServiceResponse.Stream  
+        set statusCode = patientServiceResponse.Attributes.GetAt("StatusCode")       
+        set stream =   patServiceResponseData
+       	set respData = ""
+       	While 'stream.AtEnd { 
+       		set respData = respData _ stream.ReadLine(,.sc,.eol)       		
+       	}
+        $$$TRACE(" httpStatusCode: "_statusCode)    
+        
+        set respdata = respData _ " JSON Request: "_jsonProcessRequest.StringValue_$CHAR(10)
+        
+        if (statusCode'="200"){
+	    	if (statusCode="401"){
+		   		$$$TRACE("  CheckError... ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token. Response: ["_respData_"]. Retrying...") 
+		   	}elseif (statusCode="400"){
+		    	$$$TRACE("  In Status Code 400... ")
+		    	$$$TRACE(" respData "_respData)
+		    	set tRequest = ##class(Ens.StreamContainer).%New("")	 
+		 		set tStream = ##class(%Stream.GlobalCharacter).%New("")	
+		 		do tStream.Write($ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")) 
+		 		do tStream.Write("  ")
+	 			do tStream.Write(respData)	 
+	 			do tStream.Write($CHAR(10))	 
+	 			set tRequest.Stream = tStream
+ 	 			set tStatus = process.SendRequestSync(context.notifyTargetConfigName,tRequest)
+ 	 			if ('tStatus) {
+      	 			set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while writing the record to a file system. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+      	 		}else{
+		    		set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+      	 		}
+		    }else{			    
+			    set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
+	   		    Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
+	   			$$$TRACE("  lenInDataErrCodeList : "_lenInDataErrCodeList)
+	   			For i=1:1:lenInDataErrCodeList {
+		   			set listItem = $List(inputDataErrCodeList,i)
+					Set isInDataErrCodeFound = respdata[ listItem	
+					$$$TRACE("  isInDataErrCodeFound:"_isInDataErrCodeFound_" ErrCode:"_listItem)
+					if (isInDataErrCodeFound=1) quit				
+				 }
+				 if (isInDataErrCodeFound=1) {
+		    		$$$TRACE(" InputDataError.. errorText: "_respdata)
+	        		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Skipping the record... Response from Patient Service merge Operation: "_respdata)
+				 }else{							 
+		    		$$$TRACE("  DisableMsgError.... ")
+        			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from Patient Service merge Operation: "_respData) 
+				 }
+		    }
+		}else {
+        		$$$TRACE("PatientService merge call status 200 OK !!! ")
+        		Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName) 
+        		
+        		set respJSONstring = respData          		
+          		$$$TRACE(" respData "_respData)
+          		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring)          		
+          		set iterator =  consumedJSONobj.%GetIterator()
+                 while iterator.%GetNext(.key,.value) { 
+                 	$$$TRACE(" Key: "_key_" Value: "_value)
+                 	if (key="status"){
+	                 	 if (value="SUCCESS"){
+		                 	$$$TRACE(" Status: "_value)	                 	   
+	                 	 }else{
+		                 	 $$$TRACE(" Status: "_value)
+		                 	 set context.errResp = "1"
+		                 	
+		                 	set tRequest = ##class(Ens.StreamContainer).%New("")	 
+		 		 			set tStream = ##class(%Stream.GlobalCharacter).%New("")	 
+		 		 			do tStream.Write($ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :"))
+		 		 			do tStream.Write("  ")
+	 			 			do tStream.Write(respData)
+	 			 			do tStream.Write($CHAR(10))	 
+	 			 			set tRequest.Stream = tStream
+ 	 			 			set tStatus = process.SendRequestSync(context.notifyTargetConfigName,tRequest)
+ 	 			 			if ('tStatus) {
+      	 						set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while writing the record to a file system. "_$SYSTEM.Status.GetOneErrorText(tStatus))
+      	 		 			}
+    
+		                 	 $$$TRACE(" respJSONstring (ERRTXT): "_respJSONstring)	
+		                 	 set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
+	   						 Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
+	   						 $$$TRACE("  lenInDataErrCodeList : "_lenInDataErrCodeList)
+	   						 For i=1:1:lenInDataErrCodeList {
+		   						 set listItem = $List(inputDataErrCodeList,i)
+								Set isInDataErrCodeFound = respJSONstring[ listItem	
+								$$$TRACE("  isInDataErrCodeFound:"_isInDataErrCodeFound_" ErrCode:"_listItem)
+								if (isInDataErrCodeFound=1) quit				
+							 }
+							 if (isInDataErrCodeFound=1) {
+		    					$$$TRACE(" InputDataError.. errorText: "_respJSONstring)
+	        					set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Skipping the record... Response from Patient Service merge Operation: "_respJSONstring)
+							 }else{
+								 set retryErrCodeList = $LISTFROMSTRING(context.retrySameDisableErrorCodes, ",")
+								 Set lenRetryErrCodeList = $ListLength(retryErrCodeList)
+	   							 $$$TRACE("  lenRetryErrCodeList : "_lenRetryErrCodeList)
+	   							 For i=1:1:lenRetryErrCodeList {
+		   	 						set listItem = $List(retryErrCodeList,i)
+									Set isRetryErrCodeFound = respJSONstring[ listItem	
+									$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_listItem)
+									if (isRetryErrCodeFound=1) quit				
+								 }
+	    						if (isRetryErrCodeFound=1) {
+								    $$$TRACE(" RetryCheckError.. errorText "_respJSONstring)
+	        						Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"TimedOut. No Successful Response from Patient service: ["_respJSONstring_"]. Retrying ..")
+								}else{
+								 if respJSONstring [ "line 1 limit is 30"{
+			                 		 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Length of the Address1 from iCentra Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
+			                 	 }elseif respJSONstring [  "Patient not found for mrn"{
+				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.deleteMmiNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
+			                 	 }else{
+								 	$$$TRACE(" Unknown/Unhandled Error. Response from the Hie Patient Service: errorText: "_respJSONstring)
+	    						 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Unknown/Unhandled error: "_respJSONstring) 
+			                 	 }
+								}
+							 }              	
+		                 }
+	                }
+                 	
+                }                 
+        } 
+    }else{
+	    set errTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    $$$TRACE("Call PatientService ERR TEXT: "_errTxt)
+	    set retryErrCodeList = $LISTFROMSTRING(context.retrySameDisableErrorCodes, ",")
+	   	Set lenRetryErrCodeList = $ListLength(retryErrCodeList)
+	   	$$$TRACE("  lenRetryErrCodeList : "_lenRetryErrCodeList)
+	   	For i=1:1:lenRetryErrCodeList {
+		   	 set listItem = $List(retryErrCodeList,i)
+			Set isRetryErrCodeFound = errTxt[ listItem	
+			$$$TRACE("  isRetryErrCodeFound:"_isRetryErrCodeFound_" ErrCode:"_listItem)
+			if (isRetryErrCodeFound=1) quit				
+		}
+
+	    if (isRetryErrCodeFound=1) {
+		    $$$TRACE(" RetryCheckError.. errorText "_errTxt)
+	        Set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"TimedOut. No Successful Response from Patient merge service: ["_errTxt_"]. Retrying ..")
+		}else{
+			$$$TRACE("Call PatientService ERR TEXT: "_errTxt)
+	    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Unknown/Unhandled error: "_errTxt) 
+		}    	   
+    }          
+]]]]><![CDATA[>
+</code>
+
+</true>
+<false>
+  <code name='Get Wrap Properties' xpos='200' ypos='250' >
 <![CDATA[ 
     set context.AddrWrapLogicValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AddrWrapLogic",.pstatus)
     $$$TRACE("AddrWrapLogicValue: " _ context.AddrWrapLogicValue)
@@ -759,11 +988,7 @@ BPL Definition</Description>
 	set context.gender="UNKNOWN" 
  }
  ]]]]><![CDATA[>
- </code>
-
- 
-
-  
+ </code> 
 	
   <code name='HddLookupForDeathFlag' xpos='470' ypos='1100' >
 <annotation><![CDATA[DeathFlag Mapping for patient]]]]><![CDATA[></annotation>
@@ -789,41 +1014,9 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
  </code>
 
-
-
-
-	
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToInitiateDemogrJsonNativeId' source='request' target='response' xpos='470' ypos='1000' >
 <annotation><![CDATA[translates iCentra Adt Hl7 to Initiate - Hie Patient Service]]]]><![CDATA[></annotation>
 </transform>
-
-<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
-<![CDATA[ 
-  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
-   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
-   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
-   if ($$$ISOK(status)){
-      $$$TRACE("AcsessToken Operation status - OK")
-      set context.restAccessTokenHttpResponse=accessTokenResponse      
-      Set tcharStream = ##class(%GlobalCharacterStream).%New()
-      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
-      set text=""
-      While 'tcharStream.AtEnd {
-        Set text = text_tcharStream.Read($$$MaxStringLength)
-      } 
-      set context.accessToken = text
-      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
-      if (context.accessToken=""){
-	      $$$TRACE(" Access Token is blank/empty")
-	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
-	  }      
-    }
-    else {
-	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
-       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
-    }
-   ]]]]><![CDATA[>
-</code>
 
 <code name='ConvertXmlToJSONAndCallPatientService' xpos='1010' ypos='3150' >
 <![CDATA[  
@@ -997,6 +1190,13 @@ BPL Definition</Description>
     }          
 ]]]]><![CDATA[>
 </code>
+
+</false>
+</if>
+
+
+
+
   
 
 </true>
@@ -1051,6 +1251,9 @@ BPL Definition</Description>
 </Value>
 <Value name="8">
 <Value>InputDataErrorCodes</Value>
+</Value>
+<Value name="9">
+<Value>MergeHiePatientServiceTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
