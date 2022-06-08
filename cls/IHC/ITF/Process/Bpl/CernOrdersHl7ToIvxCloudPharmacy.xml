@@ -22,6 +22,26 @@ Ensemble Lookup Table to filter in the Med Orders based on the RXO-1 needed spec
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="DoFilterInByMeds">
+<Description>
+Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filtering-in based on a med list.</Description>
+<Type>%Boolean</Type>
+</Property>
+
+<Property name="FilterInRouteTable">
+<Description>
+Ensemble Lookup Table to filter in the Med Orders based on the RXO-1 needed specificially for the  IVXCloud services</Description>
+<Type>%String</Type>
+<InitialExpression>"IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy.Lookup.AllowedRoute"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="DoFilterInByRoute">
+<Description>
+Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filtering-in based on a Route list.</Description>
+<Type>%Boolean</Type>
+</Property>
+
 <Property name="HddTargetConfigName">
 <Description>
 HDD Operation: The target name used for HDD calls</Description>
@@ -38,7 +58,7 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,NotAllowedLocations:Additional,HddTargetConfigName:Additional,FilterInMedsTable:Additional</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,NotAllowedLocations:Additional,HddTargetConfigName:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -93,45 +113,31 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 ]]></Implementation>
 </Method>
 
-<Method name="hddNcidToRepWork">
+<Method name="hddWork">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>process:IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy,hddTargetConfigName:%String,hddNcid:%String,hddContext:%String,hl7Detail:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	$$$TRACE("HDD work for NCID to REP starting now")
-	set hddreturnrep =""
-	set hddResponse =""
-	set hddObj =""
-	set HddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
-	do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(HddRepRequest, hddNcid, hddContext, hl7Detail)
-	$$$TRACE("Created HDD request object for: " _hl7Detail_ ". For NCID: "_hddNcid _" Using HddTargetConfigName: " _hddTargetConfigName_ " Using HDD Context: " _hddContext)
-	$$$TRACE("Actually sending the HDD REQUEST from local class method...")
-	set tStatus=process.SendRequestSync(hddTargetConfigName,HddRepRequest,.hddResponse)
-	if $$$ISERR(tStatus){
-		$$$TRACE("CALL to HDD returned an error status or failed to execute.")
-		set tSC=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure for this HDD request for:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
-	}else{
+	
 		try{
-			$$$TRACE("Actually received HDD RESPONSE - no error encountered")
-			set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(hddResponse, hl7Detail)
-			$$$TRACE("hddObj.rep length: ["_$LENGTH(hddObj.Rep)_"]")
-			if ((hddObj '= "") && ($LENGTH(hddObj.Rep)>0)){
-				set hddreturnrep = hddObj.Rep
-				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddObj.NCID_ ", HDD Context: " _hddContext )
+			Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(hddNcid, hl7Detail, hddContext, hddTargetConfigName, process, .hddreturnrep) 
+			$$$TRACE("hddreturnrep length: **"_$LENGTH(hddreturnrep)_"**")
+			if ((hddreturnrep '= "") && ($LENGTH(hddreturnrep)>0)){
+				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddNcid_ ", HDD Context: " _hddContext )
 				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
 			}else{
 				//Log error
-				$$$TRACE("Unexpected Error - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup:"_hl7Detail_ ". For NCID: "_hddNcid _"Using HDD Context: " _hddContext _" Using HddTargetConfigName: " _hddTargetConfigName)
+				$$$TRACE("Unexpected HDD Return - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup: ["_hl7Detail_ "]. For NCID: ["_hddNcid _"].  Using HDD Context: [" _hddContext _"]. Using HddTargetConfigName: [" _hddTargetConfigName_"].")
 			}
+			return hddreturnrep
 			
 		}Catch eException {
 			Set exceptStatus = eException.AsStatus()
 			$$$LOGSTATUS(exceptStatus)
-			$$$TRACE("There was an issue with resolving the HDD Response.  HDD NCIDtoRep lookup:["_hl7Detail_ "]. For NCID: ["_hddNcid _"] Using HDD Context: ["_hddContext_"]  Using HddTargetConfigName: ["_hddTargetConfigName_"]  Error Caught: ****"_exceptStatus)
-			
+			$$$TRACE("There was an issue with resolving the HDD Response.  HDD NCIDtoRep lookup: -->"_hl7Detail_ "<--. For NCID: -->"_hddNcid _"<--. Using HDD Context: -->"_hddContext_"<--.  Using HddTargetConfigName: -->"_hddTargetConfigName_"<--.  Error Caught: ****"_exceptStatus)
+			quit
 		}
-	}
-	quit hddreturnrep
 ]]></Implementation>
 </Method>
 
@@ -155,6 +161,15 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 <Value name="5">
 <Value>FilterInMedsTable</Value>
 </Value>
+<Value name="6">
+<Value>DoFilterInByMeds</Value>
+</Value>
+<Value name="7">
+<Value>FilterInRouteTable</Value>
+</Value>
+<Value name="8">
+<Value>DoFilterInByRoute</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -163,11 +178,12 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='4050' width='2000' >
+<process language='objectscript' request='Ens.Request' height='4350' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='TargetOperationTable' type='%String' instantiate='0' />
 <property name='FilterInMedsTable' type='%String' instantiate='0' />
+<property name='FilterInRouteTable' type='%String' instantiate='0' />
 <property name='TargetList' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
@@ -182,6 +198,11 @@ BPL Definition</Description>
 <property name='NotAllowedLocations' type='%Library.String' collection='list' instantiate='0' />
 <property name='isNotValidLocation' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='doAdditionalPOCUnitLookup' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='MSH9MsgType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='10' />
+</parameters>
+</property>
 <property name='MSH4LocationNCID' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -276,6 +297,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='150' />
 </parameters>
 </property>
+<property name='pid18' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
 <property name='room' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='150' />
@@ -311,7 +337,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='Orc5OrderStatus' type='%String' instantiate='0' >
+<property name='orc5OrderStatus' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -383,8 +409,8 @@ BPL Definition</Description>
 <property name='rxc2CompCodeIDLength' type='%Integer' instantiate='0' />
 <property name='rxeRxcCount' type='%Integer' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='3800' >
-<scope xpos='200' ypos='250' xend='200' yend='3700' >
+<sequence xend='200' yend='4100' >
+<scope xpos='200' ypos='250' xend='200' yend='4000' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Scope for Cerner Med Orders to IVXCloud]]]]><![CDATA[></annotation>
 </trace>
@@ -417,7 +443,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='SetAllowedMedsTable' xpos='200' ypos='650' >
+<code name='SetAllowedMedsTable' xpos='200' ypos='750' >
 <annotation><![CDATA[Setting Target Operation Table]]]]><![CDATA[></annotation>
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterInMedsTable", .configValue)
  if ($$$ISOK(pstatus)){
@@ -432,7 +458,22 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='HddTargetConfigName Property' xpos='200' ypos='750' >
+<code name='SetAllowedRouteTable' xpos='200' ypos='775' >
+<annotation><![CDATA[Setting Target Operation Table]]]]><![CDATA[></annotation>
+<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterInRouteTable", .configValue)
+ if ($$$ISOK(pstatus)){
+    set context.FilterInRouteTable = configValue
+    $$$TRACE("FilterInRouteTable " _context.FilterInRouteTable)
+	set retVal = ##class(Ens.Util.LookupTable).%ExistsTable(context.FilterInRouteTable)
+    if (retVal = 0){
+         Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table not found. Required for IVXCloud Pharmacy Med Order processing data. File: " _context.FilterInRouteTable)  
+    }
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get FilterInRouteTable access which is required for processing Order messages for the IVXCloud Pharmacy Med Order Data!")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='HddTargetConfigName Property' xpos='200' ypos='850' >
 <annotation><![CDATA[Verify and Get HddTargetConfigName Property from component property settings]]]]><![CDATA[></annotation>
 <![CDATA[ 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName",.configValue)
@@ -458,7 +499,7 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<code name='ValidateMessage' xpos='200' ypos='850' >
+<code name='ValidateMessage' xpos='200' ypos='950' >
 <annotation><![CDATA[Check message DocType]]]]><![CDATA[></annotation>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
  set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
@@ -467,7 +508,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='GetMSH_10_MsgControlID' xpos='200' ypos='950' >
+<code name='GetMSH_10_MsgControlID' xpos='200' ypos='1050' >
 <annotation><![CDATA[Get MSH-10 Message Control ID]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting MSH:MessageControlID - MSH-10 value. ")
   set context.MSH10 = request.GetValueAt("MSH:MessageControlID")
@@ -475,7 +516,7 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<code name='GetMSH4FacilityValidateFacility' xpos='200' ypos='1050' >
+<code name='GetMSH4FacilityValidateFacility' xpos='200' ypos='1150' >
 <annotation><![CDATA[Get MSH-4 value and ensure facility value is valid numeric value]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate msh4Facility(MSH-4)...") 
     set context.MSH4LocationNCID = request.GetValueAt("MSH:SendingFacility.namespaceID")
@@ -486,7 +527,7 @@ BPL Definition</Description>
     }
   ]]]]><![CDATA[>
 </code>
-<code name='CheckForNotWantedMSH4Loc' xpos='200' ypos='1150' >
+<code name='CheckForNotWantedMSH4Loc' xpos='200' ypos='1250' >
 <![CDATA[ set getNotAllowedLocations=""
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"NotAllowedLocations",.getNotAllowedLocations)
  //MSH-4 is going to be an NCID - NotAllowedLocation setting value will have to match that
@@ -516,7 +557,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<code name='CheckIfNotValidLocation' xpos='200' ypos='1250' >
+<code name='CheckIfNotValidLocation' xpos='200' ypos='1350' >
 <![CDATA[ if (context.isNotValidLocation=1)
   { 
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "PHI - Location in MSH-4 is not a wanted location value to send to IVXCloud. Not wanted value is: ["_context.MSH4LocationNCID_"]. Skipping the record. ****HL7 Record - Message Control ID: " _ context.MSH10 )
@@ -526,28 +567,7 @@ BPL Definition</Description>
      $$$TRACE("Value of MSH-4: ["_context.MSH4LocationNCID _ "] Is allowed to send to IVXCloud.")  
   }]]]]><![CDATA[>
 </code>
-<code name='GetRXOoneValue' xpos='200' ypos='1325' >
-<annotation><![CDATA[Get RXO-1.1 Value]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Get RXO-1.1 Value....")
- //Get Get RXO-1.1 Value and check against allowed Meds table
- set RXO1 = request.GetValueAt("RXOgrp(1).RXO:RequestedGiveCode.identifier")
- 
-   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FilterInMedsTable,RXO1,.returnVal)
-   $$$TRACE("Return value from lookup table ="_returnVal)
- 
-   if ($$$ISOK(pstatus)&&(returnVal="1"))
-   {
-        $$$TRACE("Found an Allowed Med, so Pharmacy Med Order is allowed!")
-   }
-   else
-   {
-		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
-	 
-   }
-  
-]]]]><![CDATA[>
-</code>
-<code name='GetEmpiValidateEmpi' xpos='200' ypos='1350' >
+<code name='GetEmpiValidateEmpi' xpos='200' ypos='1450' >
 <annotation><![CDATA[Get EMPI and Validate it is a valid numeric number]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("GET and Validate ONLY EMPI(CMRN) PID-3.1...") 
  
@@ -567,7 +587,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1450' >
+<code name='GetPID_18_FINAndValidate' xpos='200' ypos='1550' >
 <annotation><![CDATA[Get PID_18 Cerner FIN Number and Validate it - make sure it is not blank.]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Getting PID-18 Encounter - Cerner FINANCIAL (FIN) number....")
  Set context.pid18=request.GetValueAt("PID:PatientAccountNumber.ID")
@@ -582,7 +602,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='VerifyOrderType' xpos='200' ypos='1550' >
+<code name='VerifyOrderType' xpos='200' ypos='1650' >
 <annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
  set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
@@ -591,6 +611,7 @@ BPL Definition</Description>
  $$$TRACE("Here is the compare string: "_getFirstThreeChar ) 
  if ((getFirstThreeChar="RDE") || (getFirstThreeChar="RDS")){
    $$$TRACE("We have a Pharmacy Order! Order Type is: "_ getFirstThreeChar)
+   set context.MSH9MsgType=getFirstThreeChar
    
  }else{
  $$$TRACE("We don't have a Pharmacy HL7 MSG Event Type for IVXCloud Pharmacy Med Orders, Sending Error and record will be skipped. Order type: "_ context.MSH9MsgType)
@@ -598,7 +619,82 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1650' >
+<code name='FilterInByMed' xpos='200' ypos='1750' >
+<annotation><![CDATA[Get DoFilterInByMeds boolean and if set then Get RXO-1.1 Value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Get DoFilterInByMeds boolean and if set then Get RXO-1.1 Value....")
+ //Get DoFilterInByMeds anf if set then Get Get RXO-1.1 Value and check against allowed Meds table
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoFilterInByMeds",.filterInByMeds)  
+ $$$TRACE("DoFilterInByMeds is:"_filterInByMeds)
+ if ((filterInByMeds=1) && (context.MSH9MsgType="RDE")){
+	 set RXO1 = request.GetValueAt("RXOgrp(1).RXO:RequestedGiveCode.identifier")
+     set RXO1UPPERCASED=  $ZCONVERT(RXO1,"U")
+     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FilterInMedsTable,RXO1UPPERCASED,.returnVal)
+     $$$TRACE("Return value from lookup table ="_returnVal)
+ 
+   if ($$$ISOK(pstatus)&&(returnVal="1"))
+   {
+        $$$TRACE("Found an Allowed Med, so RDE Pharmacy Med Order is allowed!")
+   }
+   else
+   {
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+	 
+   }
+	 
+ }elseif (filterInByMeds &&(context.MSH9MsgType="RDS")){
+	 
+	  $$$TRACE("RDS Pharmacy Med Order is allowed since the RXO segment does not comes out all the time! - Other filterIn will have to handle RDS messages.")
+ }
+ 
+  
+]]]]><![CDATA[>
+</code>
+<foreach name='FilterInByRoute' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='1850' xend='200' yend='350' >
+<annotation><![CDATA[Work RXE group for RXR Route value and check against DoFilterInByRoute]]]]><![CDATA[></annotation>
+<code name='GetDoFilterInByRouteAndRouteVal' xpos='200' ypos='250' >
+<annotation><![CDATA[If DoFilterInByRoute Setting is set then GET RXR Route value and check if it is allowed ]]]]><![CDATA[></annotation>
+<![CDATA[  $$$TRACE("If DoFilterInByRoute Setting is set then GET RXR Route value and check if it is allowed!")
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoFilterInByRoute",.filterInRoute)  
+ $$$TRACE("DoFilterInByRoute is:"_filterInRoute)
+ if (filterInRoute=1){
+	 //Get NCID in the RXR-1.1
+	 set route = request.GetValueAt("RXEgrp("_context.RXEIndex_").RXR:Route.identifier")
+	 $$$TRACE("Route value to check: "_route)
+	 $$$TRACE("Route Filter In Table: "_context.FilterInRouteTable)
+	if ($ISVALIDNUM(route)=1){
+		  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FilterInRouteTable,route,.returnVal)
+          $$$TRACE("Return value from lookup table ="_returnVal)
+ 
+          if ($$$ISOK(pstatus)&&(returnVal="1")){
+               $$$TRACE("Found an Allowed Route, so Pharmacy Med Order is allowed!")
+          }else {
+	           $$$TRACE("Return value: "_returnVal_" Could not find Route Value in the table.")
+		       Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+          }
+		
+		
+	 }else{
+		 $$$TRACE("No vaild NCID in the RXR-1.1 can't do lookup - will have to let IVXCloud do their own filtering.")
+		 
+	 }
+	 
+	 
+	 
+	 
+ }else{
+	 $$$TRACE("Not doing Filtering by route - Pharmacy Med Order will be processed.")
+	 quit
+ }
+  
+
+
+
+
+
+]]]]><![CDATA[>
+</code>
+</foreach>
+<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='1950' >
 <annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
  Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
@@ -609,7 +705,7 @@ BPL Definition</Description>
   }
   ]]]]><![CDATA[>
 </code>
-<code name='WorkPID8Gender' xpos='200' ypos='1750' >
+<code name='WorkPID8Gender' xpos='200' ypos='2050' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:Sex")
  set context.HL7SpecValue= "PIDgrp.PID:Sex"
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -619,7 +715,7 @@ BPL Definition</Description>
     
     
     Try {
-    	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+    	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
         if ($LENGTH(context.hddreturnrep)>0){
 	         $$$TRACE("PID-8 Rep from local HDD call: "_context.hddreturnrep)
@@ -646,7 +742,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='WorkPID30DeathIndicator' xpos='200' ypos='1850' >
+<code name='WorkPID30DeathIndicator' xpos='200' ypos='2150' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:PatientDeathIndicator")
   set context.HL7SpecValue= "PID:PatientDeathIndicator"
   if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -676,7 +772,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 location Work' xpos='200' ypos='1950' >
+<code name='PV1-3 location Work' xpos='200' ypos='2250' >
 <annotation><![CDATA[Get PV1-3 value and  Validate it - make sure it is not blank. If good set location values for doing HDD Lookup]]]]><![CDATA[></annotation>
 <![CDATA[ 
  
@@ -704,7 +800,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 Location HDD Work' xpos='200' ypos='2050' >
+<code name='PV1-3 Location HDD Work' xpos='200' ypos='2350' >
 <annotation><![CDATA[Do HDD Lookups and work return response]]]]><![CDATA[></annotation>
 <![CDATA[  
  set context.Ncid = context.locationNcid
@@ -715,10 +811,10 @@ BPL Definition</Description>
 
 
  Try {
-	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-	// work return value - HDD call did not error out 
+	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+	$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 	if ($LENGTH(context.hddreturnrep)>0){
-		$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+		// work return value - HDD call did not error out 
 		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
 		//After HDD call set context specific variable to use in setting DTL for PV1-3 location values
 		set patLoc = context.hddreturnrep
@@ -764,7 +860,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 UNITPOCUnitOrclinicLocation HDD Work' xpos='200' ypos='2150' >
+<code name='PV1-3 UNITPOCUnitOrclinicLocation HDD Work' xpos='200' ypos='2450' >
 <annotation><![CDATA[Do UNITPOCUnitOrclinic HDD Lookups and work return response]]]]><![CDATA[></annotation>
 <![CDATA[  
  if (context.doAdditionalPOCUnitLookup = 1){ 
@@ -774,7 +870,7 @@ BPL Definition</Description>
  set context.hddncidtorepcontext = context.PV1ThreeLocUnitOnlyHDDContext // iCentra DISPLAY Context being used to lookup outpatient clinics and unknown locations
  $$$TRACE("Unit or clinic location lookup values being used are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
  Try {
-	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddNcidToRepWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
+	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
 	// work return value - HDD call did not error out 
 	if ($LENGTH(context.hddreturnrep)>0){
 		$$$TRACE("HDD Ncid TO Rep Lookup for POC Unit-Clinic was successfuly!!!")
@@ -806,7 +902,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='MSH_4_Facility' xpos='200' ypos='2250' >
+<code name='MSH_4_Facility' xpos='200' ypos='2550' >
 <annotation><![CDATA[Lookup Facility NCID in HDD and get Rep back and set context variable]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working MSH-4 value for the FACILITY")
  set context.Ncid = context.MSH4LocationNCID
@@ -833,7 +929,7 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderControlID' xpos='200' ypos='2350' >
+<code name='ORCOrderControlID' xpos='200' ypos='2650' >
 <annotation><![CDATA[Lookup ORC-1 OrderControlID NCID in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ set context.Ncid = request.GetValueAt("ORC:OrderControl")
  set context.HL7SpecValue= "ORC:OrderControl"
@@ -859,12 +955,12 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderStatus' xpos='200' ypos='2450' >
+<code name='ORCOrderStatus' xpos='200' ypos='2750' >
 <annotation><![CDATA[Lookup ORC-5 OrderStatus in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ 
-   set context.Ncid = request.GetValueAt("ORC:OrderStatus")
+ set context.Ncid = request.GetValueAt("ORC:OrderStatus")
  set context.HL7SpecValue= "ORC:OrderStatus"
- $$$TRACE("Working: ["_context.HL7SpecValue_"] NCID found is: ["_context.Ncid_"] Checking it against Order Status - complete: ["_context.OrcStatusCompleteNcid_"]")
+ $$$TRACE("Working: ["_context.HL7SpecValue_"] NCID found is: ["_context.Ncid_"] ")
  
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
 		set context.hddncidtorepcontext = context.OrderStatusContext
@@ -876,7 +972,7 @@ BPL Definition</Description>
 		$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
         //set context specific variable to use in setting DTL		
-		set context.Orc5OrderStatus = context.hddreturnrep  
+		set context.orc5OrderStatus = context.hddreturnrep  
 	    } Catch eException {
 		     Set exceptStatus = eException.AsStatus()
 		     $$$LOGSTATUS(exceptStatus)
@@ -891,7 +987,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2550' >
+<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='2850' >
 <annotation><![CDATA[Lookup ORC-7 QuantityTimingIntervalRepeatPattern In HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[  set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
  set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
@@ -930,8 +1026,8 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<trace name='DoneWorkingOrc' value='"Done Working ORC "' xpos='200' ypos='2650' />
-<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2750' xend='200' yend='950' >
+<trace name='DoneWorkingOrc' value='"Done Working ORC "' xpos='200' ypos='2950' />
+<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3050' xend='200' yend='950' >
 <annotation><![CDATA[Do the HDD Work for the RXE Group]]]]><![CDATA[></annotation>
 <trace name='Inside RXE Group' value='"Inside RXE Group"' xpos='200' ypos='250' />
 <code name='Working RXEQTIntervalRepeatPattern' xpos='200' ypos='350' >
@@ -1185,10 +1281,10 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='2850' />
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToIvxCloudPharmacy' source='request' target='response' xpos='200' ypos='2950' />
-<trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='3050' />
-<code name='SetTargetFromLookup' xpos='200' ypos='3150' >
+<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='3150' />
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToIvxCloudPharmacy' source='request' target='response' xpos='200' ypos='3250' />
+<trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='3350' />
+<code name='SetTargetFromLookup' xpos='200' ypos='3450' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[  $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup Table - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
@@ -1204,7 +1300,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3250' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='3550' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -1225,7 +1321,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetListIndex' xpos='200' ypos='3350' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetListIndex' xpos='200' ypos='3650' xend='200' yend='450' >
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetListIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -1233,12 +1329,12 @@ BPL Definition</Description>
 </call>
 <trace name='TraceOut' value='"Message Sent"' xpos='200' ypos='350' />
 </foreach>
-<code name='Reset Error' xpos='200' ypos='3450' >
+<code name='Reset Error' xpos='200' ypos='3750' >
 <annotation><![CDATA[Reset Error Counter]]]]><![CDATA[></annotation>
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='3550' xend='200' yend='350' >
+<catchall xpos='200' ypos='3850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
