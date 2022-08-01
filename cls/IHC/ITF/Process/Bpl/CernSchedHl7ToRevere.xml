@@ -13,8 +13,13 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="NCIDsToSkip">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>HddTargetConfigName:Additional,NCIDsToSkip:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -25,6 +30,9 @@ HDD Operation: The target name used for HDD calls</Description>
 <Value name="1">
 <Value>HddTargetConfigName</Value>
 </Value>
+<Value name="2">
+<Value>NCIDsToSkip</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -33,7 +41,7 @@ HDD Operation: The target name used for HDD calls</Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='3800' width='2000' >
+<process language='objectscript' request='Ens.Request' height='3850' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='configName' type='%String' initialexpression='""' instantiate='0' >
@@ -153,9 +161,14 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='NcidsToSkip' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='3550' >
-<scope xpos='200' ypos='250' xend='200' yend='3450' >
+<sequence xend='200' yend='3250' >
+<scope xpos='200' ypos='250' xend='200' yend='3150' >
 <trace name='Inside BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -227,6 +240,15 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
+<code name='Get NCIDsToSkip' xpos='200' ypos='750' >
+<![CDATA[  set NcidsToSkip = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","NCIDsToSkip",.pstatus)
+ if ($$$ISOK(pstatus)){
+	 set context.NcidsToSkip = NcidsToSkip
+ 	$$$TRACE("NcidsToSkip" _ context.NcidsToSkip)
+ }else{	 
+ 	 $$$TRACE("Config setting NcidsToSkip not set. Using default value of "_context.NcidsToSkip)	 
+ } ]]]]><![CDATA[>
+</code>
 <code name='validateMessage' xpos='200' ypos='1150' >
 <annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Message Begins....") 
@@ -239,7 +261,7 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<if name='validateMessage' condition='context.isValidationPassed=1' xpos='200' ypos='1250' xend='200' yend='3200' >
+<if name='validateMessage' condition='context.isValidationPassed=1' xpos='200' ypos='1250' xend='200' yend='2900' >
 <true>
 <code name='check patient type' xpos='470' ypos='1400' >
 <![CDATA[  set context.patientType = request.GetValueAt("PIDgrp(1).PV1:PatientType") 
@@ -255,59 +277,7 @@ BPL Definition</Description>
   $$$TRACE("Trigger Event : " _ context.msgType) 
 ]]]]><![CDATA[>
 </code>
-<code name='Prep GetRepFromNcid ' xpos='470' ypos='1600' disabled="true">
-<annotation><![CDATA[Prep GetRepFromNcid ]]]]><![CDATA[></annotation>
-<![CDATA[
- 
- set context.hddRepRequest = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).CreateHddRepReqObject()
-
- $$$TRACE(" After creating Ncid Hdd lookup request object")  
-
-
- set MSH4 = request.GetValueAt("MSH:4.1") 
- if (MSH4 '= "" && $ISVALIDNUM(MSH4)= "1") 
- {
-     Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest , MSH4 , context.hddContextICentraToIHC50035, "MSH.4")  	  	
-         		
- }
- else {
-    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MSH.4.1 is Null or invalid NCID, Skipping the record.")
- }
- 
- 
- ]]]]><![CDATA[>
-</code>
-<code name='Call GetRepFromNcid' xpos='470' ypos='1700' disabled="true">
-<annotation><![CDATA[Call GetRepFromNcid]]]]><![CDATA[></annotation>
-<![CDATA[  
-  
-  
-   set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
- if ('tStatus) {     
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected HDD response returned or HDD call failure. "_$SYSTEM.Status.GetOneErrorText(tStatus))
- } else { 
-   set context.hddRepResponse= hddRepResponse
- }
- 
-  ]]]]><![CDATA[>
-</code>
-<code name='Retrieve Facility Rep' xpos='470' ypos='1800' disabled="true">
-<annotation><![CDATA[Retrieve Facility Rep]]]]><![CDATA[></annotation>
-<![CDATA[ 
- set context.facilityRep ="" 
- set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).GetHddObject(context.hddRepResponse, "MSH.4")
- if (hddObj '= ""){
-    if (hddObj.Rep '= ""){
-      set context.facilityRep = hddObj.Rep
-       $$$TRACE(" *****   context.facilityRep" _ context.facilityRep)  
-      
- }
-
- }
- 
- ]]]]><![CDATA[>
-</code>
-<code name='FacilityFilter' xpos='470' ypos='1900' >
+<code name='FacilityFilter' xpos='470' ypos='1600' >
 <annotation><![CDATA[FacilityFilter  ]]]]><![CDATA[></annotation>
 <![CDATA[  
   Set facility = request.GetValueAt("MSH:SendingFacility.namespaceID")
@@ -324,7 +294,7 @@ BPL Definition</Description>
   }
    ]]]]><![CDATA[>
 </code>
-<code name='check MSH-4' xpos='470' ypos='2000' >
+<code name='check MSH-4' xpos='470' ypos='1700' >
 <![CDATA[ set facNcid=request.GetValueAt("MSH:SendingFacility.NamespaceID")
  $$$TRACE("Sending FAC NCID: " _ facNcid)   
  if ($ISVALIDNUM(facNcid)'="1"){
@@ -333,7 +303,7 @@ BPL Definition</Description>
 	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(facNcid, "Invalid MSH-4 ["_ facNcid _"]. Skipping the record." _ "Hl7 Msg:[" _ request.RawContent _"]")
  }]]]]><![CDATA[>
 </code>
-<code name='check empi' xpos='470' ypos='2100' >
+<code name='check empi' xpos='470' ypos='1800' >
 <![CDATA[ set k1="",tSC=1 
  For { 
      Set k1=request.GetNextIndex("PIDgrp(1).PID:3()",k1,.tSCTrans)  Quit:k1=""          
@@ -350,7 +320,7 @@ BPL Definition</Description>
 	  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.empiNumber, "Invalid Empi number: ["_ context.empiNumber _"]. Skipping the record.")
  }]]]]><![CDATA[>
 </code>
-<code name='check appt id' xpos='470' ypos='2200' >
+<code name='check appt id' xpos='470' ypos='1900' >
 <![CDATA[ 
  set context.apptId=request.GetValueAt("SCH:PlacerAppointmentID.EntityIdentifier")
  $$$TRACE("Appt Id: " _ context.apptId)   
@@ -362,7 +332,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='EventFilter' xpos='470' ypos='2300' >
+<code name='EventFilter' xpos='470' ypos='2000' >
 <annotation><![CDATA[Event Type]]]]><![CDATA[></annotation>
 <![CDATA[
     set event = request.GetValueAt("MSH:MessageType.TriggerEvent")    
@@ -376,7 +346,7 @@ BPL Definition</Description>
   }
    ]]]]><![CDATA[>
 </code>
-<code name='remove me ' xpos='470' ypos='2400' >
+<code name='remove me ' xpos='470' ypos='2100' >
 <annotation><![CDATA[remove me ]]]]><![CDATA[></annotation>
 <![CDATA[  set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus)){
@@ -390,7 +360,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='createHddRequests GetRepFromNcid' xpos='466' ypos='2500' >
+<code name='createHddRequests GetRepFromNcid' xpos='470' ypos='2200' >
 <![CDATA[
  
   set context.facilityId = request.GetValueAt("MSH:SendingFacility.NamespaceID") 
@@ -486,6 +456,18 @@ BPL Definition</Description>
  set pv118PatTypeNcid = request.GetValueAt("PIDgrp(1).PV1:PatientType") 	
  $$$TRACE("PV1-18 is " _ pv118PatTypeNcid )	
  if (pv118PatTypeNcid '= "" && $ISVALIDNUM(pv118PatTypeNcid )= "1"){
+  
+    if ($LISTFIND($LISTFROMSTRING(context.NcidsToSkip,","), pv118PatTypeNcid) = 0) 
+       {
+         $$$TRACE("pv118PatTypeNcid : "_pv118PatTypeNcid_" is not present in the NcidsToSkip list. Continuing to NCID to Rep conversion")
+         Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest, pv118PatTypeNcid,  context.hddContextHelp, "PV118:PatientType")  
+       } 
+     else
+     {
+        $$$TRACE("pv118PatTypeNcid : "_pv118PatTypeNcid_" is present in the NcidsToSkip list. Skipping NCID to Rep conversion")
+     }
+  
+  
    Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).AddNcidToRepObject(context.hddRepRequest, pv118PatTypeNcid,  context.hddContextHelp, "PV118:PatientType")  
  } 
   set k1="",tSC=1 
@@ -528,7 +510,7 @@ BPL Definition</Description>
     }
   }	]]]]><![CDATA[>
 </code>
-<code name='Hdd call for ncid to rep' xpos='470' ypos='2600' >
+<code name='Hdd call for ncid to rep' xpos='470' ypos='2300' >
 <![CDATA[ set tStatus=process.SendRequestSync(context.hddTargetConfigName,context.hddRepRequest,.hddRepResponse)
  if ('tStatus) {
      set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText("Ncid to Rep HDD call failed.")) }
@@ -536,22 +518,22 @@ BPL Definition</Description>
    set context.hddRepResponse= hddRepResponse
  }]]]]><![CDATA[>
 </code>
-<trace name='number of HDD objects ' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='470' ypos='2700' />
-<code name='getTargetConfigList' xpos='470' ypos='2800' >
+<trace name='number of HDD objects ' value='"Hdd return count(getRepFromNcid): " _ context.hddRepResponse.listOfHDDobj.Count()' xpos='470' ypos='2400' />
+<code name='getTargetConfigList' xpos='470' ypos='2500' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToRevere' source='request' target='context.ecetRequest' xpos='470' ypos='2900' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernSchedHl7ToRevere' source='request' target='context.ecetRequest' xpos='470' ypos='2600' >
 <annotation><![CDATA[translates Ecet Hl7 to Oracle Ecet Request]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='3000' xend='200' yend='350' >
+<foreach name='SendToEachTargetconfir' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2700' xend='200' yend='350' >
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='IHC.ITF.Request.EcetRequest' >
 <assign property="callrequest" value="context.ecetRequest" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESETERROR' xpos='470' ypos='3100' >
+<code name='RESETERROR' xpos='470' ypos='2800' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 
 ]]]]><![CDATA[>
@@ -564,7 +546,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3300' xend='200' yend='350' >
+<catchall xpos='200' ypos='3000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
