@@ -70,7 +70,7 @@ Set HL7 for sending to IHC HIE which will then send on to UHIN. REST services wi
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='2750' width='2000' >
+<process language='objectscript' request='Ens.Request' height='2850' width='2000' >
 <context>
 <property name='Target' type='%String' instantiate='0' >
 <parameters>
@@ -126,6 +126,7 @@ BPL Definition</Description>
 <property name='FacilityDomain' type='%String' initialexpression='"526002805"' instantiate='0' />
 <property name='FacilityNPIContext' type='%String' initialexpression='"521482623"' instantiate='0' />
 <property name='ProcessingID' type='%String' instantiate='0' />
+<property name='Birthday' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='2600' >
 <scope xpos='200' ypos='250' xend='200' yend='2500' >
@@ -392,7 +393,7 @@ BPL Definition</Description>
 	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg )
  }]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='2150' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetIndex' xpos='200' ypos='2150' xend='200' yend='1200' >
 <annotation><![CDATA[Sending to IHC HIE target ]]]]><![CDATA[></annotation>
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -400,6 +401,61 @@ BPL Definition</Description>
 </request>
 </call>
 <trace name='TraceOutSendInfo' value='"TargetCountIndex: "_context.TargetIndex_", Message Sent to target: "_ context.TargetList.GetAt(context.TargetIndex)' xpos='200' ypos='350' />
+<code name='verify if patient &lt; 45 days old' xpos='200' ypos='450' >
+<![CDATA[ set maxAge = ""
+ set sendToNewborn = 0
+ set today = $ZDATE($HOROLOG,3)
+ $$$TRACE("Today: "_today)
+ set age = $system.SQL.DATEDIFF("day",context.Birthday,today)
+ $$$TRACE("Age: "_age)
+ if (age < 45) {
+    $$$TRACE("Newborn record send to newborn")
+    set sendToNewborn =1
+ }]]]]><![CDATA[>
+</code>
+<if condition='sendToNewborn = 1' xpos='200' ypos='550' xend='200' yend='1100' >
+<true>
+<transform class='IHC.ITF.Transform.Dtl.CernAdtHl7ToIhcHieBase64UhinRestNewbornFollowup' source='request' target='response' xpos='335' ypos='700' />
+<code name='DoPostTranslationWork for newborn' xpos='335' ypos='800' >
+<![CDATA[ $$$TRACE("Do any remaining message work post DTL-Base64Encoding")
+ $$$TRACE("Cloning Response!")
+ set context.NewResponseClone = response.%ConstructClone(1)
+ $$$TRACE("Response Cloned! Now to Base64Encode Clone!")
+ set context.ResponseBase65Encoded = $SYSTEM.Encryption.Base64Encode(context.NewResponseClone.OutputToString())
+ $$$TRACE("Cloned Response is now Base64 Encoded!")
+ $$$TRACE("Here's the Base64 Encoded data: "_context.ResponseBase65Encoded )
+ 
+
+
+
+]]]]><![CDATA[>
+</code>
+<code name='CreateHttpGenericStream for newborn' xpos='335' ypos='900' >
+<annotation><![CDATA[Creating Generic HTTP Stream to use to send to the REST service]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set newStreamContainer = ##class(%GlobalCharacterStream).%New()
+ do newStreamContainer.Write(context.ResponseBase65Encoded)
+ set tStatus = newStreamContainer.Rewind()
+ $$$TRACE("New Stream Container with Base64Encoded data: "_newStreamContainer)
+ 
+ set context.NewResponseStream = ##class(EnsLib.HTTP.GenericMessage).%New()
+ do context.NewResponseStream.StreamSet(newStreamContainer)
+ set streamSize = newStreamContainer.SizeGet()
+ $$$TRACE("StreamContainer Size is: "_streamSize)
+ set httpHeaderContentLen = "Content-Length="_streamSize
+ do context.NewResponseStream.SetHTTPHeaders(httpHeaderContentLen)
+ 
+ 
+ $$$TRACE("Base64 Encoded Clone set to the stream. Stream is: "_context.NewResponseStream)
+]]]]><![CDATA[>
+</code>
+<call name='SendToEachTarget for newborn' target='@context.TargetList.GetAt(context.TargetIndex)' async='1' xpos='335' ypos='1000' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.NewResponseStream" action="set" />
+</request>
+</call>
+</true>
+</if>
 </foreach>
 <code name='ResetErrors' xpos='200' ypos='2250' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
