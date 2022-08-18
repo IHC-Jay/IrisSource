@@ -28,36 +28,270 @@
  set msh4=source.GetValueAt("MSH:SendingFacility.NamespaceID")
  if (msh4 '="") {
     $$$TRACE("MSH-4="_msh4)
-    set npiStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(msh4,"MSH-4",context.InterfaceContext,context.FacilityDomain,context.FacilityNPIContext,context.HddTargetConfigName,.process, .npi)
-    if ((npiStatus["ITFCOMMON:10109") || (npiStatus["Web service returned(error):")){
-       $$$TRACE("HDD Call Returned Error")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_npiStatus)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (npiStatus="") {
-       $$$TRACE("Unable to map MSH-4, skipping record")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid MSH-4: ["_msh4_"] (Facility), unable to map unique rep to rep to NPI using inbound context "_context.InterfaceContext_" and Domain "_context.FacilityDomain_" and outbound context "_context.FacilityNPIContext_". Skipping the record.")
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+    try {
+       set npiStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(msh4,"MSH-4",context.InterfaceContext,context.FacilityDomain,context.FacilityNPIContext,context.HddTargetConfigName,.process, .npi)
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       if exVar.Code [ "ITFCOMMON:10108" {
+          // InutDataError - one of the input parameters from source is blank.
+          // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+          //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10109") {
+          // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set doctorNpiAlert = ##class(IHC.ITF.ITFCOMMON.Utility).CreateAlert("ERROR #ITFCOMMON:10103: - (Warn Msg Error) Unable to map facility NPI. Record has been sent anyway but NPI value is set to blank. Please note the attached record may be truncated due to size of record. The method used for this lookup is getUniqueRepByRep the facility number is "_msh4_" the from context is "_context.InterfaceContext_" the domain is "_context.FacilityDomain_" and the to context is "_context.FacilityNPIContext, process.%ConfigName)
+          do process.SendAlert(doctorNpiAlert)
+          //set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,exVarData)
+          //Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10106") {
+          // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }else{
+          //Any other Unexpected error
+          $$$TRACE("Unknown error: "_exVar.Data)
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }
     }
  }]]]]><![CDATA[></code>
 <assign value='npi' property='target.{MSH:SendingFacility.NamespaceID}' action='set' />
+<assign value='"OMNI-Lab"' property='target.{MSH:ReceivingApplication.NamespaceID}' action='set' />
+<assign value='"UTAH NBS Lab"' property='target.{MSH:ReceivingFacility.NamespaceID}' action='set' />
+<assign value='"OML"' property='target.{MSH:MessageType.MessageCode}' action='set' />
+<assign value='"O21"' property='target.{MSH:MessageType.TriggerEvent}' action='set' />
+<assign value='' property='target.{MSH:ProcessingID}' action='remove' />
+<assign value='context.ProcessingID' property='target.{MSH:ProcessingID.ProcessingID}' action='set' />
+<assign value='"2.5.1"' property='target.{MSH:VersionID.VersionID}' action='set' />
+<assign value='"IMTN"' property='target.{PIDgrpgrp(1).PIDgrp.PID:PatientIdentifierList(1).AssigningAuthority.NamespaceID}' action='set' />
+<assign value='"MR"' property='target.{PIDgrpgrp(1).PIDgrp.PID:PatientIdentifierList(1).IdentifierTypeCode}' action='set' />
+<assign value='""' property='ordProvNPI' action='set' />
+<code>
+<![CDATA[ //get ORC-12 NPI value
+ set orc12=source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).ORC:OrderingProvider(1).IDNumber")
+ if (orc12 '="") {
+    $$$TRACE("ORC-12="_orc12)
+    try {
+       set npiStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(orc12,"ORC-12",context.InterfaceContext,context.UserDomain,context.ProviderNPIContext,context.HddTargetConfigName,.process, .ordProvNPI)
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       if exVar.Code [ "ITFCOMMON:10108" {
+          // InutDataError - one of the input parameters from source is blank.
+          // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+          //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10109") {
+          // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set doctorNpiAlert = ##class(IHC.ITF.ITFCOMMON.Utility).CreateAlert("ERROR #ITFCOMMON:10103: - (Warn Msg Error) Unable to map Dr NPI for ORC-12. Record has been sent anyway but NPI value is set to blank. Please note the attached record may be truncated due to size of record.The method used for this lookup is getUniqueRepByRep the doctor number used is "_orc12_" the from context is "_context.InterfaceContext_" the domain is "_context.UserDomain_" and the to context is "_context.ProviderNPIContext, process.%ConfigName)
+          do process.SendAlert(doctorNpiAlert)
+          //set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,exVarData)
+          //Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10106") {
+          // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }else{
+          //Any other Unexpected error
+          $$$TRACE("Unknown error: "_exVar.Data)
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }
+    }
+ }]]]]><![CDATA[></code>
+<assign value='ordProvNPI' property='target.{PIDgrpgrp(1).ORCgrp(1).ORC:OrderingProvider(1).IDNumber}' action='set' />
 <assign value='""' property='providerNPI' action='set' />
 <code>
 <![CDATA[ //get OBR-16 NPI value
  set obr16=source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:OrderingProvider(1).IDNumber")
  if (obr16 '="") {
     $$$TRACE("OBR-16="_obr16)
-    set npiStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(obr16,"OBR-16",context.InterfaceContext,context.UserDomain,context.ProviderNPIContext,context.HddTargetConfigName,.process, .providerNPI)
-    if ((npiStatus["ITFCOMMON:10109") || (npiStatus["Web service returned(error):")){
-       $$$TRACE("HDD Call Returned Error")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error, shutting down. Error returned: "_npiStatus)
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
-    }elseif (npiStatus="") {
-       $$$TRACE("Unable to map OBR-16, skipping record")
-       set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid OBR-16.1: ["_obr16_"] (Provider ID), unable to map unique rep to rep to NPI using inbound context "_context.InterfaceContext_" and Domain "_context.UserDomain_" and outbound context "_context.ProviderNPIContext_". Skipping the record.")
-       Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+    try {
+       set npiStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(obr16,"OBR-16",context.InterfaceContext,context.UserDomain,context.ProviderNPIContext,context.HddTargetConfigName,.process, .providerNPI)
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       if exVar.Code [ "ITFCOMMON:10108" {
+          // InutDataError - one of the input parameters from source is blank.
+          // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+          //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10109") {
+          // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set doctorNpiAlert = ##class(IHC.ITF.ITFCOMMON.Utility).CreateAlert("ERROR #ITFCOMMON:10103: - (Warn Msg Error) Unable to map Dr NPI for OBR-16. Record has been sent anyway but NPI value is set to blank. Please note the attached record may be truncated due to size of record.The method used for this lookup is getUniqueRepByRep the doctor number used is "_obr16_" the from context is "_context.InterfaceContext_" the domain is "_context.UserDomain_" and to to context is "_context.ProviderNPIContext, process.%ConfigName)
+          do process.SendAlert(doctorNpiAlert)
+          //set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,exVarData)
+          //Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10106") {
+          // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }else{
+          //Any other Unexpected error
+          $$$TRACE("Unknown error: "_exVar.Data)
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }
     }
  }]]]]><![CDATA[></code>
 <assign value='providerNPI' property='target.{PIDgrpgrp(1).ORCgrp(1).OBR:OrderingProvider(1).IDNumber}' action='set' />
+<code>
+<![CDATA[ // get obr-4 loinc
+ set obr41Rep =source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceIdentifier.Identifier")
+ set obr42 =source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceIdentifier.Text")
+
+ 
+ if (obr41Rep '="") {
+    $$$TRACE("OBR-4.1="_obr41Rep)
+    //loinc code
+    try {
+       set loincStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueChildRepByParentRep(obr41Rep,"OBR-4",context.LabTestDomain,context.CernerOrderContext,context.HasMemberDomain,context.LoincDomain,context.LoincContext,context.HddTargetConfigName,.process, .obr41)
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       if exVar.Code [ "ITFCOMMON:10108" {
+          // InutDataError - one of the input parameters from source is blank.
+          // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+          //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10109") {
+          // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,"Unable to translate OBR-4 using getUniqueChildRepByParentRep the parent rep is "_obr41Rep_", the parent domain is "_context.LabTestDomain_" the parent context is "_context.CernerOrderContext_" the relationship domain is "_context.HasMemberDomain_" the type domain is "_context.LoincDomain_" and the child context is "_context.LoincContext_"), unable to continue processing record, skipping record. Error:"_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10106") {
+          // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }else{
+          //Any other Unexpected error
+          $$$TRACE("Unknown error: "_exVar.Data)
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }
+    }
+        //loinc text
+    try {
+       set loincStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueChildRepByParentRep(obr41Rep,"OBR-4.2",context.LabTestDomain,context.CernerOrderContext,context.HasMemberDomain,context.LoincDomain,context.LoincTextContext,context.HddTargetConfigName,.process, .obr42Temp)
+    }catch(exVar){
+       $$$TRACE("Unable to determine loinc text using default")
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+    }
+    $$$TRACE("OBR-4.2 Text: "_obr42Temp)
+    if (obr42Temp '="") {
+       set obr42 = obr42Temp
+    }
+ }else {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Unable to determine OBR-4.1, the value doesn't have a local code to translate, skipping message.")
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }]]]]><![CDATA[></code>
+<assign value='obr41' property='target.{PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceIdentifier.Identifier}' action='set' />
+<assign value='obr42' property='target.{PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceIdentifier.Text}' action='set' />
+<assign value='"LN"' property='target.{PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceIdentifier.NameofCodingSystem}' action='set' />
+<code>
+<![CDATA[ set spm71Rep = source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).SPMgrp(1).SPM:SpecimenCollectionMethod.Identifier")
+ set spm72 = source.GetValueAt("PIDgrpgrp(1).ORCgrp(1).SPMgrp(1).SPM:SpecimenCollectionMethod.Text")
+ 
+ if (spm71Rep '="") {
+    $$$TRACE("SPM-7.1="_spm71Rep)
+    //loinc code
+    try {
+       set loincNcidStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getNcidFromRep(spm71Rep,"SPM-7",context.SpecimenTypeDomain,context.CernerOrderContext,context.HddTargetConfigName,.process, .spm71Ncid)
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       if exVar.Code [ "ITFCOMMON:10108" {
+          // InutDataError - one of the input parameters from source is blank.
+          // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+          //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10109") {
+          // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+          set status=##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,"Unable to translate SPM-7 using getUniqueNcidFromRep the parent rep is "_spm71Rep_", the domain is "_context.SpecimenTypeDomain_" the context is "_context.CernerOrderContext_", unable to continue processing record, skipping record. Error:"_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }elseif(exVar.Code [ "ITFCOMMON:10106") {
+          // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+          // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }else{
+          //Any other Unexpected error
+          $$$TRACE("Unknown error: "_exVar.Data)
+          set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+          Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+       }
+    }
+    if (spm71Ncid '="") {
+       try {
+          set loincStatus = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueChildRepInDomainByParentNcid(spm71Ncid, "SPM-7 Loinc",context.LoincAnswerCodeDomain, context.LoincChildDomain, context.HasMemberDomain, context.LoincAnswerCodeContext, context.HddTargetConfigName,.process, .spm71)
+       }catch(exVar){
+          set exVarData = $ZSTRIP(exVar.Data,"*C")
+          $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+          if exVar.Code [ "ITFCOMMON:10108" {
+             // InutDataError - one of the input parameters from source is blank.
+             // Error data---> ERROR #ITFCOMMON:10108: Unknown status code: <UserErrors>ITFCOMMON:10108 ( Error while calling the Hdd method: getUniqueRepByRep. fromRep:[154] in PID-3. fromContextNcid:[]. 
+             //domainNcid:[119]. toContextNcid:[2000]. One or more parameters are empty.
+             // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
+             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+          }elseif(exVar.Code [ "ITFCOMMON:10109") {
+             // HddDataError - one of the input parameters from source is invalid or not defined in HDD
+             // ToDo: Developer to handle as per the business requirement. In ReplyCodeActions.
+             set status=##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,"Unable to translate SPM-7 to rep using getUniqueChildRepInDomainByParentNcid the ncid is "_spm71Ncid_", the relationship type ncid is "_context.LoincAnswerCodeDomain_" the child domain is "_context.LoincChildDomain_" the relationship domain is "_context.HasMemberDomain_" and the child context is "_context.LoincAnswerCodeContext_", unable to continue processing record, skipping record. Error:"_exVarData)
+             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+          }elseif(exVar.Code [ "ITFCOMMON:10106") {
+             // RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+             // ToDo: Developer - Call RetryMsgError. Then as per the requirement you skip/fail with/without notification to Hdd team and/or blank out the rep value.
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+          }else{
+             //Any other Unexpected error
+             $$$TRACE("Unknown error: "_exVar.Data)
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+             Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+          }
+       }
+       
+        //loinc text
+       try {
+                    set loincStatus = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueChildRepInDomainByParentNcid(spm71Ncid, "SPM-7 Loinc",context.LoincAnswerCodeDomain, context.LoincChildDomain, context.HasMemberDomain, context.LoincTextContext, context.HddTargetConfigName,.process, .spm71NewText)
+       }catch(exVar){
+          $$$TRACE("Unable to determine loinc text using default")
+          set exVarData = $ZSTRIP(exVar.Data,"*C")
+          $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+       }
+       $$$TRACE("SPM-7.2 Text: "_spm71NewText)
+       if (spm71NewText '="") {
+          set spm72 = spm71NewText
+       }
+    }
+ }else {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Unable to determine SPM-7, the value doesn't have a local code to translate, skipping message.")
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }]]]]><![CDATA[></code>
+<assign value='spm71' property='target.{PIDgrpgrp().ORCgrp().SPMgrp().SPM:SpecimenCollectionMethod.Identifier}' action='set' />
+<assign value='spm72' property='target.{PIDgrpgrp().ORCgrp().SPMgrp().SPM:SpecimenCollectionMethod.Text}' action='set' />
+<assign value='"LN"' property='target.{PIDgrpgrp().ORCgrp().SPMgrp().SPM:SpecimenCollectionMethod.NameofCodingSystem}' action='set' />
 </transform>
 ]]></Data>
 </XData>

@@ -22,8 +22,14 @@
 <Parameter name="MAXLEN" value="1000"/>
 </Property>
 
+<Property name="ProcessingID">
+<Type>%String</Type>
+<InitialExpression>"T"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,SameRecordRetryAndDisableErrorCodes:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,HddTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,SameRecordRetryAndDisableErrorCodes:Additional,ProcessingID:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -40,6 +46,9 @@
 <Value name="3">
 <Value>SameRecordRetryAndDisableErrorCodes</Value>
 </Value>
+<Value name="4">
+<Value>ProcessingID</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -48,7 +57,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.StreamContainer' height='2200' width='2000' >
+<process language='objectscript' request='Ens.StreamContainer' height='2300' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -70,9 +79,20 @@ BPL Definition</Description>
 <property name='RestAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 <property name='AccessTokenTargetConfigName' type='%String' instantiate='0' />
 <property name='RetrySameDisableErrorCodes' type='%String' instantiate='0' />
+<property name='LabTestDomain' type='%String' initialexpression='600' instantiate='0' />
+<property name='CernerOrderContext' type='%String' initialexpression='526037059' instantiate='0' />
+<property name='LoincDomain' type='%String' initialexpression='521106413' instantiate='0' />
+<property name='LoincContext' type='%String' initialexpression='223' instantiate='0' />
+<property name='HasMemberDomain' type='%String' initialexpression='363' instantiate='0' />
+<property name='LoincTextContext' type='%String' initialexpression='521106494' instantiate='0' />
+<property name='SpecimenTypeDomain' type='%String' initialexpression='10446' instantiate='0' />
+<property name='LoincAnswerCodeDomain' type='%String' initialexpression='529557811' instantiate='0' />
+<property name='LoincAnswerCodeContext' type='%String' initialexpression='520511460' instantiate='0' />
+<property name='ProcessingID' type='%String' instantiate='0' />
+<property name='LoincChildDomain' type='%String' initialexpression='530158801' instantiate='0' />
 </context>
-<sequence xend='200' yend='1850' >
-<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<sequence xend='200' yend='2050' >
+<scope xpos='200' ypos='250' xend='200' yend='1950' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -136,11 +156,26 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='950' xend='200' yend='1500' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='950' xend='200' yend='1700' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1100' />
-<transform class='IHC.ITF.Transform.Dtl.SunquestLabOrdHl7ToIhcHieBase64NEWBORNSCREENUHIN' source='request' target='response' xpos='470' ypos='1200' />
-<code name='ping token' xpos='470' ypos='1300' >
+<code name='Get Processing ID' xpos='470' ypos='1200' >
+<![CDATA[ $$$TRACE("Fetch Processing ID")
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ProcessingID", .getProcessingIDStr)
+ if ($$$ISOK(pstatus)){
+    $$$TRACE("Processing ID: " _getProcessingIDStr)
+    set context.ProcessingID = getProcessingIDStr
+		
+ }else{
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Unable to get Processing ID from the Process Settings for Cern-Adt-Hl7_IhcHie-Base64-UHINREST. Setting required for processing messages!")
+ }
+	
+ 
+]]]]><![CDATA[>
+</code>
+<transform class='IHC.ITF.Transform.Dtl.SunquestLabOrdHl7ToIhcHieBase64NEWBORNSCREENUHIN' source='request' target='response' xpos='470' ypos='1300' />
+<code name='ping token' xpos='470' ypos='1400' >
 <![CDATA[ $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.AccessTokenTargetConfigName)   
  set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
  set status =  process.SendRequestSync(context.AccessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
@@ -165,7 +200,7 @@ BPL Definition</Description>
  }
  $$$TRACE("Done getting token")]]]]><![CDATA[>
 </code>
-<code name='Encode stream to send' xpos='470' ypos='1400' >
+<code name='Encode stream and send' xpos='470' ypos='1500' >
 <![CDATA[  
     $$$TRACE("Setting up call operation.. ")
     set hl7Str=$System.Encryption.Base64Encode(response.OutputToString())
@@ -191,10 +226,11 @@ BPL Definition</Description>
     set status = process.SendRequestSync(tarConfigName,httpServiceRequestObj,.serviceResponse)
     $$$TRACE(" Calling Service - END ")
     set respdata =""
+    $$$TRACE("Status of call: "_status)
     if (status=$$$OK){
 	$$$TRACE("Call Service Operation OK status.")      
         set serviceResponseData=serviceResponse.Stream  
-        set statusCode = serviceResponse.Attributes.GetAt("StatusCode")       
+        set statusCode = $P(serviceResponse.HTTPHeaders.GetAt("StatusLine")," ",2)       
         set stream =   serviceResponseData
        	set respData = ""
        	While 'stream.AtEnd { 
@@ -202,9 +238,7 @@ BPL Definition</Description>
        	}
         $$$TRACE(" httpStatusCode: "_statusCode)    
         
-        set respdata = respData _ " JSON Request: "_jsonProcessRequest.StringValue_$CHAR(10)
-        
-        if (statusCode'="200"){
+        if (statusCode '="200"){
 	    	if (statusCode="401"){
 		   		$$$TRACE("  CheckError... ")
 		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token. Response: ["_respData_"]. Retrying...") 
@@ -259,6 +293,9 @@ BPL Definition</Description>
 		}    	   
     }  ]]]]><![CDATA[>
 </code>
+<code name='Reset error' xpos='470' ypos='1600' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
 </true>
 <false>
 <trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='1100' />
@@ -268,7 +305,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<catchall xpos='200' ypos='1800' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
