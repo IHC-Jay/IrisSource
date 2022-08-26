@@ -1,53 +1,61 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.ITFCOMMON.Operation.OperIhcHieWsrcFacilityAlias">
 <Super>Ens.BusinessOperation</Super>
 <System>4</System>
-<TimeCreated>66086,76838.682253</TimeCreated>
+<TimeCreated>66088,72257.855896</TimeCreated>
 
 <Parameter name="ADAPTER">
 <Default>EnsLib.HTTP.OutboundAdapter</Default>
 </Parameter>
 
 <Method name="ProcessHttpsRequest">
-<FormalSpec>pRequest:IHC.ITF.Request.AmWellEncRequest,*pResponse:Ens.StringResponse</FormalSpec>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	#dim tSC As %Status=$$$OK
-	$$$TRACE("Inside Method ProcessHttpsRequest()")
+	$$$TRACE("Inside Method ProcessHttpsRequest")
 	
 	$$$TRACE("Access Token: "_pRequest.accessToken) 
 	
+	Set jsonStreamObject = pRequest.streamObject
 	
+	
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonStreamObject.StringValue)		
+	Set tStr = tStream.Read()
+	$$$TRACE("Data string: " _ tStr)	
+	Do tStream.Rewind()
+
 	Set httprequest=##class(%Net.HttpRequest).%New()
 	set httprequest.Timeout=..Adapter.ResponseTimeout
 	Set httprequest.ContentType="application/json"
 	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
-	set url = ..Adapter.URL
+	set url = ..Adapter.URL_"/patient"
 	Set httprequest.Location = url
 	$$$TRACE("Location: "_httprequest.Location)
-	Set jsonRequest = "{""finNumber"": """_pRequest.encounterId_""", ""scheduleID"": """_pRequest.apptId_"""}" 
-	$$$TRACE(" JSONRequest: "_jsonRequest)  
-	Do httprequest.EntityBody.Write(jsonRequest) 
-		
-	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",pRequest.accessToken)
+	Do httprequest.EntityBody.Write() ;
+	do httprequest.EntityBody.CopyFrom(tStream)
+	
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
 	$$$TRACE("Token status (Add) "_sc)
-	Set pResponse=##class(Ens.StringResponse).%New()
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
 	Set mylist = ##class(%Collection.ArrayOfObj).%New()
 	try	{
-		set getStatus = httprequest.Get(url)				
-		set getStatusTxt = $SYSTEM.Status.GetOneErrorText(getStatus)	    	
-		$$$TRACE("Get service Status(Add):  "_getStatusTxt)
+		set postStatus = httprequest.Post(url)		
+		set postStatusTxt = $SYSTEM.Status.GetOneErrorText(postStatus)	    	
+		$$$TRACE("POST Status(Add):  "_postStatusTxt)
 		Set writer=##class(%Net.MIMEWriter).%New()
         Set status=writer.OutputToStream(httprequest.EntityBody)
         set len = httprequest.HttpResponse.ContentLength     
     	set respData = httprequest.HttpResponse.Data.Read()
     	$$$TRACE("RESP DATA11 ???? "_respData) 
     	if (respData [ "Authorization failed"){
-	    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError("Op-IhcHie-Wsrc-FACILITYALIAS"," ERRTOKEN. Invalid or Expired access token.  Response: "_respData) 
+	    	set tSC=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"," ERRTOKEN. Invalid or Expired access token.  Response: "_respData) 
     	}else{
-			if (getStatus =1){
-				$$$TRACE(" AmWell Encounter Service..Get Operation OK")  
+			if (postStatus =1){
+				$$$TRACE(" Patient Service..Post Operation OK")  
 	            set response=httprequest.HttpResponse        
        			$$$TRACE("StatusLine: "_response.StatusLine) 
        			set statusLine = response.StatusLine 
@@ -61,30 +69,18 @@
       			$$$TRACE("StatusDesc: "_statusDesc)  	         	
     			if (statusCode'="200"){
 	    			$$$TRACE("  DisableMsgError.... ")
-          			set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-IhcHie-Wsrc-FACILITYALIAS"," Response from AmWell Encounter Service Get Operation: "_respData) 
-			    }else{
-				   set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respData)
-        		   set statusVal = ((consumedJSONobj.%Get("data")).%Get("response").%Get("service-status")).%Get("status")  
-        		   $$$TRACE("  statusVal: "_statusVal)     
-      			   if (statusVal="SUCCESS"){
-	      			   set codeValueAlias = ((consumedJSONobj.%Get("data")).%Get("response").%Get("status-details")).%Get("CODE_VALUE_ALIAS") 
-	      			   set locFacilityCd = ((consumedJSONobj.%Get("data")).%Get("response").%Get("status-details")).%Get("LOC_FACILITY_CD") 
-	      			   Set pResponse.StringValue = codeValueAlias_"|"_locFacilityCd
-	      			    $$$TRACE("  codeValueAlias|LocFacilityCd:" _pResponse.StringValue)  
-      			   }else{
-	      			   set errStatusMsg = ((consumedJSONobj.%Get("data")).%Get("response").%Get("service-status")).%Get("message") 
-	      			   Set pResponse.StringValue = errStatusMsg	      			   
-	      		   }	      	    
-				}		  	
+          			set tSC=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE"," Response from Patient Service Post Operation: "_respData) 
+			    }		  	
         	} else {
-          		$$$TRACE("AmWell Encounter call status 200 OK !!! :")          		        		
+          		$$$TRACE("PatientService-ADD call status 200 OK !!! :")
+          		set respJSONstring = respData          		
           		
         	}
 		}
 	}catch e{
 		 	$$$TRACE(" Unknown Exception: " _ e)
-		 	set errTxt = $System.Status.GetErrorText("Unknown Exception while calling AmWell encounter service GET operation "_e)		 
-		 	Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-IhcHie-Wsrc-FACILITYALIAS",errTxt)	  		 		  		 		 
+		 	set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Patient service POST operation, creating a new patient in Initiate "_e)		 
+		 	Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError("Op-Initiate-Demogr-Json-Wsrc-PATIENTSERVICE",errTxt)	  		 		  		 		 
 		}
     	
 	Quit tSC
@@ -94,7 +90,7 @@
 <XData name="MessageMap">
 <Data><![CDATA[
 <MapItems>
-	<MapItem MessageType="IHC.ITF.Request.AmWellEncRequest">
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService">
 	<Method>ProcessHttpsRequest</Method>
 	</MapItem>
 	</MapItems>
