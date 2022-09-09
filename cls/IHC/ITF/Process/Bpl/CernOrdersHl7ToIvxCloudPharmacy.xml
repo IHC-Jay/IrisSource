@@ -57,8 +57,14 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 <Parameter name="MAXLEN" value="200"/>
 </Property>
 
+<Property name="DoDCOrderHasDischargeDateCheck">
+<Description>
+Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filtering on DCOrderHasDischargeDate.</Description>
+<Type>%Boolean</Type>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,NotAllowedLocations:Additional,HddTargetConfigName:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,LocationOperationsTable:Additional,NotAllowedLocations:Additional,HddTargetConfigName:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute,DoDCOrderHasDischargeDateCheck</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -119,7 +125,6 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	$$$TRACE("HDD work for NCID to REP starting now")
-	
 		try{
 			Do ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(hddNcid, hl7Detail, hddContext, hddTargetConfigName, process, .hddreturnrep) 
 			$$$TRACE("hddreturnrep length: **"_$LENGTH(hddreturnrep)_"**")
@@ -127,17 +132,30 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 				$$$TRACE("Created HDD Request and got response back for " _hl7Detail_ " NCID: " _hddNcid_ ", HDD Context: " _hddContext )
 				$$$TRACE("Returned representation received from HDD: " _hddreturnrep)
 			}else{
-				//Log error
 				$$$TRACE("Unexpected HDD Return - no value or null value returned from HDD Call! HDD did not return a representation for this HDD NCIDtoRep lookup: ["_hl7Detail_ "]. For NCID: ["_hddNcid _"].  Using HDD Context: [" _hddContext _"]. Using HddTargetConfigName: [" _hddTargetConfigName_"].")
+				set hddreturnrep="NORETRUNREP--Zero length rep returned or rep returned was empty string!"
 			}
-			return hddreturnrep
-			
-		}Catch eException {
-			Set exceptStatus = eException.AsStatus()
-			$$$LOGSTATUS(exceptStatus)
-			$$$TRACE("There was an issue with resolving the HDD Response.  HDD NCIDtoRep lookup: -->"_hl7Detail_ "<--. For NCID: -->"_hddNcid _"<--. Using HDD Context: -->"_hddContext_"<--.  Using HddTargetConfigName: -->"_hddTargetConfigName_"<--.  Error Caught: ****"_exceptStatus)
-			quit
+		
+		}Catch (eException) {
+			//$ZSTRIP(string,action)
+			//*	Strip all characters that match the mask code(s).
+			//C	Strip control characters (0-31, 127-159).
+			Set errorData = $ZSTRIP(eException.Data,"*C")
+			$$$TRACE("Exception Error Status Data: "_errorData)
+			$$$TRACE("There was an ERROR returned instead of an HDD Response.  HDD NCIDtoRep lookup: -->"_hl7Detail_ "<--. For NCID: -->"_hddNcid _"<--. Using HDD Context: -->"_hddContext_"<--.  Using HddTargetConfigName: -->"_hddTargetConfigName_"<--.")
+			if (eException.Code["ITFCOMMON:10108"){
+			   // InutDataError - one of the input parameters from source is blank.
+			   set hddreturnrep ="ERROR--One or more of the input parameters for HDD call is missing!"
+			}elseif( eException.Code["ITFCOMMON:10109"){
+			   set hddreturnrep="NOREPFOUND--No HDD Return Rep Found in NCIDtoREP lookup!"
+			}elseif( eException.Code["ITFCOMMON:10106"){
+			   set hddreturnrep="ERROR--Retry Error calling HDD call!"
+			}else{ 
+			   set hddreturnrep="ERROR--Unkown error occurred calling HDD!"
+			}
+	
 		}
+		return hddreturnrep
 ]]></Implementation>
 </Method>
 
@@ -169,6 +187,9 @@ NCIDs for MSH-4 that will be used to filter out the record and not processed it.
 </Value>
 <Value name="8">
 <Value>DoFilterInByRoute</Value>
+</Value>
+<Value name="9">
+<Value>DoDCOrderHasDischargeDateCheck</Value>
 </Value>
 </Data>
 </Storage>
@@ -602,6 +623,20 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
+<code name='CheckForDischargeDT' xpos='200' ypos='1575' >
+<annotation><![CDATA[If there is PV1-45 discharge datetime, don't send to OmniCell IVXCloud]]]]><![CDATA[></annotation>
+<![CDATA[ set PV1FortyFiveDischargeDT = request.GetValueAt("PV1:DischargeDateTime.timeofanevent")
+ //DoDCOrderHasDischargeDateCheck
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoDCOrderHasDischargeDateCheck",.retval)  
+ set doingCheckForDCMsgWithDischargeDT= retval
+ $$$TRACE("doingCheckForDCMsgWithDischargeDT is: ["_doingCheckForDCMsgWithDischargeDT_"]")
+ set ORC1 = request.GetValueAt("ORC:OrderControl")
+ if ((doingCheckForDCMsgWithDischargeDT=1)&&(ORC1 '= "162326") && (PV1FortyFiveDischargeDT '= "") && ($ISVALIDNUM(PV1FortyFiveDischargeDT))) {
+     $$$TRACE("Found iCentra Pharmacy Med Order Event with a Discharge DateTime. Not sending to the OmniCell IVXCloud! ****Skipping Message.*****")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found iCentra Pharmacy Med Order Event with Discharge DateTime value in the PV1-45 - Not a valid order message! ****PHI - HL7 Message Control ID: " _context.MSH10)
+  }
+  ]]]]><![CDATA[>
+</code>
 <code name='VerifyOrderType' xpos='200' ypos='1650' >
 <annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
@@ -624,7 +659,7 @@ BPL Definition</Description>
 <![CDATA[ $$$TRACE("Get DoFilterInByMeds boolean and if set then Get RXO-1.1 Value....")
  //Get DoFilterInByMeds anf if set then Get Get RXO-1.1 Value and check against allowed Meds table
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoFilterInByMeds",.filterInByMeds)  
- $$$TRACE("DoFilterInByMeds is:"_filterInByMeds)
+ $$$TRACE("DoFilterInByMeds is: "_filterInByMeds)
  if ((filterInByMeds=1) && (context.MSH9MsgType="RDE")){
 	 set RXO1 = request.GetValueAt("RXOgrp(1).RXO:RequestedGiveCode.identifier")
      set RXO1UPPERCASED=  $ZCONVERT(RXO1,"U")
@@ -717,7 +752,10 @@ BPL Definition</Description>
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        if ($LENGTH(context.hddreturnrep)>0){
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+    	$$$TRACE("Returned Representation for Gender: "_context.hddreturnrep)
+    	$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+        if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 	         $$$TRACE("PID-8 Rep from local HDD call: "_context.hddreturnrep)
              $$$TRACE("HDD Ncid TO Rep PID-8 Lookup was successfuly!!!") 
              //After HDD call set context specific variable to use in setting DTL
@@ -753,15 +791,22 @@ BPL Definition</Description>
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
     	// work return value
-        $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-        $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
-	    //After HDD call set context specific variable to use in setting DTL
-        set context.PID30DeathIndicator = context.hddreturnrep
-         
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for DeathIndicator: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
+             $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
+             $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
+	         //After HDD call set context specific variable to use in setting DTL
+             set context.PID30DeathIndicator = context.hddreturnrep
+		}else{
+	         //setting to empty string - not stopping processing or not sending an alert - Not a value IVXCloud needs
+             set context.PID30DeathIndicator = ""
+	     }
          
     } Catch eException {
 	 	//setting to empty string - not stopping processing or not sending an alert - Not a value IVXCloud needs
-    set context.PID30DeathIndicator = ""
+        set context.PID30DeathIndicator = ""
         		
     }
 
@@ -812,8 +857,11 @@ BPL Definition</Description>
 
  Try {
 	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-	$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
-	if ($LENGTH(context.hddreturnrep)>0){
+	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+	$$$TRACE("Returned Representation for PV1-3:  "_context.hddreturnrep)
+	$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+	if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
+	     
 		// work return value - HDD call did not error out 
 		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
 		//After HDD call set context specific variable to use in setting DTL for PV1-3 location values
@@ -844,10 +892,14 @@ BPL Definition</Description>
 			$$$TRACE("PV1-3 NCID does not have enough return representation to fill out PV1-3 location values. Going to try another HDD Context.")
 			set context.doAdditionalPOCUnitLookup = 1
 		}
-	}else{ 
-	    $$$TRACE("A PV1-3 numeric value was tried as an NCID yet no representation was returned from HDD. Going to try another HDD Context.")    
+	}elseIF((getRepFirstPiece'="NORETRUNREP")||(getRepFirstPiece'="NOREPFOUND")){ 
+	    $$$TRACE("A PV1-3 numeric value was tried as an NCID yet no representation was found to be returned from HDD. Going to try another HDD Context.")    
 		set context.doAdditionalPOCUnitLookup = 1
-	}
+	}else{
+		set errHL7HDDdetail = "Working IVXCloud Pharmacy Med Orders, trying to get PV1-3 location vales from HDD, PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+		$$$TRACE(errHL7HDDdetail)
+		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail_" ****Exception Error Caught: "_exceptStatus)     
+		}
  } Catch eException {
 	Set exceptStatus = eException.AsStatus()
 	$$$LOGSTATUS(exceptStatus)
@@ -871,8 +923,10 @@ BPL Definition</Description>
  $$$TRACE("Unit or clinic location lookup values being used are: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext)
  Try {
 	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-	// work return value - HDD call did not error out 
-	if ($LENGTH(context.hddreturnrep)>0){
+	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+	$$$TRACE("Returned Representation for PV1-POCUnit: "_context.hddreturnrep)
+	$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+	if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 		$$$TRACE("HDD Ncid TO Rep Lookup for POC Unit-Clinic was successfuly!!!")
 		$$$TRACE("Created HDD Request and got response back for " _context.LocationInfo_ " NCID: " _context.Ncid_ ", HDD Context: " _context.PV1ThreeLocHDDContext)
 		$$$TRACE("Patient FIN-Encounter Location Representation received from HDD: [" _context.hddreturnrep_"]")
@@ -880,9 +934,11 @@ BPL Definition</Description>
 		set context.pointOfCareUnit = context.hddreturnrep
 		set context.room = ""   
 		set context.bed =  ""
-		Do ..%Process.ItfSendEmailOnError("IVXCloud Pharmacy Med Order Processed a PV1-3 NCID value that could not find a representation in the HDD Pharmacy Short Name context, but one was found in HDD Context: 526002809.  Working this Ensemble Process: "_process.%ConfigName_ "  Working IVXCloud Pharmacy Med Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.pid18_".  MessageControlID: "_context.MSH10)
+		set emailSubject = "No shortname context REP found for PV1-3 location NCID for IVXCloud Pharm Med Order."
+		set emailMsg = "IVXCloud Pharmacy Med Order Processed a PV1-3 NCID value that could not find a representation in the HDD Pharmacy Short Name context, but a REP was found in HDD Context: 526002809.  Working this Ensemble Process: "_process.%ConfigName_ "  Working IVXCloud Pharmacy Med Order: "_context.PharmOrderPlacerNumber_"  For FIN/Ecounter: "_context.pid18_".  MessageControlID: "_context.MSH10
+		Do ..%Process.ItfSendEmailOnError(emailSubject,emailMsg)
 	}else{     
-		set errHL7HDDdetail = "Got an HDD Return without a Rep working the IVXCloud Pharmacy Med Order. ***Error no response returned from HDD, PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"
+		set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***PV1-3 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
 		$$$TRACE(errHL7HDDdetail)
 		set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)     
 	}
@@ -913,11 +969,19 @@ BPL Definition</Description>
     
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for MSH-4: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
         $$$TRACE("HDD Ncid TO Rep Lookup was successfull!!!") 
         //After HDD call set context specific variable to use in setting DTL
         set context.msh4FacilityRep = context.hddreturnrep
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***MSH-4 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
@@ -939,11 +1003,19 @@ BPL Definition</Description>
     
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for ORC-1: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
         $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
         //set context specific variable to use in setting DTL
         set context.orc1OrderControlID = context.hddreturnrep
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***ORC-1 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
@@ -968,17 +1040,24 @@ BPL Definition</Description>
 		
 		Try {
 		set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-		// work return value
+		set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for ORC-5: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 		$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 		$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
         //set context specific variable to use in setting DTL		
-		set context.orc5OrderStatus = context.hddreturnrep  
+		set context.orc5OrderStatus = context.hddreturnrep
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***ORC-5 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
 	    } Catch eException {
 		     Set exceptStatus = eException.AsStatus()
 		     $$$LOGSTATUS(exceptStatus)
 		     set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing IVXCloud Pharmacy Med Order HL7 HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
 	    }
-				
  }else {
 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "***No NCID found - unable to get required data for doing the IVXCloud Pharmacy Med Order HL7 HDD lookup for: " _context.HL7SpecValue_". Found - PHI: "_context.Ncid_"***MessageControlID: "_context.MSH10)
 
@@ -1000,12 +1079,19 @@ BPL Definition</Description>
 		
 		Try {
 			set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-			// work return value
+			set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+			$$$TRACE("Returned Representation for ORC-7: "_context.hddreturnrep)
+			$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+			if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!")
             //After HDD call set context specific variable to use in setting DTL
-	        set context.orcQTIntervalRepeatPattern = context.Ncid _"_"_ context.hddreturnrep			
-			  
+	        set context.orcQTIntervalRepeatPattern = context.Ncid _"_"_ context.hddreturnrep
+			}else{
+				set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***ORC-7 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+				$$$TRACE(errHL7HDDdetail)
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+			}
 		} Catch eException {
 			Set exceptStatus = eException.AsStatus()
 			$$$LOGSTATUS(exceptStatus)
@@ -1041,13 +1127,20 @@ BPL Definition</Description>
     
     Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for RXE-1.2: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
         $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
         //After HDD call set context specific variable to use in setting DTL
         do context.rxeQTIntervalRepeatPatternArr.SetAt(context.Ncid _"_"_ context.hddreturnrep, context.RXEIndex)
         $$$TRACE("Here is the rxeQTIntervalRepeatPattern that is being set: " _context.rxeQTIntervalRepeatPatternArr.GetAt(context.RXEIndex))
-  
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***RXE-1.2 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
@@ -1081,18 +1174,24 @@ BPL Definition</Description>
         
         Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for RXE-5: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
         $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
         //After HDD call set context specific variable to use in setting DTL
         do context.rxe5GiveUnitsTextArr.SetAt(context.hddreturnrep, context.RXEIndex)
-         
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***RXE-5 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
         } Catch eException {
 	 	    Set exceptStatus = eException.AsStatus()
 	 	    $$$LOGSTATUS(exceptStatus)
 	 	    set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"Error while Processing IVXCloud Pharmacy Med Orders for the HDD Ncid TO Rep lookup: Ncid: " _ context.Ncid _ ". Hl7 Specific Value: " _context.HL7SpecValue_ ".  HDD Context going to be used in lookup: " _context.hddncidtorepcontext_" Error Status Caught: "_exceptStatus)     
         }
-        
     }else{
         //Free text
         $$$TRACE("RXE-5 Give Units ID is not an NCID, may have free text!")
@@ -1106,6 +1205,7 @@ BPL Definition</Description>
 	        do context.rxe5GiveUnitsTextArr.SetAt(getRXE5GiveUnitsText, context.RXEIndex)
         }     
  }
+ 
 ]]]]><![CDATA[>
 </code>
 <code name='RXE DispenseUnits' xpos='200' ypos='550' >
@@ -1125,12 +1225,19 @@ BPL Definition</Description>
     
 		Try {
 			set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-			// work return value
+			set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+			$$$TRACE("Returned Representation for RXE-11 : "_context.hddreturnrep)
+			$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+			if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
 			//After HDD call set context specific variable to use in setting DTL
 			do context.rxe11DispenseUnitsTextArr.SetAt(context.hddreturnrep, context.RXEIndex)
-		   
+			}else{
+				set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***RXE-11 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+				$$$TRACE(errHL7HDDdetail)
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+			}
 		} Catch eException {
 			Set exceptStatus = eException.AsStatus()
 			$$$LOGSTATUS(exceptStatus)
@@ -1176,12 +1283,19 @@ BPL Definition</Description>
     
 		Try {
 			set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-			// work return value
+			set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+			$$$TRACE("Returned Representation for RXE-24: "_context.hddreturnrep)
+			$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+			if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
 			$$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
 			$$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
 			//After HDD call set context specific variable to use in setting DTL
 			do context.rxe24GiveRateUnitsTextArr.SetAt(context.hddreturnrep, context.RXEIndex)
-			 
+			}else{
+				set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***RXE-24 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+				$$$TRACE(errHL7HDDdetail)
+				set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+			}
 		} Catch eException {
 			Set exceptStatus = eException.AsStatus()
 			$$$LOGSTATUS(exceptStatus)
@@ -1226,13 +1340,20 @@ BPL Definition</Description>
 	
 	Try {
     	set context.hddreturnrep=##class(IHC.ITF.Process.Bpl.CernOrdersHl7ToIvxCloudPharmacy).hddWork(process,context.hddTargetConfigName,context.Ncid,context.hddncidtorepcontext,context.HL7SpecValue)
-    	// work return value
+    	set getRepFirstPiece =$PIECE(context.hddreturnrep,"--")
+		$$$TRACE("Returned Representation for RXC-4: "_context.hddreturnrep)
+		$$$TRACE("getRepFirstPiece:  ["_getRepFirstPiece_"]")
+		if (($LENGTH(context.hddreturnrep)>0) && (getRepFirstPiece'="NORETRUNREP")&& (getRepFirstPiece'="NOREPFOUND") && (getRepFirstPiece'="ERROR")){
         $$$TRACE("Rep from local HDD calls call: "_context.hddreturnrep)
         $$$TRACE("HDD Ncid TO Rep Lookup was successfuly!!!") 
         //After HDD call set context specific variable to use in setting DTL
 	    do context.rxcComponentUnitsTxtArr.SetAt(context.hddreturnrep,context.rxcIndex)
 	    $$$TRACE("context.rxcComponentUnitsTxtArr has stored: " _context.rxcComponentUnitsTxtArr.GetAt(context.rxcIndex))
-  
+		}else{
+			set errHL7HDDdetail = "Got an HDD Return without a Valid Rep when working the IVXCloud Pharmacy Med Order. ***RXC-4 values used were: Ncid: [" _ context.Ncid _ "]. Hl7 Specific Value: [" _context.HL7SpecValue_ "].  HDD Context: [" _context.hddncidtorepcontext_"]"_"  The HDD Human Readable Detail Returned:  ["_context.hddreturnrep_"]!"
+			$$$TRACE(errHL7HDDdetail)
+			set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,"HDD LOOKUP DETAILs: ***"_errHL7HDDdetail)
+		}
     } Catch eException {
 	 	Set exceptStatus = eException.AsStatus()
 	 	$$$LOGSTATUS(exceptStatus)
