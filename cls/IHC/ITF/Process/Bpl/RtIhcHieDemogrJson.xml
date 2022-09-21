@@ -8,6 +8,39 @@ IhcHie Json router</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>66371,20092.287942</TimeCreated>
 
+<Property name="MergeMmiTargetConfigName">
+<Description>
+MergeMmiTargetConfigName:Custom setting to select Configuration item(s) to Merge  operation</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="IhcHieToCdrTargetConfigName">
+<Description>
+IhcHie to CDR</Description>
+<Type>%String</Type>
+<InitialExpression>"IhcHie-Demogr-Json_Cdr-Hl7"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>MergeMmiTargetConfigName:Additional,IhcHieToCdrTargetConfigName:Additional,-NextOperation,-TargetConfigMask </Default>
+</Parameter>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("Inside  Method OnGetConnections")
+	Do ##super(.pArray,pItem)	
+	For j=0:1:4{
+	If pItem.GetModifiedSetting("IhcHieToCdrTargetConfigName",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue_"-"_j,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+	}
+]]></Implementation>
+</Method>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -22,6 +55,29 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='hidDemogrObj' type='IHC.ITF.Service.HieServiceDemographics' instantiate='1' />
+
+<property name='mergeMmiTargetConfigName' type='%String' initialexpression='"IhcHie-Demogr-Json_Cdr-Hl7-MERGE"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='10' />
+</parameters>
+</property>
+
+<property name='ihcHieToCdrTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='NumOfInstances' type='%String' instantiate='0' />
+<property name='empiMod' type='%String' instantiate='0' />
+
+<property name='empiNum' type='%String' instantiate='0' initialexpression="">
+<parameters>
+<parameter name='MAXLEN'  value='20' />
+</parameters>
+</property>
+
+
 </context>
 <sequence xend='200' yend='1400' >
 <scope xpos='200' ypos='250' xend='200' yend='1300' >
@@ -48,6 +104,28 @@ BPL Definition</Description>
    set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
     $$$TRACE("TargetConfigNames: " _context.targetList)
     $$$TRACE("Count: " _ context.targetList.Count())
+    
+    
+    
+    //MergeMmiTargetConfigName validation
+ set context.mergeMmiTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MergeMmiTargetConfigName",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.mergeMmiTargetConfigName= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "Initialization Error. Unable to get MergeMmiTargetConfigName, Configure it in the settings.")   
+    $$$TRACE(" MergeMmiTargetConfigName is not defined in the settings. Using the default value of " _context.mergeMmiTargetConfigName ) 
+ }else{
+	 $$$TRACE("MergeMmiTargetConfigName: " _ context.mergeMmiTargetConfigName)
+ }
+ 
+ 
+ set context.ihcHieToCdrTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","IhcHieToCdrTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("IhcHieToCdrTargetConfigName--> " _ context.ihcHieToCdrTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No IhcHieToCdrTargetConfigName found in the Ensemble settings")
+ } 
+
+
+ 
  ]]]]><![CDATA[>
 </code>
 
@@ -72,9 +150,50 @@ BPL Definition</Description>
     
     $$$TRACE(" ***json parsing done **")
     
+    	
 ]]]]><![CDATA[>
 </code>
-	
+
+<if name='Check Merge' condition='context.hidDemogrObj.transactionType="A34"' xpos='470' ypos='2300' xend='470' yend='3100' >
+<true>
+<code name='MergeTargetProcess' xpos='200' ypos='350' >
+<annotation><![CDATA[Merge Target Process]]]]><![CDATA[></annotation>
+<![CDATA[ 
+	$$$TRACE("Sending to Merge Process: "_context.mergeMmiTargetConfigName)  
+ 	do process.SendRequestSync(context.mergeMmiTargetConfigName,request)
+]]]]><![CDATA[>
+</code>
+</true>
+<false>
+
+<code name='ValidateEMPI' xpos='470' ypos='1100' >
+<annotation><![CDATA[Validate patient mrn]]]]><![CDATA[></annotation>
+<![CDATA[ 
+     set sourceName = context.hidDemogrObj.data.source.name
+ 	 if (sourceName = "inmt.inmt") {
+		 set context.empiNum = context.hidDemogrObj.data.source.id
+		 $$$TRACE("EmpiNumber: " _ context.empiNum)		 			 
+	 }	
+	 if ($ISVALIDNUM(context.empiNum) '= "1") {	     
+		     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "source.data.source.name MMINumber :["_context.empiNum_"] is not valid, skip message.")
+  	    }	
+ ]]]]><![CDATA[>
+</code>
+
+<code name='RoutesToProcess' xpos='740' ypos='2250' >
+<![CDATA[  
+    Set context.empiMod = context.empiNum # 5
+    $$$TRACE("Empi# Modulus: "_context.empiMod)      
+    set ihcHieTarget = context.ihcHieToCdrTargetConfigName_"-"_context.empiMod
+    $$$TRACE("Target Process name : "_ihcHieTarget)    
+    
+    set status = process.SendRequestAsync(ihcHieTarget,context.hidDemogrObj)
+    $$$TRACE(" After routing to Target Process: "_ihcHieTarget)   
+        
+    Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)                          
+ ]]]]><![CDATA[>
+</code>
+
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -82,6 +201,8 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
+</false>
+</if>
 <faulthandlers>
 <catchall xpos='200' ypos='1150' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
@@ -99,6 +220,16 @@ BPL Definition</Description>
 
 <Storage name="Default">
 <Type>%Storage.Persistent</Type>
+<DefaultData>RtIhcHieDemogrJsonDefaultData</DefaultData>
+<Data name="RtIhcHieDemogrJsonDefaultData">
+<Subscript>"RtIhcHieDemogrJson"</Subscript>
+<Value name="1">
+<Value>MergeMmiTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>IhcHieToCdrTargetConfigName</Value>
+</Value>
+</Data>
 </Storage>
 </Class>
 </Export>
