@@ -18,8 +18,15 @@ A23 Delay to Cerner from AmWell</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="HddTargetConfigName">
+<Description>
+HDD Operation: The target name used for HDD calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>CernerFinRange:Additional,DelayToCernerTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>HddTargetConfigName:Additional,CernerFinRange:Additional,DelayToCernerTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -43,7 +50,15 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
-
+<property name='insRelNcid' type='%String' instantiate='0' />
+<property name='insPlanIdIN12Numeric' type='%String' initialexpression='""' instantiate='0' />
+<property name='insCompNcid' type='%String' initialexpression='""' instantiate='0' />
+<property name='in12' type='%String' initialexpression='""' instantiate='0' />
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1300' >
 <scope xpos='200' ypos='250' xend='200' yend='1200' >
@@ -100,10 +115,139 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
+<code name='initializeHddTarget' xpos='470' ypos='1000' >
+<![CDATA[ 
+ set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
+ } 
+  ]]]]><![CDATA[>
+</code>
+
 <code name='getMessageType' xpos='200' ypos='650' >
 <![CDATA[  
     Set context.MsgType = request.GetValueAt("MSH:9.2")     
  ]]]]><![CDATA[>
+</code>
+
+<code name='CheckForRelationshipLookuptable' xpos='740' ypos='1650' >
+<![CDATA[ 
+    set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.AmWellAdtHl7ToCernNativeId.AmWellToCernerRelationships")
+  	if (retVal = 0){
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table IHC.ITF.Process.Bpl.AmWellAdtHl7ToCernNativeId.AmWellToCernerRelationships not exists")  
+  	}
+]]]]><![CDATA[>
+</code>
+
+<code name='getInsuranceRelationship' xpos='740' ypos='1650' >
+<![CDATA[ 
+     Set insRelIN117 =request.GetValueAt("IN1(1):InsuredsRelationshipToPatien.identifierST")
+     $$$TRACE("insRelIN117: " _ insRelIN117) 
+     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmWellAdtHl7ToCernNativeId.AmWellToCernerRelationships", insRelIN117, .retVal )     
+     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Insurance Relationship value from the lookup table. ")       
+     }else {
+	   $$$TRACE(" insRelIN117: ["_insRelIN117_"].  Ncid :[" _retVal_"]")
+	   set context.insRelNcid = retVal
+    }
+]]]]><![CDATA[>
+</code>
+
+<code name='InsuranceMappings' xpos='740' ypos='1650' >
+<![CDATA[ 
+     if ((context.MsgType = "A04") || (context.MsgType = "A28")){
+     	Set insPlanIdIN12 =request.GetValueAt("IN1(1):InsurancePlanID.identifierST")
+     	$$$TRACE("IN1.2(InsurancePlanID): " _ insPlanIdIN12) 
+     	if ($L($ZSTRIP(insPlanIdIN12,"*W"))>0){
+	    	set context.insPlanIdIN12Numeric = $ZSTRIP(insPlanIdIN12,"*PA")
+	     	set context.in12 = context.insPlanIdIN12Numeric
+		    try{
+			   	$$$TRACE(" Calling getUniqueParent()..." )
+		    	set context.insCompNcid = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueParent(insPlanIdIN12Numeric , "IN1-2", context.hddTargetConfigName, .process, .retNcid)
+		    	$$$TRACE(" Returned Ncid from HDD: " _ retNcid)
+		    }catch(exVar){
+	     		set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     		$$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     		if exVar.Code [ "ITFCOMMON:10108" {
+		   			// InutDataError - one of the input parameters from source is blank.
+		   			set context.insCompNcid = ""
+	   	 		}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 		// HddDataError - one of the input parameters from source is invalid or not defined in HDD
+		   		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)
+		        }elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 		// RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		   			set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
+		 		}elseif(exVar.Code [ "ITFCOMMON:10103") {
+		   	 		// No error/exception from Hdd webservie call
+		   	 		set context.insCompNcid = ""
+		   		    do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,exVarData)		  
+		 		}else{
+			 		//Any other Unexpected error
+			 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 		}
+	 		}	
+     	}else{
+	     	$$$TRACE("IN1.2 is empty. Looking for IN1-3 ...") 
+	     	Set insPlanIdIN13Rep =request.GetValueAt("IN1(1):3(1).1")
+	     	if (insPlanIdIN13Rep '= ""){
+		     	try{
+		     		$$$TRACE(" Calling getNcidFromRep()" )	
+		     		set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getNcidFromRep(rep, "IN1-3", "526050881", "529857606", context.hddTargetConfigName, .process, .retNcid) 	
+					set context.in12=retNcid
+					$$$TRACE(" context.in12 ncid is " _ context.in12)
+	     		}catch(exVar){
+		     		set exVarData = $ZSTRIP(exVar.Data,"*C")
+	     			$$$TRACE(" exVarData --> "_exVarData)
+	     			if exVar.Code [ "ITFCOMMON:10108" {
+		     			set context.in12=""
+	     			}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 			// HddDataError - one of the input parameters from source is invalid or not defined in HDD
+		   				set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)
+		   			}elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 			// RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		   			   set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)
+		  			}else{
+			 			//Any other Unexpected error
+			 			set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 			}
+		     	}
+	     	}
+	     	if ( ($L(context.in12)=0) ){
+				Set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,"getNcidFromRep Hdd call failed with domain 526050881 and context 529857606 for the REP (IN1-3) : "_insPlanIdIN13Rep)
+			}else{
+				try{
+			   		$$$TRACE(" Calling getUniqueParent()..." )
+			   		$$$TRACE("IN1.2 from Hdd: " _ context.in12)
+		    	    set context.insCompNcid = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueParent(insPlanIdIN12Numeric , "IN1-2", context.hddTargetConfigName, .process, .retNcid)
+		    		$$$TRACE(" Returned Ncid from HDD: " _ retNcid)
+		    	}catch(exVar){
+	     			set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     			$$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     			if exVar.Code [ "ITFCOMMON:10108" {
+		   				// InutDataError - one of the input parameters from source is blank.
+		   				set context.insCompNcid = ""
+	   	 			}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   	 			// HddDataError - one of the input parameters from source is invalid or not defined in HDD
+		   		    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)
+		        	}elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 			// RetrMsgError - one of the input parameters from source is invalid or not defined in HDD
+		   				set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
+		 			}elseif(exVar.Code [ "ITFCOMMON:10103") {
+		   	 			// No error/exception from Hdd webservie call
+		   	 			set context.insCompNcid = ""
+		   		   		 do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,exVarData)		  
+		 			}else{
+			 			//Any other Unexpected error
+			 			set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 			}
+	 			}
+			}
+     	}
+     }	
+				
+]]]]><![CDATA[>
 </code>
 
 
@@ -160,6 +304,9 @@ BPL Definition</Description>
 </Value>
 <Value name="2">
 <Value>DelayToCernerTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>HddTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
