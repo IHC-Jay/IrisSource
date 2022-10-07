@@ -214,11 +214,12 @@ BPL Definition</Description>
 		 $$$TRACE("EmpiNumber: " _ context.empiNum)		 			 
 	 }	
 	 if ($ISVALIDNUM(context.empiNum) '= "1") {	     
-		     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "source.data.source.name MMINumber :["_context.empiNum_"] is not valid, skip message.")
+		     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "request.data.toSurviveSource.id :["_context.empiNum_"] is not valid, skip message.")
   	    }	
   	Set context.msgType = request.transactionType
  ]]]]><![CDATA[>
 </code>
+
 <code name='ValidatePatientLastAndFirstName' xpos='200' ypos='850' >
 <![CDATA[ 
      if (request.data.names.Count()  > 0) {      
@@ -270,7 +271,7 @@ BPL Definition</Description>
 <code name='Call CheckMMI For Delete Mrn' xpos='200' ypos='950' >
 <![CDATA[  
  set trequest = ##class(Ens.StringRequest).%New("")
- set trequest.StringValue = context.empiNum
+ set trequest.StringValue = context.deletEmpiNum
  set tStatus=process.SendRequestSync(context.checkMmiTargetConfigName,trequest,.checkMmiResponse)
  $$$TRACE(" Status value after CheckMmi call: "_tStatus)
  if ('tStatus) {
@@ -328,40 +329,35 @@ BPL Definition</Description>
 <code name='MmiMerge' xpos='470' ypos='2650' >
 <![CDATA[
  $$$TRACE("Calling Merge Operation")
-  $$$TRACE("**1**") 
  set trequest = ##class(IHC.ITF.Request.InitiateToCdrMergeRequest).%New()
- 
- $$$TRACE("**2**") 
  set trequest.keepMrn = context.empiNum
- $$$TRACE("**3**") 
  set trequest.deleteMrn = context.deletEmpiNum 
- $$$TRACE("**4**") 
  set trequest.employeeNcid = context.employeeNcid
- $$$TRACE("**5**") 
  set trequest.facilityNcid = context.facilityNcid
  
  $$$TRACE("mergeMmiTargetConfigName: "_context.mergeMmiTargetConfigName)  
- do process.SendRequestSync(context.mergeMmiTargetConfigName,trequest,.cdrResponse)
+ set retStatus = process.SendRequestSync(context.mergeMmiTargetConfigName,trequest,.cdrResponse)
  
- $$$TRACE("Call Merge CDR Operation Complete!!!")	
+ if (retStatus=0){
+	$$$TRACE($SYSTEM.Status.GetOneErrorText(retStatus))
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Error while calling the CDR librarary."_retStatus) 
+ }else{
+ 	$$$TRACE("Call Merge CDR Operation Complete!!!")
+ 	$$$TRACE("Create merge notification and send notification")
+ 	set mergeNotifMsg = "KEEP: " _ context.empiNum _ $CHAR(9) _ " DELETE: " _ context.deletEmpiNum
+ 	set mergeNotifMsg = mergeNotifMsg _ $CHAR(10) _ "MERGE STATUS:"
+ 	set mergeNotifMsg = mergeNotifMsg _ $CHAR(10) _ context.empiNum _ " ! " _ context.deletEmpiNum _ $CHAR(10)_$CHAR(10)
+ 	$$$TRACE("MergeNotifMsg: " _ mergeNotifMsg)
+ 	set trequest = ##class(Ens.StreamContainer).%New("")
+ 	set tStream = ##class(%GlobalCharacterStream).%New("")
+ 	do tStream.WriteLine(mergeNotifMsg)
+ 	set trequest.Stream = tStream
+ 	do process.SendRequestSync(context.notifyMergeTargetConfigName,trequest,.result) 		
+ }
 ]]]]><![CDATA[>
 </code>
 
 
-<code name='Create Merge notification' xpos='470' ypos='1600' >
-<![CDATA[
- $$$TRACE("Create merge notification and send notification")
- set mergeNotifMsg = "KEEP: " _ context.empiNum _ $CHAR(9) _ " DELETE: " _ context.deletEmpiNum
- set mergeNotifMsg = mergeNotifMsg _ $CHAR(10) _ "MERGE STATUS:"
- set mergeNotifMsg = mergeNotifMsg _ $CHAR(10) _ context.empiNum _ " ! " _ context.deletEmpiNum _ $CHAR(10)_$CHAR(10)
- $$$TRACE("MergeNotifMsg: " _ mergeNotifMsg)
- set trequest = ##class(Ens.StreamContainer).%New("")
- set tStream = ##class(%GlobalCharacterStream).%New("")
- do tStream.WriteLine(mergeNotifMsg)
- set trequest.Stream = tStream
- do process.SendRequestSync(context.notifyMergeTargetConfigName,trequest,.result) 	
-]]]]><![CDATA[>
-</code>
 <code name='RESETERROR' xpos='470' ypos='1700' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
