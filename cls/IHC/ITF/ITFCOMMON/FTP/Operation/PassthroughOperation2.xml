@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.ITFCOMMON.FTP.Operation.PassthroughOperation2">
 <Description>
 An updated version of IHC.ITF.ITFCOMMON.FTP.Operation.PassthroughOperation1 that includs some bug fixes and the ability to include error messages in failure emails.</Description>
@@ -64,9 +64,18 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 <Parameter name="MAXLEN" value="1000"/>
 </Property>
 
+<Property name="EnableFilePermissions">
+<Description>
+Enable EnableFilePermissions if you want to use the FilePermissions setting. If this is disabled, 
+the File permissions setting is bypassed.</Description>
+<Type>%Boolean</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
 <Property name="FilePermissions">
 <Description><![CDATA[
-Enter the file permissions, in the format <i>entities</i>+<i>permissions</i> given the following:
+NOTE: The EnableFilePermissions setting can override this setting, causing it to be ignored.
+<p>Enter the file permissions, in the format <i>entities</i>+<i>permissions</i> given the following:
 <p> <i>entities</i> can be one or more of: u = user (owner); g=group; o=others
 <br> <i>permissions</i> can be one or more of: r = read; w=write; x=execute
 <p>Multiple entries should be comma-delimited. Permissions not specifically granted will be lost. For example, if you do not give
@@ -159,7 +168,7 @@ number.</Description>
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>Filename:Basic,TempFilename,FilePermissions:Basic,ActionOnTargetFile:Basic,StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing,MaximumSequenceNumber:Sequencing,ResetSequenceOnRestart:Sequencing,SuccessEmailSubject:Alerting, SucessEmailBody:Alerting,FailureEmailSubject:Alerting, FailureEmailBody:Alerting</Default>
+<Default>Filename:Basic,TempFilename,EnableFilePermissions:Basic,FilePermissions:Basic,ActionOnTargetFile:Basic,StartingSequenceNumber:Sequencing, SequenceIncrement:Sequencing, MinimumSequenceNumber:Sequencing,MaximumSequenceNumber:Sequencing,ResetSequenceOnRestart:Sequencing,SuccessEmailSubject:Alerting, SucessEmailBody:Alerting,FailureEmailSubject:Alerting, FailureEmailBody:Alerting</Default>
 </Parameter>
 
 <Method name="OnInit">
@@ -243,19 +252,19 @@ number.</Description>
 		}
 	
 		if ($$$ISOK(tSC)) { //If we don't have any errors yet
-			//If we have an action on target file
+		//If we have an action on target file
 			if (""'=..ActionOnTargetFile){
-				if ($EXTRACT(UpdatedActionOnTargetFile)="/") { //If this is a full path	
+				if ($EXTRACT(UpdatedActionOnTargetFile)="/") {//If this is a full path 
 					$$$TRACE("Set Permission with Rename:"_UpdatedActionOnTargetFile)
-					Set tSC = ..SetPermissions(UpdatedActionOnTargetFile, ..FilePermissions)
+					Set tSC= ..SetPermissions(UpdatedActionOnTargetFile, ..FilePermissions)
 				}
-				else {
+				else{
 					$$$TRACE("Set Permission with Rename:"_..Adapter.FilePath_"/"_UpdatedActionOnTargetFile)
-					Set tSC = ..SetPermissions(..Adapter.FilePath_"/"_UpdatedActionOnTargetFile, ..FilePermissions)
+					Set tSC= ..SetPermissions(..Adapter.FilePath_"/"_UpdatedActionOnTargetFile, ..FilePermissions)
 				}
 			}
 			else {
-				$$$TRACE("Set Permission without Rename:"_tFinalFilename)		
+				$$$TRACE("Set Permission without Rename:"_tFinalFilename) 
 				Set tSC = ..SetPermissions(..Adapter.FilePath_"/"_tFinalFilename, ..FilePermissions)
 			}
 		}
@@ -263,18 +272,32 @@ number.</Description>
 		//Sending Email
 		If $$$ISOK(tSC)
 		{
-			$$$TRACE("Sending alert for successful file transfer.")
-			Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(updatedSuccessEmailSubject)
-			Set updatedSuccessEmailbody = ..replaceWithParticularFormat(updatedSuccessEmailbody)
-			do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+			If ..SuccessEmailSubject'= "" 
+			{
+				$$$TRACE("Sending alert for successful file transfer.")
+				Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(updatedSuccessEmailSubject)
+				Set updatedSuccessEmailbody = ..replaceWithParticularFormat(updatedSuccessEmailbody)
+				do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+			}
+			Else
+			{
+			$$$TRACE("No SuccessEmailSubject found; email will not be sent.")
+			}
 		}
 		ElseIf (..RetryCount>=MaxRetry) //If we have run out of Retries
 		{
-			$$$TRACE("Sending alert for failure in file transfer.")
-			do ..valueToBeReplaced.SetAt(tSC,"%EM")
-			Set updatedFailureEmailSubject = ..replaceWithParticularFormat(updatedFailureEmailSubject)
-			Set updatedFailureEmailbody = ..replaceWithParticularFormat(updatedFailureEmailbody)
-			do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
+			If ..FailureEmailSubject '= ""
+			{
+				$$$TRACE("Sending alert for failure in file transfer.")
+				do ..valueToBeReplaced.SetAt(tSC,"%EM")
+				Set updatedFailureEmailSubject = ..replaceWithParticularFormat(updatedFailureEmailSubject)
+				Set updatedFailureEmailbody = ..replaceWithParticularFormat(updatedFailureEmailbody)
+				do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
+			}
+			Else
+			{
+				$$$TRACE("No FailureEmailSubject found; email will not be sent.")
+			}
 			$$$TRACE("Error ocurred processing file: "_..Adapter.FilePath_"/"_UpdatedActionOnTargetFile_". Shutting down the component.")
 			//Disable the operation
 			Job ##class(Ens.Director).EnableConfigItem(..%ConfigName,0,1)
@@ -409,12 +432,18 @@ number.</Description>
 <FormalSpec>fullPath:%String,permissions</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	if (permissions="") {
-		Set permissions="ug+rwx"
+	if (..EnableFilePermissions){ //If we want to alter target file permissions
+		if (permissions="") {
+			Set permissions="ug+rwx"
+		}
+		$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Service.PassthroughService1.SetPermissions("_fullPath_","_permissions_")")
+		Set tSC=..Adapter.SetPermissions(fullPath,permissions)
+		Quit tSC
 	}
-	$$$TRACE("IHC.ITF.ITFCOMMON.FTP.Service.PassthroughService1.SetPermissions("_fullPath_","_permissions_")")
-	Set tSC=..Adapter.SetPermissions(fullPath,permissions)
-	Quit tSC
+	else { //If we do NOT want to alter target file permissions
+		$$$TRACE("EnableFilePermissions is disabled; file permissions will not be altered.")
+		Quit $$$OK
+	}
 ]]></Implementation>
 </Method>
 </Class>
