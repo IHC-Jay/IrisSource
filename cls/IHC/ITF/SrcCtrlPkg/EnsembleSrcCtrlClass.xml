@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass">
 <IncludeCode>itfSrcCtrl,EnsErrors,Ensemble</IncludeCode>
 <Super>%RegisteredObject</Super>
@@ -12,12 +12,20 @@
 
 <Method name="ValidateUser">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[usrNm:%String,&pUser:%String,&pPassword:%String]]></FormalSpec>
+<FormalSpec><![CDATA[usrNm:%String,&pUser:%String,&pPassword:%String,valUser:%String]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+	set pUser = "eai_chef"
+	set pPassword = ""
 	set stat = $$$OK
-		
-		 set Credential = "eai_chef@SVN"
+	if (valUser = "CyberArk")
+	{
+		set stat = ..GetPasswordFromCyberArk(usrNm, pUser, .pPassword)
+	}
+	else
+	{
+	
+	set Credential = "eai_chef@SVN"
 		 set statement=##class(%SQL.Statement).%New()
 		 set stat=statement.%Prepare("Select ID,Username, Password,BusinessPartner from Ens_Config.Credentials where ID = '" _ Credential _"'")
 		 if $$$ISERR(stat) { Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,stat) }
@@ -29,16 +37,128 @@
 			    set pUser = resultset.%Get("Username")
 			    set pPassword = resultset.%Get("Password")
 			 }
-			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Using user:" _ pUser _ " to access SubVersion")
-	 
-			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,$SYSTEM _ ": " _ $USERNAME _ ", Process.UserName: " _ $SYSTEM.Process.UserName())
-			
-			set cmd = $$$LIBDIR _ "  --username " _ pUser _ " --password '" _ pPassword _ "' --non-interactive --no-auth-cache  info " _ $$$SVNSRCURL
-			// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Checking SVN: " _ cmd)
-	        Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(cmd)
-	        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Check SVN: " _ $$$SVNSRCURL _ ", stat: " _ stat)
 		 }
-		return stat
+	}
+	
+			         
+    if ($$$ISOK(stat))
+    {
+		    			 
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Using user:" _ pUser _ " to access SubVersion")
+ 
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,$SYSTEM _ ": " _ $USERNAME _ ", Process.UserName: " _ $SYSTEM.Process.UserName())
+		
+		set cmd = $$$LIBDIR _ "  --username " _ pUser _ " --password '" _ pPassword _ "' --non-interactive --no-auth-cache  info " _ $$$SVNSRCURL
+		// Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Checking SVN: " _ cmd)
+        Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd(cmd)
+        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Check SVN: " _ $$$SVNSRCURL _ ", stat: " _ stat)
+    }	 
+	return stat
+]]></Implementation>
+</Method>
+
+<Method name="GetPasswordFromCyberArk">
+<Description>
+Access CyberArk</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[usrNm:%String,UserName:%String,&passWd]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+ //set URL = "https://lpv-iamccpprd01.co.ihc.com/AIMWebService/api/Accounts"
+ set URL = "AIMWebService/api/Accounts"
+ #dim tSC As %Status=$$$OK
+ 
+ set AppID = "App_EAI_Chef"
+ set Safe = "CO INTF APP NonProd"
+ set sslConf = "Cyberark"	
+ 
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, $USERNAME _ " at " _ $NAMESPACE _" - GetPasswordFromCyberArk: " _ UserName)
+       
+    Set httprequest=##class(%Net.HttpRequest).%New()
+	Set httprequest.ContentType="application/json"
+	Do httprequest.SetParam("AppID",AppID)
+	Do httprequest.SetParam("Safe",Safe)
+	Do httprequest.SetParam("UserName", UserName)
+	Set httprequest.Https=1
+	Set httprequest.Location = URL
+	Set httprequest.Server = "lpv-iamccpprd01.co.ihc.com" // "cyberarkccp.co.ihc.com"
+	set httprequest.Port = 443
+	Set httprequest.SSLConfiguration = sslConf 
+	set httprequest.Timeout=45
+	set httprequest.SSLCheckServerIdentity = 0
+	
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "http Get: Location: "_httprequest.Location _ ", SSLConfiguration = " _ sslConf)
+
+	try
+	{    
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  " Call httprequest.Get ")
+		
+		set oldID = $IO
+		// Compile line generates output to console; causes javascript to throw error
+		OPEN "/dev/null/" 
+		USE "/dev/null/"
+	  
+   		#; Call the function to do the load        	   		
+   		set tSC = httprequest.Get(URL) 
+   		
+   		CLOSE "/dev/null/"
+
+		OPEN oldID
+		USE oldID 
+ 								
+		if $$$ISERR(tSC) {    
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  " CyberArk service last error: " _ $System.Status.GetErrorText(%objlasterror))     
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  " Stack Trace: " _ ##class(Ens.Util.Trace).GetErrorTrace())     
+		  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  " Error Trace: " _ ##class(Ens.Util.Trace).GetErrorTrace())
+          set tSC = $$$ERROR($$$HttpConnectFail, "CyberArk service error Status: "_tSC)
+    	} 
+    	else {
+		    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  " CyberArk service..Get Request successful..")
+	            
+	       	       	
+	       	set len = httprequest.HttpResponse.ContentLength     
+	    	set respData = httprequest.HttpResponse.Data.Read()
+	    	
+	    	set response=httprequest.HttpResponse        
+	       	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "StatusLine: "_response.StatusLine)
+	       	set statusLine = response.StatusLine 
+	       	set statusCode = ""
+	       	set statusDesc = ""
+	       	if (statusLine'=""){
+				set statusCode=$piece(statusLine," ",2)
+				set statusDesc=$piece(statusLine," ",3)			
+	      	}      
+	      	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "StatusCode: "_statusCode_", StatusDesc: "_statusDesc)
+	      	if (statusCode = 200) 
+	      	{
+		      	
+		      	set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respData)
+		      	
+		      	set stat = consumedJSONobj.%Get("ErrorCode")
+		      	set val = consumedJSONobj.%Get("Content")
+		      	if (($L(stat) <= 0) && ($L(val) > 0))
+		      	{
+			      	set passWd = val
+			      	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "CPMStatus: " _ stat _ ", Got password for " _ UserName )
+		      	}
+		      	else
+		      	{
+			      	set tSC = $$$ERROR($$$UserDoesNotExist, "ERROR: CPMStatus FromJSON: " _ stat _ ", HttpResponse: " _ respData _ ", HTTP StatusCode: "_statusCode_", StatusDesc: "_statusDesc)
+			    }
+	      	}
+	      	else
+	      	{
+		      	set tSC = $$$ERROR($$$HttpConnectFail, "StatusCode: "_statusCode_", StatusDesc: "_respData)
+	      	}
+    		
+     	}
+	}catch err
+	{
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "Exception: " _ err)
+		set tSC = $$$ERROR($$$EnsErrGeneral, "Exception: " _ err)
+	}
+	Quit tSC
 ]]></Implementation>
 </Method>
 
@@ -278,7 +398,7 @@ Get the information about classes from Audit table into the source control table
 	    	set prevUsrNm = usrNm
 	    	set prevNmSp = nmSp
 	    	set prevNm = intNm
-	    	// WRITE !, intNm _ ". " _ locTm
+	    	
     
      	}
      }
