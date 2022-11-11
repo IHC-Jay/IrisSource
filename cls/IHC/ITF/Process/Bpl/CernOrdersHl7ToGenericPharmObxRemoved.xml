@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.CernOrdersHl7ToGenericPharmObxRemoved">
+<Description>
+iCentra Pharmacy Med Orders to Non-IV systems like ConnectRx, OmniCenter, and Vestigo</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66414,41028.254433</TimeCreated>
+
+<Parameter name="SETTINGS">
+<Default>-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>CernOrdersHl7ToGenericPharmObxRemovedDefaultData</DefaultData>
+<Data name="CernOrdersHl7ToGenericPharmObxRemovedDefaultData">
+<Subscript>"CernOrdersHl7ToGenericPharmObxRemoved"</Subscript>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='4550' width='2000' >
+<context>
+<property name='TargetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='Target' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='TargetListIndex' type='%Integer' initialexpression='1' instantiate='0' />
+</context>
+<sequence xend='200' yend='1600' >
+<scope xpos='200' ypos='250' xend='200' yend='1500' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Scope for Cerner Med Orders to Non-IV End Systems]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Reply code' xpos='200' ypos='450' >
+<annotation><![CDATA[check Reply code]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "***Initialization error: No ReplyCodeActions found!")
+ }]]]]><![CDATA[>
+</code>
+<code name='Get MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Check message DocType]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tStatus'=$$$OK){
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, " ***HL7 message did not pass HL7 Validation for iCentra Med Orders. Error Status: "_ tStatus)
+ }
+]]]]><![CDATA[>
+</code>
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToGenericPharmObxRemoved' source='request' target='response' xpos='200' ypos='750' />
+<trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='850' />
+<code name='SetTargetFromLookup' xpos='200' ypos='950' >
+<annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
+<![CDATA[  $$$TRACE("Setting target")
+ $$$TRACE("Set Target From Target Config List.")
+ //TargetConfigNames validation
+ set context.Target=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (context.Target= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get or set targetConfigNames, shutting down.")   
+ }
+ $$$TRACE("TargetConfigNames: " _context.Target )
+ ]]]]><![CDATA[>
+</code>
+<code name='BuildTargetListFromTarget' xpos='200' ypos='1050' >
+<annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
+<![CDATA[ set length = $L(context.Target, ",")
+ $$$TRACE("Length of Target Locations=" _length)
+ if ((length >=1)&&(context.Target'=""))
+ {
+    For iTarget=1:1:$L(context.Target, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(context.Target,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = context.TargetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+        }
+          $$$TRACE("TargetList count " _ context.TargetList.Count())
+ }else{
+	 $$$TRACE(errMsg )
+	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Could Not Build Ensemble next Target Component for the Operation to send to. Got Error:"_errMsg)
+ }
+ ]]]]><![CDATA[>
+</code>
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetListIndex' xpos='200' ypos='1150' xend='200' yend='450' >
+<call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetListIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+<trace name='TraceOut' value='"Message Sent"' xpos='200' ypos='350' />
+</foreach>
+<code name='Reset Error' xpos='200' ypos='1250' >
+<annotation><![CDATA[Reset Error Counter]]]]><![CDATA[></annotation>
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1350' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
