@@ -1,0 +1,432 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.RoyalOrdersHl7ToGenericHiePatientService">
+<Description>
+</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66421,36067.663933</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+AccessToken for calling Hie Patient Service</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="SearchCMrnTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>AccessTokenTargetConfigName:Additional,SearchCMrnTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>RoyalOrdersHl7ToGenericHiePatientServiceDefaultData</DefaultData>
+<Data name="RoyalOrdersHl7ToGenericHiePatientServiceDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"RoyalOrdersHl7ToGenericHiePatientService"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>SearchCMrnTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2300' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='searchcmrnTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='empiMod' type='%String' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='statusValue' type='%String' instantiate='0' />
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='demogrParams' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
+<property name='CernerMrnvalues' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
+<property name='pid31value' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='isOrderCMRNPresent' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
+<code name='Check ReplyCodeActions' xpos='200' ypos='350' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='initializeTargetConfigNames' xpos='200' ypos='450' >
+<![CDATA[ 
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+
+ set context.searchcmrnTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","SearchCMrnTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" SearchCMrnTargetConfigName: " _ context.searchcmrnTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No SearchCMrnTargetConfigName found in the Ensemble settings")
+ }
+
+
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName,context.targetList)
+ 
+ $$$TRACE(context.targetList.Count())
+ if ( ($$$ISERR(pstatus)) || (context.targetList.Count()= 0) ){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ }]]]]><![CDATA[>
+</code>
+<code name='Check CMRN Present in Message' xpos='200' ypos='550' >
+<![CDATA[  
+  
+  set pid31= request.GetValueAt("PIDgrp.PID:PatientIdentifierList(1).ID")
+  $$$TRACE("pid31 is : "_pid31)
+ 
+  // check if Order record have CMRN
+ if (pid31 '="")
+ {
+    // check if PID3.1 starts with OD
+  set getstartletter = $EXTRACT(pid31,0,2)
+  $$$TRACE("getstartletter is : "_getstartletter)
+ 
+   if (getstartletter ="OD")
+   {
+    // Its a OpenDoc MRN
+    set context.isOrderCMRNPresent = 0
+   }
+   else
+   {
+   $$$TRACE("Not OD so its CMRN")
+     set context.isOrderCMRNPresent = 1
+   }
+ }
+ else
+ {
+   // PID-3.1 is empty so no CMRN is present
+   set context.isOrderCMRNPresent = 0
+ }
+ 
+   $$$TRACE("isOrderCMRNPresent is : "_context.isOrderCMRNPresent)
+   
+  
+   ]]]]><![CDATA[>
+</code>
+<if name='CMRN present in order' condition='context.isOrderCMRNPresent = 1' xpos='200' ypos='650' xend='200' yend='1200' >
+<false>
+<code name='ReadValues' xpos='335' ypos='800' >
+<![CDATA[  //Global variables 
+       //ID|LastName|FirstName|MiddleName|Suffix|Gender|BirthDate|SSN|Street1|Street2|City|State|Zip|Phone
+      
+       
+       set updLastName = $replace(request.GetValueAt("PIDgrp.PID:PatientName(1).familylastname.familyname") ,"-","")
+       if (updLastName ="DO NOT USE"){
+	       set updLastName = ""
+	   }
+
+       set lastNameUpd = $ZCVT($ZSTRIP(updLastName,"<=>"," "),"O","URL")
+       set firstNameUpd = $ZCVT($ZSTRIP(request.GetValueAt("PIDgrp.PID:PatientName(1).givenname"),"<=>"," "),"O","URL")
+       if (firstNameUpd = "OR"){
+	       set firstNameUpd = $replace(firstNameUpd,"OR","")
+	   }
+       
+       
+        set updMidName = $replace(request.GetValueAt("PIDgrp.PID:PatientName(1).middleinitialorname"),"-","")
+  	    $$$TRACE( " updMidName: " _updMidName)
+        set midNameUpd = $ZCVT($ZSTRIP(updMidName,"<=>"," "),"O","URL")
+       
+        set ssn = request.GetValueAt("PIDgrp.PID:SSNNumberPatient")
+        set updSsn=$zstrip(ssn,"*P")
+
+        set bdate = request.GetValueAt("PIDgrp.PID:DateTimeOfBirth.timeofanevent")
+        if ($L(bdate)>8){
+	        set tmpDate = $E(bdate,1,10)
+	        set bdateList = $LISTFROMSTRING(tmpDate, "/")
+	        set bdateListLength = $LISTLENGTH(bdateList)
+	        if bdateListLength=3{	   
+	         if ($L($LIST(bdateList,2)=1)){
+		         set month = "0"_$LIST(bdateList,2)
+		         $$$TRACE( " month "_month)
+		     }
+		     if ($L($LIST(bdateList,1)=1)){
+		         set dayy = "0"_$LIST(bdateList,1)
+		          $$$TRACE( " dayy "_dayy)
+		     }
+			 set bdate = $E($LIST(bdateList,3),1,4)_month_dayy
+			 $$$TRACE( " Modified Birth Date " _ bdate)
+		    }
+	    }
+	    set updZip = request.GetValueAt("PIDgrp.PID:PatientAddress(1).ziporpostalcode")
+	    if ($L(updZip)>5){
+         set updZip = $E($ZSTRIP(request.GetValueAt("PIDgrp.PID:PhoneNumberHome(1).phonenumber1"),"*P"),1,5)
+	    }
+                
+        set context.demogrParams = "givenName="_$ZSTRIP(firstNameUpd,"*W")_"&familyName="_$ZSTRIP(lastNameUpd,"*W")_"&middleName="_$ZSTRIP(midNameUpd,"*W")_"&dob="_bdate_"&gender="_request.GetValueAt("PIDgrp.PID:Sex")_"&zip="_updZip_"&phone="_$ZSTRIP(request.GetValueAt("PIDgrp.PID:PhoneNumberHome(1).phonenumber1"),"*P")_"&ssn="_updSsn_"&ctx=INMT"_"&fetchMultiple=true&rows=10"
+       
+       // set context.demogrParams = "givenName="_firstNameUpd_"&familyName="_lastNameUpd_"&middleName="_midNameUpd_"&dob="_bdate_"&gender="_request.GENDER_"&zip="_updZip_"&phone="_$ZSTRIP(request.HOMEPHONE,"*P")_"&ssn="_request.SSN_"&fetchMultiple=true&rows=1"
+       
+       $$$TRACE( " context.demogrParams ..."_context.demogrParams)
+         
+       
+  ]]]]><![CDATA[>
+</code>
+<code name='CallWebServiceAccessTokenFromPing' xpos='335' ypos='900' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+    
+     $$$TRACE(" request.ID : "_request.GetValueAt("PIDgrp.PID:PatientIdentifierList(1).ID"))
+     //Set context.empiMod = request.ID # 10
+    //$$$TRACE("Empi# Modulus: "_context.empiMod)      
+    
+   ]]]]><![CDATA[>
+</code>
+<code name='callPatientSearchService' xpos='335' ypos='1000' >
+<![CDATA[  
+
+       
+      set context.statusValue = ""
+      $$$TRACE("Calling Patient search service(1111) to get IHC CMRN#..") 
+      set operType = "SEARCH"
+      //set tarConfigName = context.targetList.GetAt(1)_context.empiMod 
+      set searchCmrntarConfigName = context.searchcmrnTargetConfigName 
+      set streamRequest=##class(Ens.StringContainer).%New()
+      set streamRequest.StringValue= context.demogrParams
+      $$$TRACE(" SearchCMRN Target Operation: " _ searchCmrntarConfigName) 
+      set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New()  
+      set httpPingServiceRequestObj.accessToken = context.accessToken
+      set httpPingServiceRequestObj.operationType = operType  
+      set httpPingServiceRequestObj.identifier = ""
+      set httpPingServiceRequestObj.streamObject = streamRequest
+      
+      $$$TRACE(" Calling Patient Service "_operType_" - BEGIN ")
+      set status = process.SendRequestSync(searchCmrntarConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+      $$$TRACE(" Calling Patient Service "_operType_" - END ")
+      
+      $$$TRACE("  Patient Service: "_status)
+      if (status=$$$OK){
+	    $$$TRACE("Call Hie Patient Service "_operType_" Operation OK status.")      
+        set patServiceResponseData=patientServiceResponse.Stream  
+        set statusCode = patientServiceResponse.Attributes.GetAt("StatusCode")       
+        set stream =   patServiceResponseData
+       	set respData = ""
+       	While 'stream.AtEnd { 
+       		set respData = respData _ stream.ReadLine(,.sc,.eol)       		
+       	}
+        $$$TRACE(" httpStatusCode(11): "_statusCode) 
+        
+        if (statusCode'="200"){
+	    	if (statusCode="401"){
+		   		$$$TRACE("  CheckError... ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token. Response: ["_respData_"]. Retrying...") 
+		   	}elseif (statusCode="400"){
+		    	$$$TRACE("  In Status Code 400... ")
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+		    }elseif(statusCode="500"){
+			    $$$TRACE("  In Status Code 500... ")
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+		    }else{
+		    	$$$TRACE("  DisableMsgError.... ")
+        		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from Patient Service Post Operation: "_respData) 
+		    }
+		} else {
+        		$$$TRACE("PatientService call status 200 OK !!! ")
+        		Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName) 
+        		
+        		set respJSONstring = respData          		
+          		
+          		set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respJSONstring) 
+          		set statusVal = consumedJSONobj.%Get("status")  
+          		$$$TRACE("  statusVal: "_statusVal)     
+      			if (statusVal="SUCCESS"){ 
+      			        set getmrn = 0
+      			        set context.CernerMrnvalues = ""
+      				//set mrn = (consumedJSONobj.%Get("data")).%Get("mrn")
+      				//$$$TRACE(" CMRN#: "_mrn)
+      				
+      				set statusDetailsArr = (consumedJSONobj.%Get("data").%Get("patients")) 
+      				Set arrObj = statusDetailsArr.%GetIterator()
+  			      
+  				while arrObj.%GetNext(.key, .value)
+  				{
+		  	          Set arrNextElemObj = value.%GetIterator()
+		  	          while arrNextElemObj.%GetNext(.key, .value) {
+		  		     if (key = "primaryIds")
+  				        { 
+		  			   Set arrElem2Obj = value.%GetIterator()	 
+	  			           while arrElem2Obj.%GetNext(.key, .value) {
+	  			             Set arrElem3Obj = value.%GetIterator()
+		  	                     while arrElem3Obj.%GetNext(.key, .value) {
+		  			       //$$$TRACE("  key: "_key_" Value: "_value)
+		  			       if ( (key ="assigningAuthority") && ( value = "INMT") )
+		  			       {
+		  			          //$$$TRACE("value is INMT")
+		  			          set getmrn = 1
+		  			          //$$$TRACE("getmrn value is : "_getmrn)
+		  			       }
+		  			       if ( (key = "mrn") && (getmrn = 1) )
+		  			       {
+		  			         // $$$TRACE("value value is : "_value)
+		  			          if (context.CernerMrnvalues ="")
+		  			          {
+		  			           set context.CernerMrnvalues = value
+		  			          }
+		  			          else
+		  			          {
+		  			            set context.CernerMrnvalues = context.CernerMrnvalues_"|"_value
+		  			          }
+		  			          set getmrn = 0 
+		  			         // $$$TRACE("getmrn value is : "_getmrn)
+		  			          //$$$TRACE(" CernerMrnvalues : "_context.CernerMrnvalues)
+		  			       }
+		  			     }
+		  			    }
+		  			   }
+		  			  }
+  				}
+        	              }
+ 	  			$$$TRACE(" Final CernerMrnvalues : "_context.CernerMrnvalues)
+ 	  			
+		}   
+      }
+    
+    
+    
+   ]]]]><![CDATA[>
+</code>
+<code name='Set PID-3.1' xpos='335' ypos='1100' >
+<![CDATA[ 
+ // Check if Verato returned CMRN
+ if (context.CernerMrnvalues = "" )
+ {
+    set isVeratoCMRNPresent = 0
+ }
+ else
+ {
+    set isVeratoCMRNPresent = 1
+ }
+ 
+ $$$TRACE("isVeratoCMRNPresent is : "_isVeratoCMRNPresent)
+ $$$TRACE("isOrderCMRNPresent is : "_context.isOrderCMRNPresent)
+ 
+ //Scenario 1 - No CMRN is in the Order or found in Verato, then Open Doc ID is the only ID passed on
+ 
+ if (context.isOrderCMRNPresent = 0 && isVeratoCMRNPresent  = 0)
+ {
+   // Get OpenDoc MRN
+   set context.pid31value = request.GetValueAt("PIDgrp.PID:PatientIdentifierList(1).ID")
+ }
+ elseif (context.isOrderCMRNPresent = 0 && isVeratoCMRNPresent = 1)  //Scenario 2 - No CMRN is in  the Order and Verato returns one of more CMRNs
+ {
+   // Get the First CMRN returned by the Verato
+   set context.pid31value = $PIECE(context.CernerMrnvalues,"|")
+ }
+ 
+ $$$TRACE("context.pid31value is : "_context.pid31value)
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.RoyalOrdersHl7ToGenericHiePatientService' source='request' target='response' xpos='200' ypos='1300' />
+<trace name='After Transform' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='1400' />
+<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1500' xend='200' yend='350' >
+<annotation><![CDATA[Publish to facility Target based on the lookup table]]]]><![CDATA[></annotation>
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='Reset Error' xpos='200' ypos='1600' >
+<![CDATA[ 
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
