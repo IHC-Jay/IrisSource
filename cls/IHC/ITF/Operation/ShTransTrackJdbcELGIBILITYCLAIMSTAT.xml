@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Operation.ShTransTrackJdbcELGIBILITYCLAIMSTAT">
 <Super>Ens.BusinessOperation</Super>
 <TimeCreated>64511,26780.66673</TimeCreated>
@@ -37,7 +37,7 @@
 <FormalSpec>req:IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDITRANSACTIONINSERT,*pResponse:Ens.StringContainer</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("Inside Operation class")
+	$$$TRACE("Inside Operation SHSPEDITRANSACTIONINSERT")
 	Set TtUniqueId=req.TtUniqueId
 	$$$TRACE("TtUniqueId:"_TtUniqueId)
 	Set strTtBatchReal=req.strTtBatchReal
@@ -105,9 +105,7 @@
 	  			Set PErrorcode = tOutParms.GetAt(2)
 	  			Set PErrorDescription = tOutParms.GetAt(3)
 	  			set pResponse=##class(Ens.StringContainer).%New()
-	        	$$$TRACE("tRTs : "_PEdick)
-		  		$$$TRACE("tRTs : "_PErrorcode)
-		  		$$$TRACE("tRTs : "_PErrorDescription)
+	        	$$$TRACE("tRTs : "_PEdick _ ", code : "_Errorcode _ ", desc: : "_PErrorDescription)
 		  		Set pResponse.StringValue=PEdick_"|"_PErrorcode_"|"_PErrorDescription
 		    	Do pResponse.%Save()
 			}
@@ -135,7 +133,7 @@
 <FormalSpec>req:IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT,*pResponse:Ens.StringContainer</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("Inside Operation class")
+	$$$TRACE("Inside Operation SHSPEDISEGMENTINSERT")
 	#dim Payload as %Stream.GlobalCharacter
 	Set stream=req.Payload
 	Do stream.Rewind()
@@ -149,7 +147,7 @@
  	if (stream.Size < 110)
  	{
 	 	set tSC = $$$ERROR("X12 message has no segments")
-	 	Quit
+	 	Quit tSC
 	}
  	else
 	{
@@ -219,7 +217,7 @@
 						Set ioParms(3,"SqlType")=12
 						Set ioParms(4,"SqlType")=4
 						Set ioParms(5,"SqlType")=12
-						$$$TRACE("calling getSHSP_EDI_SEGMENT_INSERT For"_i_"th segment")
+						$$$TRACE("calling getSHSP_EDI_SEGMENT_INSERT For "_i_"th segment: " _ ioParms(1) _", " _ ioParms(2) _", " _ ioParms(3))
 						
 						Set tQuery="{call EDI_CORE.SHSP_EDI_SEGMENT_INSERT(?,?,?,?,?)}"
 
@@ -267,6 +265,93 @@
 ]]></Implementation>
 </Method>
 
+<Method name="Process27xMessage">
+<FormalSpec>pReq:IHC.ITF.Request.x12MessageReq,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Inside Process27xMessage Operation")
+	set stat = $$$OK
+	set req = ##class(IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDITRANSACTIONINSERT).%New()
+	set req.pSBSBID = pReq.pSBSBID
+	set req.pTransactionFileName = pReq.pTransactionFileName
+	set req.TtMsgType = pReq.TtMsgType
+	set req.TimeStamp = pReq.TimeStamp
+	set req.strTtBatchReal = pReq.strTtBatchReal
+	set req.TtUniqueId = pReq.TtUniqueId
+	
+		
+	#dim pResp As Ens.StringContainer
+	set stat = ..SHSPEDITRANSACTIONINSERT(req, .pResp)
+	$$$TRACE(req.TtMsgType _ " SHSPEDITRANSACTIONINSERT status: " _ stat )
+	if ( ($$$ISOK(stat)) && ($ISOBJECT(pResp)))
+	{ 
+		$$$TRACE(pResp.StringValue _ ", Check # " _ $E(pResp.StringValue, 1, $F(pResp.StringValue, "|") - 2))
+		set segReq = ##class(IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT).%New()
+		#dim payload as %Stream.GlobalCharacter
+		set payload = ##class(%Stream.GlobalCharacter).%New()
+		Do payload.Write(pReq.Payload)
+		set segReq.Payload = payload
+		set segReq.EdiCheckNo = $PIECE(pResp.StringValue,"|",1) 
+		set stat = ..SHSPEDISEGMENTINSERT(segReq, .pResp)
+		$$$TRACE(req.TtMsgType _ " SHSPEDISEGMENTINSERT status: " _ stat )
+		if ( $$$ISOK(stat))
+		{
+			$$$TRACE("String: " _ pResp.StringValue)
+		}
+	}
+	set charSep = $E(pReq.RespPayload, 4)
+	set msgType271 = "ST" _ charSep _ "271" _ charSep
+	set msgType277 = "ST" _ charSep _ "277" _ charSep
+	set ta1MsgType = "TA1" _ charSep
+	set ackMsgType =	"ST" _ charSep _ "999" _ charSep
+	if (pReq.RespPayload [ msgType271)
+	{
+		set req.TtMsgType = "271"
+	}
+	elseif (pReq.RespPayload [ msgType277)
+	{
+		set req.TtMsgType = "277"
+	}
+	elseif (pReq.RespPayload [ ackMsgType)
+	{
+		set req.TtMsgType = "999"
+	}
+	elseif (pReq.RespPayload [ ta1MsgType)
+	{
+		set req.TtMsgType = "TA1"
+	}	
+	else
+	{
+		$$$TRACE("Did not find: " _ msgType271 _ " / " _ msgType277 _ " in " _ $E(pReq.RespPayload, 1, 6))
+		set req.TtMsgType = "ERR"
+	}
+	
+	set req.TimeStamp = pReq.RespTimeStamp
+	
+	set stat = ..SHSPEDITRANSACTIONINSERT(req, .pResp)
+	$$$TRACE(req.TtMsgType _" SHSPEDITRANSACTIONINSERT status: " _ stat )
+	if ( ($$$ISOK(stat)) && ($ISOBJECT(pResp)))
+	{ 
+		$$$TRACE(pResp.StringValue _ ", Check # " _ $E(pResp.StringValue, 1, $F(pResp.StringValue, "|") - 2))
+		set segReq = ##class(IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT).%New()
+		set payload = ##class(%Stream.GlobalCharacter).%New()
+		Do payload.Write(pReq.RespPayload)
+		set segReq.Payload = payload
+		set segReq.EdiCheckNo = $PIECE(pResp.StringValue,"|",1) 
+		set stat = ..SHSPEDISEGMENTINSERT(segReq, .pResp)
+		$$$TRACE(req.TtMsgType _ " SHSPEDISEGMENTINSERT status: " _ stat )
+		if ( $$$ISOK(stat))
+		{
+			$$$TRACE("String: " _ pResp.StringValue)
+		}
+	}
+
+
+	
+	Quit stat
+]]></Implementation>
+</Method>
+
 <XData name="MessageMap">
 <Data><![CDATA[
 <MapItems>
@@ -276,6 +361,9 @@
 	
 	<MapItem MessageType="IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT">
 	<Method>SHSPEDISEGMENTINSERT</Method>
+	</MapItem>
+	<MapItem MessageType="IHC.ITF.Request.x12MessageReq">
+	<Method>Process27xMessage</Method>
 	</MapItem>
 </MapItems>
 ]]></Data>

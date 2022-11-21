@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Operation.CallEdifecsRestService">
+<Super>EnsLib.REST.GenericOperation</Super>
+<TimeCreated>66417,30426.656738</TimeCreated>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:EnsLib.HTTP.GenericMessage,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	
+	set stat = ##super(.pRequest, .pResponse)
+	$$$TRACE("OnMessage status: " _ stat)
+	return stat
+]]></Implementation>
+</Method>
+
+<Method name="ProcessCoreMessageRequest">
+<FormalSpec>x12MsgReq:IHC.ITF.Request.x12MessageReq,*pResp:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set stat = $$$OK
+	
+	$$$TRACE("In ProcessCoreMessageRequest: " _ x12MsgReq)
+	
+	set pHttpRequest = ##class(EnsLib.HTTP.GenericMessage).%New()
+	
+	Set tStream = ##class(%Stream.GlobalBinary).%New()
+    set jsonStr = {"COREEnvelopeRealTimeRequest":
+    {"Payload":(x12MsgReq.Payload), 
+    "TtUniqueId": (x12MsgReq.TtUniqueId), 
+    "Source": (x12MsgReq.TtDataSource),
+    "InterchangeReceiverID":(x12MsgReq.ReceiverID),
+    "InterchangeSenderID":(x12MsgReq.SenderID),
+    "InterchangeControlNumber":(x12MsgReq.ControlNumber),
+    "ProcessingMode": (x12MsgReq.PayloadType),
+    "TtTimeStamp": (x12MsgReq.TimeStamp),
+    "TtMsgType": (x12MsgReq.TtMsgType),
+    "Reply" : "27xData"
+    } }.%ToJSON(.tStream)
+    
+    
+	
+		Do pHttpRequest.HTTPHeaders.SetAt("application/json","content-type")
+		Do pHttpRequest.HTTPHeaders.SetAt(tStream.Size,"content-length")
+		Set pHttpRequest.Stream = ##class(%Stream.GlobalBinary).%New()
+		Set tStatus = pHttpRequest.Stream.CopyFrom(tStream)
+		$$$ThrowOnError(tStatus)
+		
+		// Trace some data
+		Do tStream.Rewind()
+		Set tStr = tStream.Read()
+		$$$TRACE("Data string: " _ tStr)
+		
+	set pResp = ##class(Ens.StringContainer).%New()	
+	set callStat = $$$OK
+	try
+	{
+		set callStat = ..OnMessage(pHttpRequest, .pResponse)
+	}
+	catch (er)
+	{
+		set pResp.StringValue = "Exception: " + er.Data
+	}
+		
+	if ($$$ISOK(callStat)) {
+		Do pResponse.Stream.Rewind()
+		set pResp.StringValue = ""
+		While (pResponse.Stream.AtEnd = 0) {
+		    Set len = 10000
+		    set pResp.StringValue = pResp.StringValue _ pResponse.Stream.Read(.len)
+		    $$$LOGALERT(pResp.StringValue)
+	    }
+	    
+	}
+	else
+	{
+		set pResp.StringValue = "Error in calling Edifecs: " + callStat
+	}
+    return stat
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.Request.x12MessageReq">
+	<Method>ProcessCoreMessageRequest</Method>
+	</MapItem>
+	
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
