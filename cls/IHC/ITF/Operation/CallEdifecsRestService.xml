@@ -4,6 +4,17 @@
 <Super>EnsLib.REST.GenericOperation</Super>
 <TimeCreated>66417,30426.656738</TimeCreated>
 
+<Property name="UseTM">
+<Description>
+To use TM in Edifecs validation. Y - DBSelector will be used, N - XMLSelector</Description>
+<Type>%Boolean</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>UseTM:Additional</Default>
+</Parameter>
+
 <Method name="OnMessage">
 <FormalSpec>pRequest:EnsLib.HTTP.GenericMessage,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -37,18 +48,16 @@
     "ProcessingMode": (x12MsgReq.PayloadType),
     "TtTimeStamp": (x12MsgReq.TimeStamp),
     "TtMsgType": (x12MsgReq.TtMsgType),
+    "TM":(..UseTM),
     "Reply" : "27xData"
     } }.%ToJSON(.tStream)
     
-    
-	
 		Do pHttpRequest.HTTPHeaders.SetAt("application/json","content-type")
 		Do pHttpRequest.HTTPHeaders.SetAt(tStream.Size,"content-length")
 		Set pHttpRequest.Stream = ##class(%Stream.GlobalBinary).%New()
 		Set tStatus = pHttpRequest.Stream.CopyFrom(tStream)
 		$$$ThrowOnError(tStatus)
 		
-		// Trace some data
 		Do tStream.Rewind()
 		Set tStr = tStream.Read()
 		$$$TRACE("Data string: " _ tStr)
@@ -71,14 +80,66 @@
 		    Set len = 10000
 		    set pResp.StringValue = pResp.StringValue _ pResponse.Stream.Read(.len)
 		    $$$LOGALERT(pResp.StringValue)
-	    }
-	    
+	    }	    
 	}
 	else
 	{
 		set pResp.StringValue = "Error in calling Edifecs: " + callStat
 	}
     return stat
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+This method is called when Portal is drawing the production diagram
+pArray contains the config names the scanner found.
+Users can remove or add new names</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ..GetPropertyConnections(.pArray,pItem)
+	Quit
+]]></Implementation>
+</Method>
+
+<Method name="GetPropertyConnections">
+<Description>
+Helper method for OnGetConnections</Description>
+<ClassMethod>1</ClassMethod>
+<CodeMode>generator</CodeMode>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Set tProperty = ""  For { Set tProperty = $$$comMemberNext(%class,$$$cCLASSproperty,tProperty)  Quit:""=tProperty
+		// Look for datatypes that are of type Ens.DataType.ConfigName, or a subclass
+		$$$comMemberKeyGetLvar(tRuntimeType,%class,$$$cCLASSproperty,tProperty,$$$cPROPruntimetype)
+		If ($$$getClassType(tRuntimeType)=$$$cCLASSCLASSTYPEDATATYPE)
+		 && ((tRuntimeType="Ens.DataType.ConfigName") || $$IsDerivedFrom^%occLibrary(tRuntimeType,"Ens.DataType.ConfigName")) {
+			$$$GENERATE("	If pItem.GetModifiedSetting("""_tProperty_""",.tValue) Do:tValue'="""" ..makeConnections(tValue,.pArray,"""_tRuntimeType_""")")
+		}
+	}
+	$$$GENERATE("	If pItem.GetModifiedSetting(""AlertOnError"",.tValue),+tValue { Set pArray(""Ens.Alert"")="""" }")
+	$$$GENERATE("	ElseIf pItem.GetModifiedSetting(""AlertOnError"",.tValue) { Kill pArray(""Ens.Alert"") }")
+	$$$GENERATE("	Quit")
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="makeConnections">
+<Description>
+Helper method for OnGetConnections</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pConfigNames:Ens.DataType.ConfigName,&pArray,pConfigNameType:%String="Ens.DataType.ConfigName"]]></FormalSpec>
+<Implementation><![CDATA[
+	For i=1:1:$L(pConfigNames,",") {
+		Set tConfigName = $ZStrip($P(pConfigNames,",",i),"<>W")
+
+		// For ConfigNames that use template replacement, don't include them unless it's a canonical value
+		Continue:pConfigNameType="Ens.DataType.ConfigNameTemplate"&&'##class(Ens.DataType.ConfigNameTemplate).IsCanonical(tConfigName)
+
+		Set:tConfigName'="" pArray(tConfigName)=""
+	}
 ]]></Implementation>
 </Method>
 
