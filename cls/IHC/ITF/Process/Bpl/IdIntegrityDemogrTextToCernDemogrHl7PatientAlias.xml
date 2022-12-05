@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.IdIntegrityDemogrTextToCernDemogrHl7PatientAlias">
+<Description>
+Business process that receives patient alias file from Identity Integrity team (EMPI support)</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66443,56150.413264</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Security AccessToken for Hie patient service calls</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="PatientServiceTargetConfigName">
+<Description>
+Patient Service Operation to read demographics</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-IhcHie-Demogr-Json-Wsrc-READDEMOGRAPHICS"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>AccessTokenTargetConfigName:Additional,PatientServiceTargetConfigName:Additional,-NextOperation,-TargetConfigMask </Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2500' width='2000' >
+<context>
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='TargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='accessTokenTargetConfigName' type='%String' initialexpression='"Op-PingDir-Json-Wsrc-ACCESSTOKEN"'  instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='patientServiceTargetConfigName' type='%String' initialexpression='"Op-IhcHie-Demogr-Json-Wsrc-READDEMOGRAPHICS"'  instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hieReadDemogrObj' type='IHC.ITF.Util.Hie.HieServiceReadDemographics' instantiate='1' />
+
+<property name='AliasType' type='%String' instantiate='0' initialexpression="" />
+<property name='MrnToAdd' type='%String' instantiate='0' initialexpression="" />
+<property name='cmrn' type='%String' instantiate='0' initialexpression="" />
+
+</context>
+<sequence xend='200' yend='1750' >
+<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<code name='Check ReplyCodeActions' xpos='200' ypos='350' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+  if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")
+  }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError' xpos='200' ypos='450' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)   
+]]]]><![CDATA[>
+</code>
+
+
+
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='450' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr) 
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "") ){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+ ]]]]><![CDATA[>
+</code>
+
+
+<code name='initializeTargets' xpos='200' ypos='550' >
+<![CDATA[ 
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ }
+ set context.patientServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","PatientServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" PatientServiceTargetConfigName: " _ context.patientServiceTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No PatientServiceTargetConfigName found in the Ensemble settings")
+ }
+  ]]]]><![CDATA[>
+</code>
+
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='1200' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+
+
+<code name='InitializeValues' xpos='470' ypos='900' >
+<![CDATA[ 
+		set context.cmrn = request.CMRN
+		set context.AliasType = request.AliasType
+		set context.MrnToAdd = request.MrnToAdd
+   ]]]]><![CDATA[>
+</code>
+
+<code name='CallPatientServiceReadDemographics' xpos='470' ypos='900' >
+<![CDATA[ 
+   if ($L(context.cmrn)>0){ 
+     $$$TRACE(" Target Operation to Patient service " _ context.patientServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+     set httpPingServiceRequestObj.accessToken = context.accessToken
+     set httpPingServiceRequestObj.operationType = "READ"   
+     set httpPingServiceRequestObj.assignAuth = "INMT"
+     set httpPingServiceRequestObj.identifier = request.CMRN  
+     $$$TRACE(" Calling Patient Service - GetPatientService:  "_context.patientServiceTargetConfigName)
+     set status = process.SendRequestSync(context.patientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+     
+     if ($$$ISOK(status)){
+      $$$TRACE("Call PatientService-GetPatientService Operation OK status. ")
+      set restPatientServiceHttpResponse = patientServiceResponse
+            
+      set jsonPatient = restPatientServiceHttpResponse.Attributes.GetAt("Person")
+      
+      $$$TRACE("Json: " _ jsonPatient  )
+      
+      set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(jsonPatient) 
+      set statusVal = consumedJSONobj.%Get("status")  
+      $$$TRACE("  statusVal: "_statusVal)     
+      if (statusVal="SUCCESS"){ 
+           			
+      	set strContainer = ##class(Ens.StringContainer).%New()
+      	set strContainer.StringValue = jsonPatient
+      
+	  	set context.hieReadDemogrObj = ##class(IHC.ITF.Util.Hie.HieServiceReadDemographics).%New()
+	  	set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.HiePatientService).%New() 
+      	set httpPingServiceRequestObj.streamObject = strContainer
+    
+      	set jsonObj = ##class(IHC.ITF.Util.IhcHieGetDemographicsParser).%New() 
+      	set temp =  jsonObj.ParseGetDemogrJson(httpPingServiceRequestObj, .resp) 
+    
+      	$$$TRACE("Data:::"_temp)
+    
+      	$$$TRACE("resp:::"_resp)
+    
+      	set context.hieReadDemogrObj = resp
+    
+      
+      	$$$TRACE(" ***json parsing done **")
+      }elseif(statusVal="NO_MATCH"){
+	  	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," CMRN: ["_context.cmrn_"] not exists in Verato. Skipping the record with error notification to EMPI support.")
+	  }else{
+		  set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error.")
+	  }
+    
+    }else {
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-GetPatientService") 
+    }  
+   }else{
+	   set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," CMRN: ["_context.cmrn_"] is empty. Skipping the record..")
+   }
+      
+   ]]]]><![CDATA[>
+</code>
+
+
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.IdIntegrityDemogrTextToCernDemogrHl7PatientAlias' source='context.hieReadDemogrObj' target='response' xpos='200' ypos='550' >
+<annotation><![CDATA[translates Hie Get demographics json to Cerner Hl7]]]]><![CDATA[></annotation>
+</transform>
+
+
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='650' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+
+
+<code name='RESETERROR' xpos='200' ypos='1400' >
+<![CDATA[     
+   Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1500' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>IdIntegrityDemogrTextToCernDemogrHl7PatientAliasDefaultData</DefaultData>
+<Data name="IdIntegrityDemogrTextToCernDemogrHl7PatientAliasDefaultData">
+<Subscript>"IdIntegrityDemogrTextToCernDemogrHl7PatientAlias"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
