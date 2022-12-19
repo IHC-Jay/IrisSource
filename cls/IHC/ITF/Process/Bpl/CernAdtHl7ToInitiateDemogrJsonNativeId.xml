@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrJsonNativeId">
 <Description>
 Business process for iCentra adt to Initiate - calling patient hie service</Description>
@@ -101,6 +101,13 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='obxCount' type='%Integer' instantiate='0' />
+
+<property name='mrgDeleteCount' type='%Integer' instantiate='0' />
+
+<property name='mergeStatus' type='%Integer' instantiate='0' initialexpression="0"/>
+
+
+
 <property name='prefPhoneType' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -122,6 +129,7 @@ BPL Definition</Description>
 <property name='lastNameCurType' type='%String' instantiate='0' />
 <property name='PID5Count' type='%Integer' instantiate='0' />
 <property name='allowedNameTypes' type='%String' instantiate='0' />
+<property name='mergeSuccess' type='%String' instantiate='0' initialexpression='"0"' />
 <property name='nameTypes' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='500' />
@@ -161,7 +169,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='deleteMmiNumber' type='%String' instantiate='0' >
+<property name='deleteMmiNumber' type='%String' instantiate='0' initialexpression='""'>
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -191,6 +199,9 @@ BPL Definition</Description>
 
 <property name='msgType' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
+
+<property name='isValidEMPI' type='%String' instantiate='0' initialexpression='"0"'/>
+
 
 <property name='errResp' type='%String' instantiate='0' initialexpression='"0"'/>
 
@@ -446,28 +457,11 @@ BPL Definition</Description>
 </code>
 
  
-<if name='CheckMerge' condition='context.msgType="A34"' xpos='200' ypos='1950' xend='200' yend='3150' >
+<if name='CheckMergeType' condition='context.msgType="A34"' xpos='200' ypos='1950' xend='200' yend='3150' >
 <true>
- <code name='validateDeleteEmpiNumber' xpos='200' ypos='650' >
+ <code name='SetMrgTargetConfigName' xpos='200' ypos='650' >
 <annotation><![CDATA[Get EMPI(DeleteMRN#)]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Empi(DeleteMRN)...") 
- set i1="" 
- set j1=""
- for {
-	 set i1 = request.GetNextIndex("MRG()",i1,.tSC)  quit:i1=""
- 	 for {
-	 	set j1 = request.GetNextIndex("MRG("_i1_"):PriorPatientIdentifierList()",j1,.tSC)  quit:j1=""	 	
-	 	if (request.GetValueAt("MRG("_i1_"):PriorPatientIdentifierList("_j1_").assigningauthority.namespaceID") = "EMPI") {
-			set context.deleteMmiNumber = request.GetValueAt("MRG("_i1_"):PriorPatientIdentifierList("_j1_").ID")
-		 	$$$TRACE("DeleteMmiNumber: " _ context.deleteMmiNumber)
-		 	if ($ISVALIDNUM(context.deleteMmiNumber) '= "1") {	     
-		    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "MRG-1.1 DeleteMMINumber is not valid, skip message.")
-    		 	quit
-	     	} 			 
-	 	}		 
- 	}
- }
- 
+<![CDATA[ 
  set context.mergeHiePatientServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","MergeHiePatientServiceTargetConfigName",.pstatus)
  if ($$$ISOK(pstatus) &&(context.mergeHiePatientServiceTargetConfigName '="")){
  	$$$TRACE("MergeHiePatientServiceTargetConfigName: " _ context.mergeHiePatientServiceTargetConfigName)
@@ -477,16 +471,41 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
+<foreach name='Iterate ' property='request.{MRG(1):PriorPatientIdentifierList()}' key='context.mrgDeleteCount' xpos='200' ypos='1450' xend='200' yend='350' >
+<if name='mergeSuccess' condition='context.mergeSuccess="0"' xpos='200' ypos='1950' xend='200' yend='3150' >
+<true>
+ <code name='validateDeleteEmpiNumber' xpos='200' ypos='650' >
+<annotation><![CDATA[Get EMPI(DeleteMRN#)]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Validate Empi(DeleteMRN)...") 
+     $$$TRACE(" Mrg count: "_context.mrgDeleteCount)
+     set context.isValidEMPI = "0"
+     $$$TRACE(" Delete MRG#:"_request.GetValueAt("MRG(1):PriorPatientIdentifierList("_context.mrgDeleteCount_").ID"))
 
-
+ 	if (request.GetValueAt("MRG(1):PriorPatientIdentifierList("_context.mrgDeleteCount_").assigningauthority.namespaceID") = "EMPI") {
+		set context.deleteMmiNumber = request.GetValueAt("MRG(1):PriorPatientIdentifierList("_context.mrgDeleteCount_").ID")
+		set context.isValidEMPI = "1"
+		$$$TRACE("DeleteMmiNumber: " _ context.deleteMmiNumber)
+		if ($ISVALIDNUM(context.deleteMmiNumber) '= "1") {	     
+		  	$$$TRACE(" Invalid Delete Number in the merge message.."_context.deleteMmiNumber_" Continuing with next delete number in MRG.")		  	
+		  	set context.isValidEMPI = "0"
+	    } 			 
+	 }
+ ]]]]><![CDATA[>
+</code>
+<if name='ValidMreDelNumber' condition='(context.isValidEMPI="0")' xpos='200' ypos='1950' xend='200' yend='3150' >
+<true>
+  <continue/>
+</true>
+<false>
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7MergesToInitiateDemogrJsonNativeId' source='request' target='response' xpos='470' ypos='1000' >
 <annotation><![CDATA[translates iCentra Adt Hl7 to Initiate/Verato merges - Hie Patient Service]]]]><![CDATA[></annotation>
 </transform>
-
-
 <code name='ConvertXmlToJSONAndCallPatientServiceMerges' xpos='1010' ypos='3150' >
 <![CDATA[  
+     $$$TRACE("context.isValidEMPI---> "_context.isValidEMPI)
+     
+    set context.mergeSuccess="1"
     $$$TRACE("Converting XML to JSON Operation (Merges).. ")
     set xmlStr=response.OutputToString()  
     $$$TRACE("DTL Output: "_xmlStr)  
@@ -546,7 +565,20 @@ BPL Definition</Description>
       	 		}      	 		
 		    }elseif (statusCode="500"){
 			    $$$TRACE("  In Status Code 500 (Internal server error)... ")
-			    set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respData_"]. Retrying...") 
+			    $$$TRACE(" Mrg Del#: "_context.deleteMmiNumber_ " Mrg count: "_context.mrgDeleteCount)
+			    set context.mergeSuccess="0"
+			    $$$TRACE( respData )
+			    if ((respData [ "source:nativeId combinations not in Link DB")=1) {
+				    $$$TRACE("*** source:nativeId combinations not in Link DB ***")				    
+				    set context.mergeSuccess="0"
+				    do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"].   Response: "_respData)
+				}
+			    if ((respData [ "toRetire source+nativeID")=1) {
+				    $$$TRACE("*** toRetire source+nativeID ***")
+				    set context.mergeSuccess="0"
+				    do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"].   Response: "_respData)
+				}
+			    //set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respData_"]. Retrying...") 
 		    }else{			    
 			    set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
 	   		    Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
@@ -659,6 +691,21 @@ BPL Definition</Description>
     }          
 ]]]]><![CDATA[>
 </code>
+</false>
+</if>
+</true>
+</if>
+</foreach>
+<if name='CheckMergeType' condition='context.mergeSuccess="0"' xpos='200' ypos='1950' xend='200' yend='3150' >
+<true>
+<code>
+<![CDATA[ 
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Invalid delete MRN#s in the MRG segment from iCentra Adt. Sending the error notification to Identity Integrity team.. ") 
+  ]]]]><![CDATA[>
+  </code>
+</true>
+</if>
+
 
 </true>
 <false>
@@ -676,9 +723,6 @@ BPL Definition</Description>
     set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToInitiateDemogrHiePatientService.AddressAbbrHiePatientService", "Addreess1Abbr", .retVal )
  	set context.addressAbbr=retVal
     $$$TRACE("setting value of addressAbbr " _context.addressAbbr) 
-    
-    
- 	
  	
 ]]]]><![CDATA[>
 </code>
@@ -1225,7 +1269,7 @@ BPL Definition</Description>
 </XData>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>CernAdtHl7ToInitiateDemogrJsonNativeIdDefaultData</DefaultData>
 <Data name="CernAdtHl7ToInitiateDemogrJsonNativeIdDefaultData">
 <Subscript>"CernAdtHl7ToInitiateDemogrJsonNativeId"</Subscript>
