@@ -313,52 +313,54 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 			
 			$$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID _ ", pCLCLID: " _ x12MsgReq.pCLCLID)
 		
-				 For iTarget=1:1:$L(..Edifecs276TargetConfigNames,",") 
-				 { 
-				 	Set tOneTarget=$ZStrip($P(..Edifecs276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
-					$$$TRACE("Sending X12 document to '"_tOneTarget_"'")
-					try
-					{
-						Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
-												
-						set PayloadType = "X12_277_Response_005010X212"					
-					}
-					catch err {
-						Set ErrorMessage =err.Data
-						set x12MsgReq.RespPayload = "Error in generating 277"
-					}
-				 	// Send to trans tracking
-				 }
+			 For iTarget=1:1:$L(..Edifecs276TargetConfigNames,",") 
+			 { 
+			 	Set tOneTarget=$ZStrip($P(..Edifecs276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE("Sending X12 document to '"_tOneTarget_"'")
+				try
+				{
+					Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
+											
+					set PayloadType = "X12_277_Response_005010X212"					
+				}
+				catch err {
+					Set ErrorMessage =err.Data
+					set x12MsgReq.RespPayload = "Error in generating 277"
+					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
+				}
+			 	// Send to trans tracking
+			 }
 		}
-		else
+		else // 270
 		{
-				 set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2100C.NM1:9")
-				 // "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."SBSB_ID" maximum: 9
-				 if ($L(x12MsgReq.pSBSBID) > 9)
-				 {
-					 set x12MsgReq.pSBSBID = $EXTRACT(x12MsgReq.pSBSBID, 1, 9)
-				 }
-				 
-				 $$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID)
+			 set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2100C.NM1:9")
+			 // "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."SBSB_ID" maximum: 9
+			 if ($L(x12MsgReq.pSBSBID) > 9)
+			 {
+				 set x12MsgReq.pSBSBID = $EXTRACT(x12MsgReq.pSBSBID, 1, 9)
+			 }
+			 
+			 $$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID)
 
-				 	 
-				 For iTarget=1:1:$L(..Edifecs270TargetConfigNames,",") 
-				 { 
-				 	Set tOneTarget=$ZStrip($P(..Edifecs270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
-					$$$TRACE(tranType _ " Sending X12 document to '"_tOneTarget_"'")
-					try
-					{
-						Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
-						
-						set PayloadType = "X12_271_Response_005010X279A1" 
-					}
-					catch err {
-						Set ErrorMessage =err.Data
-						set x12MsgReq.RespPayload = "Error in generating 271"
-						Set ErrorCode="500"
-					}
-				 	// Send to trans tracking
-				 }
+			 	 
+			 For iTarget=1:1:$L(..Edifecs270TargetConfigNames,",") 
+			 { 
+			 	Set tOneTarget=$ZStrip($P(..Edifecs270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE(tranType _ " Sending X12 document to '"_tOneTarget_"'")
+				try
+				{
+					Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
+					$$$TRACE("SendRequestSync stat: " _ tSC)
+					set PayloadType = "X12_271_Response_005010X279A1" 
+				}
+				catch err {
+					Set ErrorMessage =err.Data
+					set x12MsgReq.RespPayload = "Error in generating 271"
+					Set ErrorCode="500"
+					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
+				}
+			 	
+			 }
 	 	}
 	 	if ($$$ISOK(tSC))
 	 	{
@@ -367,6 +369,11 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 			 	$$$TRACE("Empty Response")
 			 	Set ErrorCode="500"
 		 		Set ErrorMessage= tSC
+		 		set al = ##class(Ens.AlertRequest).%New()
+		 		// ITFCOMMONInvalidDataError "ITFCOMMON:10108"
+		 		set al.AlertText = "ITFCOMMON:10108: Response from Edifecs is NULL, TtUniqueId: " _ x12MsgReq.TtUniqueId
+		 		set al.SourceConfigName = ..%ConfigName
+		 		Do ..SendAlert(al)
 		 	}
 		 	else
 		 	{
@@ -383,19 +390,22 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 				Set ErrorCode="Success"
 			 	Set ErrorMessage= ""
 		 	
-		 	}
-	 				
+		 	}	 				
 		 }
 		 else
-		 {
-			 
+		 {			 
 			 	Set ErrorCode="500"
 		 		Set ErrorMessage= tSC
+		 		set al = ##class(Ens.AlertRequest).%New()
+		 		set al.AlertText = "ERROR " _ $$$EnsErrFailureTimeout _ ": Error in calling Edifecs, " _ tSC _ ", TtUniqueId: " _ x12MsgReq.TtUniqueId
+		 		set al.SourceConfigName = ..%ConfigName
+		 		set aStat = ..SendAlert(al)
+		 		$$$TRACE("SendAlert: " _ aStat)
 		 }
 	 	set x12MsgReq.pTransactionFileName = x12MsgReq.SenderID _"-" _ x12MsgReq.ReceiverID _"-" _ x12MsgReq.pSBSBID _"-" _ x12MsgReq.TtUniqueId _ "." _ tranType
 			
 	 	set x12MsgReq.RespTimeStamp = $ZDATETIME($HOROLOG, 3,1)
-	 	
+	 	// Send to trans tracking
 	 	if (tranType = 276)
 		{
 
