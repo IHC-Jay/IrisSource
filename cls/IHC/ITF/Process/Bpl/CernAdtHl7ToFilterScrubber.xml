@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToFilterScrubber">
 <Description>
 Router to filter out UofU facility to Legacy and LegacyPlus</Description>
@@ -40,7 +40,15 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='hddNewTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
 <property name='facNcid' type='%String' instantiate='0' />
+<property name='deptId' type='%String' instantiate='0' initialexpression='""'/>
+
 <property name='isTestFacility' type='%Boolean' initialexpression='0' instantiate='0' >
 </property>
 <property name='nameTypesMatch' type='%String' instantiate='0' >
@@ -65,6 +73,7 @@ BPL Definition</Description>
 </property>
 <property name='isTpnUofUFacility' type='%Boolean' initialexpression='0' instantiate='0' >
 </property>
+<property name='updatedResponse' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='3050' >
 <scope xpos='200' ypos='250' xend='200' yend='2950' >
@@ -129,7 +138,15 @@ BPL Definition</Description>
  	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
  }else{
 	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
- } 
+ }
+ 
+ set context.hddNewTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddNewTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("HddNewTargetConfigName: " _ context.hddNewTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddNewTargetConfigName found.")   	
+ }
+  
   ]]]]><![CDATA[>
 </code>
 
@@ -303,6 +320,39 @@ BPL Definition</Description>
 	]]]]><![CDATA[>
 </code> 
 
+
+<code name='isMember' xpos='200' ypos='750' >
+<annotation><![CDATA[isMember]]]]><![CDATA[></annotation>
+<![CDATA[  
+    set domainNcid = "530306976"
+    set memberNcid = request.GetValueAt("PV1:3.1")
+    
+     try{
+	     $$$TRACE(" Calling isMember()" )
+         set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).isMember(domainNcid , "PV1-3.1", memberNcid, "PV1-3.1", context.hddNewTargetConfigName, .process, .retStr)
+		 $$$TRACE(" isMember: " _ retStr)
+		 if (retStr=true){
+			 $$$TRACE(" Calling GetUniqueRepByNcid... " )
+       		 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(memberNcid, "PV1-3.1", "529309869", context.hddNewTargetConfigName, .process, .resp) 
+        	 $$$TRACE(" Returned Rep(DeptId) from HDD: " _ resp)
+        	 set context.deptId = resp
+        	 if ($L(context.deptId) > 0){	      	    
+   				set context.updatedResponse = request.%ConstructClone(1)   		   		
+   				Do context.updatedResponse.SetValueAt(context.deptId, "PV1:3.1")    		
+   				$$$TRACE(" Updated Response with UofU DeptId in PV1-3.1 (RawContent: " _ context.updatedResponse.RawContent)   		   		   		
+   			}
+		 }
+     }catch(exVar){
+	     set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     set context.deptId = ""	     
+	 }
+   
+  ]]]]><![CDATA[>
+</code>
+
+
+
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToFilterScrubber' source='request' target='response' xpos='470' ypos='1600' >
 <annotation><![CDATA[Sets ZXY flag for test patient]]]]><![CDATA[></annotation>
 </transform>
@@ -340,6 +390,20 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 </foreach>
+<if name='SendToUofU' condition='($L(context.deptId)>0)' xpos='470' ypos='2000' xend='470' yend='2600' >
+<true>
+	   	
+     <call name='Send to UofUTarget' target='@context.UofUTargetConfigName' async='1' xpos='200' ypos='250' >
+	<request type='Ens.Request' >
+		<assign property="callrequest" value="context.updatedResponse" action="set" />
+	</request>
+    </call>
+    <code name='RESETERROR' xpos='200' ypos='350' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</true>
+</if>
 </true>
 <false>
   <call name='Send to UofUTarget' target='@context.UofUTargetConfigName' async='1' xpos='200' ypos='250' >
@@ -428,11 +492,11 @@ UofU Target Config name</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,UofUTargetConfigName:Additional,HddFacilityDomainNcid:Additional,IhcAndUofUHddFacilityDomainNcid:Additional,-NextOperation,-TargetConfigMask,FlagTestRecord:Additional,LastNamesMatch:Additional,NameTypesMatch:Additional</Default>
+<Default>HddTargetConfigName:Additional,HddNewTargetConfigName:Additional,UofUTargetConfigName:Additional,HddFacilityDomainNcid:Additional,IhcAndUofUHddFacilityDomainNcid:Additional,-NextOperation,-TargetConfigMask,FlagTestRecord:Additional,LastNamesMatch:Additional,NameTypesMatch:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>CernAdtHl7ToFilterScrubberDefaultData</DefaultData>
 <Data name="CernAdtHl7ToFilterScrubberDefaultData">
 <Subscript>"CernAdtHl7ToFilterScrubber"</Subscript>
