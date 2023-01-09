@@ -1,0 +1,404 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.CORERULES.Service.ResendRT27xFile">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>IHC.ITF.ITFCOMMON.BusinessService</Super>
+<TimeCreated>66434,38738.476554</TimeCreated>
+
+<Property name="Edifecs270TargetConfigNames">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
+<Property name="Edifecs276TargetConfigNames">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
+<Property name="TransTrack270TargetConfigNames">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
+<Property name="TransTrack276TargetConfigNames">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
+<Parameter name="ADAPTER">
+<Default>IHC.ITF.ITFCOMMON.File.Adapter.InboundAdapter</Default>
+</Parameter>
+
+<Property name="TargetConfigNames">
+<Description>
+Configuration item(s) to which to send file stream messages</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="AlertOnFilesNotFound">
+<Description>
+Send an Alert message when no files are found</Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},AlertOnFilesNotFound:Alerting,Edifecs270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},Edifecs276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<Parameter name="CONTAINERCLASS">
+<Default>Ens.StreamContainer</Default>
+</Parameter>
+
+<Method name="OnProcessInput">
+<Description>
+Wrap the input stream object in a StreamContainer message object and send it.
+If the adapter has a value for ArchivePath, send async; otherwise send synchronously
+to ensure that we don't return to the Adapter and let it delete the file before the
+target Config Item is finished processing it.</Description>
+<FormalSpec>pInput:%Stream.Object,pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	Set tSource=$G(pInput.Attributes("Filename"),pInput), pInput=$classmethod(..#CONTAINERCLASS,"%New",pInput)
+	set file = $PIECE(tSource, "/", *)
+	$$$TRACE("OnProcessInput File: " _ file)
+	Set tSC=..resolveAndIndex(pInput) Quit:$$$ISERR(tSC) tSC
+	Set tWorkArchive=(""'=..Adapter.ArchivePath)&&(..Adapter.ArchivePath=..Adapter.WorkPath || (""=..Adapter.WorkPath && (..Adapter.ArchivePath=..Adapter.FilePath)))
+		$$$TRACE("Sending input X12 Stream of size: " _ pInput.Stream.Size)
+		set payload = pInput.Stream.Read(, .tSC)
+		
+		Do pInput.Stream.Rewind()
+		set stringValue = ""
+		While (pInput.Stream.AtEnd = 0) {
+		    Set len = 10000
+		    set stringValue = stringValue _ pInput.Stream.Read(.len)
+		    
+	    }
+	    $$$TRACE("String length: " _ $L(stringValue))
+	    set mode = "RealTime"
+	    
+	    Do ..RealTimeTransaction(file, .payloadType, .mode, .loadId, .tmStr, .sender, .receiver, .ver, .stringValue, .errCode, .errDesc)
+		
+	
+	$$$sysTRACE("OnProcessInput Ended")
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="resolveAndIndex">
+<Description>
+Initialize and perform requested validation if any</Description>
+<FormalSpec>pDoc:%Persistent</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="RealTimeTransaction">
+<Final>1</Final>
+<FormalSpec><![CDATA[fileNm:%String,&PayloadType:%String(REQUIRED=1),&ProcessingMode:IHC.ITF.CORERULES.COREXSD.RealTimeMode(REQUIRED=1),&PayloadID:%String(REQUIRED=1),&TimeStamp:%String(REQUIRED=1),&SenderID:%String(REQUIRED=1),&ReceiverID:%String(REQUIRED=1),&CORERuleVersion:%String(REQUIRED=1),&Payload:%String(REQUIRED=1),*ErrorCode:%String(REQUIRED=1),*ErrorMessage:%String(REQUIRED=1)]]></FormalSpec>
+<ProcedureBlock>1</ProcedureBlock>
+<WebMethod>1</WebMethod>
+<SoapBindingStyle>document</SoapBindingStyle>
+<SoapBodyUse>literal</SoapBodyUse>
+<SoapAction>RealTimeTransaction</SoapAction>
+<SoapMessageName>COREEnvelopeRealTimeResponse</SoapMessageName>
+<SoapRequestMessage>COREEnvelopeRealTimeRequest</SoapRequestMessage>
+<Implementation><![CDATA[
+ // Send to trans tracking
+ Set tSC= $$$OK
+ set bas64Enc = 0
+
+ set x12Data = Payload
+ IF ($EXTRACT(Payload,1,3) '= "ISA")
+ {
+	 try {
+		 $$$TRACE("Call Base64Decode")
+ 		 set x12Data = $system.Encryption.Base64Decode(Payload)
+ 		 set bas64Enc = 1
+	 } catch err
+	 {
+		 $$$TRACE("Not a base 64 string")
+	 }
+ 	if ($L(x12Data) = 0)
+ 	{
+	 	set x12Data = Payload
+ 	}
+ }
+ $$$TRACE("27x Data: " _ x12Data)
+ //set request.ProcessingMode=ProcessingMode
+ set x12MsgReq = ##class(IHC.ITF.Request.x12MessageReq).%New()
+ 
+ #dim pDocIn As EnsLib.EDI.X12.Document
+ set pDocIn = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
+ if ( ($ISOBJECT(pDocIn)) && (pDocIn.%Extends("EnsLib.EDI.X12.Document")) )
+ {
+ 		 
+	 if ($GET(^ItfGlobalX12Core(..%ConfigName)) = "")
+	 {
+		 $$$TRACE("Create global")
+		 set ^ItfGlobalX12Core(..%ConfigName) = 0
+	 }
+	 set ^ItfGlobalX12Core(..%ConfigName) = ^ItfGlobalX12Core(..%ConfigName) + 1
+	 
+	 set pDocIn.OriginalDocId = $GET(^ItfGlobalX12Core(..%ConfigName))
+	 
+	 $$$TRACE(pDocIn.OriginalDocId _". X12 data: " _ pDocIn.FullSizeGet() _", "_ pDocIn.TypeVersion)
+	 
+	  set pDocIn.DocType = "HIPAA_5010:Interchange:Group"
+ 
+		   Set tSC =pDocIn.BuildMap()		   
+		   set x12MsgReq.ControlNumber = pDocIn.GetValueAt("ISA:InterchangeControlNumber")
+		   set x12MsgReq.SenderID = $ZSTRIP(pDocIn.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set x12MsgReq.ReceiverID = $ZSTRIP(pDocIn.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   		   
+	   if ( (x12MsgReq.SenderID ="") ||  (x12MsgReq.ReceiverID = "") )
+	   {
+		   set fullErrorMsg = "Interchange values are empty, Invalid X12: " _ pDocIn.OutputToString()
+		   $$$TRACE(fullErrorMsg)
+		   QUIT $$$ERROR($$$EnsErrGeneral, "Invalid X12: " _ fullErrorMsg)
+	   }
+	   set tranType = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("1:1")
+	   $$$TRACE(tranType _", IDs: " _ x12MsgReq.SenderID _" -> " _ x12MsgReq.ReceiverID)
+	   
+	   if (tranType = 276)
+		{
+	   		set pDocIn.DocType = "HIPAA_5010:Interchange:Group:276"
+		}
+		else
+		{
+			set pDocIn.DocType = "HIPAA_5010:Interchange:Group:270"
+		}
+
+	   set dtTm = $HOROLOG
+	   set randNum = $RANDOM(999)
+	   set x12MsgReq.TtDataSource = ..%ConfigName
+	   set x12MsgReq.TimeStamp = $ZDATETIME(dtTm, 3,1)
+	   set x12MsgReq.TtUniqueId = $REPLACE(dtTm, ",", "") _ randNum
+	   set x12MsgReq.PayloadType = ProcessingMode
+	   set x12MsgReq.TtMsgType= tranType
+	   set x12MsgReq.Payload = x12Data
+	   	      
+		set x12MsgReq.strTtBatchReal = "Y"
+		set x12MsgReq.pCLCLID = ""
+
+		$$$TRACE("Switch IDs")
+		set ReceiverID = x12MsgReq.SenderID
+		set SenderID = x12MsgReq.ReceiverID
+		
+		if (tranType = 276)
+		{
+		    set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2100D.NM1:9")
+		    $$$TRACE("2200D(1).REF: " _ pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2000E(1)..loop2200E(1).REF(1)"))
+
+			if (pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2200D(1).REF(1):RefIdQualifier") = "1K")
+			{
+				set x12MsgReq.pCLCLID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2200D(1).REF(1):RefId")
+			}
+			elseif (pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2000E(1).loop2200E(1).REF(1):RefIdQualifier") = "1K")
+			{
+				$$$TRACE("2200E(1).REF: " _ pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2000E(1).loop2200E(1).REF(1):RefIdQualifier"))
+				set x12MsgReq.pCLCLID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2000E(1).loop2200E(1).REF(1):RefId")
+			}
+			else
+			{
+				$$$TRACE("pCLCLID: is null")
+			}
+			// "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."SBSB_ID" maximum: 9
+			if ($L(x12MsgReq.pSBSBID) > 9)
+			{
+					 set x12MsgReq.pSBSBID = $EXTRACT(x12MsgReq.pSBSBID, 1, 9)
+			}
+				 
+			// "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."CLCL_ID" maximum: 12
+			if ($L(x12MsgReq.pCLCLID) > 12)
+			{
+					 set x12MsgReq.pCLCLID = $EXTRACT(x12MsgReq.pCLCLID, 1, 12)
+			}
+			
+			$$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID _ ", pCLCLID: " _ x12MsgReq.pCLCLID)
+		
+			 For iTarget=1:1:$L(..Edifecs276TargetConfigNames,",") 
+			 { 
+			 	Set tOneTarget=$ZStrip($P(..Edifecs276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE("Sending X12 document to '"_tOneTarget_"'")
+				try
+				{
+					Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
+											
+					set PayloadType = "X12_277_Response_005010X212"					
+				}
+				catch err {
+					Set ErrorMessage =err.Data
+					set x12MsgReq.RespPayload = "Error in generating 277"
+					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
+				}
+			 	
+			 }
+			 set fileNm = fileNm _"-277"
+		}
+		else // 270
+		{
+			 set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2100C.NM1:9")
+			 // "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."SBSB_ID" maximum: 9
+			 if ($L(x12MsgReq.pSBSBID) > 9)
+			 {
+				 set x12MsgReq.pSBSBID = $EXTRACT(x12MsgReq.pSBSBID, 1, 9)
+			 }
+			 
+			 $$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID)
+
+			 	 
+			 For iTarget=1:1:$L(..Edifecs270TargetConfigNames,",") 
+			 { 
+			 	Set tOneTarget=$ZStrip($P(..Edifecs270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE(tranType _ " Sending X12 document to '"_tOneTarget_"'")
+				try
+				{
+					Set tSC=..SendRequestSync(tOneTarget,x12MsgReq,.tResponse)
+					$$$TRACE("SendRequestSync stat: " _ tSC _", tResponse: " _ tResponse)
+					set PayloadType = "X12_271_Response_005010X279A1" 
+				}
+				catch err {
+					Set ErrorMessage =err.Data
+					set x12MsgReq.RespPayload = "Error in generating 271"
+					Set ErrorCode="500"
+					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
+				}
+			 	
+			 }
+			 set fileNm = fileNm _"-271"
+	 	}
+	 	if ($$$ISOK(tSC))
+	 	{
+		 	if ($L(tResponse.StringValue) < 1)
+		 	{
+			 	$$$TRACE("Empty Response")
+			 	Set ErrorCode="500"
+		 		Set ErrorMessage= tSC
+		 		set al = ##class(Ens.AlertRequest).%New()
+		 		// ITFCOMMONInvalidDataError "ITFCOMMON:10108"
+		 		set al.AlertText = "ITFCOMMON:10108: Response from Edifecs is NULL, TtUniqueId: " _ x12MsgReq.TtUniqueId
+		 		set al.SourceConfigName = ..%ConfigName
+		 		Do ..SendAlert(al)
+		 	}
+		 	else
+		 	{
+			 	if (bas64Enc = 1)
+				{
+					set Payload = $system.Encryption.Base64Encode(tResponse.StringValue)
+				}
+				else
+				{
+					set Payload = tResponse.StringValue
+				}
+				set x12MsgReq.RespPayload = tResponse.StringValue
+				
+				Set tStream=##class(%FileCharacterStream).%New()
+				Set tStream.Attributes("Filename")=fileNm 
+
+				Set tSC=tStream.Write(tResponse.StringValue)
+				Set:$$$ISOK(tSC) tSC=tStream.SaveStream()
+				Set:$$$ISOK(tSC) tMsg=##class(Ens.StreamContainer).%New(tStream)
+				Set:$$$ISOK(tSC) tMsg.OriginalFilename=fileNm
+
+					
+				$$$TRACE($L(tResponse.StringValue) _ " : " _ tSC _", fileNm: " _ fileNm _ "TEST")
+ 
+				For iTarget=1:1:$L(..TargetConfigNames,",") 
+		 		{ 
+		 			Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+					$$$TRACE("Sending Response data to '"_tOneTarget_"'")
+			
+					Set tSC1=..SendRequestAsync(tOneTarget,tMsg,.tRespFileOut)
+		 		}
+
+				Set ErrorCode="Success"
+			 	Set ErrorMessage= ""
+		 	
+		 	}	 				
+		 }
+		 else
+		 {			 
+			 	Set ErrorCode="500"
+		 		Set ErrorMessage= tSC
+		 		set al = ##class(Ens.AlertRequest).%New()
+		 		set al.AlertText = "ERROR " _ $$$EnsErrFailureTimeout _ ": Error in calling Edifecs, " _ tSC _ ", TtUniqueId: " _ x12MsgReq.TtUniqueId
+		 		set al.SourceConfigName = ..%ConfigName
+		 		set aStat = ..SendAlert(al)
+		 		$$$TRACE("SendAlert: " _ aStat)
+		 }
+	 	set x12MsgReq.pTransactionFileName = x12MsgReq.SenderID _"-" _ x12MsgReq.ReceiverID _"-" _ x12MsgReq.pSBSBID _"-" _ x12MsgReq.TtUniqueId _ "." _ tranType
+			
+	 	set x12MsgReq.RespTimeStamp = $ZDATETIME($HOROLOG, 3,1)
+	 	// Send to trans tracking
+	 	if (tranType = 276)
+		{
+
+		  	For iTarget=1:1:$L(..TransTrack276TargetConfigNames,",") 
+		 	{ 
+		 		Set tOneTarget=$ZStrip($P(..TransTrack276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE("Sending Trans tracking data to '"_tOneTarget_"'")
+			
+				Set tSC1=..SendRequestAsync(tOneTarget,x12MsgReq,.tResponse)
+		 	}
+		}
+		else 
+		{
+			For iTarget=1:1:$L(..TransTrack270TargetConfigNames,",") 
+		 	{ 
+		 		Set tOneTarget=$ZStrip($P(..TransTrack270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+				$$$TRACE("Sending Trans tracking data to '"_tOneTarget_"'")
+			
+				Set tSC1=..SendRequestAsync(tOneTarget,x12MsgReq,.tResponse)
+		 	}
+
+		}
+		  	 
+ 	Quit tSC
+	}
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+Return an array of connections for drawing lines on the config diagram</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+
+	If pItem.GetModifiedSetting("Edifecs270TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") 
+		{ 
+			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
+			Continue:""=tOne  Set pArray(tOne)="" 
+		}
+	}
+	If pItem.GetModifiedSetting("Edifecs276TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") 
+		{ 
+			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
+			Continue:""=tOne  Set pArray(tOne)="" 
+		}
+	}
+	If pItem.GetModifiedSetting("TransTrack270TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") 
+		{ 
+			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
+			Continue:""=tOne  Set pArray(tOne)="" 
+		}
+	}
+	If pItem.GetModifiedSetting("TransTrack276TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") 
+		{ 
+			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
+			Continue:""=tOne  Set pArray(tOne)="" 
+		}
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
