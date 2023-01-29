@@ -48,13 +48,6 @@ RetrySameAndDisable Errors : Retry same message and disable the component</Descr
 <Parameter name="MAXLEN" value="50000"/>
 </Property>
 
-<Property name="InputDataErrorCodes">
-<Description>
-InputDataErrorCodes : Input data error codes</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="50000"/>
-</Property>
-
 <Property name="HddTargetConfigName">
 <Description>
 HDD Operation: The target name used for HDD calls</Description>
@@ -63,7 +56,7 @@ HDD Operation: The target name used for HDD calls</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,InputDataErrorCodes:Additional,MergeHiePatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,MergeHiePatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -97,6 +90,7 @@ BPL Definition</Description>
 <property name='AddrWrapLogicValue' type='%Boolean' instantiate='0' />
 <property name='AllowedAddressTypes' type='%String' instantiate='0' />
 <property name='mariStatus' type='%String' instantiate='0' />
+<property name='language' type='%String' instantiate='0' />
 <property name='addressKeyWords' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='200' />
@@ -108,11 +102,6 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='retrySameDisableErrorCodes' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='1000' />
-</parameters>
-</property>
-<property name='inputDataErrorCodes' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='1000' />
 </parameters>
@@ -222,10 +211,7 @@ BPL Definition</Description>
  	$$$TRACE("RetrySameDisableErrorCodes: " _ context.retrySameDisableErrorCodes)
  }
  
- set context.inputDataErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","InputDataErrorCodes",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("InputDataErrorCodes: " _ context.inputDataErrorCodes)
- }
+ 
  
   ]]]]><![CDATA[>
 </code>
@@ -326,6 +312,29 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 
+<code name='getUniqueParentRepByChildRep' xpos='200' ypos='750' >
+<annotation><![CDATA[getUniqueParentRepByChildRep]]]]><![CDATA[></annotation>
+<![CDATA[  
+    set childRep = request.GetValueAt("PID:PrimaryLanguage.identifierST")
+    set childRepFieldName = "PID-15"
+    set childDomainNcid = "530317515"
+    set childRepContextNcid = "530319311"
+    set childDomainRelationship = "363"
+    set relationshipTypeNcid = "530329829"
+    set parentRepContextNcid = "2000"
+     try{
+	     $$$TRACE(" Calling getUniqueParentRepByChildRep()" )	    
+         set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueParentRepByChildRep(childRep,childRepFieldName,childDomainNcid,childRepContextNcid,childDomainRelationship,relationshipTypeNcid,parentRepContextNcid,context.hddTargetConfigName, .process, .retText)
+		$$$TRACE(" Returned Text: " _ retText_ " from the childRep "_childRep )
+     }catch(exVar){
+	     set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     set context.language = ""
+	 }
+   
+  ]]]]><![CDATA[>
+</code>
+
 
 <code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='3350' >
 <![CDATA[ 
@@ -363,7 +372,7 @@ BPL Definition</Description>
   $$$TRACE("Validate Empi(DeleteMRN)...") 
   
   set context.tellicaDelNumber = request.GetValueAt("MRG(1):PriorPatientIdentifierList(1).ID")
-  $$$TRACE("DeleteMmiNumber: " _ context.deleteMmiNumber)
+  $$$TRACE("DeleteMmiNumber: " _ context.tellicaDelNumber)
   if ($ISVALIDNUM(context.tellicaDelNumber) = "1") {	     
 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Merge Hl7 message has invalid delete mrn number: ["_context.tellicaDelNumber_"]. Skipping the record.")
   }			 
@@ -437,22 +446,9 @@ BPL Definition</Description>
 			    $$$TRACE("  In Status Code 500 (Internal server error)... ")
 			    set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respData_"]. Retrying...") 
 		    }else{			    
-			    set inputDataErrCodeList = $LISTFROMSTRING(context.inputDataErrorCodes, ",")
-	   		    Set lenInDataErrCodeList = $ListLength(inputDataErrCodeList)
-	   			$$$TRACE("  lenInDataErrCodeList : "_lenInDataErrCodeList)
-	   			For i=1:1:lenInDataErrCodeList {
-		   			set listItem = $List(inputDataErrCodeList,i)
-					Set isInDataErrCodeFound = respdata[ listItem	
-					$$$TRACE("  isInDataErrCodeFound:"_isInDataErrCodeFound_" ErrCode:"_listItem)
-					if (isInDataErrCodeFound=1) quit				
-				 }
-				 if (isInDataErrCodeFound=1) {
-		    		$$$TRACE(" InputDataError.. errorText: "_respdata)
-	        		set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Skipping the record... Response from Patient Service merge Operation: "_respdata)
-				 }else{							 
-		    		$$$TRACE("  DisableMsgError.... ")
-        			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from Patient Service merge Operation: "_respData) 
-				 }
+			    $$$TRACE("  DisableMsgError.... ")
+        		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from Patient Service merge Operation: "_respData) 
+				 
 		    }
 		}else {
         		$$$TRACE("PatientService merge call status 200 OK !!! ")
@@ -513,7 +509,7 @@ BPL Definition</Description>
 								 if respJSONstring [ "line 1 limit is 30"{
 			                 		 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Length of the Address1 from iCentra Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
 			                 	 }elseif respJSONstring [  "Patient not found for mrn"{
-				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.deleteMmiNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
+				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.tellicaDelNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
 			                 	 }else{
 								 	$$$TRACE(" Unknown/Unhandled Error. Response from the Hie Patient Service: errorText: "_respJSONstring)
 	    						 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Unknown/Unhandled error: "_respJSONstring) 
@@ -691,7 +687,7 @@ BPL Definition</Description>
 								 if respJSONstring [ "line 1 limit is 30"{
 			                 		 set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Length of the Address1 from iCentra Adt in PID-11.1 is more than 30. Response from Patient Service Post Operation: "_respJSONstring)	                
 			                 	 }elseif respJSONstring [  "Patient not found for mrn"{
-				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.deleteMmiNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
+				                 	set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Either keep cmrn:"_context.ihcEmpiNum_" or delete cmrn:"_context.tellicaDelNumber_" not exists in Hie. Response from Patient Service Post Operation: "_respJSONstring)	              
 			                 	 }else{
 								 	$$$TRACE(" Unknown/Unhandled Error. Response from the Hie Patient Service: errorText: "_respJSONstring)
 	    						 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Unknown/Unhandled error: "_respJSONstring) 
