@@ -1,0 +1,213 @@
+import { Component, OnInit, ViewChild, AfterViewInit } from '@angular/core';
+import { Router, ActivatedRoute } from '@angular/router';
+import { FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { forkJoin, Observable, of } from 'rxjs';
+import { first } from 'rxjs/operators';
+import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
+import {RestServiceComponent} from '../services/rest-service.component';
+import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
+import { MatDialog } from '@angular/material/dialog';
+import { MatSort, MatSortHeader } from '@angular/material/sort';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
+import { MatSelect, MatSelectChange } from '@angular/material/select';
+import { MatFormField } from '@angular/material/form-field';
+
+export interface TpFilter {
+  name:string;
+  options:string[];
+  defaultValue:string;
+}
+
+export interface filterOption{
+  name:string;
+  value:string;
+  isdefault:boolean;
+}
+
+@Component({
+  selector: 'app-tradingPartners',
+  templateUrl: './tradingPartners.component.html',
+  styleUrls: ['./tradingPartners.component.css']
+})
+
+
+
+export class TradingPartnersComponent implements OnInit, AfterViewInit {
+
+  public size = 5;
+  public pageNumber = 0;
+  searchText:string;
+
+    displayedColumns: string[] = TradingPartnerColumns.map((col) => col.key);
+    columnsSchema: any = TradingPartnerColumns;
+    dataSource = new MatTableDataSource<TradingPartner>();
+    dataSourceFilters = new MatTableDataSource<TradingPartner>();
+    tpFilters: TpFilter[]=[];
+    valid: any = {};
+
+    defaultValue = "All";
+    filterDictionary= new Map<string,string>();
+
+
+
+    @ViewChild(MatSort) sort: MatSort;
+    @ViewChild(MatPaginator, {static: true}) paginator: MatPaginator;
+
+    constructor(public dialog: MatDialog,
+      private TradingPartnerService: RestServiceComponent)
+    {
+
+    }
+
+    ngOnInit()
+    {
+      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+        this.dataSource.data = res;
+      });
+
+      this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
+
+      this.dataSourceFilters.filterPredicate = function (record,filter) {
+        debugger;
+        var map = new Map(JSON.parse(filter));
+        let isMatch = false;
+        for(let [key,value] of map){
+          isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
+          if(!isMatch) return false;
+        }
+        return isMatch;
+      }
+    }
+
+    ngAfterViewInit() {
+      this.dataSource.paginator = this.paginator;
+      this.dataSource.sort = this.sort;
+
+    }
+
+    RefreshRows()
+    {
+      console.info('RefreshRows')
+      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+        this.dataSource.data = res;
+      });
+    }
+
+    addRow() {
+      const newRow: TradingPartner = {
+        tpid: '-1',
+        Name: '',
+        TPtype: 'Provider',
+        ContactName: '',
+        ContactPhone: '',
+        ContactEmail: '',
+        isEdit: true,
+        isSelected: false,
+      };
+      this.dataSource.data = [newRow, ...this.dataSource.data];
+    }
+
+    editRow(row: TradingPartner) {
+      console.info('editRow: ' + row.tpid +", " + row.Name);
+      if (row.tpid === '-1') {
+
+        if (row.Name !== '')
+        {
+          let res = this.TradingPartnerService.addTradingPartner(row).subscribe((res) => {
+            console.info('Added TP: ' + row.Name + ": " + res.tpid);
+            row.tpid = res.tpid;
+            row.isEdit = false;
+          });
+
+
+        }
+        else
+        {
+          let ind = this.dataSource.data.indexOf(row)
+          this.dataSource.data.splice(ind, 1);
+          this.dataSource.data = [...this.dataSource.data];
+        }
+        row.isEdit = false;
+      } else {
+        console.info('Edit a TP ');
+        this.TradingPartnerService.updateTradingPartner(row).subscribe(() => (row.isEdit = false));
+      }
+
+    }
+    cancelRow(row: TradingPartner)
+    {
+      row.isEdit = false;
+    }
+
+    removeRow(row: TradingPartner)  {
+      let name = row.Name;
+      console.log('removeRow: ' + name);
+      try
+      {
+        this.dialog
+        .open(ConfirmDialogComponent)
+        .afterClosed()
+        .subscribe((confirm) => {
+          if (confirm) {
+
+        this.TradingPartnerService.deleteTradingPartner(name).subscribe({
+          next: (res) =>
+          {
+            if (res["Status"] !== undefined) {
+              this.RefreshRows();
+            }
+            else if(res["Error"] !== undefined) {
+              alert(res["Error"])
+            }
+            console.info('deleteTradingPartner: Json: ' + JSON.stringify(res));
+            return;
+          },
+          error: (e) => {
+            alert('deleteTradingPartner catchError: ' + e);
+            return;
+          }
+        })
+
+      }
+      });
+
+    }
+    catch(e)
+    {
+      console.error('Exception: ' + e)
+    }
+
+    }
+
+    inputHandler(e: any, id: string, key: string) {
+      if (!this.valid[id]) {
+        this.valid[id] = {};
+      }
+      this.valid[id][key] = e.target.validity.valid;
+    }
+
+    disableSubmit(id: string) {
+      if (this.valid[id]) {
+        return Object.values(this.valid[id]).some((item) => item === false);
+      }
+      return false;
+    }
+
+    applyFilter(event: Event) {
+      const filterValue = (event.target as HTMLInputElement).value;
+      this.dataSource.filter = filterValue.trim().toLowerCase();
+    }
+
+    applyTpFilter(ob:MatSelectChange,tpFilter:TpFilter) {
+
+      this.filterDictionary.set(tpFilter.name,ob.value);
+
+
+      var jsonString = JSON.stringify(Array.from(this.filterDictionary.entries()));
+
+      this.dataSourceFilters.filter = jsonString;
+      //console.log(this.filterValues);
+    }
+
+  }
