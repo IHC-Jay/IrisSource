@@ -192,6 +192,37 @@ export class RestServiceComponent {
         );
     }
 
+    fetchOwnerTpIds() {
+
+
+      console.log('Fetch Class');
+
+      let url = baseUrl + 'GetOwnerTpIds';
+
+
+      return this.http
+        .get<{ [key: string]: TradingPartner }>(
+          url,
+
+        )
+        .pipe(
+          map(responseData => {
+            const TradingPartnersArray: TradingPartner[] = [];
+            for (const key in responseData) {
+              if (responseData.hasOwnProperty(key)) {
+                TradingPartnersArray.push({ ...responseData[key], tpid: key });
+              }
+            }
+            return TradingPartnersArray;
+          }),
+          catchError(errorRes => {
+            // Send to analytics server
+            console.error('In GetOwnerTpIds catchError');
+            return throwError(errorRes);
+          })
+        );
+    }
+
 
     fetchTransactionTypes() : Observable < TradingPartner[] >{
 

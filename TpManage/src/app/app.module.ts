@@ -27,7 +27,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
-import {MatSelectModule} from '@angular/material/select'
+import {MatSelectModule} from '@angular/material/select';
+import {MatTooltipModule} from '@angular/material/tooltip';
 
 import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
@@ -72,7 +73,8 @@ import {ErrorInterceptor} from './login/error.interceptor';
     MatSortModule,
     MatSelectModule,
     MatFormFieldModule,
-    MatInputModule
+    MatInputModule,
+    MatTooltipModule
   ],
   exports:[
     MatTableModule,

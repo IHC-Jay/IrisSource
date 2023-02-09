@@ -1,4 +1,4 @@
-import { Component, EventEmitter, OnInit, Output } from '@angular/core';
+import { Component, EventEmitter, OnInit, Output, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
@@ -13,7 +13,7 @@ import { catchError } from 'rxjs';
   styleUrls: ['./header.component.css']
 })
 
-export class HeaderComponent  {
+export class HeaderComponent implements AfterViewInit, OnInit   {
   loginForm: FormGroup;
 
   loading = false;
@@ -26,10 +26,12 @@ export class HeaderComponent  {
   isLogin:boolean;
   collapsed = true;
   @Output() selectedFeature = new EventEmitter<string>();
+  @ViewChild("username") focusField: ElementRef;
+
   selectedMenu:string = 'tradingPartner'
   links = [
     {name:'Trading Partners', link:"/TradingPartners"},
-    {name:'Search', link:"/search"}
+    {name:'Search TPID', link:"/search"}
   ];
 
   activeLink = this.links[0].link;
@@ -51,9 +53,15 @@ export class HeaderComponent  {
           password: ['', Validators.required]
       });
 
+
       // get return url from route parameters or default to '/'
       this.returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/login';
   }
+
+  ngAfterViewInit() {
+    this.focusField.nativeElement.focus();
+  }
+
 
      // convenience getter for easy access to form fields
      get f() { return this.loginForm.controls; }

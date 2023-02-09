@@ -26,12 +26,19 @@ export class AddEditComponent implements OnInit {
     form!: FormGroup;
     id!: string;
     parentTpId!: string;
+    sendertpIdHelp: string;
+    receivertpIdHelp: string;
     isAddMode!: boolean;
     loading = false;
+    batchMode: boolean = true;
+    showTpIds: boolean = false;
     submitted = false;
     sendingTpIds = [];
+    ackTypes:string[] = ["Always","Never","Negative"];
+    modeTypes:string[] = ["Batch","RT"];
+    routingTypes:string[] =["UHIN Batch","R1 Batch","UMR Batch","Loopback Batch"];
     receivingTpIds = [];
-    allTpIds = [];
+    ownerTpIds = [];
     canRender = false;
 
     trn: tpLinks;
@@ -54,11 +61,11 @@ export class AddEditComponent implements OnInit {
      public initializeData()
 {
   console.info("1. fetchTpIds");
-  this.tpService.fetchTpIds().subscribe((res: any) => {
+  this.tpService.fetchOwnerTpIds().subscribe((res: any) => {
 
     res.forEach((entry) => {
 
-     this.allTpIds.push(entry.TPID);
+     this.ownerTpIds.push(entry.TPID);
 
     });
 
@@ -94,7 +101,7 @@ export class AddEditComponent implements OnInit {
           TransactionSetId: [''],
           Mode: ['', Validators.required],
           Ack: ['', Validators.required],
-          FilePath: ['', Validators.required],
+          FilePath: [''],
           FtpServer: [''],
           GsReceiverId: ['', Validators.required],
           GsSenderId: ['', Validators.required],
@@ -102,7 +109,7 @@ export class AddEditComponent implements OnInit {
           IsaReceiverId: ['', Validators.required],
           Routing: ['', Validators.required],
           SNIP: ['', Validators.required],
-          Separators   : ['', Validators.maxLength(4)],
+          Separators   : ['|*^:', Validators.maxLength(4)],
       });
       this.initializeData();
 
@@ -190,6 +197,22 @@ export class AddEditComponent implements OnInit {
         this.createUpdateTpLink(this.isAddMode);
 
     }
+    setRtBatch()
+    {
+      console.info('setRtBatch: ' + this.form.controls['Mode'].value);
+      if(this.form.controls['Mode'].value === 'RT')
+      {
+          this.batchMode = false;
+          this.ackTypes = ["Never","Negative"];
+          this.form.controls.Routing.setValue('RT');
+      }
+      else {
+        this.batchMode = true;
+        this.ackTypes = ["Always","Never","Negative"];
+        this.form.controls.Routing.setValue(this.routingTypes[0]);
+      }
+      this.form.controls.Ack.setValue(this.ackTypes[0]);
+    }
 
     setTransactionSetId()
     {
@@ -200,27 +223,34 @@ export class AddEditComponent implements OnInit {
        console.info(ttVal + '- result: ' + result);
       this.form.controls['TransactionSetId'].setValue(this.transactionTypes[result].Direction + ': '+ this.transactionTypes[result].TransactionSetId +' / ' +  this.transactionTypes[result].VERSION );
       console.info('TransType : ' +this.form.controls['TransactionSetId'].value);
-      if( this.transactionTypes[result].Direction === 'Outbound')
+      this.form.controls.Mode.setValue(this.modeTypes[0]);
+      this.setRtBatch();
+      if( this.transactionTypes[result].Direction === 'Inbound')
       {
+        this.sendertpIdHelp = 'Parent TPId';
+        this.receivertpIdHelp = 'TPIds for owner';
         this.sendingTpIds =[];
         this.receivingTpIds=[];
         this.sendingTpIds[0] = this.parentTpId ;
-        this.receivingTpIds = this.allTpIds;
+        this.receivingTpIds = this.ownerTpIds;
         this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
         this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
         this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
         this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
       }
       else {
+        this.sendertpIdHelp = 'TPIds for owner';
+        this.receivertpIdHelp = 'Parent TPId';
         this.receivingTpIds =[];
         this.sendingTpIds = [];
         this.receivingTpIds[0] = this.parentTpId ;
-        this.sendingTpIds = this.allTpIds;
+        this.sendingTpIds = this.ownerTpIds;
         this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
         this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
         this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
         this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
       }
+      this.showTpIds = true;
     }
 
     private createUpdateTpLink(addFlg: boolean) {

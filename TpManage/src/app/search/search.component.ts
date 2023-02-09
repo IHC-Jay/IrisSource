@@ -1,4 +1,4 @@
-import { Component,OnInit } from '@angular/core';
+import { Component, OnInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormsModule,  FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
 import {TradingPartner} from '../tradingPartners/TradingPartner';
@@ -31,14 +31,18 @@ const DEFAULT_DURATION = 300;
 
 export class SearchComponent implements OnInit {
 
-  selectedTp = '';
+  loading:boolean = false;
   selectedTpId ='';
   form!: FormGroup;
-  canRender = false;
+
   canRenderDetails = false;
-  tpArray = new MatTableDataSource<TradingPartner>();
+  selectedTp:string = '';
+
   dataSource: TpId[] = [];
   loadedPosts: tpLinks[] = [];
+
+  @ViewChild("searchTpId") focusField: ElementRef;
+
 
   constructor(private TradingPartnerService: RestServiceComponent,
     private formBuilder: FormBuilder
@@ -57,64 +61,13 @@ export class SearchComponent implements OnInit {
 
   });
 
-      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
-        this.tpArray.data = res;
-        console.log('fetchTradingPartners got rows: ' + this.tpArray.data.length);
-        this.canRender = true;
 
-    });
-
-
-
-      let myPromise = () => new Promise((resolve, reject) => {
-        setTimeout(function(){
-          resolve('Count')
-        }, 1000)
-      })
-
-      for (let index = 0; index < 5; index++) {
-        let count = await myPromise()
-
-        if(this.canRender)
-          break;
-      }
-
+    }
+    ngAfterViewInit() {
+      this.focusField.nativeElement.focus();
     }
 
 
-
-  onTpChange(event) {
-    console.info(event.value);
-
-    this.selectedTpId = '';
-
-    this.loadedPosts = [];
-    this.dataSource = [];
-    this.collapse();
-
-    this.TradingPartnerService.getTpIds(event.value).subscribe((res: any) => {
-
-      this.dataSource = res;
-      console.info('dataSource: ')
-      console.info(this.dataSource.length);
-
-      this.dataSource.forEach(element => {
-
-
-      this.TradingPartnerService.fetchTpLinks(element.TPID).subscribe(
-        tpLinksData => {
-          this.loadedPosts = tpLinksData;
-          this.canRenderDetails = true;
-        },
-        error => {
-          console.error( error.message);
-        }
-      );
-
-      });
-    });
-
-  }
     onTpIdChange()
     {
       console.info('TpId changed');
@@ -122,11 +75,13 @@ export class SearchComponent implements OnInit {
 
      console.info('searchTpIdVal: ' + searchTpIdVal);
     console.info(searchTpIdVal);
-    this.selectedTp = '';
+
 
     this.loadedPosts = [];
     this.dataSource = [];
     this.collapse();
+    this.loading = true;
+    this.selectedTp = '';
 
     this.TradingPartnerService.fetchTPforTpId(searchTpIdVal).subscribe((res: any) => {
       console.info('onTpIdChange: ' + res.Name);
@@ -139,9 +94,11 @@ export class SearchComponent implements OnInit {
         tpLinksData => {
           this.loadedPosts = tpLinksData;
           this.canRenderDetails = true;
+          this.loading = false;
         },
         error => {
           console.error( error.message);
+          this.loading = false;
         }
       );
 

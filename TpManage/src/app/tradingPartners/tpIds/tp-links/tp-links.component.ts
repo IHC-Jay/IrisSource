@@ -59,7 +59,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpIdLinksList = new MatTableDataSource<tpLinks>();
 
-  displayedtpLinksColumnsList: string[] = ['id', 'Link', 'IsaSenderId', 'IsaReceiverId', 'TransType', 'TransactionSetId', 'actions'];
+  displayedtpLinksColumnsList: string[] = ['Link', 'IsaSenderId', 'IsaReceiverId', 'TransType', 'TransactionSetId', 'Mode', 'actions'];
 
   tpLinksArray: tpLinks[] = [];
 

@@ -14,21 +14,25 @@ export const TpIdColumns = [
     type: 'string',
     label: 'Description',
     required: true,
+    help: 'TP Name'
   },
   {
     key: 'TPID',
     type: 'string',
     label: 'TPID',
     required: true,
+    help:'TPID value in X12 message'
   },
   {
     key: 'Type',
-    type: 'string',
-    label: 'Type',
+    type: 'drop',
+    label: 'X12 Segment',
+    help: 'Value used in ISA, GS or BOTH segments'
   },
   {
     key: 'isEdit',
     type: 'isEdit',
     label: '',
+    help:''
   }
 ];

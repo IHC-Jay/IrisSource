@@ -18,7 +18,7 @@ export const TradingPartnerColumns = [
   },
   {
     key: 'TPtype',
-    type: 'text',
+    type: 'drop',
     label: 'Trading Type',
     required: true,
   },
@@ -29,13 +29,13 @@ export const TradingPartnerColumns = [
   },
   {
     key: 'ContactPhone',
-    type: 'string',
+    type: 'text',
     label: 'Phone',
     required: true,
   },
   {
     key: 'ContactEmail',
-    type: 'text',
+    type: 'email',
     label: 'Email',
     pattern: '.+@.+'
   },

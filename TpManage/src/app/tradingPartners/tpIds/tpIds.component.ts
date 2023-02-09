@@ -45,7 +45,7 @@ export class TpIdComponent implements OnInit {
         id: '-1',
         Name: this.tpId,
         TPID: '',
-        Type: '',
+        Type: 'ISA',
         isEdit: true,
         isSelected: false,
       };
@@ -75,7 +75,7 @@ export class TpIdComponent implements OnInit {
         }
 
       } else {
-        console.info('Edit a TP ');
+        console.info('Edit a TP ' + row.Type);
         this.tpIdService.updateTPID(row).subscribe((res) => {
           row.isEdit = false;
         });

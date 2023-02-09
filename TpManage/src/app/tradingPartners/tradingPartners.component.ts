@@ -6,7 +6,7 @@ import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
 import {RestServiceComponent} from '../services/rest-service.component';
 import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
-import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
+import { MatPaginator } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
@@ -50,9 +50,8 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     filterDictionary= new Map<string,string>();
 
 
-
     @ViewChild(MatSort) sort: MatSort;
-    @ViewChild(MatPaginator, {static: true}) paginator: MatPaginator;
+    @ViewChild(MatPaginator) paginator: MatPaginator;
 
     constructor(public dialog: MatDialog,
       private TradingPartnerService: RestServiceComponent)
@@ -138,6 +137,10 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     cancelRow(row: TradingPartner)
     {
       row.isEdit = false;
+      if (row.tpid === '-1') {
+        this.dataSource.data.splice(0, 1);
+        this.dataSource.data = [...this.dataSource.data];
+      }
     }
 
     removeRow(row: TradingPartner)  {
@@ -181,16 +184,20 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     }
 
     inputHandler(e: any, id: string, key: string) {
+
       if (!this.valid[id]) {
         this.valid[id] = {};
       }
       this.valid[id][key] = e.target.validity.valid;
     }
 
-    disableSubmit(id: string) {
+    disableSubmit(button:string, id: string) {
+
       if (this.valid[id]) {
+
         return Object.values(this.valid[id]).some((item) => item === false);
       }
+
       return false;
     }
 
@@ -199,15 +206,5 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       this.dataSource.filter = filterValue.trim().toLowerCase();
     }
 
-    applyTpFilter(ob:MatSelectChange,tpFilter:TpFilter) {
-
-      this.filterDictionary.set(tpFilter.name,ob.value);
-
-
-      var jsonString = JSON.stringify(Array.from(this.filterDictionary.entries()));
-
-      this.dataSourceFilters.filter = jsonString;
-      //console.log(this.filterValues);
-    }
 
   }
