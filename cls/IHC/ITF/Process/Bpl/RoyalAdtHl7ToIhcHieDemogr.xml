@@ -55,8 +55,15 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="NotifyTargetConfigName">
+<Description>
+NotifyTargetConfigName:Custom setting to select Configuration item(s) to send the notification messages</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,MergeHiePatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,HddTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,MergeHiePatientServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,HddTargetConfigName:Additional,NotifyTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -82,6 +89,22 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+
+<property name='mergeHiePatientServiceTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='hddTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+
+
+
 <property name='msgType' type='%String' instantiate='0' />
 <property name='accessToken' type='%String' instantiate='0' />
 <property name='errResp' type='%String' initialexpression='"0"' instantiate='0' />
@@ -91,6 +114,7 @@ BPL Definition</Description>
 <property name='AllowedAddressTypes' type='%String' instantiate='0' />
 <property name='mariStatus' type='%String' instantiate='0' />
 <property name='language' type='%String' instantiate='0' />
+<property name='gender' type='%String' instantiate='0' />
 <property name='addressKeyWords' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='200' />
@@ -106,6 +130,14 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='1000' />
 </parameters>
 </property>
+
+<property name='notifyTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+
+
 </context>
 
 
@@ -199,6 +231,14 @@ BPL Definition</Description>
 	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
  }
  
+ 
+ set context.notifyTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","NotifyTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE(" notifyTargetConfigName: " _ context.notifyTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No NotifyTargetConfigName found in the Ensemble settings")
+ }
+ 
   ]]]]><![CDATA[>
   
   
@@ -236,10 +276,10 @@ BPL Definition</Description>
 <code name='validateEmpiNumber' xpos='470' ypos='1400' >
 <annotation><![CDATA[Get EMPI(Royal Keep MRN)]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Validate Empi(Royal Keep MRN)...") 
-  Set context.tellicaKeepMrn=request.GetValueAt("PID:3(1).1.1")  
+  Set context.tellicaKeepMrn=request.GetValueAt("PID:2.1")  
   $$$TRACE("EMPI (Keep): " _ context.tellicaKeepMrn)  
  
- if ($ISVALIDNUM(context.tellicaKeepMrn)'="1"){	  
+ if (context.tellicaKeepMrn=""){	  
 	  $$$TRACE("Royal Empi# is NOT a VALID number ")
 	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid mrn number: ["_context.tellicaKeepMrn_"]. Skipping the record.")
  } 
@@ -296,10 +336,10 @@ BPL Definition</Description>
     set mariStatusRep = request.GetValueAt("PID:16.1")  
     set domain = "248"
     set contextNcid = "530308891"
-    if (rep '= "" && $ISVALIDNUM(rep)= "1"){
+    if (mariStatusRep '= "" && $ISVALIDNUM(mariStatusRep)= "1"){
 	    try{
 	   		 $$$TRACE(" Calling getNcidFromRep()...................... " )
-        	 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getNcidFromRep(rep, "PID-16.1", domain, contextNcid, context.hddTargetConfigName, .process, .retNcid) 
+        	 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getNcidFromRep(mariStatusRep, "PID-16.1", domain, contextNcid, context.hddTargetConfigName, .process, .retNcid) 
         	 $$$TRACE(" Returned Ncid(for PID-16.1) from HDD: " _ retNcid)
         	 set context.mariStatus=retNcid
      	}catch(exVar){
@@ -558,15 +598,14 @@ BPL Definition</Description>
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
     $$$TRACE("DTL Output: "_xmlStr)  
-    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails")
+    set myList = $LISTBUILD("sourceMrns","addresses","phones","names","emails","races","primaryIds","alternativeIds")
     set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson2).CreateJson(xmlStr,myList)
     $$$TRACE("JSON string: "_json)             
     set jsonProcessRequest=##class(Ens.StringContainer).%New()
     set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 27, $LENGTH(json)-1)
     $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)   
     
-    $$$TRACE("Calling Update Patient service") 
-    $$$TRACE(" IHC mrn# exists " _ context.ihcEmpiNum) 
+    $$$TRACE("Calling ADD Patient service")     
     set operType = "ADD"        
     set tarConfigName = context.targetList.GetAt(1)
     $$$TRACE(" Target Operation: " _ tarConfigName) 
@@ -615,7 +654,7 @@ BPL Definition</Description>
  	 			if ('tStatus) {
       	 			set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error while writing the record to a file system. "_$SYSTEM.Status.GetOneErrorText(tStatus))
       	 		}else{
-		    		set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+		    		set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
       	 		}
 		    }elseif (statusCode [ "5"){
 			    $$$TRACE("  HTTP status codes starting 5.. ")
@@ -780,6 +819,9 @@ BPL Definition</Description>
 </Value>
 <Value name="8">
 <Value>HddTargetConfigName</Value>
+</Value>
+<Value name="9">
+<Value>NotifyTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
