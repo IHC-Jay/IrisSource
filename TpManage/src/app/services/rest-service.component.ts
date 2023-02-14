@@ -18,6 +18,7 @@ import { environment } from '../../environments/environment';
 const baseUrl = `${environment.apiUrl}`;
 
 
+
 @Injectable({ providedIn: 'root' })
 
 @Component({
@@ -27,13 +28,14 @@ const baseUrl = `${environment.apiUrl}`;
 
 export class RestServiceComponent {
 
+  currentUser:string = '';
   error = new Subject<string>();
 
   constructor(private http: HttpClient)
    {
    }
 
-  validateUser(usr: String, passw: String)
+  validateUser(usr: string, passw: String)
    {
 
     let searchParams = new HttpParams();
@@ -62,6 +64,7 @@ export class RestServiceComponent {
       .pipe(
         map(responseData => {
          console.info("return Response: " + responseData.ContactName)
+         this.currentUser = usr;
          return responseData.ContactName;
         }),
         catchError(errorRes => {
@@ -86,13 +89,15 @@ export class RestServiceComponent {
         )
         .pipe(
           map(responseData => {
+            console.info(responseData);
             const TradingPartnersArray: TradingPartner[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                TradingPartnersArray.push({ ...responseData[key], tpid: key });
+                // console.info('TP key: ' + key)
+                TradingPartnersArray.push({ ...responseData[key], id: responseData[key].id });
               }
             }
-            console.info('return TP array: ' + TradingPartnersArray.length )
+            console.info('return TP array: ' + TradingPartnersArray.length );
             return TradingPartnersArray;
           }),
           catchError(errorRes => {
@@ -179,7 +184,7 @@ export class RestServiceComponent {
             const TradingPartnersArray: TradingPartner[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                TradingPartnersArray.push({ ...responseData[key], tpid: key });
+                TradingPartnersArray.push({ ...responseData[key], id: key });
               }
             }
             return TradingPartnersArray;
@@ -210,7 +215,7 @@ export class RestServiceComponent {
             const TradingPartnersArray: TradingPartner[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                TradingPartnersArray.push({ ...responseData[key], tpid: key });
+                TradingPartnersArray.push({ ...responseData[key], id: key });
               }
             }
             return TradingPartnersArray;
@@ -243,7 +248,7 @@ export class RestServiceComponent {
             const TradingPartnersArray: TradingPartner[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                TradingPartnersArray.push({ ...responseData[key], tpid: key });
+                TradingPartnersArray.push({ ...responseData[key], id: key });
               }
             }
             return TradingPartnersArray;
@@ -322,7 +327,7 @@ export class RestServiceComponent {
     let url = baseUrl + 'DeleteTpLink';
 
     console.info('Post to delete TPLink: ' + url);
-    const body = { id: tpLink };
+    const body = { id: tpLink, User: this.currentUser};
     return this.http.post<string>(url, body);
 
   }
@@ -343,7 +348,7 @@ export class RestServiceComponent {
     }
 
     console.info('Post to create/update TPLink: ' + url);
-
+    link.User = this.currentUser;
     // const body = { Name: 'Angular POST Request ', Type: 'PROVIDER' };
     return this.http.post<any>(url, link)
     .pipe(
@@ -400,8 +405,8 @@ export class RestServiceComponent {
 
     console.log('addTradingPartner: ' + tradingPartner.Name);
 
-
     let url = baseUrl + 'NewTp';
+    tradingPartner.User = this.currentUser;
 
     console.info('Post to create TP: ' + url);
 
@@ -422,10 +427,11 @@ export class RestServiceComponent {
   }
 
   updateTradingPartner(tradingPartner: TradingPartner): Observable<TradingPartner> {
-    console.log('updateTradingPartner: ' + tradingPartner.Name + ", Id: " + tradingPartner.tpid);
+    console.log('updateTradingPartner: ' + tradingPartner.Name + ", Id: " + tradingPartner.id);
 
 
     let url = baseUrl + 'UpdateTp';
+    tradingPartner.User = this.currentUser;
     return this.http.post<TradingPartner>(`${url}`, tradingPartner);
 
   }
@@ -446,7 +452,7 @@ export class RestServiceComponent {
 
 
     let url = baseUrl + 'NewTpId';
-
+    newTpId.User = this.currentUser;
     console.info('Post to create TPID: ' + url);
     return this.http.post<any>(url, newTpId);
 
@@ -457,7 +463,7 @@ export class RestServiceComponent {
 
 
     let url = baseUrl + 'UpdateTpId';
-
+    tpid.User = this.currentUser;
     console.info('Post to update TP: ' + url);
     return this.http.post<TpId>(`${url}`, tpid);
   }

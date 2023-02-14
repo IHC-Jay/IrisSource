@@ -86,7 +86,7 @@ export class SearchComponent implements OnInit {
     this.TradingPartnerService.fetchTPforTpId(searchTpIdVal).subscribe((res: any) => {
       console.info('onTpIdChange: ' + res.Name);
       this.selectedTp = res.Name;
-      var tp:TpId  = {id:'0', Name:'1', TPID: searchTpIdVal, Type:'BOTH', isEdit:false, isSelected:false};
+      var tp:TpId  = {id:'0', Name:'1', TPID: searchTpIdVal, Type:'BOTH', isEdit:false, isSelected:false, User:''};
 
       this.dataSource.push( tp);
 

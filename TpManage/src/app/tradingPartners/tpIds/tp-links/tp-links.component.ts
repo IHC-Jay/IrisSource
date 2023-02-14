@@ -94,9 +94,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   Refresh()
   {
 
-
     this.isFetching = true;
-
 
     this.tpLinksService.fetchTpLinks(this.tpId).subscribe(
       tpLinksData => {
@@ -149,8 +147,11 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   addRow()
   {
     console.info("Call add for: " + this.tpId);
-    // this.router.navigate(["/tp-add/" + this.tpId] );
     this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/" + this.tpId] );
+  }
+  bulkRow()
+  {
+    this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-bulkAdd/" + this.tpId] );
   }
 
   delete(tpLink: string) {

@@ -38,7 +38,7 @@ import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.comp
 import { SearchComponent } from './search/search.component';
 import {AuthInterceptor} from './login/auth-interceptor';
 import {ErrorInterceptor} from './login/error.interceptor';
-
+import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
 
 @NgModule({
   declarations: [
@@ -51,7 +51,7 @@ import {ErrorInterceptor} from './login/error.interceptor';
     tpLinksComponent,
     AddEditComponent,
     SearchComponent,
-
+    BulkAddComponents
   ],
   imports: [
     BrowserModule,

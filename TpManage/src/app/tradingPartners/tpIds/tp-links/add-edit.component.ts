@@ -34,7 +34,7 @@ export class AddEditComponent implements OnInit {
     showTpIds: boolean = false;
     submitted = false;
     sendingTpIds = [];
-    ackTypes:string[] = ["Always","Never","Negative"];
+    ackTypes:string[] = ["Negative","Always","Never"];
     modeTypes:string[] = ["Batch","RT"];
     routingTypes:string[] =["UHIN Batch","R1 Batch","UMR Batch","Loopback Batch"];
     receivingTpIds = [];
@@ -208,7 +208,7 @@ export class AddEditComponent implements OnInit {
       }
       else {
         this.batchMode = true;
-        this.ackTypes = ["Always","Never","Negative"];
+        this.ackTypes = ["Negative","Always","Never"];
         this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
       this.form.controls.Ack.setValue(this.ackTypes[0]);
@@ -264,15 +264,19 @@ export class AddEditComponent implements OnInit {
              retStr = res.errormessage;
             }
             else if( res.Status !== undefined) {
-              console.info('createUpdateTpLink status: ' + res.Status);
+              console.error('createUpdateTpLink status: ' + res.Status);
               if(res.Status ='OK')
               {
                  this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId ]);
               }
+              else
+              {
+                alert('createUpdateTpLink status: ' + res.Status);
+              }
               retStr = res.Status;
             }
             else{
-              console.info('createUpdateTpLink else: ' + res.Error);
+              alert('createUpdateTpLink else: ' + res.Error);
               retStr = res.Error;
             }
             if(retStr !== 'OK')

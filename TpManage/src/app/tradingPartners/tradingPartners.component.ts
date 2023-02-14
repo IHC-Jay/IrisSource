@@ -38,6 +38,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
   public size = 5;
   public pageNumber = 0;
   searchText:string;
+  ifSelect:boolean = false;
 
     displayedColumns: string[] = TradingPartnerColumns.map((col) => col.key);
     columnsSchema: any = TradingPartnerColumns;
@@ -95,7 +96,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
 
     addRow() {
       const newRow: TradingPartner = {
-        tpid: '-1',
+        id: '-1',
         Name: '',
         TPtype: 'Provider',
         ContactName: '',
@@ -103,19 +104,21 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
         ContactEmail: '',
         isEdit: true,
         isSelected: false,
+        User:''
       };
       this.dataSource.data = [newRow, ...this.dataSource.data];
+      this.ifSelect = true;
     }
 
     editRow(row: TradingPartner) {
-      console.info('editRow: ' + row.tpid +", " + row.Name);
-      if (row.tpid === '-1') {
+      console.info('editRow: ' + row.id +", " + row.Name);
+      if (row.id === '-1') {
 
         if (row.Name !== '')
         {
           let res = this.TradingPartnerService.addTradingPartner(row).subscribe((res) => {
-            console.info('Added TP: ' + row.Name + ": " + res.tpid);
-            row.tpid = res.tpid;
+            console.info('Added TP: ' + row.Name + ": " + res.id);
+            row.id = res.id;
             row.isEdit = false;
           });
 
@@ -126,21 +129,25 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
           let ind = this.dataSource.data.indexOf(row)
           this.dataSource.data.splice(ind, 1);
           this.dataSource.data = [...this.dataSource.data];
+          alert('Name is required');
         }
         row.isEdit = false;
+        this.ifSelect = false;
       } else {
         console.info('Edit a TP ');
         this.TradingPartnerService.updateTradingPartner(row).subscribe(() => (row.isEdit = false));
+        this.ifSelect = false;
       }
 
     }
     cancelRow(row: TradingPartner)
     {
       row.isEdit = false;
-      if (row.tpid === '-1') {
+      if (row.id === '-1') {
         this.dataSource.data.splice(0, 1);
         this.dataSource.data = [...this.dataSource.data];
       }
+      this.ifSelect = false;
     }
 
     removeRow(row: TradingPartner)  {
@@ -202,8 +209,18 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     }
 
     applyFilter(event: Event) {
+
+
       const filterValue = (event.target as HTMLInputElement).value;
-      this.dataSource.filter = filterValue.trim().toLowerCase();
+      if(filterValue === '')
+      {
+        this.ifSelect = false;
+      }
+      else{
+        this.ifSelect = true;
+
+        this.dataSource.filter = filterValue.trim().toLowerCase();
+      }
     }
 
 

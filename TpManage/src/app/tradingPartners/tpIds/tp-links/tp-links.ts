@@ -20,4 +20,5 @@ Separators: string;
 FilePath: string;
 FtpServer: string;
 Active: boolean;
+User: string;
 }

@@ -5,6 +5,7 @@ export interface TpId {
   TPID: string;
   Type: string;
   isEdit: boolean;
+  User :string;
 }
 
 export const TpIdColumns = [

@@ -48,6 +48,7 @@ export class TpIdComponent implements OnInit {
         Type: 'ISA',
         isEdit: true,
         isSelected: false,
+        User:''
       };
       this.dataSource.data = [newRow, ...this.dataSource.data];
     }
@@ -72,10 +73,11 @@ export class TpIdComponent implements OnInit {
           this.dataSource.data.splice(ind, 1);
           this.dataSource.data = [...this.dataSource.data];
           row.isEdit = false;
+          alert("Required fields missing");
         }
 
       } else {
-        console.info('Edit a TP ' + row.Type);
+        console.info('Edit a TP ' + row.Name +", " + row.id);
         this.tpIdService.updateTPID(row).subscribe((res) => {
           row.isEdit = false;
         });

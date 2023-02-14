@@ -1,11 +1,12 @@
 export interface TradingPartner {
   isSelected: boolean;
-  tpid: string;
+  id: string;
   Name: string;
   TPtype: string;
   ContactName: string;
   ContactPhone: string;
   ContactEmail: string;
+  User:string;
   isEdit: boolean;
 }
 

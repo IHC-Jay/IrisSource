@@ -23,7 +23,7 @@ export class AuthenticationService {
 
   public get currentUserValue(): User {
 
-    console.info('currentUserValue:' +  this.currentUserSubject.value)
+    console.info('currentUserValue:' + this.currentUserSubject.value.username);
     return this.currentUserSubject.value;
   }
 

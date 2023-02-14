@@ -6,6 +6,7 @@ import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.comp
 import { BrowserModule } from '@angular/platform-browser';
 import { ReactiveFormsModule } from '@angular/forms';
 import {AddEditComponent} from './tradingPartners/tpIds/tp-links/add-edit.component';
+import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
 import { SearchComponent } from './search/search.component';
 
 import { HeaderComponent } from './header/header.component';
@@ -16,6 +17,7 @@ const appRoutes: Routes = [
   {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard]},
+  {path: 'TradingPartners/tpIds/tp-links/tp-bulkAdd/:tp', component: BulkAddComponents, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/tp-edit/:tpId/:tpLink', component: AddEditComponent, canActivate: [AuthGuard]},
   {path: 'search', component: SearchComponent, canActivate: [AuthGuard]}
 ];
