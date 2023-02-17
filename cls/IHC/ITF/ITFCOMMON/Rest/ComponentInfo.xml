@@ -34,6 +34,7 @@
 <Implementation><![CDATA[
    set addedPreBool = 0
    set pathArray = {"Path": []}
+   set inArray = {"Services": []}
    set serviceArray = {"Services": []}
    set preProcessArray = {"Processes": []}
    set processArray = {"Processes": []}
@@ -47,7 +48,7 @@
    set workingComponentArray =""
    set newOutList =""
    set outList =""
-   set fullComponentList =$LFS(component)
+   set fullComponentList =$LFS($ZSTRIP(component,"<>WC"))
    set postComponentList =""
    set $NAMESPACE = namespace
    set fullArray = ..getFullListForInternalCall(namespace)
@@ -57,6 +58,7 @@
       set outboundComponents =""
       set currentComponent = value.%Get("Component")
       set currentComponentType = value.%Get("Type")
+      //write !, "Type:"_currentComponentType
       if (currentComponentType ="Service") { 
          //write !, "Handling Service "_currentComponent
          if ('##class(Ens.Util.FunctionSet).Contains(##class(Ens.Util.FunctionSet).ToUpper(currentComponent),"JAVAGATEWAY")) {
@@ -80,15 +82,17 @@
          }
 	     //write !, "Middle of service handle"
 	     do serviceArray.Services.%Push(componentsArray)
-	     if (currentComponent = component) {
+	     if (($ZSTRIP(currentComponent,"<>WC") = $ZSTRIP(component,"<>WC"))) {
 	        set workingComponentArray = componentsArray
+	        //write !, "Current component type: "_currentComponentType
 	        set workingComponentType = currentComponentType
          }
 	     //write !,"Handled service: "_currentComponent
       }elseif (currentComponentType ="Operation") {
 	     //write !, "Doing nothing for operation "_currentComponent 
          //Do nothing these will just be targets of Processes
-         if (currentComponent = component) {
+         if (($ZSTRIP(currentComponent,"<>WC") = $ZSTRIP(component,"<>WC"))) {
+	        //write !, "Current component type: "_currentComponentType 
             set workingComponentType = currentComponentType
          }
       }elseif (currentComponentType ="Process") {
@@ -131,15 +135,17 @@
 	        "ToComponents": (outboundComponents)
 		 }
 	     do processArray.Processes.%Push(componentsArray)
-	     if (currentComponent = component) {
-	        set workingComponentArray = componentsArray
+	     //write !, "Current component: "_currentComponent_" Working component: "_component
+	     if (($ZSTRIP(currentComponent,"<>WC") = $ZSTRIP(component,"<>WC"))) {
+		    set workingComponentArray = componentsArray
+	        //write !, "Current component type: "_currentComponentType
 	        set workingComponentType = currentComponentType
          }
 	     //write !, processArray.%ToJSON()
       }
    }
-   //write !, "Current component: "_component
-   //write !, "Current component type: "_workingComponentType
+   //write !, "Working component: "_component
+   //write !, "Working component type: "_workingComponentType
    if (workingComponentType ="Service") {
       do fullComponentPathArray.CurrentComponent.%Push(workingComponentArray)
 serviceNewOut   
@@ -157,7 +163,7 @@ serviceNewOut
 	     set arrayIter = fullArray.ComponentList.%GetIterator()
 	     while arrayIter.%GetNext(.key, .value) {
 	        //write !, "Key: "_key_". Value: "_value.%ToJSON()
-	        if (value.%Get("Component") = piece) {
+	        if (value.%Get("Component") = $ZSTRIP(piece,"<>WC")) {
 		       //write !, "component info: "_value.%ToJSON()
 		       if (value.%Get("Type") = "Operation") {
 			      do outboundArray.Operations.%Push(piece) 
@@ -168,7 +174,7 @@ serviceNewOut
 			      if ($LF(fullComponentList,value.%Get("Component")) =0) {
 			         set processIter = processArray.Processes.%GetIterator()
                      while processIter.%GetNext(.processKey, .processValue) {
-	                    if (processValue.%Get("ProcessComponent") = piece) {
+	                    if (processValue.%Get("ProcessComponent") = $ZSTRIP(piece,"<>WC")) {
                            do postProcessArray.Processes.%Push(processValue)
                            set update = processValue.%Get("ToComponents")
                            set updateToList = $LFS(update,",")
@@ -210,7 +216,7 @@ newOut
 	     set arrayIter = fullArray.ComponentList.%GetIterator()
 	     while arrayIter.%GetNext(.key, .value) {
 	        //write !, "Key: "_key_". Value: "_value.%ToJSON()
-	        if (value.%Get("Component") = piece) {
+	        if (value.%Get("Component") = $ZSTRIP(piece,"<>WC")) {
 		       //write !, "component info: "_value.%ToJSON()
 		       if (value.%Get("Type") = "Operation") {
 			      do outboundArray.Operations.%Push(piece) 
@@ -223,7 +229,7 @@ newOut
 		       }elseif (value.%Get("Type") = "Process") {
 			      set processIter = processArray.Processes.%GetIterator()
                   while processIter.%GetNext(.processKey, .processValue) {
-	                 if (processValue.%Get("ProcessComponent") = piece) {
+	                 if (processValue.%Get("ProcessComponent") = $ZSTRIP(piece,"<>WC")) {
                         do postProcessArray.Processes.%Push(processValue)
                         set update = processValue.%Get("ToComponents")
                         set updateToList = $LFS(update,",")
@@ -255,9 +261,12 @@ newOut
       do fullComponentPathArray.PostProcesses.%Push(postProcessArray)
       do fullComponentPathArray.CurrentComponent.%Push(workingComponentArray)
    }elseif (workingComponentType ="Operation"){
+	  do fullComponentPathArray.Outbounds.%Push(outboundArray)
+      do fullComponentPathArray.PreProcesses.%Push(preProcessArray)
+      do fullComponentPathArray.PostProcesses.%Push(postProcessArray)
 	  do fullComponentPathArray.CurrentComponent.%Push(component)
    }else {
-	  write !,"Unknown type"
+	  //write !,"Unknown type"
    }
    //write !, "Full component list: "_fullComponentList
    if (workingComponentType '="Service") {
@@ -295,13 +304,14 @@ addedPre
 	     while $LISTNEXT(outList,pointer,inPiece) {
 		    //write !, "Current inbound publish: "_inPiece
 		    if (($LF(postComponentList,inPiece) =0) &&($LF(fullComponentList,inPiece) >0)) {
-			   set inArray = { "ServiceComponent": (inValue.%Get("ServiceComponent")),
+			   set inTempArray = { "ServiceComponent": (inValue.%Get("ServiceComponent")),
 	        "ToComponent": (inPiece)}
+	           do inArray.Services.%Push(inTempArray)
 	           //write !,inArray.%ToJSON()
-	           do fullComponentPathArray.Inbounds.%Push(inArray)
 		    }
 	     }
 	  }
+	  do fullComponentPathArray.Inbounds.%Push(inArray)
    }
    write !, fullComponentPathArray.%ToJSON()
    quit 1
@@ -377,8 +387,8 @@ addedPre
 	set staticSettings =""
 	set hostSettings =""
 	set adapterSettings =""
-	set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
-	set tStatus = ##class(Ens.Director).GetHostSettings(component,.hostSettings)
+	set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName($ZSTRIP(component,"<>WC"))
+	/**set tStatus = ##class(Ens.Director).GetHostSettings($ZSTRIP(component,"<>WC"),.hostSettings)
 	if ($DATA(hostSettings) > 0) {	
        set settingName = ""
 	   for {
@@ -388,16 +398,18 @@ addedPre
 		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
 		  do settingsArray.Values.%Push(setting)
 	   }
-	}
-    set tStatus = ##class(Ens.Director).GetAdapterSettings(component,.adapterSettings)
+	}**/
+    set tStatus = ##class(Ens.Director).GetAdapterSettings($ZSTRIP(component,"<>WC"),.adapterSettings)
     if ($DATA(adapterSettings) > 0) {	
        set settingName = ""
        for {
           set settingName = $ORDER(adapterSettings(settingName))
 	      quit:(settingName = "")
-          set currentValue = adapterSettings(settingName)
-		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
-		  do settingsArray.Values.%Push(setting)
+	      if ((settingName = "Port") || (settingName ="IPAddress") || (settingName ="FTPServer") || (settingName ="FTPPort") || (settingName ="FilePath")) {
+             set currentValue = adapterSettings(settingName)
+		     set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		     do settingsArray.Values.%Push(setting)
+	      }
 	   }
 	}
 	set tStatus = componentItem.GetStaticSettings(.staticSettings)
@@ -411,9 +423,11 @@ addedPre
 		  quit:(settingIndex = "")
 		  set settingList = staticSettings(settingIndex)
 		  set settingName = $LG(settingList,2)
-		  set currentValue = $LG(settingList,3)
-		  set setting = { "Setting Name": (settingName), "Value": (currentValue) }
-		  do settingsArray.Values.%Push(setting)					
+		  if (settingName ="Category") {
+		     set currentValue = $LG(settingList,3)
+		     set setting = { "Setting Name": (settingName), "Value": (currentValue) }
+		     do settingsArray.Values.%Push(setting)	
+		  }				
 	   }
 	}
 	quit settingsArray
@@ -425,7 +439,6 @@ addedPre
 <FormalSpec>namespace:%String,component:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	//Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($Username,"In getSettings")
 	set settingsArray ={"Settings": []}
 	set $NAMESPACE = namespace
 	set componentItem =""
@@ -433,7 +446,7 @@ addedPre
 	set hostSettings =""
 	set adapterSettings =""
 	set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
-	set tStatus = ##class(Ens.Director).GetHostSettings(component,.hostSettings)
+	set tStatus = ##class(Ens.Director).GetHostSettings($ZSTRIP(component,"<>WC"),.hostSettings)
 	if ($DATA(hostSettings) > 0) {	
        set settingName = ""
 	   for {
@@ -444,7 +457,7 @@ addedPre
 		  do settingsArray.Settings.%Push(setting)
 	   }
 	}
-    set tStatus = ##class(Ens.Director).GetAdapterSettings(component,.adapterSettings)
+    set tStatus = ##class(Ens.Director).GetAdapterSettings($ZSTRIP(component,"<>WC"),.adapterSettings)
     if ($DATA(adapterSettings) > 0) {	
        set settingName = ""
        for {
@@ -487,8 +500,8 @@ addedPre
 	set inboundComponents = ""
 	set outboundComponents = ""
 	set serviceCallComponents =""
-	if (##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(component),"IN-")) {
-	   set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName(component)
+	if (##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper($ZSTRIP(component,"<>WC")),"IN-")) {
+	   set componentItem = ##class(Ens.Config.Production).OpenItemByConfigName($ZSTRIP(component,"<>WC"))
 	   set tStatus = componentItem.GetSetting("TargetConfigNames",.targetConfigNamesPiece)
 	   for i=1:1:$L(targetConfigNamesPiece,",") {
 	      set target = $P(targetConfigNamesPiece,",",i)
@@ -533,7 +546,7 @@ addedPre
 		        set item =$o(array(item))
 	            quit:(item ="")
 	            //write !, "Component Connection: "_item
-	            if ((item = component)) {
+	            if ((item = $ZSTRIP(component,"<>WC"))) {
 		           if ($F(inboundComponents,componentItem.Name) '> 0) {
 		              if (inboundComponents ="") {
 		                 set inboundComponents = componentItem.Name
@@ -541,7 +554,7 @@ addedPre
 			             set inboundComponents = inboundComponents_","_componentItem.Name  
 		              }
 		           }
-	            }elseif (componentItem.Name = component) {
+	            }elseif (componentItem.Name = $ZSTRIP(component,"<>WC")) {
 		           if ((##class(Ens.Util.FunctionSet).StartsWith(##class(Ens.Util.FunctionSet).ToUpper(item),"OP-")) || (##class(Ens.Util.FunctionSet).Contains(##class(Ens.Util.FunctionSet).ToUpper(item),"HDD"))) {
 			          if ($F(serviceCallComponents,item) '> 0) {
 				          if (serviceCallComponents ="") {
@@ -569,7 +582,7 @@ addedPre
 	         set tResultSettings = tStatement.%Execute(id)
 	         while tResultSettings.%Next() {
 	            //write !, tResultSettings.%Get("Settings")
-      	        if (##class(Ens.Util.FunctionSet).Contains(tResultSettings.%Get("Settings"),component)) {
+      	        if (##class(Ens.Util.FunctionSet).Contains(tResultSettings.%Get("Settings"),$ZSTRIP(component,"<>WC"))) {
 		           if ($F(inboundComponents,componentItem.Name) '> 0) {
 		              if (inboundComponents ="") {
 		                 set inboundComponents = componentItem.Name
@@ -583,7 +596,7 @@ addedPre
 	   }
 	   set componentsArray = {
 	   "From Component": (inboundComponents), 
-	   "Current Component": (component),
+	   "Current Component": ($ZSTRIP(component,"<>WC")),
 	   "Service Call Component": (serviceCallComponents),
 	   "To Component": (outboundComponents)
 	   }
