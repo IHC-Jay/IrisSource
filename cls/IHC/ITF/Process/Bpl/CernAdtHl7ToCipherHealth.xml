@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToCipherHealth">
 <Description>
 This BPL will recieve HL7 data from Cern-Adt-Hl7_LegacyPlus and translate it into a format that is usable by the CipherHealth server.</Description>
@@ -36,7 +36,7 @@ This BPL will recieve HL7 data from Cern-Adt-Hl7_LegacyPlus and translate it int
 </Parameter>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>CernAdtHl7ToCipherHealthDefaultData</DefaultData>
 <Data name="CernAdtHl7ToCipherHealthDefaultData">
 <Subscript>"CernAdtHl7ToCipherHealth"</Subscript>
@@ -139,9 +139,21 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='EMPI' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='VBCRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='VBCResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='VBCFlag' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='3050' >
-<scope xpos='200' ypos='250' xend='200' yend='2950' >
+<sequence xend='200' yend='3250' >
+<scope xpos='200' ypos='250' xend='200' yend='3150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -188,7 +200,7 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2700' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2900' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='CheckAcceptedEventTypes' xpos='470' ypos='1000' >
@@ -466,8 +478,96 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCipherHealth' source='request' target='response' xpos='470' ypos='2500' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2600' xend='200' yend='350' >
+<code name='Construct Json with EMPI' xpos='470' ypos='2500' >
+<![CDATA[ 
+  set context.EMPI= request.GetValueAt("PID:PatientID.ID")
+
+
+ $$$TRACE("PID-2: "_context.EMPI)
+ if (context.EMPI '="") {
+ 
+        Set tStatus = $$$OK
+	try {
+		
+		// Create the target
+		Set context.VBCRequest = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write("{"_$CHAR(34)_"empi"_$CHAR(34)_":"_$CHAR(34)_context.EMPI_$CHAR(34)_"}")
+	Do tStream.Rewind()
+
+		Do context.VBCRequest.HTTPHeaders.SetAt("application/json","content-type")
+		Do context.VBCRequest.HTTPHeaders.SetAt(tStream.Size,"content-length")
+		Set context.VBCRequest.Stream = ##class(%Stream.GlobalBinary).%New()
+		Set tStatus = context.VBCRequest.Stream.CopyFrom(tStream)
+
+		
+		// Trace some data
+		Do tStream.Rewind()
+		Set tStr = tStream.Read()
+		$$$TRACE("Data string: " _ tStr)
+ 
+	} catch(eException){
+		Set tStatus = eException.AsStatus()
+	}
+	
+     }
+ else {
+  $$$TRACE("EMPI is null...")
+ }]]]]><![CDATA[>
+</code>
+<code name='Call VBC Rest Service' xpos='470' ypos='2600' >
+<![CDATA[ 
+  $$$TRACE("Call REST Operation")
+      set statusCode=""
+      set statusDesc=""
+  if (context.EMPI '="") 
+  {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync("Op-CernEdge-Wsrc-CHECKVBC",context.VBCRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set context.VBCResponse=httpRESTResponse
+      set statusLine=context.VBCResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+	set statusCode=$piece(statusLine," ",2)
+	set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+		  // If status code is 200 the check the reponse to see if it got processed correctly or not
+      if (statusCode'="200"){
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"REST service response with code: "_statusCode_"  Desc: "_statusDesc) 
+      }
+      else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.VBCResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        if (tcharStream.Size > 2 )
+        {
+         set context.VBCFlag ="Yes"
+         $$$TRACE("Set VBC flag Yes ")
+        }
+        else {
+          set context.VBCFlag ="No"
+           $$$TRACE("Set VBC flag No ")
+        }
+        
+    }
+    }
+    else {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+  } 
+  else
+  {
+    set context.VBCFlag ="No"
+    $$$TRACE("Set VBC flag No since EMPI number is not present")
+  }
+  ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCipherHealth' source='request' target='response' xpos='470' ypos='2700' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2800' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -482,7 +582,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='2800' xend='200' yend='350' >
+<catchall xpos='200' ypos='3000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
