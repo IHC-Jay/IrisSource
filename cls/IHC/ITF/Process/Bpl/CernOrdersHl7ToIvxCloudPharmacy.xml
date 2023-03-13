@@ -42,6 +42,12 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filt
 <Type>%Boolean</Type>
 </Property>
 
+<Property name="DoFilterOutByDispenseFromLoc">
+<Description>
+Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filtering-in based on DISPENSEFROMLOC.</Description>
+<Type>%Boolean</Type>
+</Property>
+
 <Property name="HddTargetConfigName">
 <Description>
 HDD Operation: The target name used for HDD calls</Description>
@@ -71,7 +77,7 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing Non-
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,HddTargetConfigName:Additional,LocationOperationsTable:Additional,FilterOutMSH4Table:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute,DoDCOrderHasDischargeDateCheck,DoNonShortNameLookup</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,HddTargetConfigName:Additional,LocationOperationsTable:Additional,FilterOutMSH4Table:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute,DoFilterOutByDispenseFromLoc,DoDCOrderHasDischargeDateCheck,DoNonShortNameLookup</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -200,6 +206,9 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing Non-
 </Value>
 <Value name="10">
 <Value>DoNonShortNameLookup</Value>
+</Value>
+<Value name="11">
+<Value>DoFilterOutByDispenseFromLoc</Value>
 </Value>
 </Data>
 </Storage>
@@ -439,6 +448,9 @@ BPL Definition</Description>
 <property name='RXCCount' type='%Integer' collection='array' instantiate='0' />
 <property name='rxc2CompCodeIDLength' type='%Integer' instantiate='0' />
 <property name='rxeRxcCount' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='RXOGroupCount' type='%Integer' instantiate='0' />
+<property name='RXOOBXCount' type='%Integer' instantiate='0' />
+<property name='doDispenseFromLocFilterOut' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
 <sequence xend='200' yend='4300' >
 <scope xpos='200' ypos='250' xend='200' yend='4200' >
@@ -673,36 +685,86 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='FilterInByMed' xpos='200' ypos='1950' >
-<annotation><![CDATA[Get DoFilterInByMeds boolean and if set then Get RXO-1.1 Value]]]]><![CDATA[></annotation>
+<foreach name='DoRXOGroupFilteringWork' property='request.{RXOgrp()}' key='context.RXOGroupCount' xpos='200' ypos='1950' xend='200' yend='450' >
+<annotation><![CDATA[Work for Med FilterIn and DispenseFromLoc FilterIn]]]]><![CDATA[></annotation>
+<code name='WorkFilterInByMeds' xpos='200' ypos='250' >
+<annotation><![CDATA[If DoFilterInByMeds checked do work for Med FilterIn]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Get DoFilterInByMeds boolean and if set then Get RXO-1.1 Value....")
- //Get DoFilterInByMeds anf if set then Get Get RXO-1.1 Value and check against allowed Meds table
+ //Get DoFilterInByMeds and if set then Get Get RXO-1.1 Value and check against allowed Meds table
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoFilterInByMeds",.filterInByMeds)  
  $$$TRACE("DoFilterInByMeds is: "_filterInByMeds)
  if ((filterInByMeds=1) && (context.MSH9MsgType="RDE")){
-	 set RXO1 = request.GetValueAt("RXOgrp(1).RXO:RequestedGiveCode.identifier")
+	 set RXO1 = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").RXO:RequestedGiveCode.identifier")
      set RXO1UPPERCASED=  $ZCONVERT(RXO1,"U")
      set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.FilterInMedsTable,RXO1UPPERCASED,.returnVal)
      $$$TRACE("Return value from lookup table ="_returnVal)
  
-   if ($$$ISOK(pstatus)&&(returnVal="1"))
-   {
+   if ($$$ISOK(pstatus)&&(returnVal="1")){
         $$$TRACE("Found an Allowed Med, so RDE Pharmacy Med Order is allowed!")
-   }
-   else
-   {
-		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+   }else{
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Order Med. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
 	 
    }
-	 
- }elseif (filterInByMeds &&(context.MSH9MsgType="RDS")){
-	 
-	  $$$TRACE("RDS Pharmacy Med Order is allowed since the RXO segment does not comes out all the time! - Other filterIn will have to handle RDS messages.")
- }
- 
-  
-]]]]><![CDATA[>
+ }elseif ((filterInByMeds=1) && (context.MSH9MsgType="RDS")){
+	  $$$TRACE("RDS Pharmacy Med Order is allowed since the RXO segment does not comes out all the time! - Other filterIn logic will have to handle RDS messages.")
+ }]]]]><![CDATA[>
 </code>
+<foreach name='WorkOBXGroup' property='request.{RXOgrp(context.RXOGroupCount).OBX()}' key='context.RXOOBXCount' xpos='200' ypos='350' xend='200' yend='350' >
+<annotation><![CDATA[Traverse OBX segment for FilterIn Logic for IVXCloud Med Orders]]]]><![CDATA[></annotation>
+<code name='WorkDispenseFromLocation' xpos='200' ypos='250' >
+<annotation><![CDATA[Check and Work DISPENSEFROMLOC logic]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DoFilterOutByDispenseFromLoc",.FilterOutByDispenseFromLoc)
+ $$$TRACE("DoFilterOutByDispenseFromLoc is: "_FilterOutByDispenseFromLoc)
+ if (FilterOutByDispenseFromLoc=1){
+     set context.doDispenseFromLocFilterOut=1
+ }else{
+     set context.doDispenseFromLocFilterOut=0
+ }
+ $$$TRACE("Verify context.doDispenseFromLocFilterOut value set: ["_context.doDispenseFromLocFilterOut_"]")
+ if (context.doDispenseFromLocFilterOut=1){
+      //Boolean set to do FilterIn work
+      //check OBX-3.1 check values: DISPENSEFROMLOC and 530215754
+      set OBXObservationIdentiferID = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationIdentifier.identifier")
+      if (OBXObservationIdentiferID="DISPENSEFROMLOC"){
+          //GET OBX-5 and parse string for IVX substring
+          set OBXFiveObservationValue = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationValue(1)")
+          set ALLUPPERCASEOBXFIVE = $ZCONVERT(OBXFiveObservationValue,"U")
+          $$$TRACE("OBX-5 value found is: "_ALLUPPERCASEOBXFIVE)
+          set findReturnVal = $FIND(ALLUPPERCASEOBXFIVE,"IVX")
+          $$$TRACE("Searching OBX-5 for IVX substring - value of 1 is it is found, value of 0 it is not. Find Method return value is: ["_findReturnVal_"]")
+          if (findReturnVal=0){
+              Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order IVXCloud FilterIn DISPENSEFROMLOC data present. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+          
+          }else{
+              $$$TRACE("FOUND IVXCLOUD DISPENSEFROMLOC!!")
+          }
+          
+      }elseif (OBXObservationIdentiferID="530215754"){
+          //GET OBX-5 and parse string for IVX substring
+          set OBXFiveObservationValue = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationValue(1)")
+          set ALLUPPERCASEOBXFIVE = $ZCONVERT(OBXFiveObservationValue,"U")
+          $$$TRACE("OBX-5 values found is: "_ALLUPPERCASEOBXFIVE)
+          set findReturnVal = $FIND(ALLUPPERCASEOBXFIVE,"IVX")
+          $$$TRACE("Searching OBX-5 for IVX substring - value of 1 is it is found, value of 0 it is not. Find Method return value is: ["_findReturnVal_"]")
+          if (findReturnVal=0){
+              Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order IVXCloud FilterIn DISPENSEFROMLOC data present. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+          
+          }else{
+              $$$TRACE("FOUND IVXCLOUD WORKFLOW SEQUENCE FOR IVXCLOUD!!")
+          }
+          
+       }else{
+          Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Med Order IVXCloud FilterIn DISPENSEFROMLOC data present. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+       }
+ 
+ }else{
+     //Boolean not set to do FilterIn work
+     $$$TRACE("Not doing DISPENSEFROMLOC FilterIn Logic.")
+ }
+ ]]]]><![CDATA[>
+</code>
+</foreach>
+</foreach>
 <foreach name='FilterInByRoute' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2050' xend='200' yend='350' >
 <annotation><![CDATA[Work RXE group for RXR Route value and check against DoFilterInByRoute]]]]><![CDATA[></annotation>
 <code name='GetDoFilterInByRouteAndRouteVal' xpos='200' ypos='250' >
