@@ -1,0 +1,1674 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.TPManage.impl">
+<Description><![CDATA[
+Business logic class defined by OpenAPI in IHC.ITF.TPManage.spec<br/>
+Updated Mar 9, 2023 10:03:19]]></Description>
+<IncludeCode>Ensemble</IncludeCode>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>%REST.Impl</Super>
+<TimeCreated>66476,60152.357544</TimeCreated>
+
+<Parameter name="HandleCorsRequest">
+<Default>1</Default>
+</Parameter>
+
+<Parameter name="ExposeServerExceptions">
+<Description>
+If ExposeServerExceptions is true, then details of internal errors will be exposed.</Description>
+<Default>1</Default>
+</Parameter>
+
+<Method name="ping">
+<Description>
+This request returns a reply message in response to a /ping request.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    Do ..%SetStatusCode(200)
+    Set cm = {
+		"Name": "TpManage.impl",
+		"ContactName": "Jay",
+		"ContactPhone": "1234",
+		"ContactEmail": "J@imail.org",
+		"Type": "Test"
+	}
+    Do ..%SetHeader("Ping", "OK")
+   
+    Quit cm
+]]></Implementation>
+</Method>
+
+<Method name="TPs">
+<Description>
+This request returns TPs in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    Set tArr = []
+
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM IHC_ITF_TPManage.TradingPartner order by Name")
+	While rs.%Next() {
+		if (rs.%Get("Name") '= "")
+		{
+			Do tArr.%Push({
+				"Operation":"TPs",
+				"id" : (rs.%Get("ID")),
+				"Name":  (rs.%Get("Name")),
+				"TPtype":    (rs.%Get("Type")),
+				"ContactName":    			(rs.%Get("ContactName")),				
+				"ContactPhone": 			(rs.%Get("ContactPhone")),
+				"ContactEmail":        	(rs.%Get("ContactEmail"))				
+			})
+		}
+	}
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="GetTp">
+<Description><![CDATA[
+This request returns TP in response<br/>
+The method arguments hold values for:<br/>
+    id, ID of TP<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	
+	Do ..%SetStatusCode(200)
+	Set obj = {}
+	Set tp = ##class(IHC.ITF.TPManage.TradingPartner).%OpenId(id)
+	If '$IsObject(tp) {
+		&SQL(select ID into :tpId FROM IHC_ITF_TPManage.TradingPartner where Name = :id)
+		if SQLCODE = 0
+		{			
+			Set tp = ##class(IHC.ITF.TPManage.TradingPartner).%OpenId(tpId)
+		}
+	} 
+
+	If '$IsObject(tp) {
+		Set obj = {
+			"ID": (id),
+			"Error": 	"TP not found"
+		}
+	} Else {
+		
+		Set obj = {
+			"Operation":"GetTp",
+			"id": (tp.%Id()),
+			"Name": 		(tp.Name),
+			"ContactName":        (tp.ContactName),
+			"ContactPhone":   		(tp.ContactPhone),
+			"ContactEmail":      (tp.ContactEmail),
+			"TPtype":        (tp.Type)
+		}
+				
+		
+	}
+	return obj
+]]></Implementation>
+</Method>
+
+<Method name="NewTp">
+<Description>
+This request creates Trading Partner</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	set ^webService("NewTp") = "Start"
+	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	
+	If '..ValidateJSONForTp(obj,.error) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	
+	Set cm = ##class(IHC.ITF.TPManage.TradingPartner).%New()
+	Do ..CopyToTpFromJSON(.cm,obj)
+	
+	Set sc = cm.%Save()
+	
+	Set result={}
+	do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+	if ($$$ISOK(sc)) {
+		do result.%Set("id", cm.%Id())
+	}
+	do result.%Set("Operation","NewTp")
+	do result.%Set("NAMESPACE", $NAMESPACE)
+	do result.%Set("NAME", cm.Name)
+	set ^webService("NewTp Added") = cm.%Id()
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="UpdateTp">
+<Description>
+This request updates Trading Partner</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+	set ^webService("UpdateTp") = "UpdateTp " 
+   If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	set tradingPartnerId = ""
+	If obj.%Get("id") = "" {
+		If obj.%Get("Name") = "" {
+			do result.%Set("Error", "ID or Name required for Update")
+			Quit result
+		}
+		set ^webService("UpdateTp name") = obj.Name
+		Set tpNm =obj.Name
+		
+		&SQL(select ID into :tradingPartnerId FROM IHC_ITF_TPManage.TradingPartner where Name = :tpNm)
+		if SQLCODE '= 0
+		{			
+				do result.%Set("Error", "SQL Error in finding TP: " _ SQLCODE)
+				return result
+		}
+		if (tradingPartnerId = "")
+		{
+				do result.%Set("Error", "ID for TP is empty " _ tpNm)
+				return result
+
+		}
+	
+	}
+	else
+	{	
+		set tradingPartnerId =	obj.id
+		set ^webService("UpdateTp ID") = tradingPartnerId
+	}
+	
+	Set cm = ##class(IHC.ITF.TPManage.TradingPartner).%OpenId(tradingPartnerId)
+	If $IsObject(cm) {
+		Do ..UpdateToTpFromJSON(.cm,obj)
+		
+		Set sc = cm.%Save()
+		
+		do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+		if ($$$ISOK(sc)) {
+			do result.%Set("ID", cm.%Id())
+		}
+		do result.%Set("Operation","UpdateTp")
+		do result.%Set("NAMESPACE", $NAMESPACE)
+		do result.%Set("NAME", cm.Name)
+	}
+	else
+	{
+		do result.%Set("Error", "TP with id " _ obj.id _ " not found")
+	}
+	
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="DeleteTp">
+<Description>
+This request deletes Trading Partner</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+	set ^webService("DeleteTp") = "DeleteTp - " _ $ZDATETIME($HOROLOG,3, 1)
+   If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	set tpNm = obj.%Get("Name")
+	set ^webService("DeleteTp Name") = tpNm
+	If tpNm = "" {
+		do result.%Set("Error", "ID required for Delete")
+	}
+	else
+	{		
+		set ^webService("DeleteTp SQL") = tpNm
+		&SQL(Delete IHC_ITF_TPManage.TradingPartner where Name = :tpNm)
+		if SQLCODE = 0
+		{			
+			do result.%Set("Status", "TP with name " _ tpNm _ " deleted")
+		}
+		else
+		{
+			do result.%Set("Error", "TP with name " _ tpNm _ " not deleted, SQLCode: " _ SQLCODE _ " / " _ $SYSTEM.SQL.Functions.SQLCODE(SQLCODE))
+		}
+		set ^webService("DeleteTp SQLCODE") = SQLCODE
+	}
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForTp">
+<Description>
+Helper methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	
+	If obj.%Get("Name") = "" {
+		Set error.errormessage = "Name was blank"
+		Quit 0
+	}	
+	
+	If (obj.%Get("Type") = "" || obj.%Get("TPtype") = "") {
+		Set error.errormessage = "Type was blank"
+		Quit 0
+	}
+	set ^webService("Name") = "ValidateJSONForTp: " _ obj.%Get("Name")
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="CopyToTpFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TradingPartner,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+	Set cm.Name=obj.Name
+	set cm.ContactEmail = obj.ContactEmail
+	Set cm.ContactName = obj.ContactName
+	set cm.ContactPhone = obj.ContactPhone
+	set cm.Type = obj.Type
+	set cm.LastmodID = obj.User
+	set cm.CreateID = obj.User
+	if (cm.Type = "")
+	{
+		set cm.Type = obj.TPtype
+	}
+	
+	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	set cm.CreatedDtTM = dtTm
+	set cm.LastmodDtTM = dtTm
+	set ^webService("CreatedDtTM") = "CopyToTpFromJSON: " _ dtTm
+]]></Implementation>
+</Method>
+
+<Method name="UpdateToTpFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TradingPartner,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+	Set cm.Name=obj.Name
+	set cm.ContactEmail = obj.ContactEmail
+	Set cm.ContactName = obj.ContactName
+	set cm.ContactPhone = obj.ContactPhone
+	set cm.Type = obj.TPtype
+	
+	set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+	set cm.LastmodID = obj.User
+]]></Implementation>
+</Method>
+
+<Method name="NewTpId">
+<Description>
+This request creates Trading Partner X12 ID</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+   	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 200 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	
+	If '..ValidateJSONForTpId(obj,.error) {
+		Set %response.Status = 200 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "Requird fields not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	
+	Set cm = ##class(IHC.ITF.TPManage.TPIDS).%New()
+	IF (..CopyToTpIdFromJSON(.cm,obj) '= $$$OK)
+	{
+		Set %response.Status = 200 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "resolving fields not found"}
+		Quit error
+	}
+	
+	Set sc = cm.%Save()
+	
+	
+	do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+	if ($$$ISOK(sc)) {
+		do result.%Set("id", cm.%Id())
+	}
+	do result.%Set("Operation", "NewTpId")
+	do result.%Set("TPID", cm.TPID)
+	do result.%Set("Name", cm.Name)
+	do result.%Set("TPFK", cm.TPFK.Name)
+	
+	Do result.%Set("Create DtTm", cm.CreatedDtTM)
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="UpdateTpId">
+<Description>
+This request updates Trading Partner X12 ID</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+   	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	If obj.%Get("id") = "" {
+		do result.%Set("Error", "ID required for Update")
+	}
+	else
+	{	
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(obj.id)
+		If $IsObject(tpId) {
+			Do ..UpdateToTpIdFromJSON(.tpId,obj)
+			
+			Set sc = tpId.%Save()
+			
+			do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+			if ($$$ISOK(sc)) {
+				do result.%Set("ID", tpId.%Id())
+			}
+			do result.%Set("TPID", tpId.TPID)
+			do result.%Set("Name", tpId.Name)
+			do result.%Set("TPFK", tpId.TPFK.Name)
+			do result.%Set("Operation","UpdateTpId")
+
+		}
+		else
+		{
+			do result.%Set("Error", "TPID with id " _ obj.id _ " not found")
+		}
+	}
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="GetTpId">
+<Description><![CDATA[
+This request returns TP Ids in response<br/>
+The method arguments hold values for:<br/>
+    id, ID of TP<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   	Do ..%SetStatusCode(200)
+		
+	Set tp = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(id)
+	If '$IsObject(tp) {
+		
+		&SQL(select ID into :tpId FROM IHC_ITF_TPManage.TPIDS where TPID = :id)
+		if SQLCODE = 0
+		{			
+			Set tp = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(tpId)
+		}
+	} 
+	If $IsObject(tp) { 
+		
+		Set obj = {
+			"Operation": "GetTpId",
+			"id": (tp.%Id()),
+			"Name": 		(tp.Name),
+			"TPID":        (tp.TPID),
+			"CreatedDtTM": (tp.CreatedDtTM),
+			"LastmodDtTM":   		(tp.LastmodDtTM),
+			"Type":        (tp.Type),
+			"TPFK": (tp.TPFK.Name)
+		}
+		Do ..%SetStatusCode(200)
+		return obj
+		
+	}
+	else
+	{
+		Set %response.Status = 200
+		Set error = {"Error": ("TP ID not found: " _ id)}
+		Quit error
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetAllTpIds">
+<Description>
+This request returns TP Ids in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   set implArr = []
+		
+	&sql(DECLARE WPCursor CURSOR FOR SELECT distinct tpid.ID, tpid.NAME, tpid.TPID, tpid.TYPE
+	INTO :id, :tpIdNm, :tpid, :type
+	from IHC_ITF_TPManage.TradingPartner tp, IHC_ITF_TPManage.TPIDS tpid
+	where tpid.TPFK = tp.ID )
+		
+	&sql(OPEN WPCursor)
+        if (SQLCODE'=0) {
+	         Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": (SQLCODE)
+				})
+				QUIT implArr
+        }
+   FOR { 
+   		&sql(FETCH WPCursor)
+        if (SQLCODE = 0) {
+	        Do implArr.%Push(
+			{
+				"id": (id),
+			"Name": 		(tpIdNm),
+			"TPID":        (tpid),
+			"Type":        (type)	
+		})
+        }
+        else
+        {
+	        if (%ROWCOUNT = 0)
+	        {
+		        Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": ("Number of rows: " _ %ROWCOUNT)
+				})
+	        }
+	        QUIT
+        }
+   }
+   Quit implArr
+]]></Implementation>
+</Method>
+
+<Method name="GetOwnerTpIds">
+<Description>
+This request returns TP Ids for owner in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   set implArr = []
+		
+	&sql(DECLARE WPCursor CURSOR FOR SELECT distinct tpid.ID, tpid.NAME, tpid.TPID, tpid.TYPE
+	INTO :id, :tpIdNm, :tpid, :type
+	from IHC_ITF_TPManage.TradingPartner tp, IHC_ITF_TPManage.TPIDS tpid
+	where tpid.TPFK = tp.ID and tp.Type in ('Owner', 'Payer'))
+		
+	&sql(OPEN WPCursor)
+        if (SQLCODE'=0) {
+	         Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": (SQLCODE)
+				})
+				QUIT implArr
+        }
+   FOR { 
+   		&sql(FETCH WPCursor)
+        if (SQLCODE = 0) {
+	        Do implArr.%Push(
+			{
+				"id": (id),
+			"Name": 		(tpIdNm),
+			"TPID":        (tpid),
+			"Type":        (type)	
+		})
+        }
+        else
+        {
+	        if (%ROWCOUNT = 0)
+	        {
+		        Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": ("Number of rows: " _ %ROWCOUNT)
+				})
+	        }
+	        QUIT
+        }
+   }
+   Quit implArr
+]]></Implementation>
+</Method>
+
+<Method name="TpIdsForTP">
+<Description><![CDATA[
+This request returns TP Ids in response<br/>
+The method arguments hold values for:<br/>
+    name, TP Name<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>name:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   set implArr = []
+		
+	&sql(DECLARE WPCursor CURSOR FOR SELECT tpid.ID, tpid.NAME, tpid.TPID, tpid.TYPE
+	INTO :id, :tpIdNm, :tpid, :type
+	from IHC_ITF_TPManage.TradingPartner tp, IHC_ITF_TPManage.TPIDS tpid
+	where tpid.TPFK = tp.ID and tp.Name = :name order by tpid.NAME)
+		
+	&sql(OPEN WPCursor)
+        if (SQLCODE'=0) {
+	         Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": (SQLCODE)
+				})
+				QUIT implArr
+        }
+   FOR { 
+   		&sql(FETCH WPCursor)
+        if (SQLCODE = 0) {
+	        Do implArr.%Push(
+			{
+				"id": (id),
+			"Name": 		(tpIdNm),
+			"TPID":        (tpid),
+			"Type":        (type),
+			"TP": (name)	
+		})
+        }
+        else
+        {
+	        if (%ROWCOUNT = 0)
+	        {
+		        Do implArr.%Push(
+				{
+					"TP":    (name),
+					"Error": ("Number of rows: " _ %ROWCOUNT)
+				})
+	        }
+	        QUIT
+        }
+   }
+   Quit implArr
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForTpId">
+<Description>
+Helper methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	If obj.%Get("Type") = "" {
+		Set error.errormessage = "Type was blank"
+		Quit 0
+	}	
+		
+	If obj.%Get("TPID") = "" {
+		Set error.errormessage = "TPID was blank"
+		Quit 0
+	}
+	
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="CopyToTpIdFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TPIDS,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		
+	Set tpNm =obj.Name
+	set tradingPartnerId = ""
+	&SQL(select ID into :tradingPartnerId FROM IHC_ITF_TPManage.TradingPartner where Name = :tpNm)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TP: " _ SQLCODE)
+			return tSC
+	}
+	if (tradingPartnerId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "ID for TP is empty " _ tpNm)
+			return tSC
+
+	}
+	if (obj.Name = "")
+	{
+		set cm.Name = "TPID " _ obj.TPID _ " for: " _ tpNm _", TP FK: " _ tradingPartnerId
+	}
+	else
+	{
+		set cm.Name = obj.Name
+	}
+	Set cm.TPID = obj.TPID
+	
+	#dim tp As IHC.ITF.TPManage.TradingPartner
+	set tp = ##class(IHC.ITF.TPManage.TradingPartner).%OpenId(tradingPartnerId)
+	set cm.TPFK = tp
+	set cm.Type = obj.Type
+	
+	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	set cm.CreatedDtTM = dtTm
+	set cm.LastmodDtTM = dtTm
+	set cm.LastmodID = obj.User
+	set cm.CreateID = obj.User
+
+	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="UpdateToTpIdFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TPIDS,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		
+	Set cm.TPID = obj.TPID	
+	set cm.Type = obj.Type
+	set cm.Name = obj.Name
+	
+	set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+	set cm.LastmodID = obj.User
+	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="NewTpLink">
+<Description>
+This request creates Sender Receiver link</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    Set result={}
+    set ^webService("NewTpLink") = "NewTpLink"
+   	If '..GetJSONFromRequest(.obj) {
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	set ^webService("NewTpLink") = "NewTpLink ValidateJSONForTpLink"
+	If '..ValidateJSONForTpLink(obj,.error) {
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": ("TP validation error: " _ error.errormessage)}
+		Write error.%ToJSON()
+		Quit error
+	}
+	set ^webService("NewTpLink") = "NewTpLink CopyToTpLinkFromJSON"
+	Set cm = ##class(IHC.ITF.TPManage.TRADELINKS).%New()
+	set st = ..CopyToTpLinkFromJSON(.cm,obj)
+	IF ( st '= $$$OK)
+	{
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"Status": ("All fields not found: " _ st)}
+		Write error.%ToJSON()
+		Quit error
+	}
+	set ^webService("NewTpLink") = "NewTpLink Save"
+	Set sc = cm.%Save()
+	
+	
+	do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+	if ($$$ISOK(sc))
+	{
+		do result.%Set("id", cm.%Id())
+	}
+	do result.%Set("TRANSTYPE", obj.TransactionType)
+	do result.%Set("NAME", cm.NAME)
+	do result.%Set("Operation","NewTpLink")
+		
+	Do result.%Set("Create DtTm", cm.CreatedDtTM)
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="UpdateTpLink">
+<Description>
+This request updates Sender Receiver link</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+	set ^webService("UpdateTpLink") = "UpdateTpLink"
+   	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}	
+		Quit error
+	}
+	
+	set ^webService("UpdateTpLink ID") = "UpdateTpLink" _ obj.%Get("ID") 
+	
+	If obj.%Get("ID") = "" {
+		set lnkNm = obj.%Get("Link") 
+		set ^webService("UpdateTpLink Link") = "UpdateTpLink: " _ lnkNm
+		&SQL(select ID into :tpId FROM IHC_ITF_TPManage.TRADELINKS where NAME = :lnkNm)
+		if SQLCODE = 0
+		{			
+			Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(tpId)
+		}
+		else
+		{
+			set ^webService("UpdateTpLink error") = "UpdateTpLink: " _ lnkNm
+			do result.%Set("Error", "Link not found in IHC_ITF_TPManage.TRADELINKS: " _ lnkNm)
+			QUIT result
+		}
+		
+	}
+	else
+	{
+		Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(obj.ID)
+	}
+	If $IsObject(tpLink) {
+
+			set st = ..UpdateToTpLinkFromJSON(.tpLink,obj)
+
+			IF ( st '= $$$OK)
+			{
+				// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+				Set error = {"errormessage": ("All fields not found: " _ st)}
+				Write error.%ToJSON()
+				Quit error
+			}
+			Set sc = tpLink.%Save()
+			
+			do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+			if ($$$ISOK(sc)) {
+				do result.%Set("ID", tpLink.%Id())
+			}
+			do result.%Set("Operation","UpdateTpLink")
+			do result.%Set("LastmodDtTM",   (tpLink.LastmodDtTM))
+			do result.%Set("Ack",  (tpLink.Ack))
+			do result.%Set("Routing",  (tpLink.Routing))
+			do result.%Set("SNIP",  (tpLink.SNIP))
+			do result.%Set("Separators",  (tpLink.Separators))
+			do result.%Set("UniqueId", (tpLink.UniqueId))
+			do result.%Set("Active", (tpLink.Active))
+			do result.%Set("Link", (tpLink.NAME))
+					
+	}
+	else
+	{
+		set ^webService("UpdateTpLink Link") = "UpdateTpLink: Error ID or NAME required"
+		do result.%Set("Error", "ID or NAME required for TRADELINKS Update")
+	}
+	
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="GetTpLink">
+<Description><![CDATA[
+This request returns TP Links in response<br/>
+The method arguments hold values for:<br/>
+    id, ID of TP Link<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+ 	Do ..%SetStatusCode(200)
+	#dim tpLink As IHC.ITF.TPManage.TRADELINKS	
+	Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(id)
+	If '$IsObject(tpLink) {
+		
+		&SQL(select ID into :tpLinkId FROM IHC_ITF_TPManage.TRADELINKS where NAME = :id)
+		if SQLCODE = 0
+		{			
+			Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(tpLinkId)
+		}
+	}
+	set cusArr = [] 
+	If $IsObject(tpLink) { 
+	    
+		if (tpLink.customProp.Size > 0)
+		    {
+		    	Set tKey=tpLink.customProp.Next("")
+				while tKey'="" {
+						
+					#; Get the BindingTemplate object
+					Set customP=tpLink.customProp.GetAt(tKey)
+						
+					#; Display it
+					Do cusArr.%Push(
+					{
+						"Key":    (customP.Key),
+						"Value": (customP.Value)
+					})
+					
+					Set tKey=tpLink.customProp.Next(tKey)
+				}
+		    }
+		    
+		Set obj = {
+				"Link": (id),
+				"TransType":(tpLink.TRANSTYPE.NAME),
+				"TransactionSetId": (tpLink.TRANSTYPE.TransactionSetId),			
+			"Operation":"GetTpLink",
+			"ID": (tpLink.%Id()),
+			"Name": 		(tpLink.NAME),
+			"Mode":        (tpLink.Mode),
+			"LastmodDtTM":   (tpLink.LastmodDtTM),
+			// "TRANSTYPE":     (tpLink.TRANSTYPE.NAME),
+			"IsaSenderId":   (tpLink.IsaSenderId.TPID),
+			"IsaReceiverId": (tpLink.IsaReceiverId.TPID),
+			"GsSenderId":    (tpLink.GsSenderId.TPID),
+			"GsReceiverId":  (tpLink.GsReceiverId.TPID),
+			"Mode":  (tpLink.Mode),
+			"Ack":  (tpLink.Ack),
+			"Routing":  (tpLink.Routing),
+			"SNIP":  (tpLink.SNIP),
+			"Separators":  (tpLink.Separators),
+			"UniqueId": (tpLink.UniqueId),
+			"Active": (tpLink.Active),
+			"CustomProp": (cusArr)
+		}
+		Do ..%SetStatusCode(200)
+		return obj
+		
+	}
+	else
+	{
+		Set %response.Status = 200
+		Set error = {"Error": ("TPLink ID not found: " _ id _ ", " _ tpLinkId)}
+		Quit error
+	}
+]]></Implementation>
+</Method>
+
+<Method name="DelTpLink">
+<Description>
+This request deletes TP Links</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Do ..%SetStatusCode(200)
+	set ^webService("DelTpLink") = "DelTpLink"
+	
+	 Set result={}
+   	If '..GetJSONFromRequest(.obj) {
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	set ^webService("DelTpLink") = "DelTpLink " _ obj.id
+	#dim tpLink As IHC.ITF.TPManage.TRADELINKS	
+	Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(obj.id)
+	If '$IsObject(tpLink) {
+		set nm = obj.id
+		&SQL(select ID into :tpLinkId FROM IHC_ITF_TPManage.TRADELINKS where NAME = :nm)
+		if SQLCODE = 0
+		{			
+			Set tpLink = ##class(IHC.ITF.TPManage.TRADELINKS).%OpenId(tpLinkId)
+		}
+	} 
+	If $IsObject(tpLink) {
+		set tpLink.Active = 0
+		set tpLink.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+		set tpLink.LastmodID = obj.User
+	
+		Set sc = tpLink.%Save()
+	
+		set ^webService("DelTpLink") = "DelTpLink " _ obj.id _ ", stat: " _ sc
+		do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+	
+		Set %response.Status = 200
+		do result.%Set("Update", ("TPLink ID deactivated: " _ obj.id ))
+	}
+	else
+	{
+		Set result = {"Error": ("TPLink ID not found: " _ obj.id )}
+	}
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="GetLinksForTPID">
+<Description><![CDATA[
+This request returns TP Links in response<br/>
+The method arguments hold values for:<br/>
+    TPID, TPID<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>TPID:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	set implArr = []
+		
+	&sql(DECLARE WPCursor CURSOR FOR SELECT tt.NAME, lnk.NAME, TransactionSetId, Direction, TRANSTYPE, Mode, Ack, GsReceiverId, 
+		GsSenderId, IsaReceiverId, IsaSenderId, Routing, SNIP, Separators, Active 
+		INTO :trans, :lnkNm, :transactionSetId, :direction, :type,:mode, :ack,  
+		:gsReceiverId, :gsSenderId, :isaReceiverId, :isaSenderId, 
+		:routing, :SNIP, :separators, :active
+		from IHC_ITF_TPManage.TRADELINKS lnk, IHC_ITF_TPManage.TPIDS tpid, 
+		IHC_ITF_TPManage.TRANSACTIONTYPES tt
+		where (tpid.ID = lnk.IsaSenderId 
+		OR		tpid.ID = lnk.IsaReceiverId 
+		OR		tpid.ID = lnk.GsSenderId 
+		OR		tpid.ID = lnk.IsaReceiverId) 
+		
+		AND TPID = :TPID AND tt.ID = lnk.TRANSTYPE order by lnk.NAME)
+	&sql(OPEN WPCursor)
+        if (SQLCODE'=0) {
+	         Do implArr.%Push(
+				{
+					"TPID":    (TPID),
+					"Error": (SQLCODE)
+				})
+				QUIT implArr
+        }
+   FOR { 
+   		&sql(FETCH WPCursor)
+        if (SQLCODE = 0) {
+	        
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(gsReceiverId)
+		If $IsObject(tpId) {
+			
+			set gsReceiverTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(gsSenderId)
+		If $IsObject(tpId) {
+			
+			set gsSenderTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(isaReceiverId)
+		If $IsObject(tpId) {
+			
+			set isaReceiverTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(isaSenderId)
+		If $IsObject(tpId) {
+			
+			set isaSenderTPIP = tpId.TPID
+		}
+			Do implArr.%Push(
+			{
+				"TPID":    (TPID),
+				"Link": (lnkNm),
+				"TransType":(trans),
+				"Direction":(direction),
+				"TransactionSetId": (transactionSetId),
+				// "TRANSTYPE":	(type),
+				"Mode": (mode),				
+				"Ack": (ack),
+				"Active": (active),
+				"GsReceiverId": (gsReceiverTPIP),
+				"GsSenderId": (gsSenderTPIP),
+				"IsaReceiverId": (isaReceiverTPIP),
+				"IsaSenderId": (isaSenderTPIP),
+				"Routing": (routing), 
+				"SNIP": (SNIP),
+				"Separators": (separators)
+			})
+        }
+        else
+        {
+	        if (%ROWCOUNT = 0)
+	        {
+		        Do implArr.%Push(
+				{
+					"TPID":    (TPID),
+					"Error": ("Number of rows: " _ %ROWCOUNT)
+				})
+	        }
+	        QUIT
+        }
+					
+	}
+	
+	Quit implArr
+]]></Implementation>
+</Method>
+
+<Method name="GetLink">
+<Description><![CDATA[
+This request returns TP Links in response<br/>
+The method arguments hold values for:<br/>
+    TPID, TPID<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>TPID:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	set implArr = []
+		
+	&sql(DECLARE WPCursor CURSOR FOR SELECT tt.NAME, lnk.NAME, TransactionSetId, TRANSTYPE, Mode, Ack, GsReceiverId, 
+		GsSenderId, IsaReceiverId, IsaSenderId, Routing, SNIP, Separators, Active 
+		INTO :trans, :lnkNm, :transactionSetId, :type,:mode, :ack, :gsReceiverIP, :gsSenderIP, :isaReceiverId, 
+		:isaSenderId, :routing, :SNIP, :separators, :active
+		from IHC_ITF_TPManage.TRADELINKS lnk, IHC_ITF_TPManage.TPIDS tpid, IHC_ITF_TPManage.TRANSACTIONTYPES tt
+		where (tpid.ID = lnk.IsaSenderId 
+		OR		tpid.ID = lnk.IsaReceiverId 
+		OR		tpid.ID = lnk.GsSenderId 
+		OR		tpid.ID = lnk.IsaReceiverId) 
+		AND tt.NAME = :TPID AND tt.ID = lnk.TRANSTYPE)
+	&sql(OPEN WPCursor)
+        if (SQLCODE'=0) {
+	         Do implArr.%Push(
+				{
+					"TPID":    (TPID),
+					"Error": (SQLCODE)
+				})
+				QUIT implArr
+        }
+   FOR { 
+   		&sql(FETCH WPCursor)
+        if (SQLCODE = 0) {
+	        
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(gsReceiverId)
+		If $IsObject(tpId) {
+			
+			set gsReceiverTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(gsSenderId)
+		If $IsObject(tpId) {
+			
+			set gsSenderTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(isaReceiverId)
+		If $IsObject(tpId) {
+			
+			set isaReceiverTPIP = tpId.TPID
+		}
+		Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(isaSenderId)
+		If $IsObject(tpId) {
+			
+			set isaSenderTPIP = tpId.TPID
+		}
+			Do implArr.%Push(
+			{
+				"TPID":    (TPID),
+				"Link": (lnkNm),
+				"TransType":(trans),
+				"TransactionSetId": (transactionSetId),
+				// "TRANSTYPE":	(type),
+				"Mode": (mode),				
+				"Ack": (ack),
+				"Active": (active),
+				"GsReceiverId": (gsReceiverTPIP),
+				"GsSenderId": (gsSenderTPIP),
+				"IsaReceiverId": (isaReceiverTPIP),
+				"IsaSenderId": (isaSenderTPIP),
+				"Routing": (routing), 
+				"SNIP": (SNIP),
+				"Separators": (separators)
+			})
+        }
+        else
+        {
+	        if (%ROWCOUNT = 0)
+	        {
+		        Do implArr.%Push(
+				{
+					"TPID":    (TPID),
+					"Error": ("Number of rows: " _ %ROWCOUNT)
+				})
+	        }
+	        QUIT
+        }
+					
+	}
+	
+	Quit implArr
+]]></Implementation>
+</Method>
+
+<Method name="DelTpId">
+<Description>
+This request deletes TPID</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    Do ..%SetStatusCode(200)
+	Set result={}
+   	If '..GetJSONFromRequest(.obj) {
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit error
+	}
+	
+	#dim tpId As IHC.ITF.TPManage.TPIDS	
+	Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(obj.id)
+	If '$IsObject(tpId) {
+		set nm = obj.id
+		&SQL(select ID into :tpIdId FROM IHC_ITF_TPManage.TPIDS where TPID = :nm)
+		if SQLCODE = 0
+		{			
+			Set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(tpIdId)
+		}
+	} 
+	If $IsObject(tpId) {
+		set id = tpId.%Id()		
+		&SQL(DELETE FROM IHC_ITF_TPManage.TPIDS where id = :id)
+		if (SQLCODE = 0)
+		{
+		do result.%Set("Status","OK, TPID deleted")
+		}
+		else
+		{
+			do result.%Set("Error", "TPID: " _ obj.id _" not deleted, " _ SQLCODE _ "/ " _ $SYSTEM.SQL.Functions.SQLCODE(SQLCODE)) 
+		}
+	
+		Set %response.Status = 200
+		do result.%Set("Update", ("TPID Deleted: " _ obj.id _", ID: " _ tpId.%Id() _", " _ tpId.%Oid()))
+	}
+	else
+	{
+		Set result = {"Error": ("TPID not found: " _ obj.id )}
+	}
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="GetTpforTpid">
+<Description><![CDATA[
+This request returns TP in response<br/>
+The method arguments hold values for:<br/>
+    tpid, ID of TP<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpid:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    
+	Do ..%SetStatusCode(200)
+	Set obj = {}
+	Set tp = 0
+	&SQL(select tp.ID into :id FROM IHC_ITF_TPManage.TradingPartner tp, IHC_ITF_TPManage.TPIDS tpid  where TPFK = tp.ID and tpid.TPID = :tpid)
+	if SQLCODE = 0
+	{			
+		Set tp = ##class(IHC.ITF.TPManage.TradingPartner).%OpenId(id)
+	}
+	
+
+	If '$IsObject(tp) {
+		Set obj = {
+			"TPID": (tpid),
+			"Error": 	"TP not found"
+		}
+	} Else {
+		
+		Set obj = {
+			"Operation":"GetTpforTpid",
+			"id": (tp.%Id()),
+			"Name": 		(tp.Name),
+			"ContactName":        (tp.ContactName),
+			"ContactPhone":   		(tp.ContactPhone),
+			"ContactEmail":      (tp.ContactEmail),
+			"TPtype":        (tp.Type)
+		}
+				
+		
+	}
+	return obj
+]]></Implementation>
+</Method>
+
+<Method name="GetTransactionTypes">
+<Description>
+This request returns TransactionTypes in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+     Set tArr = []
+
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM IHC_ITF_TPManage.TRANSACTIONTYPES")
+	While rs.%Next() 
+	{
+		if (rs.%Get("NAME") '= "")
+		{
+			Do tArr.%Push({
+				"Operation":"TransactionTypes",
+				"TransactionSetId" : (rs.%Get("TransactionSetId")),
+				"NAME":  (rs.%Get("NAME")),
+				"VERSION":    (rs.%Get("VERSION")),
+				"Direction":    (rs.%Get("Direction"))							
+			})
+		}
+	}
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="BulkTpLinks">
+<Description>
+This request creates links</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+  Set result={}
+    
+   	If '..GetJSONFromRequest(.obj) {
+		// Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Quit error
+	}
+	
+	If '..ValidateJSONForTpLinks(obj,.error) {
+		Set error = {"errormessage": ("TP validation error: " _ error.errormessage)}
+		Quit error
+	}
+		
+	Set provId =obj.ParentTpId
+	set provTpId = ""
+	&SQL(select ID into :provTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :provId)
+	if SQLCODE '= 0
+	{			
+			Set error = {"errormessage": ( "Error in finding TPID: " _ provId _": " _ SQLCODE)}
+			return error
+	}
+	if (provTpId = "")
+	{
+			Set error = {"errormessage": ( "Provider TPID is empty " _ provId) }
+			return error
+
+	}
+	
+	Set payerId =obj.PayerId
+	set payerTpId = ""
+	&SQL(select ID into :payerTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :payerId)
+	if SQLCODE '= 0
+	{			
+			Set error = {"errormessage": ( "Error in finding TPID: " _ payerId _": " _ SQLCODE)}
+			return error
+	}
+	if (payerTpId = "")
+	{
+			Set error = {"errormessage": ( "Payer TPID is empty " _ payerId)}
+			return error
+
+	}
+	
+	#dim provTpIdObj As IHC.ITF.TPManage.TPIDS
+	set provTpIdObj = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(provTpId)
+	
+	#dim payerTpIdObj As IHC.ITF.TPManage.TPIDS
+	set payerTpIdObj = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(payerTpId)	
+	
+	IF ( obj.BatchTransType '= "")
+	{				
+		DO ..saveTPLink(obj, .result, "Batch", payerTpIdObj, provTpIdObj)
+	}
+
+	IF (obj.RtTransType '= "")
+	{				
+		DO ..saveTPLink(obj, .result, "RT", payerTpIdObj, provTpIdObj)
+	}
+		
+	do result.%Set("Operation","BulkTpLinks")
+		
+	Set %response.Status = 200
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="saveTPLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*result:%DynamicObject,mode:%String,payerTpIdObj:IHC.ITF.TPManage.TPIDS,provTpIdObj:IHC.ITF.TPManage.TPIDS</FormalSpec>
+<Implementation><![CDATA[
+	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	Do result.%Set("Create DtTm", dtTm)
+
+	set val = ""
+	if (mode = "Batch")
+	{
+		set val = obj.BatchTransType
+	}
+	else
+	{
+		set val = obj.RtTransType
+	}
+		
+	set iter = val.%GetIterator()
+	
+    while iter.%GetNext(.key , .value ) {
+      try {
+      		
+      	Set rs = ##class(%SQL.Statement).%ExecDirect(,"select ID, NAME, Direction FROM IHC_ITF_TPManage.TRANSACTIONTYPES where TransactionSetId = ?", value)
+		While rs.%Next() {
+			
+			Set cm = ##class(IHC.ITF.TPManage.TRADELINKS).%New()
+			set cm.NAME = obj.Link _ "-" _ obj.ParentTpId _ "-" _ rs.%Get("NAME") _ "-" _ mode  _ "-" _ rs.%Get("Direction")
+
+			set cm.Mode = mode
+			
+			if ($L(obj.Separators) = 4)
+			{
+				set cm.Separators = obj.Separators
+			}
+
+			set cm.CreatedDtTM = dtTm
+			set cm.LastmodDtTM = dtTm
+			set cm.LastmodID = obj.User
+			set cm.CreateID = obj.User
+
+			if (mode = "Batch")
+			{
+				set cm.SNIP = $NUMBER(obj.BatchSNIP)
+				set cm.Routing = obj.BatchRouting
+				set cm.Ack = obj.BatchAck
+			}
+			else
+			{
+				set cm.SNIP = $NUMBER(obj.RtSNIP)
+				set cm.Routing = "RT"
+				set cm.Ack = obj.RtAck
+			}
+			
+			set tranTypeId = rs.%Get("ID")
+			
+			if ( tranTypeId'= "")
+			{
+				#dim tt As IHC.ITF.TPManage.TRANSACTIONTYPES
+				set tt = ##class(IHC.ITF.TPManage.TRANSACTIONTYPES).%OpenId(tranTypeId)
+				set cm.TRANSTYPE = tt
+				
+			}
+		
+			if (rs.%Get("Direction") = "Inbound")
+			{
+					set cm.IsaReceiverId = payerTpIdObj
+					set cm.IsaSenderId = provTpIdObj
+					set cm.GsReceiverId = payerTpIdObj
+					set cm.GsSenderId = provTpIdObj
+			}
+			else
+			{
+					set cm.IsaReceiverId = provTpIdObj
+					set cm.IsaSenderId = payerTpIdObj
+					set cm.GsReceiverId = provTpIdObj
+					set cm.GsSenderId = payerTpIdObj 
+			}
+			
+			Set sc = cm.%Save()
+
+			if ($$$ISOK(sc))
+			{
+				do result.%Set(cm.NAME _ " Id", cm.%Id())
+				do result.%Set("Status","OK")
+			}
+			else
+			{
+				do result.%Set(cm.NAME _ " Save",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+			}
+		
+    	}
+      } catch error{
+	      do result.%Set("Err BulkTpLinks-ID " _ key ,error)
+      }
+ 			
+	}
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForTpLink">
+<Description>
+Helper methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	If ((obj.%Get("Name") = "") && (obj.%Get("Link") = "")) {
+		Set error.errormessage = "Name/Link was blank"
+		Quit 0
+	}	
+		
+	If obj.%Get("TransType") = "" {
+		Set error.errormessage = "TransType was blank"
+		Quit 0
+	}
+	
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForTpLinks">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	If ((obj.%Get("Name") = "") && (obj.%Get("Link") = "")) {
+		Set error.errormessage = "Name/Link was blank"
+		Quit 0
+	}	
+	
+	If ( (obj.%Get("BatchTransType") = "") && (obj.%Get("RtTransType") = "") ) {
+		Set error.errormessage = "TransTypes was blank"
+		Quit 0
+	}
+	
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="CopyToTpLinkFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TRADELINKS,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	// mode As %String, route As %String, snip As %String, uniqueId As %String, ack As %String, separator As %String, 
+
+
+	Set transType =obj.TransType
+	set tranTypeId = ""
+	&SQL(select ID into :tranTypeId FROM IHC_ITF_TPManage.TRANSACTIONTYPES where NAME = :transType)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TRANSACTION TYPE: " _ transType)
+			return tSC
+	}
+	if (tranTypeId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "TRANSACTION TYPE is empty " _ transType)
+			return tSC
+
+	}
+	#dim tt As IHC.ITF.TPManage.TRANSACTIONTYPES
+	set tt = ##class(IHC.ITF.TPManage.TRANSACTIONTYPES).%OpenId(tranTypeId)
+	set cm.TRANSTYPE = tt
+
+	
+	Set isaSend =obj.IsaSenderId
+	set sTpId = ""
+	&SQL(select ID into :sTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :isaSend)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TPID: " _ isaSend _": " _ SQLCODE)
+			return tSC
+	}
+	if (sTpId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Sender TPID is empty " _ isaSend)
+			return tSC
+
+	}
+	#dim tpId As IHC.ITF.TPManage.TPIDS
+	set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(sTpId)
+	set cm.IsaSenderId = tpId
+
+	Set isaReceive =obj.IsaReceiverId
+	set rTpId = ""
+	&SQL(select ID into :rTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :isaReceive)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TPID: " _ isaReceive _": " _ SQLCODE)
+			return tSC
+	}
+	if (rTpId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Receiver TPID is empty " _ isaReceive)
+			return tSC
+
+	}
+	
+	set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(rTpId)
+	set cm.IsaReceiverId = tpId
+
+
+	Set gsSend =obj.GsSenderId
+	set sGsTpId = ""
+	&SQL(select ID into :sGsTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :gsSend)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TPID: " _ gsSend _": " _ SQLCODE)
+			return tSC
+	}
+	if (sGsTpId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Sender TPID is empty " _ gsSend)
+			return tSC
+
+	}
+	set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(sGsTpId)
+	set cm.GsSenderId = tpId
+
+
+	Set gsReceive =obj.GsReceiverId
+	set rGsTpId = ""
+	&SQL(select ID into :rGsTpId FROM IHC_ITF_TPManage.TPIDS where TPID = :gsReceive)
+	if SQLCODE '= 0
+	{			
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error in finding TPID: " _  gsReceive _": " _ SQLCODE)
+			return tSC
+	}
+	if (rGsTpId = "")
+	{
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Receiver TPID is empty " _ gsReceive)
+			return tSC
+
+	}
+	set tpId = ##class(IHC.ITF.TPManage.TPIDS).%OpenId(rGsTpId)
+	set cm.GsReceiverId = tpId
+	
+	set cm.NAME = obj.Name
+	if (cm.NAME = "")
+	{
+		set cm.NAME = obj.Link
+	}
+	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	set cm.CreatedDtTM = dtTm
+	set cm.LastmodDtTM = dtTm
+	set cm.LastmodID = obj.User
+	set cm.CreateID = obj.User
+
+	
+	set cm.Ack= obj.Ack
+	set cm.Active = obj.Active
+	set cm.Mode = obj.Mode
+	set cm.Routing = obj.Routing
+	
+	
+	if (obj.UniqueId = 1)
+	{
+		set cm.UniqueId = obj.UniqueId
+	}
+	
+	set cm.SNIP = $NUMBER(obj.SNIP)
+	if ($L(obj.Separators) = 4)
+	{
+		set cm.Separators = obj.Separators
+	}
+	set ^webService("CopyToTpLinkFromJSON customProp sz: ") = obj.allNotes.%Size()
+	Do cm.customProp.Clear()
+	set iter = obj.allNotes.%GetIterator()
+     while iter.%GetNext(.key , .value ) {
+	    set kv = ##class(IHC.ITF.TPManage.KeyValue).%New()
+	    set kv.Key = value.%Get("Key")
+	    set kv.Value = value.%Get("Value")
+	    set stat = cm.customProp.Insert(kv)
+        set ^webService("CopyToTpLinkFromJSON customProp: " _ kv.Key _ " : " _ kv.Value) = stat           
+     }
+	
+	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="UpdateToTpLinkFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&cm:IHC.ITF.TPManage.TRADELINKS,obj:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	   
+	set cm.NAME = obj.Name
+	if (cm.NAME = "")
+	{
+		set cm.NAME = obj.Link
+	}
+	set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+	
+	set cm.Ack= obj.Ack
+	set cm.Active = obj.Active
+	set cm.Routing = obj.Routing
+	set cm.Mode = obj.Mode
+	set cm.UniqueId = obj.UniqueId
+	set ^webService("UpdateToTpLinkFromJSON Act /Uniq:") = obj.Active _", " _ obj.UniqueId
+	set ^webService("UpdateToTpLinkFromJSON customProp sz: ") = obj.allNotes.%Size()
+	Do cm.customProp.Clear()
+	set iter = obj.allNotes.%GetIterator()
+     while iter.%GetNext(.key , .value ) {
+	    set kv = ##class(IHC.ITF.TPManage.KeyValue).%New()
+	    set kv.Key = value.%Get("Key")
+	    set kv.Value = value.%Get("Value")
+	    set stat = cm.customProp.Insert(kv)
+        set ^webService("UpdateToTpLinkFromJSON customProp: " _ kv.Key _ " : " _ kv.Value) = stat           
+     }
+     		
+	set cm.SNIP = $NUMBER(obj.SNIP)
+	if ($L(obj.Separators) = 4)
+	{
+		set cm.Separators = obj.Separators
+	}
+	
+	return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetJSONFromRequest">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*obj:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set ok = 1
+	Try {
+		Set obj = ##class(%DynamicObject).%FromJSON(%request.Content)
+	} Catch ex {
+		Set ok = 0
+	}
+	Quit ok
+]]></Implementation>
+</Method>
+</Class>
+</Export>
