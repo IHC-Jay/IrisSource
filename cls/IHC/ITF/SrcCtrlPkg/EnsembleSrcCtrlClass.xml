@@ -602,7 +602,7 @@ Get the information about classes from Audit table into the source control table
 		        // String LOOKUP at the end
 		        set tbNm = $E(tbNm, 1, ($F(tbNm,"LOOKUP") - 8))
 		        
-		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Export lookup table: " _ tbNm _ " to " _ tempFile)
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("GetDiff Export lookup table: " _ tbNm _ " to " _ tempFile)
 		       
 		        Set origNmSp =  $NAMESPACE
 	       		Set $NAMESPACE = nmSp
@@ -694,6 +694,42 @@ Get the information about classes from Audit table into the source control table
 ]]></Implementation>
 </Method>
 
+<Method name="ModifyLookupFilePath">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileNm:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set sysEnv = $ZCVT($SYSTEM, "U")
+	
+	if ((sysEnv [ "PRD") || ((sysEnv [ "PROD")) )
+    {
+    	set dMfileNm = "PROD/IHC"
+    }
+    elseif (sysEnv [ "UAT")
+    {
+        set dMfileNm = "UAT/IHC"
+    }
+    elseif (sysEnv [ "QA")
+    {
+        set dMfileNm = "QA/IHC"
+    }
+    else
+    {
+        set dMfileNm = "DEV/IHC"
+    }
+    if (fileNm [ dMfileNm)
+	{
+		return fileNm
+	}
+	else
+	{  
+        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Lookfile in " _ dMfileNm _ ", using NEW directory structure")
+    	set newfileNm = $REPLACE(fileNm, "IHC", dMfileNm)
+    	return newfileNm
+	}
+]]></Implementation>
+</Method>
+
 <Method name="Checkout">
 <FormalSpec>nmSp:%String,Selectedfiles:%String,usrNm:%String,passwd:%String,rev:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -721,24 +757,8 @@ Get the information about classes from Audit table into the source control table
 			Set fileNm = $$$USRBASEDIR _ usrNm _ $$$SVNSRCTRUNK _ relativeFileNm
 			if ($F(fileNm, "/lookupTables/") > 0)
 	        {
-		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Changing the directory for Datamap")
-		        if ((sysEnv [ "PRD") || ((sysEnv [ "PROD")) )
-		        {
-		        	set dMfileNm = $REPLACE(fileNm, "IHC", "PROD/IHC")
-		        }
-		        elseif (sysEnv [ "UAT")
-		        {
-			        set dMfileNm = $REPLACE(fileNm, "IHC", "UAT/IHC")
-		        }
-		        elseif (sysEnv [ "QA")
-		        {
-			        set dMfileNm = $REPLACE(fileNm, "IHC", "QA/IHC")
-		        }
-		        else
-		        {
-			        set dMfileNm = $REPLACE(fileNm, "IHC", "DEV/IHC")
-			        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Lookfile in DEV, using NEW directory structure")
-		        }
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Changing the directory for Datamap")	       
+		        set dMfileNm = ..ModifyLookupFilePath(fileNm)		        
 	        }
 	        If ##class(%File).Exists(dMfileNm)
 			{
@@ -907,6 +927,7 @@ Get the information about classes from Audit table into the source control table
 	// Set usrNm = $username
 	set files = ""
 	set SelectedIntfiles = ""
+	set sysEnv = $ZCVT($SYSTEM, "U")
 		
 	if ( (Selectedfiles = "") || (comment = "") )
 	{
@@ -952,9 +973,24 @@ Get the information about classes from Audit table into the source control table
 		        set tbNm = $E(InternalName, $F(InternalName,"."), *)
 		        // String LOOKUP at the end
 		        set tbNm = $E(tbNm, 1, ($F(tbNm,"LOOKUP") - 8))
-		        
-		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Export lookup table: " _ tbNm _ " to " _ fileNm)
+		        Set oldFile = fileNm
 		        set sc = ##class(Ens.Util.LookupTable).%Export(fileNm, tbNm)
+		        if ( ($$$ISOK(sc)) &&  (##class(%Library.File).Exists(fileNm)) )
+		        {
+		        	Do ..AddToSvn(fileNm, 0, usrNm, passwd)
+		        }
+		        // Add to new path
+		        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Changing the directory for Datamap: " _ oldFile)	       
+		        set fileNm = ..ModifyLookupFilePath(oldFile)
+		        if (fileNm '= oldFile)
+		        {
+					set aSt = ..AddDirectoriesToSvn(fileNm, usrNm, passwd)
+			        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles Export lookup table: " _ tbNm _ " to " _ fileNm)
+			        set sc = ##class(Ens.Util.LookupTable).%Export(fileNm, tbNm)
+			        
+			        SET files = files _ " '" _ fileNm _"'"
+			        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: " _ files _ ", %Export status: " _ sc)		        
+		        }
 	        }
 	        elseif ($F(InternalName, ".SYSDEF") > 0)
 	        {
@@ -990,13 +1026,13 @@ Get the information about classes from Audit table into the source control table
 	        if ( ($$$ISOK(sc)) &&  (##class(%Library.File).Exists(fileNm)) )
 	        {
 	          set SelectedIntfiles = SelectedIntfiles _ "," _ InternalName
-         	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: " _ $NAMESPACE _ " " _ fileNm _" -d /diffexport " _InternalName)
+         	  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: " _ $NAMESPACE _ " " _ fileNm _" AddToSvn: " _InternalName)
 	          Do ..AddToSvn(fileNm, 0, usrNm, passwd)
 	          	
 	        }
 	        else
 	        {
-		          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: file does not exits: " _ fileNm _" -d /diffexport " _InternalName)
+		          Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: file does not exits: " _ fileNm _" Internal Nm: " _InternalName)
 	        
 	        }
         }
@@ -2046,6 +2082,11 @@ Return filename of this item</Description>
 	Set name=..Name(InternalName)
 	
 	Quit $select(name="":"",1: $translate(name,"\","/"))
+	if (InternalName [ ".Lookup.")
+	{
+		set file = ..ModifyLookupFilePath(file)
+	}
+	return name
 ]]></Implementation>
 </Method>
 
