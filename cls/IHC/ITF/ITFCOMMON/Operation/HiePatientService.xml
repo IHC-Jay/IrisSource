@@ -47,7 +47,15 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
 	}elseif (pRequest.operationType="SEARCH"){
 		set tSC = ..SearchPatientService(pRequest,.searchServiceResp)
 		set pResponse = searchServiceResp
+	}elseif (pRequest.operationType="MERGE"){
+		set tSC = ..MergePatientService(pRequest,.mergeServiceResp)
+		set pResponse = mergeServiceResp
 	}
+	elseif (pRequest.operationType="LOOKUP"){
+		set tSC = ..LookupPatientService(pRequest,.lookupServiceResp)
+		set pResponse = lookupServiceResp
+	}
+
 
 	
 	
@@ -228,11 +236,13 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
 	Set tStream = ##class(%Stream.GlobalCharacter).%New()
 	Do tStream.Write(streamSearchParamsObject.StringValue)		
 	Set tStr = tStream.Read()
+	set ^savetStr=tStr
 	$$$TRACE("Data string(Search Params): " _ tStr)	
+	$$$TRACE("Data string(^savetStr): " _ ^savetStr)	
 	Do tStream.Rewind()
 	
 	set url = ..Adapter.URL_"/patient?"_tStr
-	//set url = "https://hiesvc-test.co.ihc.com/patient?givenName=MOSAMBEEK&familyName=XYTEST&fetchMultiple=true&rows=10&dob=20000524&phone=8019490682"
+	//set url = "https://hiesvc-test.co.ihc.com/patient?givenName=MOSAMBEEK TEST&familyName=XYTEST&fetchMultiple=true&rows=10&dob=20000524&phone=8019490682"
 	Set httprequest.Location = url
 	$$$TRACE("Search URL: "_httprequest.Location)
 	
@@ -242,6 +252,8 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
 	$$$TRACE("Token status "_sc)
 	
 	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+	
+	//set newUrl = $TRANSLATE(url,"%20",$CHAR(32))
 	
 	set status = httprequest.Get(url)	
 		
@@ -285,11 +297,135 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
 	Set httprequest=##class(%Net.HttpRequest).%New()
 	Set mrn=pRequest.identifier
 	Set token=pRequest.accessToken
+
 	Set httprequest.ContentType="application/json"
 	Do httprequest.SetParam("mrn",mrn)
+
+
+
+	set url = ..Adapter.URL_"/patient?mrn="_mrn
+
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status "_sc)
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+
+    
+	set status = httprequest.Get(url)	
+		
+	if $$$ISERR(status) {
+         do $system.OBJ.DisplayError()
+         set tSC =  status
+    } else {
+        set tHttpResponse=httprequest.HttpResponse
+       	$$$TRACE("StatusLine: "_tHttpResponse.StatusLine)  
+        $$$TRACE("StatusLine: "_tHttpResponse.Data)
+       	// %Stream.GlobalCharacter
+       	set stream =   tHttpResponse.Data
+       	set outStr = ""
+       	While 'stream.AtEnd 
+       	{ 
+       		set outStr = outStr _ stream.ReadLine(,.sc,.eol)
+       		$$$TRACE( outStr) 
+       	}
+       	set pResponse.StatusLine = tHttpResponse.StatusLine
+       	set pResponse.Data = tHttpResponse.Data
+       	$$$TRACE( " pResponse.StatusLine -> "_pResponse.StatusLine) 
+       	$$$TRACE( " pResponse.Data -> "_pResponse.Data) 
+
+
+       	
+    }        
+    
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="MergePatientService">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.HiePatientService,*pResponse:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method MergePatientService....")
+	
+	Set token=pRequest.accessToken
+	Set jsonStreamObject = pRequest.streamObject
+	
+	
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()
+	Do tStream.Write(jsonStreamObject.StringValue)		
+	Set tStr = tStream.Read()
+	$$$TRACE("Data string: " _ tStr)	
+	Do tStream.Rewind()
+
+   	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New()
+
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	set httprequest.Timeout=..Adapter.ResponseTimeout
+	Set httprequest.ContentType="application/json"
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	set url = ..Adapter.URL_"/patient"
+	Set httprequest.Location = url
+	$$$TRACE("Location: "_httprequest.Location)
+	Do httprequest.EntityBody.Write() ;
+	do httprequest.EntityBody.CopyFrom(tStream)
+	
+	set sc=##class(%SYS.OAuth2.AccessToken).AuthorizeWithAccessToken(httprequest,"header",..Adapter.SSLConfig,"PingSecurityToken",token)
+	$$$TRACE("Token status (Add) "_sc)
+	 Set mylist = ##class(%Collection.ArrayOfObj).%New()
+	set postStatus = httprequest.Post(url)		
+
+    if $$$ISERR(postStatus) {
+         do $system.OBJ.DisplayError()
+         set tSC =  postStatus
+    } else {
+        set tHttpResponse=httprequest.HttpResponse
+       	$$$TRACE("StatusLine: "_tHttpResponse.StatusLine)         
+       	set stream =   tHttpResponse.Data
+       	set outStr = ""
+       	While 'stream.AtEnd { 
+       		set outStr = outStr _ stream.ReadLine(,.sc,.eol)
+       		$$$TRACE( outStr) 
+       	}
+       	set statusLine = tHttpResponse.StatusLine
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}
+       	
+       	do pResponse.StreamSet(stream)
+       	do pResponse.Attributes.SetAt(statusCode,"StatusCode")
+       	do pResponse.Attributes.SetAt(statusDesc,"StatusDesc")       	
+
+    }        
+    
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="LookupPatientService">
+<Internal>1</Internal>
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.HiePatientService,*pResponse:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method GetPatientService")
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set mrn=pRequest.identifier
+	Set token=pRequest.accessToken
 	set assignAuth = pRequest.assignAuth
-	if (assignAuth="INMT"){
-		set url = ..Adapter.URL_"/patient?mrn="_mrn_"&assigningAuthority=INMT"
+	Set httprequest.ContentType="application/json"
+	Do httprequest.SetParam("mrn",mrn)
+	if ($L(assignAuth)>0){
+		set url = ..Adapter.URL_"/patient?mrn="_mrn_"&assigningAuthority="_assignAuth
 	}else{
 		set url = ..Adapter.URL_"/patient?mrn="_mrn
 	}
@@ -312,7 +448,6 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
        	$$$TRACE("StatusLine: "_tHttpResponse.StatusLine)  
         $$$TRACE("StatusLine: "_tHttpResponse.Data)
        	// %Stream.GlobalCharacter
-       	
        	set stream =   tHttpResponse.Data
        	set outStr = ""
        	While 'stream.AtEnd 
@@ -320,10 +455,18 @@ Calls Patient Service - to check mrn#, add/update in Initiate</Description>
        		set outStr = outStr _ stream.ReadLine(,.sc,.eol)
        		$$$TRACE( outStr) 
        	}
-       	set pResponse.StatusLine = tHttpResponse.StatusLine
-       	set pResponse.Data = tHttpResponse.Data
-       	$$$TRACE( " pResponse.StatusLine -> "_pResponse.StatusLine) 
-       	$$$TRACE( " pResponse.Data -> "_pResponse.Data) 
+       	do pResponse.StreamSet(stream)
+       	set statusLine = tHttpResponse.StatusLine
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}
+       	
+       	do pResponse.StreamSet(stream)
+       	do pResponse.Attributes.SetAt(statusCode,"StatusCode")
+       	do pResponse.Attributes.SetAt(statusDesc,"StatusDesc")  
        	
     }        
     
