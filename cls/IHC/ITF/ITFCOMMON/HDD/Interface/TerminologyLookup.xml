@@ -310,6 +310,88 @@ is returned as blank.. Hdd context 1259(3M abbr. context), 2000(3M default conte
 ]]></Implementation>
 </Method>
 
+<Method name="GetUniqueNcidChildRepByParentRep">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueNcidChildRepByParentRepRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim reqObj As IHC.ITF.ITFCOMMON.HDD.Interface.HddObject
+	
+	set listInd = pRequest.listOfHddNcidObj.Next("")
+	set list = ##class(%ListOfObjects).%New()
+	while ( listInd '= ""){
+		set ncid = ""
+		set reqObj = pRequest.listOfHddNcidObj.GetAt(listInd)
+		set errFlag = "0"
+		try{
+			Do ..ClearHddTables()
+	  		Do ..GetUniqueNcidChildRepByParentRepCall(reqObj.ParentRep, reqObj.ParentDomainNcid, reqObj.ParentRepContextNcid,reqObj.ParentDomainRelationship,reqObj.RelationshipTypeNcid,reqObj.ChildRepContextNcid,.ncid)
+	 	}catch(exVar){			
+		  	set errFlag = "1"		  	
+		  	If exVar.Name["ZSOAP" {
+			  	$$$TRACE("SOAP ERROR")   			    
+   			    set errMsg = $System.Status.GetErrorText(%objlasterror)	
+  			} Else {
+	  			$$$TRACE("NOT A SOAP ERROR")	  			  			
+    			set errMsg = $System.Status.GetErrorText($$$ERROR($$$GeneralError,"**No error returned from Hdd service**"))	
+  			}
+		  	$$$TRACE(  "errMsg: "_errMsg)
+		  	//set errMsg = "ERROR #6097: Cache error"  	 
+		   	if errMsg ["ERROR #6097"{   
+		  	 	$$$TRACE(  "************* ERROR 6097**********")
+		  	 	return ($$$ERROR("6097","Retry and Disable..Hdd servie may not be avaialble. Check with HDD team."_errMsg))		  	 
+		    }	  	
+		}
+		
+	  set hddObj = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.HddObject).%New()
+	  set hddObj.Comment = "Gets GetUniqueNcidChildRepByParentRep"
+	  set hddObj.NCID = ncid	  
+	  set hddObj.Index = reqObj.Index
+	  if (errFlag="1"){
+	  		set hddObj.errText = $System.Status.GetErrorText(%objlasterror)
+	  }
+	  Do list.Insert(hddObj)
+	  set listInd = pRequest.listOfHddNcidObj.Next(listInd)
+	}
+	set pResponse = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse).%New()
+	set pResponse.listOfHDDobj = list
+		
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUniqueNcidChildRepByParentRepCall">
+<FormalSpec><![CDATA[parentRep:%String,parentDomainNcid:%String,parentRepContextNcid:%String,parentDomainRelationship:%String,relationshipTypeNcid:%String,childRepContextNcid:%String,&ncid:%String]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+  try 
+  {
+ 	Set ncid = ""
+ 		
+	set servicePort = ##class(HddInterfaceService.InterfaceServicePort).%New()
+	set servicePort.Location = ..Location
+	$$$TRACE(" From GetUniqueChildRepByParentRepCall ..Before WebService Call ")
+	Set code = servicePort.getUniqueChildRepByParentRep(parentRep, parentDomainNcid, parentRepContextNcid, parentDomainRelationship, relationshipTypeNcid, childRepContextNcid, ..dbEnv, 0)
+	$$$TRACE(" From GetUniqueChildRepByParentRepCall WebService Call ")
+	if $GET(code){
+		Set ncid = code.ncid	
+		Do ..InsertValuesToHddUniqueNcidChildRepByParentRepCache(parentRep, parentDomainNcid, parentRepContextNcid, parentDomainRelationship, relationshipTypeNcid, childRepContextNcid, ncid)
+		$$$TRACE(" GOT the NCID .."_ncid)	
+		Quit
+	}
+ }CATCH exceptionvar{	  
+    $$$TRACE("  Inside CATCH Error..."_exceptionvar)
+    throw exceptionvar	        
+  }
+]]></Implementation>
+</Method>
+
+<Method name="InsertValuesToHddUniqueNcidChildRepByParentRepCache">
+<FormalSpec>parentRep:%String,parentDomainNcid:%String,parentRepContextNcid:%String,parentDomainRelationship:%String,relationshipTypeNcid:%String,childRepContextNcid:%String,Ncid:%String</FormalSpec>
+<Implementation><![CDATA[	&sql(INSERT INTO  IHC_ITF_ITFCOMMON_DataStructure.HddUniqueChildRepByParentRepCache(parentRep, parentDomainNcid, parentRepContextNcid, parentDomainRelationship, relationshipTypeNcid, childRepContextNcid, Ncid ) values(:parentRep, :parentDomainNcid, :parentRepContextNcid,:parentDomainRelationship,:relationshipTypeNcid,:childRepContextNcid, :Ncid))
+]]></Implementation>
+</Method>
+
 <Method name="GetUniqueRepByRepForRepresentations">
 <FormalSpec>pRequest:IHC.ITF.ITFCOMMON.HDD.Interface.UniqueRepByRepLookupRequest,*pResponse:IHC.ITF.ITFCOMMON.HDD.Interface.LookupResponse</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -1475,6 +1557,9 @@ is returned as blank.. Hdd context 1259(3M abbr. context), 2000(3M default conte
 	</MapItem>	
 	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueChildRepByParentRepRequest"> 	
 		<Method>GetUniqueChildRepByParentRep</Method>
+	</MapItem>
+	<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.GetUniqueNcidChildRepByParentRepRequest"> 	
+		<Method>GetUniqueNcidChildRepByParentRep</Method>
 	</MapItem>
 		<MapItem MessageType="IHC.ITF.ITFCOMMON.HDD.Interface.UniqueChildRepInDomainByParentNcidRequest"> 	
 		<Method>GetUniqueChildRepInDomainByParentNcid</Method>
