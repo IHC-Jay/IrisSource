@@ -919,6 +919,110 @@ Get the information about classes from Audit table into the source control table
 ]]></Implementation>
 </Method>
 
+<Method name="AddFilesToDepPkg">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,Selectedfiles:%String,comment:%String,usrNm:%String,passwd:%String,rev:%String,aikb:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tStatus = $$$OK
+	
+	set crFl =  ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentPackage).%New()
+	set fileNm = crFl.DeployDirectory _ crFl.DeploymentPackageDirec _ aikb _".txt"
+	
+	set direc = crFl.DeployDirectory _ crFl.DeploymentPackageDirec 
+	IF ' ##class(%File).DirectoryExists(direc)
+	 {
+			 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ direc)
+			 Do ##class(%File).CreateDirectoryChain(direc)
+		     set tStat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CheckSvnSetup($get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+	 }
+		 
+	set file = ##class(%File).%New(fileNm)
+	if ##class(%File).Exists(fileNm)
+	{
+		
+		set stat = file.Open("W:/APPEND")
+		set retStr = "Appended to DeploymentPackage file: " _ fileNm
+	}
+	else
+	{		
+		set svnDepPkg = ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentPackage).%New()
+		Do svnDepPkg.svnUpdate(aikb _".txt",$get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+	
+		if ##class(%File).Exists(fileNm)
+		{
+			
+			set stat = file.Open("W:/APPEND")
+			set retStr = "Appended to DeploymentPackage file from SVN: " _ fileNm
+		}
+		else
+		{
+			set stat = file.Open("WN")
+			set retStr = "Created DeploymentPackage file: " _ fileNm
+		}
+	}
+	if ($$$ISOK(stat))
+	{
+    	Do file.WriteLine("# Deployment Package AIKB: " _ aikb)
+    	Do file.WriteLine("# Deployment created by: " _ $USERNAME _" at " _ $ZDATETIME($HOROLOG))
+    	
+    	Do file.WriteLine("Namespace "_ " #$# " _ nmSp)
+		
+		
+		For I=1:1:$L(Selectedfiles,",")
+		{
+			Set selFileNm = $P(Selectedfiles,",",I)
+			if ($L(selFileNm) = 0)
+			{
+				continue
+			}
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "Add to Package: " _ selFileNm)
+			set ind = $F(selFileNm, $$$SVNSRCTRUNK)
+			if ( ind > 0) 
+			{
+				Set fullFileNm = selFileNm
+				set fileNm = $E(fullFileNm, ind, *)
+			}
+			else
+			{
+				Set fullFileNm = $$$USRBASEDIR _ usrNm _ $$$SVNSRCTRUNK _ selFileNm
+			}
+			
+			Do file.WriteLine(  fullFileNm _ " #$# " _ rev )
+			
+		}
+		Do file.Close()
+		Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).CheckSvnSetup($get(%session.Data("UsNm")), $get(%session.Data("PsWd")))
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm($get(%session.Data("UsNm")), "CheckInDeploymentPackageFile: " _ fileNm)
+
+		set statStr = ""
+		set crFl =  ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentPackage).%New()
+		
+		
+		set file = ##class(%File).%New(fileNm)
+		set stat = file.Open("R")
+		if ($$$ISOK(stat))
+		{
+			Do file.Close()
+			set stat = crFl.checkInFile(aikb _".txt", comment, $get(%session.Data("UsNm")), $get(%session.Data("PsWd")), .statStr)
+			set retStr = "CheckIn File output: " _ stat _ "; " _ statStr
+		}
+		else
+		{
+			set tStatus = $$$ERROR(100, "Could not find the file: " _ fileNm)
+		}
+	} 
+	else
+	{
+		set retStr = "Could not create DeploymentPackage file: " _ fileNm
+	}
+	
+	
+
+	return tStatus
+]]></Implementation>
+</Method>
+
 <Method name="CheckinFiles">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>nmSp:%String,Selectedfiles:%String,comment:%String,usrNm:%String,passwd:%String</FormalSpec>
@@ -1929,7 +2033,7 @@ If needed, create and add all directories from root to SVN</Description>
 	 	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNUPDATEALL _ " " _ svnSrcTrunk _ ", stat: " _ status)
 
 	 }
-	 
+	 // Setting files
 	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "settings/"
 	 set fullPath = svnRelTrunk _ ".svn"
 	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("DoSvnSetup: Check if source control SETTING directory: " _ svnRelTrunk)
@@ -1946,6 +2050,25 @@ If needed, create and add all directories from root to SVN</Description>
 			Quit tSC
 		 }
 	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " --depth infinity " _ $$$SVNSETTINGURL _ " " _ svnRelTrunk _ " " _ status)
+
+	 }
+	 // Deployment Package files
+	 Set svnRelTrunk = svnBaseDir _ $$$SVNSRCTRUNK _ "DeploymentPackage/"
+	 set fullPath = svnRelTrunk _ ".svn"
+	 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("DoSvnSetup: Check if source control DeploymentPackage directory: " _ svnRelTrunk)
+     IF ' ##class(%File).DirectoryExists(fullPath)
+	 {
+		 Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Creating: " _ fullPath)
+	     Do ##class(%File).CreateDirectoryChain(fullPath)
+	     set svnCmd = $$$SVNCHECKOUT _ " --depth infinity --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "'  " _ $$$SVNDEPPKGURL _ svnRelTrunk 
+	   	 Set status = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( svnCmd)
+	     if (status '= 0)
+		 {
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " failed for " _ $$$SVNDEPPKGURL)
+			set tSC = $$$ERROR($$$GeneralError, $$$SVNCHECKOUT _ " failed for user: " _ usrNm _ ", SVN URL:" _ $$$SVNDEPPKGURL _ " to" _ svnRelTrunk)
+			Quit tSC
+		 }
+	     Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile($$$SVNCHECKOUT _ " --depth infinity " _ $$$SVNDEPPKGURL _ " " _ svnRelTrunk _ " " _ status)
 
 	 }
 	 
