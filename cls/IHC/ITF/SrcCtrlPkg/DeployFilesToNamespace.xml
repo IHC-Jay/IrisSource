@@ -701,6 +701,17 @@
  set tSC = $$$OK
  
  set deployType = "NEW"
+ 
+ set sysEnv = $ZCVT($SYSTEM, "U")
+	if ( ($FIND(sysEnv, "PRD") > 0) || ($FIND(sysEnv, "PROD") > 0))
+	{
+		set sysEnv = "PROD"
+	}
+	elseif ( $FIND(sysEnv, "UAT") > 0)
+	{
+		set sysEnv = "UAT"
+	}
+	
   
  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployPackage, deploy: " _aikb)
  
@@ -725,6 +736,8 @@
 			set settingRev = ""
 			set deployedCompNm = ""
 			set deployedRevNum = ""
+			set settingUatRev = 0
+			set settingProdRev = 0
 
          Set fileObj=##class(%Library.File).%New(fileNm)
          Do fileObj.Open("RS") ; Read mode and as stream
@@ -779,6 +792,14 @@
 	        			elseif ( (key [ env) && (key ["Setting SubVersion") )
 	        			{
 		        			set settingRev = val
+		        			if (sysEnv = "UAT") 
+		        			{
+			        			set settingUatRev = val
+		        			}
+		        			if (sysEnv = "PROD")
+		        			{
+			        			set settingProdRev = val
+		        			}
 	        			}
 	        			elseif ( (key [ "lookupTables") || (key [ "cls"))
 	        			{
@@ -806,10 +827,16 @@
 	        			
 	        			if ( (compNm '= "" ) && (nmSp '= "") && ($ISVALIDNUM(revNum)) && ($ISVALIDNUM(settingRev)) && (compNm '= deployedCompNm) && (revNum '= deployedRevNum) )
 	        			{
+		        			if ( ((sysEnv = "UAT") || (sysEnv = "PROD")) && ((settingUatRev = 0) || (settingProdRev = 0)))
+		        			{
+			        			do wFileObj.WriteLine("Not deploying in " _ sysEnv _ ", the package because the revision number is 0, UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
+			        			continue
+		        			}
+		        			
 		        			Set $NAMESPACE = nmSp
 		        			set deployedCompNm = compNm
 		        			set deployedRevNum = revNum
-		        			do wFileObj.WriteLine("DEPLOY: " _ compNm _ ", rev #" _ revNum _ ", Line: " _ fLn)
+		        			do wFileObj.WriteLine("DEPLOY: " _ compNm _ ", rev #" _ revNum _ ", the setting revision numbers are UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
 		        			set stat = ..ValidateSvnRevision(compNm, usrNm, passwd, revNum )
 							if $$$ISOK(stat)
 							{
@@ -830,21 +857,14 @@
 									}
 									else
 									{
-										set settingRev = $ZCONVERT(settingRev, "U")	
-										if (settingRev = "HEAD")
-										{
-											set settingRev = ""
-											do wFileObj.WriteLine("Update HEAD version of setting")
-											set crFl =  ##class(IHC.ITF.SrcCtrlPkg.CreateSettingFiles).%New()
-											set stat = crFl.updateSettings(nmSp, compNm, env, usrNm, passwd, settingRev, .statStr)
-											do wFileObj.WriteLine("Update setting output: " _ statStr)
-										}
-										else
-										{
-											do wFileObj.WriteLine("Invalid Setting value: " _ settingRev)
-										}
+										
+										do wFileObj.WriteLine("Invalid Setting value: " _ settingRev)
+									
 									}
-																		
+									set settingUatRev = 0
+									set settingProdRev = 0
+									set settingRev = 0
+									
 		        				
 								do wFileObj.WriteLine("----")
 							}
