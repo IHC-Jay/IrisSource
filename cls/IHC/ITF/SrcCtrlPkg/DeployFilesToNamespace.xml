@@ -692,7 +692,7 @@
 ]]></Implementation>
 </Method>
 
-<Method name="DeployPackageFile">
+<Method name="ParseDeploymentPackageFile">
 <FormalSpec><![CDATA[aikb:%String,usrNm:%String,passwd:%String,env:%String,&details:%String]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -700,9 +700,7 @@
 	#dim tSC As %Status 
 	set tSC = $$$OK
 
-	set deployType = "NEW"
-
-	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In DeployPackage, deploy: " _aikb)
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "In ParseDeploymentPackageFile, AIKB: " _aikb)
 
 
 	set svnDepPkg =  ##class(IHC.ITF.SrcCtrlPkg.CreateDeploymentPackage).%New()
@@ -724,7 +722,11 @@
 			set revNum = ""
 			set settingRev = ""
 			set deployedCompNm = ""
+			set newDep = "Y"
 			set settingCompNm = ""
+			set clsUpd = ""
+	        set setUpd = ""
+
 			set settingUatRev = 0
 			set settingProdRev = 0
 
@@ -749,11 +751,18 @@
 		        do wFileObj.WriteLine( " - COMMENT: " _ fLn)
 		        if ( (  fLn [ "Deployment Package AIKB") && (compNm '= "") )
 	        	{
-	        			do wFileObj.WriteLine("Processed: " _ compNm _ " in NmSp: " _ nmSp _", rev #" _ revNum _", setting: " _ settingRev _", ENV: " _ env)
-	        			set nmSp = ""
-	        			set compNm = ""
-	        			set revNum = ""
-	        			set settingRev = ""
+		        	Set $NAMESPACE = origNmSp
+		        	set details = ..DeployPackageFile(wFileObj, nmSp, compNm, .deployedCompNm, newDep, revNum, clsUpd, setUpd, settingRev, settingUatRev, settingProdRev,  aikb , usrNm, passwd , env ) 
+	        	
+        			do wFileObj.WriteLine("Processed: " _ compNm _ " in NmSp: " _ nmSp _", rev #" _ revNum _", setting: " _ settingRev _", ENV: " _ env)
+        			set nmSp = ""
+        			set compNm = ""
+        			set revNum = ""
+        			set settingRev = ""
+        			set newDep = "Y"
+        			set clsUpd = ""
+        			set setUpd = ""
+
 	        	}
 	        }
 	        else
@@ -773,6 +782,18 @@
 	        			elseif (key [ "Component")
 	        			{
 		        			set compNm = val
+	        			}
+	        			elseif (key [ "New Component")
+	        			{
+		        			set newDep = val
+	        			}
+	        			elseif (key [ "Class Update")
+	        			{
+		        			set clsUpd = val
+	        			}
+	        			elseif (key [ "Setting Update")
+	        			{
+		        			set setUpd = val
 	        			}
 	        			elseif (key [ "Deployment SubVersion")
 	        			{
@@ -816,75 +837,18 @@
 	        			{
 		        			do wFileObj.WriteLine("TBD: " _key)
 	        			}
-	        				        			
-	        			if ( (compNm '= "" ) && (nmSp '= "") && ($ISVALIDNUM(revNum)) && (compNm '= deployedCompNm) )
-	        			{
-		        			if (revNum <= 0)
-		        			{
-			        			do wFileObj.WriteLine("SKIP deployment of class: " _ compNm _ ", rev #" _ revNum)
-		        			}
-		        			else
-		        			{
-			        			Set $NAMESPACE = nmSp
-			        			set deployedCompNm = compNm
-
-			        			do wFileObj.WriteLine("DEPLOY CLASS: " _ compNm _ ", rev #" _ revNum _ ", the setting revision number: " _ settingRev _ ", UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
-			        			set stat = ..ValidateSvnRevision(compNm, usrNm, passwd, revNum )
-								if $$$ISOK(stat)
-								{
-									
-	   		       			 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "Deploy " _ compNm _ " in NAMESPACE: " _ $NAMESPACE )
-	   		       			 		do wFileObj.WriteLine("Deploy " _ compNm _ " in NAMESPACE: " _ $NAMESPACE _", Revision # " _ revNum)
-	   		       			 		set cmt = ..DeployFile(compNm, deployType, nmSp , usrNm, passwd, revNum, env, 0, 0, 0 )
-									do wFileObj.WriteLine(cmt)
-									
-								}							
-								else
-								{
-									do wFileObj.WriteLine("SVN Revision: " _ revNum _ " is not valid, " _ stat)
-								}
-								set revNum = 0
-		        			}
-							do wFileObj.WriteLine("----")
-	        			}
-	        			if ( (compNm '= "" ) && (nmSp '= "") && ($ISVALIDNUM(settingRev)) && (settingRev > 0) && (compNm '= settingCompNm)  )
-	        			{
-		        			
-		        			// When deploying to UAT or PROD, check to make sure both revision #s are valid in the file
-		        			if ( ((env = "UAT") || (env = "PROD")) && ((settingUatRev = 0) || (settingProdRev = 0)))
-		        			{
-			        			do wFileObj.WriteLine("Not deploying in " _ env _ "yet, the package because the revision number is 0, UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
-			        			continue
-		        			}
-		        									
-							// Deploy setting 
-							Set $NAMESPACE = nmSp
-							set settingCompNm = compNm
-
-
-							do wFileObj.WriteLine("Update setting: " _ compNm _ " - setting version #" _ settingRev)
-							set crFl =  ##class(IHC.ITF.SrcCtrlPkg.CreateSettingFiles).%New()
-							set stat = crFl.updateSettings(nmSp, compNm, env, usrNm, passwd, settingRev, .statStr)
-							do wFileObj.WriteLine("Update setting status: " _ stat _ ", status output: " _ statStr)
-							
-							set settingUatRev = 0
-							set settingProdRev = 0
-							set settingRev = 0
-								
-	        				
-							do wFileObj.WriteLine("----")
-	        			}
-	        			
-	        			
-			        } catch e
+	        		 } catch e
 			        {
 				        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Invalid namespace: " _ nmSp)
 			        }
-			        Set $NAMESPACE = origNmSp			        
+			        			        
+		        			
 		        }
 		        
 	        }
          }
+         set details = ..DeployPackageFile(wFileObj, nmSp, compNm, .deployedCompNm, newDep, revNum, clsUpd, setUpd, settingRev, settingUatRev, settingProdRev,  aikb , usrNm, passwd , env ) 
+
          Do fileObj.Close()
          do wFileObj.Close()
 
@@ -904,6 +868,106 @@
  	USE oldID
  	
  	return tSC
+]]></Implementation>
+</Method>
+
+<Method name="DeployPackageFile">
+<FormalSpec><![CDATA[wFileObj:%File,nmSp:%String,compNm:%String,&deployedCompNm:%String,newDep:%String,revNum:%String,clsUpd:%String,setUpd:%String,settingRev:%String,settingUatRev:%String,settingProdRev:%String,aikb:%String,usrNm:%String,passwd:%String,env:%String,&details:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status 
+	set tSC = $$$OK
+
+	set deployType = "NEW"
+
+	try {
+		if ( (compNm = "" ) || (nmSp = "") || (compNm '= deployedCompNm) )
+		{
+			do wFileObj.WriteLine("SKIP deployment of class: " _ compNm)
+			QUIT
+		}
+		if (newDep = "Y")
+		{
+			if (revNum <= 0)
+			{
+    			do wFileObj.WriteLine("SKIP new deployment of class: " _ compNm _ ", rev #" _ revNum)
+    			QUIT
+			}
+			set clsUpd = "Y"
+			set setUpd = "Y"
+		}
+		else
+		{
+		
+			if ( (clsUpd = "Y") && (revNum <= 0))
+			{
+    			do wFileObj.WriteLine("SKIP class deployment of class: " _ compNm _ ", rev #" _ revNum)
+    			QUIT
+			}
+			if ( (setUpd = "Y") && (settingRev <= 0))
+			{
+    			do wFileObj.WriteLine("SKIP setting deployment of class: " _ compNm _ ", rev #" _ revNum)
+    			QUIT
+			}
+
+		}
+		Set $NAMESPACE = nmSp
+		set deployedCompNm = compNm
+		if (clsUpd = "Y")
+		{
+
+			do wFileObj.WriteLine("DEPLOY CLASS: " _ compNm _ ", rev #" _ revNum _ ", the setting revision number: " _ settingRev _ ", UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
+			set stat = ..ValidateSvnRevision(compNm, usrNm, passwd, revNum )
+			if $$$ISOK(stat)
+			{
+				
+		 		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm,  "Deploy " _ compNm _ " in NAMESPACE: " _ $NAMESPACE )
+		 		do wFileObj.WriteLine("Deploy " _ compNm _ " in NAMESPACE: " _ $NAMESPACE _", Revision # " _ revNum)
+		 		set cmt = ..DeployFile(compNm, deployType, nmSp , usrNm, passwd, revNum, env, 0, 0, 0 )
+				do wFileObj.WriteLine(cmt)
+				
+			}							
+			else
+			{
+				do wFileObj.WriteLine("SVN Revision: " _ revNum _ " is not valid, " _ stat)
+			}
+		}
+		set revNum = 0
+		do wFileObj.WriteLine("----")
+		
+		if (setUpd = "Y") 
+		{
+			
+			// When deploying to UAT or PROD, check to make sure both revision #s are valid in the file
+			if ( ((env = "UAT") || (env = "PROD")) && ((settingUatRev = 0) || (settingProdRev = 0)))
+			{
+    			do wFileObj.WriteLine("Not deploying in " _ env _ " the package because the revision number is not valid for UAT: " _ settingUatRev _", PROD: " _ settingProdRev)
+    			QUIT
+			}
+									
+			// Deploy setting 
+			Set $NAMESPACE = nmSp
+			set settingCompNm = compNm
+
+
+			do wFileObj.WriteLine("Update setting: " _ compNm _ " - setting version #" _ settingRev)
+			set crFl =  ##class(IHC.ITF.SrcCtrlPkg.CreateSettingFiles).%New()
+			set stat = crFl.updateSettings(nmSp, compNm, env, usrNm, passwd, settingRev, .statStr)
+			do wFileObj.WriteLine("Update setting status: " _ stat _ ", status output: " _ statStr)
+			
+			set settingUatRev = 0
+			set settingProdRev = 0
+			set settingRev = 0
+				
+			
+			do wFileObj.WriteLine("----")
+		}
+		
+		
+    } catch e
+    {
+        Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFileWithUserNm(usrNm, "Invalid namespace: " _ nmSp)
+    }
 ]]></Implementation>
 </Method>
 </Class>
