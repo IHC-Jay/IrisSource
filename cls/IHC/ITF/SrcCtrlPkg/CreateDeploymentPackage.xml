@@ -237,17 +237,19 @@
 ]]></Implementation>
 </Method>
 
-<Method name="checkInFile">
+<Method name="checkDeploymentPackageInFiles">
 <FormalSpec><![CDATA[fName:%String,cmt:%String,userNm:%String,passwd:%String,&retStr:%String]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
  try
  {
-	 
+	set depPkgName = fName _ ".txt"
+	set depBKPkgName = fName _ "-BackOut.txt"
+	
 	Set tSC = $$$OK 
-	if ('##class(%File).Exists(fName))
+	if ('##class(%File).Exists(depPkgName))
 	{
-		set tempFile = ..DeployDirectory _ ..DeploymentPackageDirec _ fName
+		set tempFile = ..DeployDirectory _ ..DeploymentPackageDirec _ depPkgName
 	
 		if ('##class(%File).Exists(tempFile))
 		{
@@ -257,9 +259,9 @@
 	}
 	else
 	{
-		set tempFile = fName
+		set tempFile = depPkgName
 	}
-	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("checkInFile: " _ tempFile)
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("checkIn DepPkg Files: " _ fName)
 	
     set fullPath = $$$USRRELEASEBASEDIR _ userNm _ $$$SVNSRCTRUNK _ ..DeploymentPackageDirec 
     IF ' ##class(%File).DirectoryExists(fullPath)
@@ -269,25 +271,28 @@
 	 }
  	
  	
-	set fullPath = fullPath _ fName
-	Do ##class(%File).CopyFile(tempFile, fullPath)
+	set fullPathDepPkg = fullPath _ depPkgName
+	set fullPathDepPkgBK = fullPath _ depBKPkgName
 	
-	if (##class(%File).Exists(fullPath))
+	Do ##class(%File).CopyFile(tempFile, fullPathDepPkg)
+	Do ##class(%File).CopyFile(..DeployDirectory _ ..DeploymentPackageDirec _ depBKPkgName, fullPathDepPkgBK)
+	
+	if (##class(%File).Exists(fullPathDepPkg))
 	{
-		Set cmd = $$$SVNINFO _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ fullPath
+		Set cmd = $$$SVNINFO _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _ fullPathDepPkg
 		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
-		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fullPath _ " svn info:" _ stat)
+		Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile(fullPathDepPkg _ " svn info:" _ stat)
 		
 		If stat '= 0 	
 		{
 			// files not in svn, add the file
 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile( $$$SVNINFO _" returned no information" )
-			Set cmd = $$$SVNADD _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _  fullPath  
+			Set cmd = $$$SVNADD _ " --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd") _ "' " _  fullPathDepPkg  _ " " _ fullPathDepPkgBK
 			Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 			Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("svn add:" _ stat)
 			If stat '= 0
 			{
-				Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN add error for " _ fullPath)
+				Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN add error for " _ fullPathDepPkg)
 				Return tSC
 			}
 		}
@@ -295,14 +300,14 @@
 		set commentFile = ##class(%Library.File).TempFilename()
 		Do ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).WriteToFile(commentFile, cmt _ ", Commited by " _ userNm)
 		
-		Set cmd = $$$SVNCOMMIT _ " --no-auth-cache --non-interactive --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd")  _ "' -F "" " _ commentFile _ " "" " _ fullPath _ " > " _ tempFile
+		Set cmd = $$$SVNCOMMIT _ " --no-auth-cache --non-interactive --username " _ %session.Data("svnUsrNm") _ " --password '" _ %session.Data("svnPsWd")  _ "' -F "" " _ commentFile _ " "" " _ fullPathDepPkg _" " _ fullPathDepPkgBK _ " > " _ tempFile
 		Set stat = ##class(IHC.ITF.SrcCtrlPkg.EnsembleSrcCtrlClass).ExecuteShellCmd( cmd)
 		    
 	    Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("CheckinFiles: commit stat: " _ stat _ " file: " _ tempFile)
 			
 		if stat '= 0
 		{
-			  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ $$$SVNCOMMIT _ " " _ fullPath)
+			  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit error: " _ $$$SVNCOMMIT _ " " _ fullPathDepPkg)
 			  Set tSC = $$$ERROR($$$EnsErrGeneral, "SVN commit error")
 			  Do ##class(%Library.File).Delete(tempFile)
 		}
@@ -317,7 +322,7 @@
 	    	#dim sc as %Status
 	    	set commitComment = tComment.Read(.len, .sc)
 	    	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("SVN commit: " _ commitComment)
-	    	set retStr = fullPath _ " - " _ commitComment
+	    	set retStr = fullPathDepPkg _ " - " _ commitComment
 	    	Do ##class(%Library.File).Delete(tempFile)
 	    	if ($L(retStr) = 0)
 	    	{
@@ -327,7 +332,7 @@
 	}
 	else
 	{
-		set tSC = $$$ERROR("Can't open file: " _ fullPath)
+		set tSC = $$$ERROR("Can't open file: " _ fullPathDepPkg)
 	}
 	
  } catch err
