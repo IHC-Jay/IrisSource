@@ -25,6 +25,14 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' height='4550' width='2000' >
 <context>
+<property name='MSH10' type='%String' instantiate='0' />
+<property name='MSH9MsgType' type='%String' instantiate='0' />
+<property name='RXEGroupCount' type='%Integer' instantiate='0' />
+<property name='RXCCount' type='%Integer' collection='array' instantiate='0' />
+<property name='RXOGroupCount' type='%Integer' instantiate='0' />
+<property name='RXOOBXCount' type='%Integer' instantiate='0' />
+<property name='FoundIVXDispenseLocation' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='donefilteringIn' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='TargetList' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='250' />
@@ -65,6 +73,102 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
+<code name='GetMSH_10_MsgControlID' xpos='200' ypos='675' >
+<annotation><![CDATA[Get MSH-10 Message Control ID]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Getting MSH:MessageControlID - MSH-10 value. ")
+  set context.MSH10 = request.GetValueAt("MSH:MessageControlID")
+  $$$TRACE("Setting context.MSH10 to: " _context.MSH10)
+  
+  ]]]]><![CDATA[>
+</code>
+<code name='VerifyOrderType' xpos='200' ypos='700' >
+<annotation><![CDATA[Only allowing Pharmacy Orders]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Verify we have Pharmacy Order... ")
+ set context.MSH9MsgType= request.GetValueAt("MSH:MessageType.messagetype")
+ $$$TRACE("Here is the Message Type: "_ context.MSH9MsgType)
+ set getFirstThreeChar = $Extract(context.MSH9MsgType,1,3)
+ $$$TRACE("Here is the compare string: "_getFirstThreeChar ) 
+ if ((getFirstThreeChar="RDE") || (getFirstThreeChar="RDS")){
+   $$$TRACE("We have a Pharmacy Order! Order Type is: "_ getFirstThreeChar)
+   set context.MSH9MsgType=getFirstThreeChar
+   
+ }else{
+ $$$TRACE("We don't have a Pharmacy HL7 MSG Event Type for Pharmacy Med Orders, Sending Error and record will be skipped. Order type: "_ context.MSH9MsgType)
+ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "HL7 message is not an expected RDE or RDS message type.") 
+ }
+ 
+ $$$TRACE("Next step is to check if we are doing Dispense From Location Filtering In.")
+ ]]]]><![CDATA[>
+</code>
+<foreach name='DoRXOGroupFilteringWork' property='request.{RXOgrp()}' key='context.RXOGroupCount' xpos='200' ypos='725' xend='200' yend='550' >
+<annotation><![CDATA[Work for WorkFlow FilterOut and DispenseFromLoc FilterIn]]]]><![CDATA[></annotation>
+<foreach name='WorkingOBXGroup' property='request.{RXOgrp(context.RXOGroupCount).OBX()}' key='context.RXOOBXCount' xpos='200' ypos='250' xend='200' yend='550' >
+<annotation><![CDATA[Traverse OBX segment for FilterOut Logic for IVXCloud Med Orders]]]]><![CDATA[></annotation>
+<trace name='WorkingInsideRXOOBX' value='"Working inside of RXO Group to Work OBX segments for Dispense From Location/WorkFlow Sequence for filtering OUT."' xpos='200' ypos='250' />
+<code name='WorkDispenseFromLocation' xpos='200' ypos='350' >
+<annotation><![CDATA[Check and Work DISPENSEFROMLOC-WORKFLOW Sequence logic]]]]><![CDATA[></annotation>
+<![CDATA[ if ((context.FoundIVXDispenseLocation = 0)&& (context.MSH9MsgType="RDS")){
+      //check OBX-3.1 check values: DISPENSEFROMLOC and 530215754
+      set OBXObservationIdentiferID = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationIdentifier.identifier")
+      if (OBXObservationIdentiferID="DISPENSEFROMLOC"){
+          //GET OBX-5 and parse string for IVX substring
+          set OBXFiveObservationValue = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationValue(1)")
+          set ALLUPPERCASEOBXFIVE = $ZCONVERT(OBXFiveObservationValue,"U")
+          $$$TRACE("Have DISPENSEFROMLOC - OBX-5 value found is: "_ALLUPPERCASEOBXFIVE)
+          set findReturnVal = $FIND(ALLUPPERCASEOBXFIVE,"IVX")
+          $$$TRACE("Searching OBX-5 for IVX substring - value of 1 or greater it is found, value of 0 it is not. Find Method return value is: ["_findReturnVal_"]")
+          if (findReturnVal=0){
+              $$$TRACE("Got to check next OBXs for valid FilterOut data set - just checked DISPENSEFROMLOC OBX.  ")
+          
+          
+          }else{
+              $$$TRACE("FOUND IVXCLOUD DISPENSEFROMLOC!!")
+              set context.FoundIVXDispenseLocation = 1
+              
+          }
+          
+      }elseif (OBXObservationIdentiferID="530215754"){
+          //GET OBX-5 and parse string for IVX substring
+          set OBXFiveObservationValue = request.GetValueAt("RXOgrp("_context.RXOGroupCount_").OBX("_context.RXOOBXCount_"):ObservationValue(1)")
+          set ALLUPPERCASEOBXFIVE = $ZCONVERT(OBXFiveObservationValue,"U")
+          $$$TRACE("Have Work Flow Sequence - OBX-5 values found is: "_ALLUPPERCASEOBXFIVE)
+          set findReturnVal = $FIND(ALLUPPERCASEOBXFIVE,"IVX")
+          $$$TRACE("Searching OBX-5 for IVX substring - value of 1 or greater it is found, value of 0 it is not. Find Method return value is: ["_findReturnVal_"]")
+          if (findReturnVal=0){
+              
+              $$$TRACE("Got to check next OBXs for valid FilterOut data set - just checked Work Flow Sequence NCID 530215754 OBX.  ")
+              
+          
+          }else{
+              $$$TRACE("FOUND WORKFLOW SEQUENCE FOR IVXCLOUD!!")
+              set context.FoundIVXDispenseLocation = 1
+              
+          }
+          
+       }else{
+          $$$TRACE("Got to check next OBXs for valid FilterOut data set - just checked OBX was niether DISPENSEFROMLOC or Work Flow Sequence data.  ")
+          
+       }
+ }else{
+     $$$TRACE("Don't need to do Dispense From Location or Work Flow Sequence FilterIn Logic work.")
+ }
+ 
+ ]]]]><![CDATA[>
+</code>
+<trace name='DoneWorkingOBXFilterIn' value='"Finished OBX FilterIn Logic for Dispense From Location for OBX index: ["_context.RXOOBXCount_"]"' xpos='200' ypos='450' />
+</foreach>
+<code name='VerifyIVXDispenseLocation' xpos='200' ypos='350' >
+<annotation><![CDATA[FilterOut IVXCloud Dispense From Location or Work Flow Sequences]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("context.FoundIVXDispenseLocation is set to: ["_context.FoundIVXDispenseLocation_"]")
+ if (context.FoundIVXDispenseLocation=1){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does have the RDS IVXCloud Pharmacy Med ORDER with DISPENSEFROMLOC or Work Flow Sequence data set present. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+ }else {
+   $$$TRACE("The Med Order is not an IVXCloud Med Order and will be continued to be processed.")
+ 
+ }
+ ]]]]><![CDATA[>
+</code>
+</foreach>
 <transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToGenericPharmObxRemoved' source='request' target='response' xpos='200' ypos='750' />
 <trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='850' />
 <code name='SetTargetFromLookup' xpos='200' ypos='950' >
