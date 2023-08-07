@@ -7,6 +7,7 @@ import { Routes, RouterModule } from '@angular/router';
 import { AppComponent } from './app.component';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { MatPaginatorModule } from '@angular/material/paginator';
+
 import { MatTableModule } from '@angular/material/table';
 import { MatListModule } from '@angular/material/list';
 import { MatButtonModule } from '@angular/material/button';
@@ -36,9 +37,17 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { AddEditComponent } from './tradingPartners/tpIds/tp-links/add-edit.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { SearchComponent } from './search/search.component';
+import {TransactionComponent} from './transaction/transaction.component'
 import {AuthInterceptor} from './login/auth-interceptor';
 import {ErrorInterceptor} from './login/error.interceptor';
 import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
+import {SingleNoteComponent} from './tradingPartners/tpIds/tp-links/single-note/single-note.component';
+import {CreateNoteComponent} from './tradingPartners/tpIds/tp-links/create-note/create-note.component';
+import { TransactionDetailComponent } from './transaction/transaction-details/transaction-details.component';
+import { NgMultiSelectDropDownModule } from 'ng-multiselect-dropdown';
+import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion';
+import { Modalx12Component } from './transaction/transaction-details/modal/modal-x12.component';
+import { ModalHelperService } from './transaction/transaction-details/modal/modal-helper.service';
 
 @NgModule({
   declarations: [
@@ -51,7 +60,12 @@ import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.compo
     tpLinksComponent,
     AddEditComponent,
     SearchComponent,
-    BulkAddComponents
+    TransactionComponent,
+    BulkAddComponents,
+    SingleNoteComponent,
+    CreateNoteComponent,
+    Modalx12Component,
+    TransactionDetailComponent
   ],
   imports: [
     BrowserModule,
@@ -74,7 +88,10 @@ import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.compo
     MatSelectModule,
     MatFormFieldModule,
     MatInputModule,
-    MatTooltipModule
+    MatTooltipModule,
+    NgMultiSelectDropDownModule.forRoot(),
+    MatExpansionModule
+
   ],
   exports:[
     MatTableModule,
@@ -84,6 +101,7 @@ import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.compo
   providers: [
     { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
+    ModalHelperService
 
   ],
   bootstrap: [AppComponent]

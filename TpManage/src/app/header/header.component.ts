@@ -31,7 +31,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   selectedMenu:string = 'tradingPartner'
   links = [
     {name:'Trading Partners', link:"/TradingPartners"},
-    {name:'Search TPID', link:"/search"}
+    {name:'Search TPID', link:"/search"},
+    {name:'Search Transactions', link:"/transaction"}
   ];
 
   activeLink = this.links[0].link;
@@ -43,11 +44,15 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       private route: ActivatedRoute
     )
     {
-      this.authenticationService.currentUser.subscribe(x => this.currentUser = x);
+      this.authenticationService.currentUser.subscribe(x => {
+        this.currentUser = x
+        this.isLogin = (x != null);
+        }
+        );
     }
 
     ngOnInit() {
-      this.isLogin = false;
+
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
           password: ['', Validators.required]

@@ -40,7 +40,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   public size = 5;
   public pageNumber = 0;
 
-
+  bulkInsert = false;
   tpIdToLink:String;
   tpId:String;
 
@@ -59,7 +59,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpIdLinksList = new MatTableDataSource<tpLinks>();
 
-  displayedtpLinksColumnsList: string[] = ['Link', 'IsaSenderId', 'IsaReceiverId', 'TransType', 'TransactionSetId', 'Mode', 'actions'];
+  displayedtpLinksColumnsList: string[] = ['Link', 'IsaSenderId', 'IsaReceiverId', 'TransType', 'Mode', 'Active', 'actions'];
 
   tpLinksArray: tpLinks[] = [];
 
@@ -89,6 +89,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   ngAfterViewInit() {
     this.tpIdLinksList.paginator = this.paginator;
     this.tpIdLinksList.sort = this.sort;
+
   }
 
   Refresh()
@@ -101,6 +102,14 @@ export class tpLinksComponent implements OnInit, OnDestroy {
         this.isFetching = false;
         this.loadedPosts = tpLinksData;
         this.tpIdLinksList.data = this.loadedPosts;
+        console.info("tpIdLinksList: " + this.tpIdLinksList.data.length)
+        if(this.tpIdLinksList.data == null || this.tpIdLinksList.data.length <= 0)
+        {
+          this.bulkInsert = true;
+        }
+        else {
+          this.bulkInsert = false;
+        }
       },
       error => {
         this.isFetching = false;

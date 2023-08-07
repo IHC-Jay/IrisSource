@@ -12,8 +12,22 @@ import { Subject, throwError } from 'rxjs';
 import { TradingPartner } from '../tradingPartners/TradingPartner';
 import { TpId } from '../tradingPartners/tpIds/TpId';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
+import { bulkTpLinks } from '../tradingPartners/tpIds/tp-links/bulk-tp-links';
 
 import { environment } from '../../environments/environment';
+
+import {EligibilityRequest} from '../transaction/EligibilityRequest'
+import {Claim} from '../transaction/Claims'
+import {ClaimStatusResp} from '../transaction/ClaimStatusResp'
+import {ClaimStatusReq} from '../transaction/ClaimStatusReq'
+import {ClaimPayment} from '../transaction/ClaimPayment'
+import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
+import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
+import { transition } from '@angular/animations';
+
+import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
+import { AuthenticationService } from '../services/authentication.service';
+import { Router, ActivatedRoute} from '@angular/router';
 
 const baseUrl = `${environment.apiUrl}`;
 
@@ -31,8 +45,23 @@ export class RestServiceComponent {
   currentUser:string = '';
   error = new Subject<string>();
 
-  constructor(private http: HttpClient)
+  constructor(private authenticationService: AuthenticationService,
+    private http: HttpClient, private http2: HttpClient
+    , private router: Router)
    {
+    console.log('**** RestServiceComponent constructor ****')
+   }
+
+   getCurrentUser()
+   {
+     console.log('Fetch getCurrentUser');
+     if( this.currentUser === '')
+     {
+      this.authenticationService.logout();
+      localStorage.clear();
+      this.router.navigate(['/']);
+     }
+     return this.currentUser;
    }
 
   validateUser(usr: string, passw: String)
@@ -63,17 +92,18 @@ export class RestServiceComponent {
       )
       .pipe(
         map(responseData => {
-         console.info("return Response: " + responseData.ContactName)
+         console.info("validateUser return Response: " + responseData.ContactName)
          this.currentUser = usr;
          return responseData.ContactName;
         }),
         catchError(errorRes => {
           // Send to analytics server
-          console.error('RestServiceComponent validateUser catchError');
+          console.error('RestServiceComponent validateUser catchError: ' + errorRes);
           throw(errorRes);
         })
       );
   }
+
 
     fetchTradingPartners() {
       console.log('Fetch TradingPartners with Auth ' );
@@ -142,7 +172,7 @@ export class RestServiceComponent {
 
     fetchTPforTpId(tpName: String) {
 
-      console.log('Fetch Class: ' + tpName);
+      console.log('fetchTPforTpId Class: ' + tpName);
       let url = '';
 
       url = baseUrl + 'TPforTPID?tpid='+tpName;
@@ -200,7 +230,7 @@ export class RestServiceComponent {
     fetchOwnerTpIds() {
 
 
-      console.log('Fetch Class');
+      console.log('fetchOwnerTpIds');
 
       let url = baseUrl + 'GetOwnerTpIds';
 
@@ -280,7 +310,11 @@ export class RestServiceComponent {
             const TpLinksArray: tpLinks[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                TpLinksArray.push({ ...responseData[key], id: key });
+                console.info("Key: " + responseData[key].Link);
+                if(responseData[key].Link !== undefined)
+                {
+                  TpLinksArray.push({ ...responseData[key], id: key });
+                }
               }
             }
             return TpLinksArray;
@@ -309,11 +343,12 @@ export class RestServiceComponent {
         )
         .pipe(
           map(responseData => {
+            console.trace(responseData);
             return responseData;
           }),
           catchError(errorRes => {
             // Send to analytics server
-            console.error('In getTpFromIris catchError');
+            console.error('In getTpFromIris catchError: ' + errorRes);
             return throwError(errorRes);
           })
         );
@@ -327,7 +362,7 @@ export class RestServiceComponent {
     let url = baseUrl + 'DeleteTpLink';
 
     console.info('Post to delete TPLink: ' + url);
-    const body = { id: tpLink, User: this.currentUser};
+    const body = { id: tpLink, User: this.getCurrentUser()};
     return this.http.post<string>(url, body);
 
   }
@@ -348,7 +383,7 @@ export class RestServiceComponent {
     }
 
     console.info('Post to create/update TPLink: ' + url);
-    link.User = this.currentUser;
+    link.User =  this.getCurrentUser()
     // const body = { Name: 'Angular POST Request ', Type: 'PROVIDER' };
     return this.http.post<any>(url, link)
     .pipe(
@@ -406,7 +441,7 @@ export class RestServiceComponent {
     console.log('addTradingPartner: ' + tradingPartner.Name);
 
     let url = baseUrl + 'NewTp';
-    tradingPartner.User = this.currentUser;
+    tradingPartner.User =  this.getCurrentUser();
 
     console.info('Post to create TP: ' + url);
 
@@ -431,7 +466,7 @@ export class RestServiceComponent {
 
 
     let url = baseUrl + 'UpdateTp';
-    tradingPartner.User = this.currentUser;
+    tradingPartner.User =  this.getCurrentUser();
     return this.http.post<TradingPartner>(`${url}`, tradingPartner);
 
   }
@@ -452,7 +487,7 @@ export class RestServiceComponent {
 
 
     let url = baseUrl + 'NewTpId';
-    newTpId.User = this.currentUser;
+    newTpId.User =  this.getCurrentUser();
     console.info('Post to create TPID: ' + url);
     return this.http.post<any>(url, newTpId);
 
@@ -463,7 +498,7 @@ export class RestServiceComponent {
 
 
     let url = baseUrl + 'UpdateTpId';
-    tpid.User = this.currentUser;
+    tpid.User =  this.getCurrentUser();
     console.info('Post to update TP: ' + url);
     return this.http.post<TpId>(`${url}`, tpid);
   }
@@ -481,7 +516,470 @@ export class RestServiceComponent {
 
   }
 
+  addBulkTpLinks(link: bulkTpLinks) {
 
+    console.log('add bulkTpLinks: ' + link.Link);
+
+    let url = baseUrl + '' + 'BulkTpLinks';
+
+    console.info('Post to create/update TPLinks: ' + url);
+    link.User =  this.getCurrentUser();
+
+    return this.http.post<any>(url, link)
+    .pipe(
+      map(responseData => {
+
+        return responseData;
+
+      }),
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('addBulkTpLinks catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+
+  }
+ // Transactions REST
+
+
+
+fetchEligibilityRequests(searchStr: string) {
+  console.log('Fetch EligibilityRequest with Auth for: ' + searchStr );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/EligibilityBenefits';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  console.log('ElgBen: ' + url)
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const EligibilityRequestArray: EligibilityRequest[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+             EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return TP array: ' + EligibilityRequestArray.length );
+        return EligibilityRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchEligibilityRequest catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchClaims(searchStr: string) {
+  console.log('Fetch Claim with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/Claims';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: Claim }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimArray: Claim[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim array: ' + ClaimArray.length );
+        return ClaimArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaims catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+fetchClaimStatusReq(searchStr: string) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimStatusRequest';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: ClaimStatusReq }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimStatusReqArray: ClaimStatusReq[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimStatusReqArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimStatusReqArray.length );
+        return ClaimStatusReqArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimStatusResp catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchClaimStatusResp(searchStr: string) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimStatusResponse';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: ClaimStatusResp }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimStatusRespArray: ClaimStatusResp[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimStatusRespArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimStatusRespArray.length );
+        return ClaimStatusRespArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimStatusResp catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+fetchEligibilityBenefitResponses(searchStr: string) {
+  console.log('Fetch fetch Eligibility Benefit Responses with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/EligibilityBenefitResponses';
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const EligibilityRequestArray: EligibilityRequest[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + EligibilityRequestArray.length );
+        return EligibilityRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchEligibilityBenefitResponses catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+fetchClaimPayment(searchStr: string) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimPayment';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: ClaimPayment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimPaymentArray: ClaimPayment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimPaymentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimPaymentArray.length );
+        return ClaimPaymentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchImplementationAcknowledgment(searchStr: string) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ImplementationAcknowledgment';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: ImplementationAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ImplementationAcknowledgmentArray: ImplementationAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ImplementationAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ImplementationAcknowledgmentArray.length );
+        return ImplementationAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchClaimAcknowledgment(searchStr: string) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimAcknowledgment';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: ClaimAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimAcknowledgmentArray: ClaimAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimAcknowledgmentArray.length );
+        return ClaimAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchTransactionFields() {
+  console.log('Fetch TransactionFields with Auth ' );
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/TransactionFields';
+
+
+  return this.http2
+    .get<{ [key: string]: Claim }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        return responseData;
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+
+fetchDisplayColumns() {
+
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/DisplayColumns?userNm=' +  this.getCurrentUser();
+
+  console.log('Fetch DisplayColumns from  ' + url);
+  return this.http2
+    .get<{ [key: string]: DisplayColumns }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const dispArray: DisplayColumns[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            dispArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Display array: ' + dispArray.length );
+        return dispArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+saveDisplayColumns(dispCol: DisplayColumnsArray)
+{
+  dispCol.User =  this.getCurrentUser();
+  console.log('saveDisplayColumns ' +  this.getCurrentUser());
+
+  let url = 'http://lp-itfdev03:26973/Rest/Transactions/SaveDisplayColumns';
+
+  console.info('Post to SaveDisplayColumns: ' + url +" for " + dispCol.User);
+
+  return this.http.post<any>(url, dispCol)
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('saveDisplayColumns catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+fetchParentRecord(id: string, trans: string) {
+
+
+  let url = "http://lp-itfdev03:26973/Rest/Transactions/GetParentX12?id=" + id +"&transType=" + trans;
+
+  console.log('Fetch Parent X12 ' + url);
+  return this.http2
+    .get<{ [key: string]: ImplementationAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        console.info('return Parent X12 : ' + responseData[0].id );
+        return responseData[0];
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
 
   }
 

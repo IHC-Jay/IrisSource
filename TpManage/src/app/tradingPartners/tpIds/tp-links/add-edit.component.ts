@@ -6,6 +6,8 @@ import { FormsModule, ReactiveFormsModule, FormGroupDirective } from '@angular/f
 import { RestServiceComponent } from '../../../services/rest-service.component';
 import { EventListenerFocusTrapInertStrategy } from '@angular/cdk/a11y';
 import { tpLinks } from './tp-links';
+import { CreateNoteComponent } from './create-note/create-note.component';
+import { SingleNoteComponent } from './single-note/single-note.component';
 
 export class TransTypes
 {
@@ -13,6 +15,13 @@ export class TransTypes
   TransactionSetId:string;
   VERSION: string;
   Direction: string;
+}
+
+export class INotesData {
+  id: number;
+  Key: string;
+  Value: string;
+
 }
 
 @Component(
@@ -41,6 +50,8 @@ export class AddEditComponent implements OnInit {
     ownerTpIds = [];
     canRender = false;
 
+    allNotes: INotesData[] = [];
+
     trn: tpLinks;
 
     transactionTypes: TransTypes[];
@@ -61,6 +72,7 @@ export class AddEditComponent implements OnInit {
      public initializeData()
 {
   console.info("1. fetchTpIds");
+
   this.tpService.fetchOwnerTpIds().subscribe((res: any) => {
 
     res.forEach((entry) => {
@@ -82,7 +94,6 @@ export class AddEditComponent implements OnInit {
     async ngOnInit() {
       console.info("AddEditComponent ngOnInit");
 
-
       let arr =  this.route.snapshot.paramMap.keys
 
         this.parentTpId = this.route.snapshot.params['tpId'];
@@ -101,8 +112,6 @@ export class AddEditComponent implements OnInit {
           TransactionSetId: [''],
           Mode: ['', Validators.required],
           Ack: ['', Validators.required],
-          FilePath: [''],
-          FtpServer: [''],
           GsReceiverId: ['', Validators.required],
           GsSenderId: ['', Validators.required],
           IsaSenderId: ['', Validators.required],
@@ -110,6 +119,9 @@ export class AddEditComponent implements OnInit {
           Routing: ['', Validators.required],
           SNIP: ['', Validators.required],
           Separators   : ['|*^:', Validators.maxLength(4)],
+          UniqueId: [''],
+          allNotes: [''],
+          Active: ['']
       });
       this.initializeData();
 
@@ -144,9 +156,24 @@ export class AddEditComponent implements OnInit {
                   this.form.controls.TransType.setValue(ttype);
                   this.setTransactionSetId();
 
-                  break;
+                  // break;
                 }
+                if(key === 'CustomProp')
+                {
+
+                  for(var index in x[key])
+                  {
+                      console.log(index +". " + x[key][index].Key + "> " + x[key][index].Value);
+
+                      let cs = new INotesData();
+                      cs.id =  Number(index);
+                      cs.Key = x[key][index].Key;
+                      cs.Value = x[key][index].Value;
+                      this.allNotes.push(cs)
+                  }
+
                 }
+              }
              }
             );
 
@@ -211,7 +238,11 @@ export class AddEditComponent implements OnInit {
         this.ackTypes = ["Negative","Always","Never"];
         this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
-      this.form.controls.Ack.setValue(this.ackTypes[0]);
+      if(this.isAddMode)
+      {
+        this.form.controls.Ack.setValue(this.ackTypes[0]);
+        this.form.controls.SNIP.setValue('1')
+      }
     }
 
     setTransactionSetId()
@@ -225,6 +256,7 @@ export class AddEditComponent implements OnInit {
       console.info('TransType : ' +this.form.controls['TransactionSetId'].value);
       this.form.controls.Mode.setValue(this.modeTypes[0]);
       this.setRtBatch();
+
       if( this.transactionTypes[result].Direction === 'Inbound')
       {
         this.sendertpIdHelp = 'Parent TPId';
@@ -254,7 +286,8 @@ export class AddEditComponent implements OnInit {
     }
 
     private createUpdateTpLink(addFlg: boolean) {
-      console.info('Create TPLink for name: ' + this.form.value);
+      this.form.value.allNotes = this.allNotes;
+      console.info('Create TPLink for name: ' + this.form.value.allNotes.length +", allNotes: " + this.allNotes.length);
       this.tpService.addUpdateTpLink(this.form.value, addFlg)
           .pipe(first())
           .subscribe((res) => {
@@ -265,15 +298,15 @@ export class AddEditComponent implements OnInit {
             }
             else if( res.Status !== undefined) {
               console.error('createUpdateTpLink status: ' + res.Status);
-              if(res.Status ='OK')
+              if(res.Status == 'OK')
               {
                  this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId ]);
+                 retStr = 'OK'
               }
               else
               {
-                alert('createUpdateTpLink status: ' + res.Status);
+                   retStr = this.form.value.Link + ": " + res.Status;
               }
-              retStr = res.Status;
             }
             else{
               alert('createUpdateTpLink else: ' + res.Error);
@@ -287,6 +320,17 @@ export class AddEditComponent implements OnInit {
           })
           .add(() => this.loading = false);
 
+    }
+
+    onApplyNote(note: INotesData) {
+      if (this.allNotes.length === 0) {
+        const newNote = { ...note, id: 1 };
+        this.allNotes = [...this.allNotes, newNote];
+      } else {
+        const [{ id: newId }] = [...this.allNotes].reverse();
+        const newNote = { ...note, id: newId + 1 };
+        this.allNotes = [...this.allNotes, newNote];
+      }
     }
 
 

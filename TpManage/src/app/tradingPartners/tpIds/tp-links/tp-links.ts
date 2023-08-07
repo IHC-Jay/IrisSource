@@ -17,8 +17,8 @@ Routing: string;
 SNIP: string;
 Ack: string;
 Separators: string;
-FilePath: string;
-FtpServer: string;
+UniqueId: string;
 Active: boolean;
 User: string;
+CustomProp: {Key: string, Value: string }[];
 }

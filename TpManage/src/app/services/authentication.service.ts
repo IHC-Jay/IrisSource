@@ -6,6 +6,7 @@ import { map } from "rxjs/operators";
 import { User } from "../login/user";
 import {RestServiceComponent} from './rest-service.component';
 
+
 @Injectable({ providedIn: "root" })
 
 export class AuthenticationService {
@@ -19,11 +20,12 @@ export class AuthenticationService {
     );
     this.currentUser = this.currentUserSubject.asObservable();
 
+    console.info('AuthenticationService constructor');
+
   }
 
   public get currentUserValue(): User {
 
-    console.info('currentUserValue:' + this.currentUserSubject.value.username);
     return this.currentUserSubject.value;
   }
 
