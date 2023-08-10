@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.AscendResultsHl7ToCern">
 <Description>
 </Description>
@@ -35,7 +35,7 @@ Third field is last name. Fourth field is Degree (MD, etc.). </Description>
 </Parameter>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>AscendResultsHl7ToCernDefaultData</DefaultData>
 <Data name="AscendResultsHl7ToCernDefaultData">
 <Subscript>"AscendResultsHl7ToCern"</Subscript>
@@ -68,9 +68,12 @@ BPL Definition</Description>
 <property name='ResultDomain' type='%String' initialexpression='"552"' instantiate='0' />
 <property name='UnitDomain' type='%String' initialexpression='"1110"' instantiate='0' />
 <property name='ResultToSkipDomain' type='%String' initialexpression='"529755181"' instantiate='0' />
+<property name='ObrToSkipDomain' type='%String' initialexpression='"530358968"' instantiate='0' />
+<property name='Obr4Ncid' type='%String' instantiate='0' />
+<property name='Obr4IsMember' type='%String' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='1750' >
-<scope xpos='200' ypos='250' xend='200' yend='1650' >
+<sequence xend='200' yend='2100' >
+<scope xpos='200' ypos='250' xend='200' yend='2000' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <code name='Check ReplyCodeActions' xpos='200' ypos='450' >
 <![CDATA[ $$$TRACE("Getting Reply Code Actions.")
@@ -121,20 +124,51 @@ BPL Definition</Description>
     set context.errorStatus=tempStatus
     }]]]]><![CDATA[>
 </code>
-<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='850' xend='200' yend='1400' >
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='850' xend='200' yend='1750' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1000' />
-<transform name='Lab Transform' class='IHC.ITF.Transform.Dtl.AscendResultsHl7ToCern' source='request' target='response' xpos='470' ypos='1100' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<code name='check for OBR&apos;s to send' xpos='470' ypos='1100' >
+<![CDATA[ set obr4=request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:UniversalServiceID.alternateidentifier")
+ set obr4Ncid=##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getNcidFromRep(obr4,context.OrderDomain,context.ResultContext,context.HddTargetConfigName,.process)
+ if ((obr4Ncid["ITFCOMMON:10109") || (obr4Ncid["Web service returned(error):")){
+    $$$TRACE("HDD Call Returned Error")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call return error unable to continue, shutting down. Error returned: "_obr4Ncid)
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }elseif (obr4Ncid=""){
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid OBR-4: ["_obr4_"], unable to map to ncid using context "_context.ResultContext_" and domain "_context.OrderDomain_". Skipping the record.")
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }else {
+    set context.Obr4Ncid = obr4Ncid
+ }
+ set obr4IsMember = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).isMember(context.ObrToSkipDomain,obr4Ncid,context.HddTargetConfigName,.process)
+ if ((obr4IsMember["ITFCOMMON:10109") || (obr4IsMember["Web service returned(error):")){
+    $$$TRACE("HDD Call Returned Error")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName, "Hdd call returned error unable to continue, shutting down. Error returned: "_obr4IsMember)
+    Throw ##class(%Exception.StatusException).ThrowIfInterrupt(status)
+ }else {
+    set context.Obr4IsMember = obr4IsMember
+ } ]]]]><![CDATA[>
+</code>
+<if name='result to send?' condition='context.Obr4IsMember =1' xpos='470' ypos='1200' xend='470' yend='1650' >
+<true>
+<code name='Skip record' xpos='470' ypos='1350' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "No data to send. Skipping record.")]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<transform name='Lab Transform' class='IHC.ITF.Transform.Dtl.AscendResultsHl7ToCern' source='request' target='response' xpos='740' ypos='1350' />
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='740' ypos='1450' xend='200' yend='350' >
 <call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='470' ypos='1300' >
+<code name='Reset Error' xpos='740' ypos='1550' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
+</false>
+</if>
 </true>
 <false>
 <trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='1000' />
@@ -144,7 +178,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall name='catch errors' xpos='200' ypos='1500' xend='200' yend='350' >
+<catchall name='catch errors' xpos='200' ypos='1850' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
