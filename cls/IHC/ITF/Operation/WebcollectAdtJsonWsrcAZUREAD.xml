@@ -31,15 +31,9 @@ Build Https Request for Webcollect</Description>
 	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
 	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
 	
-	/*
-	Set httprequest.Server = ..HTTPServer
-	Set httprequest.Location = ..URL
-	Set httprequest.SSLConfiguration = ..SSLConfig
-	
-	*/
+		
 	Set httprequest.Https="1"
 	
-	//Set httprequest.ContentType="application/json"
 	do httprequest.SetHeader("Content-Type","application/json")
 	
 	do httprequest.SetHeader("Authorization",pRequest.authToken)
@@ -49,26 +43,34 @@ Build Https Request for Webcollect</Description>
     try	{
      Set writer=##class(%Net.MIMEWriter).%New()
      Set status=writer.OutputToStream(httprequest.EntityBody)
-     s postStatus = httprequest.Post()    
+     s postStatus = httprequest.Post(httprequest.Location)
+
     $$$TRACE("Resp Status:  "_postStatus)
     if (postStatus =1){
 	    $$$TRACE(" Webcollect Azure service..Post Successful.")   
-	    set len = httprequest.HttpResponse.ContentLength     
+	    set len = httprequest.HttpResponse.ContentLength  
+	    $$$TRACE(" len: "_len)
+	       
     	set respData = httprequest.HttpResponse.Data.Read()
-    	$$$TRACE("RESP DATA :  "_respData)   
-    /*	set indexMSA = $F(respData, "MSA|AA")    	  
-    	if (indexMSA > 0){
-	    	$$$TRACE("SUCCESS!!!..Ack received from McKesson Retail. "_respData)   
-		}else{
-			set errTxt = " SKIP. ERROR!!!..NACK received from McKesson Retail. RESPONSE: ["_respData_"]"
-			$$$TRACE("ERROR!!!..NACK received from McKesson Retail. "_respData)   				
-			Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(..%ConfigName,errTxt) 
-			set tSC = $$$OK				    
-		}*/
+    	$$$TRACE(" respData: "_respData)
+    	set code = httprequest.HttpResponse.StatusCode   
+    	$$$TRACE(" respData: "_respData)
+    	 
+    
+    	$$$TRACE("RESP DATA :  "_respData_" Status Code :"_code) 
+    	
+    	set response=httprequest.HttpResponse
+       	$$$TRACE("StatusLine: "_response.StatusLine)  
+        do ..constructResponse(response,.jwtResponse)
+          
+        set pResponse=jwtResponse
+      
+   
     }else{	
           set errTxt = " RETRY. Webcollect service post request failed."    
           $$$TRACE(" Post Failed.. " _ errTxt)      	
-          set tSC = $$$ERROR( 6246, "RETRY. Webcollect Http service post request failed. ")          
+          set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(..%ConfigName,errTxt) 
+                   
 	  }
     }
 	catch e
@@ -76,9 +78,27 @@ Build Https Request for Webcollect</Description>
 		 $$$TRACE(" Unknown Exception: " _ e)
 		 set errTxt = $System.Status.GetErrorText("Unknown Exception while calling Webcollect Https service. "_e)		 
 		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errTxt)	  
-		 set tSC = $$$OK		  		 		 
+		 		  		 		 
 	}    
 	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="constructResponse">
+<Internal>1</Internal>
+<FormalSpec>pHttpResponse:%Net.HttpResponse,pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=$$$OK
+	If $IsObject(pHttpResponse.Data) {
+		Set tStream=pHttpResponse.Data
+	} Else {
+		Set tStream=##class(%GlobalBinaryStream).%New()
+		Set tSC=tStream.Write(pHttpResponse.Data)  Quit:$$$ISERR(tSC) tSC
+	}
+	Set pResponse=##class(EnsLib.HTTP.GenericMessage).%New(tStream,,pHttpResponse)
+	Do pResponse.HTTPHeaders.SetAt(pHttpResponse.StatusLine,"StatusLine")
+	Quit tSC
 ]]></Implementation>
 </Method>
 
