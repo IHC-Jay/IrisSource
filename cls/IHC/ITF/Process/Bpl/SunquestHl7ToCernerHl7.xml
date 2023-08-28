@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.SunquestHl7ToCernerHl7">
 <Description>
 Bpl split Hl7 Batch to single Hl7 Messgae</Description>
@@ -8,12 +8,16 @@ Bpl split Hl7 Batch to single Hl7 Messgae</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>64019,36853.034402</TimeCreated>
 
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3050' width='2000' >
+<process language='objectscript' request='Ens.Request' height='3050' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
@@ -34,9 +38,20 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='cernerTransformedMsg' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='isInterHospitalRecord' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='InterHospitalMRNandFIN' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='InterHospitalMessage' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='25000' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1550' >
-<scope xpos='200' ypos='250' xend='200' yend='1450' >
+<sequence xend='200' yend='2000' >
+<scope xpos='200' ypos='250' xend='200' yend='1900' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -75,7 +90,7 @@ BPL Definition</Description>
  	  ]]]]><![CDATA[>
 </code>
 <assign name="get Receving Fac" property="context.batchFacilityID" value="request.{MSH:6}" action="set" xpos='200' ypos='650' />
-<if name='Patient Location = Central Lab (153)' condition='context.batchFacilityID="153"' xpos='200' ypos='750' xend='200' yend='1200' >
+<if name='Patient Location = Central Lab (153)' condition='context.batchFacilityID="153"' xpos='200' ypos='750' xend='200' yend='1650' >
 <true>
 <code name='Filter the Message' xpos='200' ypos='900' >
 <![CDATA[  $$$TRACE("Skip message for Central Lab...") 
@@ -92,10 +107,112 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
+<code name='Check InterHospital Billing' xpos='470' ypos='1200' >
+<![CDATA[ 
+ /* Changes for AIKB-17596
+ 
+   LOGIC USED :
+          Lookup table contains MSH-6 value as Key and each FT1-17 value and corresponding MRN and FIN separated by "-" .each FT1-17 value is separated by ","
+          (Example :  
+                    Key - 120
+                    Value - " LO-648853045:1251741158,MK-99999:1111111 " )
+        
+        1. First get corresponding value from lookup table if available 
+        2. Get count of "," in the lookup table value to see if that key contains more than one matching FT1-17 values
+        3. For loop with comma count and do a PIECE condition to split the each values by "," ( if no "," is present PIECE will still return back the whole original value)
+        4.Split the first resulting value using "-" to get the FT1-17 value to see if it matches with the message's FT1-17,if it matches we set Interhospital billing flag 
+        5.Split the second resulting value using "-" to get the corresponding MRN and FIN value to send for the interhospital billing
+        
+          
+  */        
+ 
+ set Msh6=request.GetValueAt("MSH:Receivingfacility")
+ set FT117=request.GetValueAt("FT1(1):Feeschedule")
+   
+     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SunquestHl7ToCernerHl7.Lookup.InterHospitalFacility", Msh6, .retVal )
+
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) 
+  {       
+    $$$TRACE("MSH-6 value not found in Table. Not a InterHospital Record")
+    set context.isInterHospitalRecord = 0
+  } 
+  else
+  {
+    // get the actual Value from Lookup table
+    set actualLookupvalue = retVal
+    $$$TRACE("value of actualLookupvalue from table is : "_actualLookupvalue )
+    
+    // Get number of times "," appears in the actualLookupvalue (NOTE: if no comma present it still returns 1)
+    set commacount = $LENGTH(actualLookupvalue,",")
+     $$$TRACE(" no of time comma occurs is : "_commacount )
+    
+     
+     FOR i=1:1:commacount {
+       
+        set lookupvalue= $PIECE(actualLookupvalue,",",i)  // Note : if no comma is in actualLookupvalue , PIECE returns the whole actualLookupvalue as it is
+         $$$TRACE("value of lookupvalue  is : "_lookupvalue )
+         
+         //Get FT1-17 value from lookup table by splitting with -
+      set FT117LookupValue= $PIECE(lookupvalue,"-",1)
+      $$$TRACE("value of FT117LookupValue is : "_FT117LookupValue)
+   
+      //Get Interhospital MRN and FIN value from lookup table by splitting with -
+      set context.InterHospitalMRNandFIN = $PIECE(lookupvalue,"-",2)
+      $$$TRACE("value of context.InterHospitalMRNandFIN is : "_context.InterHospitalMRNandFIN)
+   
+   
+    
+      // Check if FT1-17 value is present in Lookup table value
+      if ($FIND(FT117LookupValue, FT117 ) > 0)
+      {
+         $$$TRACE("FT117LookupValue contains FT1-17 value in it. It is a InterHospital Record")
+         set context.isInterHospitalRecord = 1
+         quit
+      }
+      else
+      {
+        $$$TRACE("LookupValue Does NOT contains FT-17 value in it. Not a InterHospital Record")
+        set context.isInterHospitalRecord = 0
+      }
+    
+       
+       }
+  
+  }
+  
+  $$$TRACE("Value of context.isInterHospitalRecord is : "_context.isInterHospitalRecord)
+  $$$TRACE("Value of context.InterHospitalMRNandFIN is : "_context.InterHospitalMRNandFIN )]]]]><![CDATA[>
+</code>
+<if name='isInterHospitalBilling' condition='context.isInterHospitalRecord = 1' xpos='470' ypos='1300' xend='470' yend='1550' >
+<true>
+<foreach name='Send Interhospital Billing Message' property='context.targetList' key='context.targetConfigIndex' xpos='605' ypos='1450' xend='200' yend='450' >
+<code name='Create inter-hospital message' xpos='200' ypos='250' >
+<![CDATA[ 
+  $$$TRACE("Prepare for Inter-hospital message send")
+
+ set context.InterHospitalMessage = context.cernerTransformedMsg.%ConstructClone(1)
+ 
+ set newMRN  = $PIECE(context.InterHospitalMRNandFIN,":",1)
+ set newPatientAccountNumber = $PIECE(context.InterHospitalMRNandFIN,":",2)
+ $$$TRACE("newMRN value is : "_newMRN)
+ $$$TRACE("newPatientAccountNumber value is : "_newPatientAccountNumber)
+
+ do context.InterHospitalMessage.SetValueAt(newMRN, "PID:PatientIDInternalID(1).PatientID")
+ do context.InterHospitalMessage.SetValueAt(newPatientAccountNumber, "PID:PatientAccountNumber.PatientID")
+]]]]><![CDATA[>
+</code>
+<call name='Call Activity' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='350' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.InterHospitalMessage" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+</if>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1300' xend='200' yend='350' >
+<catchall xpos='200' ypos='1750' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ 
@@ -108,9 +225,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Library.CacheStorage</Type>
-</Storage>
 </Class>
 </Export>
