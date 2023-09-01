@@ -4,7 +4,8 @@
 
 export const environment = {
   production: true,
-  apiUrl: 'http://lp-itfdev03:26973/rest/TpManage/'
+  tpUrl: 'http://lp-itfdevvp2:26973/rest/TpManage/',
+  transUrl: 'http://lp-itfdevvp2:26973/Rest/Transactions/'
 };
 
 /*
