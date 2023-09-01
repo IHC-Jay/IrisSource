@@ -7,19 +7,17 @@
 
 <Method name="ProcessFilesInDir">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pSourceDir:%String</FormalSpec>
+<FormalSpec>pSourceDir:%String,pWildCard:%String="*"</FormalSpec>
 <Implementation><![CDATA[
- 
- set pWildCard = "*"
- 
- 
+    WRITE !, "**** Process X12 files in: " _ pSourceDir
+    set numFile = 0
 	if ( ##class(%File).DirectoryExists(pSourceDir))
 	{
 	
 		Set tSC = ##class(%File).FileSetExecute(.tHandle, pSourceDir, pWildCard)
 
 		If $$$ISOK(tSC) {
-			set numFile = 0
+			
 			Set tAtEnd = 0
 			For {
 				Set tSC = ##class(%File).FileSetFetch(.tHandle, .tRow, .tAtEnd)
@@ -35,21 +33,21 @@
 				// 32768: 0x8000 - regular file
 				if ( $BIT($FACTOR(attr),16) = 1) // Regular file
 				{
-					set status =  messages.Open("RU")
 					
-					set x12Data = messages.Read(320000, .sc)
-					WRITE !, "**** Process X12 file: " _ $List(tRow, 1) _", " _ $List(tRow, 3) _", string #" _ $L(x12Data)
+					WRITE !, "**** Process X12 file: " _ $List(tRow, 1) _", " _ $List(tRow, 3) 
+										 
+					Do ..ProcessFile($List(tRow, 1))
 					
-					do messages.Close() 
-					Do ..ProcessX12(x12Data, $List(tRow, 1))
-					If tAtEnd Quit
 					set numFile = numFile + 1
+					
+					If tAtEnd Quit
 				}
 			}	
 			Set tSC = ##class(%File).FileSetClose(.tHandle)
 		}
-		WRITE !, "Processed " _ numFile _ " files"
+		
 	}
+	WRITE !, "Processed " _ numFile _ " files in: " _ pSourceDir
 ]]></Implementation>
 </Method>
 
@@ -57,31 +55,74 @@
 <ClassMethod>1</ClassMethod>
 <FormalSpec>fileName:%String</FormalSpec>
 <Implementation><![CDATA[
- 
+ 	set x12Data = ""
 	set file = ##class(%File).%New(fileName)
 	set status =  file.Open("RU")
-	if ($$$ISOK(status))
+	while ($$$ISOK(status))
 	{
-		set x12Data = file.Read(320000, .sc)
-		WRITE !, "**** Process X12 file: " _ fileName _", string #" _ $L(x12Data)
-
-		do file.Close() 
-		Do ..ProcessX12(x12Data, fileName)
+		set len = 320000
+		set x12Data = x12Data _ file.Read(.len, .status)
+		
+		if ((len < 320000) || ($$$ISERR(status)))
+		{
+			WRITE !, "Completed reading the file: " _ status _ "< length: " _ len
+			QUIT
+		}
 	}
+	do file.Close()
+	WRITE !, "**** Process X12 file: " _ fileName _", string #" _ $L(x12Data)
+	if ($L(x12Data) > 105) // Minimum X12 file length
+	{
+		 
+		Do ..ProcessX12String(x12Data, fileName)
+	}
+
 	WRITE !, "Processed " _ fileName
 ]]></Implementation>
 </Method>
 
-<Method name="ProcessX12">
+<Method name="ProcessStream">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>x12Data:%String,fileName:%String</FormalSpec>
+<FormalSpec>fileStream:%Library.FileCharacterStream,fileName:%String=""</FormalSpec>
+<Implementation><![CDATA[
+ 	set x12Data = ""
+	do
+	{
+		set len = 32000
+		set x12Data = x12Data _ fileStream.Read(.len, .sc)
+		$$$TRACE( "**** Read X12 stream: " _ $L(x12Data) _ ", read: " _ len _", stat: " _ sc)
+
+		
+	} while(len >= 0 && sc = 1)
+	
+	$$$TRACE( "Process X12, size:" _ $L(x12Data))
+	Do ..ProcessX12String(x12Data, fileName)
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12String">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Data:%String,fileName:%String=""</FormalSpec>
 <Implementation><![CDATA[
 	#dim source As EnsLib.EDI.X12.Document
-	set comColStr ="", comValStr = "", isaRowId = ""
+
 	 set source = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
 	 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
 	 {
- 		 	 
+		 Do ..ProcessX12Doc(source, fileName)
+	 }
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12Doc">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>source:EnsLib.EDI.X12.Document,fileName:%String=""</FormalSpec>
+<Implementation><![CDATA[
+
+	set comColStr ="", comValStr = "", isaRowId = ""
+
+	 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	 {		 	 
 		 set stNum = $FIND(source.RawContent, source.SegmentTerminator _"ST")
 		 set transType = $E(source.RawContent, stNum+1, stNum + 3)
  		 WRITE !, source.Name _ " - X12 data: size: " _ source.FullSizeGet() _", TypeVersion: "_ source.TypeVersion _ ", Separators: "_source.Separators _", Transaction Type: " _ transType
@@ -90,8 +131,17 @@
 			WRITE !, "Create global: X12Data" _ transType
 		 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 0
  		 }
+ 		 set propList = ""
+ 		 if ( (transType = "277") && (source.RawContent [ "005010X214"))
+			{
+				set propList = ..GetPropertyList("277CA")
+			}
+			else
+			{
+				set propList = ..GetPropertyList(transType)
+			}
 
-		 set propList = ..GetPropertyList(transType)
+		 
 		 if (propList.Count() = 0)
 		 {
 			 WRITE !, " Error in reading the table: " _ transType
@@ -110,6 +160,8 @@
 			}
 									
 			WRITE !, "ISA - IDs: " _ source.GetValueAt("ISA:InterchangeSenderID")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID")
+			//Store ISA SQL for GS level
+			set isaComColStr = comColStr , isaComValStr= comValStr
 			
 			Set k1="",tSC=1
 			For {
@@ -117,6 +169,7 @@
 				if ('$IsObject(k1))
 				{
 					WRITE !, "-- No more FunctionalGroups --"
+					
 					QUIT
 				}
 				Set source.FunctionalGroups(k1)=k1
@@ -131,10 +184,17 @@
 					return
 				}
 				WRITE !, k1.DocType _ " GS: " _ ", SegmentTerminator: "_source.SegmentTerminator  _ ", ChildCount: " _ source.FunctionalGroups(k1).ChildCount _ " = " _source.FunctionalGroups(k1).RawContent 
-				WRITE !, "GS: SegCount: "_source.SegCount  _ ", GroupControlNumber = " _ source.FunctionalGroups(k1).GetValueAt("GS:GroupControlNumber") _ ", " _ source.FunctionalGroups(k1).GetValueAt("GS:VersionReleaseIndustryIdenti")
-									
-				
-				Do ..GetSegFields(fileName, transType, source.FunctionalGroups(k1), propList, .comColStr, .comValStr, .isaRowId)
+				WRITE !, "Process GS: SegCount: "_source.SegCount  _ ", GroupControlNumber = " _ source.FunctionalGroups(k1).GetValueAt("GS:GroupControlNumber") _ ", " _ source.FunctionalGroups(k1).GetValueAt("GS:VersionReleaseIndustryIdenti")
+				//Reset the SQL to ISA level
+				set comColStr =isaComColStr, comValStr=isaComValStr				
+				if ( (transType = "277") && (source.RawContent [ "005010X214"))
+				{
+					Do ..GetSegFields(fileName, "277CA", source.FunctionalGroups(k1), propList, .comColStr, .comValStr, .isaRowId)
+				}
+				else
+				{
+					Do ..GetSegFields(fileName, transType, source.FunctionalGroups(k1), propList, .comColStr, .comValStr, .isaRowId)
+				}
 				Set k2="",tSC=1
 				set numFldinX12 =0
 				For {
@@ -150,6 +210,11 @@
 						WRITE !, "Error Transaction types are not matching: " _ transType _" '= " _ source.FunctionalGroups(k1).TransactionSets(k2).GetValueAt("1:1")
 						QUIT
 					}
+					if (fileName = "")
+					{
+						set fileName = $ZSTRIP(source.GetValueAt("ISA:InterchangeSenderID"), "<>WC")   _"-" _ $ZSTRIP(source.GetValueAt("ISA:InterchangeReceiverID"), "<>WC") _ "-" _ $ZSTRIP(source.GetValueAt("ISA:InterchangeControlNumber"), "<>WC")_ "-" _ $REPLACE($ZDATETIME($HOROLOG,3, 1), " " , "-") _"." _ transType
+					}
+
 					if (transType = "837")
 					{
 						if (source.FunctionalGroups(k1).TransactionSets(k2).RawContent [ "005010X222")
@@ -210,7 +275,43 @@
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[fileName:%String,transType:%String,source:EnsLib.EDI.X12.Document,propList:%List,&colStr:%String,&valStr:%String,&isaRowId:%String]]></FormalSpec>
 <Implementation><![CDATA[
-	
+	if (transType = "277CA")
+	{
+		WRITE !, "Process transaction: " _ transType
+		Do ..ProcessOtherSegFields(fileName, transType, source, propList, .colStr, .valStr, .isaRowId) 
+
+	}
+	elseif (transType [ "27")
+	{
+		WRITE !, "Process transaction: " _ transType
+		Do ..Process27xSegFields(fileName, transType, source, propList, .colStr, .valStr, .isaRowId) 
+
+	}
+	elseif (transType [ "835")
+	{
+		WRITE !, "Process transaction: " _ transType
+		Do ..Process835SegFields(fileName, transType, source, propList, .colStr, .valStr, .isaRowId)
+
+	}
+	elseif (transType [ "837")
+	{
+		WRITE !, "Process transaction: " _ transType
+		Do ..Process837SegFields(fileName, transType, source, propList, .colStr, .valStr, .isaRowId) 
+
+	}
+	else
+	{
+		WRITE !, "Process transaction: " _ transType
+		Do ..ProcessOtherSegFields(fileName, transType, source, propList, .colStr, .valStr, .isaRowId) 
+
+	}
+]]></Implementation>
+</Method>
+
+<Method name="Process837SegFields">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[fileName:%String,transType:%String,source:EnsLib.EDI.X12.Document,propList:%List,&colStr:%String,&valStr:%String,&isaRowId:%String]]></FormalSpec>
+<Implementation><![CDATA[
 	set loopHL(1) = ""
 	set hlInd = 0
 	set parentHlInd = 0
@@ -226,6 +327,8 @@
 		set seg = source.GetSegmentAt(segNum)
 		set segPath = source.GetSegmentPath(segNum, .segStat)
 		
+		
+		
 		set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
 		if $$$ISERR(stat)
 		{
@@ -238,7 +341,7 @@
 			QUIT
 		}
 		
-		if (seg.Name = "HL")
+		if (seg.Name = "HL") 
 		{
 			set prevParentHlInd = parentHlInd
 			set prevHlInd = hlInd
@@ -253,10 +356,11 @@
 			}
 			
 			set numFldinX12 = 1
-			WRITE !, " -- New Loop# " _ parentHlInd _","_ hlInd _ ", Data: " _ source.GetValueAt(segPath)
+			// WRITE !, " -- New Loop# " _ parentHlInd _","_ hlInd _ ", Data: " _ source.GetValueAt(segPath) _", TYPE: " _ source.GetValueAt(segPath_":3")
 			set loopHL(parentHlInd, hlInd) = source.GetValueAt(segPath) _ source.SegmentTerminator
-			
-		}
+			set loopHL(parentHlInd, hlInd, "Type") = source.GetValueAt(segPath_":4")
+		}	
+		
 		elseif (hlInd > 0)
 		{
 			set loopHL(parentHlInd,hlInd) = loopHL(parentHlInd,hlInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
@@ -278,7 +382,7 @@
 		for fldNum=1:1:seg.Count
 			{
 				set fldKey = pContents(fldNum,"name") 
-				WRITE !, source.Name _ "." _ fldNum _ "- " _ segPath _". fldKey: " _ fldKey
+				// WRITE !, "    " _ source.Name _ "." _ fldNum _ "- " _ segPath _". fldKey: " _ fldKey  _ ", Data: " _ source.GetValueAt(segPath_fldKey)
 			
 				Do ..GetX12FldName($REPLACE(fldKey, ":", ""), segPath_fldKey, .p1, .p2)
 				set colFound = 0
@@ -303,9 +407,9 @@
 				 	}
 			 	}
 			 	
-			 	if (colFound = 1)
+			 	if (colFound = 1) 
 			 	{
-				 	WRITE !, "Store column: " _ parentHlInd_","_hlInd_","_numFldinX12_"= "_ propertyNm _ "=>" _ source.GetValueAt(segPath_fldKey)
+				 	// WRITE !, "Store column: " _ parentHlInd_","_hlInd_","_numFldinX12_"= "_ propertyNm _ "=>" _ source.GetValueAt(segPath_fldKey)
 				 	set loopHL(parentHlInd,hlInd,numFldinX12, "Col") = propertyNm
 				 	set loopHL(parentHlInd,hlInd,numFldinX12, "Val") = "'" _ $REPLACE($ZSTRIP(source.GetValueAt(segPath_fldKey), "<>WC"),"'", "''") _ "'"
 
@@ -315,7 +419,862 @@
 				
 	}
 	
+	/***
+	// PrintArray
 	
+	
+	SET key1=$ORDER(loopHL(""))
+	
+	WHILE (key1'="") {
+		WRITE !, "- " _ $GET(loopHL(key1))	
+		SET key2=$ORDER(loopHL(key1, ""))
+		WHILE (key2'="") {
+			WRITE !, " -- " _ $GET(loopHL(key1,key2))
+		   SET key3=$ORDER(loopHL(key1, key2,""))
+		   WHILE (key3'="") {
+			  WRITE !, "  --- " _ key1 _", "_ key2_", "_ key3_", "_ $GET(loopHL(key1, key2,key3, "Col")) 
+		   // Get next subscript 
+		     SET key3 = $ORDER(loopHL(key1, key2, key3))
+			}
+		    SET key2=$ORDER(loopHL(key1, key2))
+		}
+		SET key1=$ORDER(loopHL(key1))
+	}
+	// -- PrintArray
+	***/
+	WRITE !,"-- PROCESSING " _ transType _ " -- "
+	// Get all records to be stored
+	set numFldinX12 = 0
+	set numRecs = 0
+	set prevKey3Col = "" 
+	set prevKey3Val = ""
+	set key2Col(1) = ""
+	set key2Val(1) = ""
+	
+	// Get all records to be stored
+	SET key1=$ORDER(loopHL(""))
+	
+	WHILE (key1'="") {
+				
+		SET key2=$ORDER(loopHL(key1, ""))
+		WHILE (key2'="") {
+		   	
+		   SET key3=$ORDER(loopHL(key1, key2,""))
+		   WHILE (key3'="") {
+			   if (key3 = "Type")
+			   {
+				   SET key3 = $ORDER(loopHL(key1, key2, key3))
+				   continue
+			   }
+			   // Check for ISA, GS and Loop A - For all Records
+			   if (key1 = 0) 
+			   {	
+   				  // WRITE !, source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") _ "-> " _ loopHL(key1, key2,key3, "Val")
+	
+			      if (colStr [ loopHL(key1, key2,key3, "Col"))
+				  {
+					     WRITE !, "Already exists in colStr: " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+					     WRITE !, prevKey3Col
+				  }
+				  else
+				  {		   
+				  		WRITE !, "Add colStr: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				  		set colStr =  colStr _ ", " _ loopHL(key1, key2,key3, "Col")
+				  		set valStr =  valStr _ ", " _ loopHL(key1, key2,key3, "Val")
+				  }
+
+				  if (prevKey3Col ="")
+			      {
+				    WRITE !, "Set prevKey3Col: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				     set prevKey3Col =  loopHL(key1, key2,key3, "Col")
+				     set prevKey3Val =  loopHL(key1, key2,key3, "Val") 
+
+			     }
+			     else
+			     {
+				     if ( ( $GET(loopHL(key1, key2,key3, "Col")) '= "" ) && (prevKey3Col [ loopHL(key1, key2,key3, "Col")))
+				     {
+					     WRITE !, "Already exists in SQL: " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+				     else
+				     {
+					    WRITE !, "Add prevKey3Col: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+
+				     	set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+				     	set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+			     }
+				     
+			   }
+			   else
+			   {
+				     // WRITE !, "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col")
+				     // set prevKey3Val = prevKey3Val _ "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				     if (prevKey3Col ="")
+				     {
+					     set prevKey3Col =  loopHL(key1, key2,key3, "Col")
+					     set prevKey3Val =  loopHL(key1, key2,key3, "Val") 
+
+				     }
+				     else
+				     {
+					     if (prevKey3Col [ loopHL(key1, key2,key3, "Col"))
+					     {
+						     WRITE !, "Already exists in SQL: " _ loopHL(key1, key2,key3, "Col")  _","_ loopHL(key1, key2,key3, "Val") 
+					     }
+					     else
+					     {
+						     // WRITE !, "Add to SQL: " _ loopHL(key1, key2,key3, "Col")
+						     set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+						     set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+					     }
+				     }
+				     set numFldinX12 = numFldinX12 + 1
+			   }
+		     // Get next subscript 
+		     SET key3 = $ORDER(loopHL(key1, key2, key3))
+		   }
+		   
+		    WRITE !, seg.Name _ "- Data - Loop# " _ key1 _","_ key2 _ ": " _ prevKey3Col _ "=> " _ prevKey3Val _ " / " _ colStr _ " / " _ valStr  _": " _ loopHL(key1, key2)
+		    WRITE !, key1 _","_ key2 _ "- TYPE: " _ $GET(loopHL(key1, key2, "Type"))
+		   	 
+		   	set addToChild = 0
+		   	if ((key1 = 1) && (key2 = 1))
+			{ 
+		   	 set addToChild = 1
+			}
+			if (key2 >= 2)
+			{
+				if ((key1 > 2) && ($GET(key2Col(key1)) '= "") && ($GET(key2Val(key1)) '= "")) // Get Parent information
+				{
+					 set colNm = $GET(key2Col(key1))
+					 if ( (colNm '= "") && (prevKey3Col [ colNm) )
+				     {
+					     WRITE !, "Add parent information, Already exists in SQL: " _ colNm _","_ $GET(key2Val(key1))
+				     }
+				     else
+				     {
+					     set prevKey3Col = prevKey3Col _","_ $GET(key2Col(key1))
+					     set prevKey3Val = prevKey3Val _","_ $GET(key2Val(key1))
+				     }
+
+				}
+				if ( $GET(loopHL(key1, key2, "Type")) = 0)
+				{
+					WRITE !, "InsertX12Data key2: " _ transType _" Loop# " _ key1 _","_ key2 _ ", Parent -> " _ colStr _","_ valStr
+					Do ..InsertX12Data(fileName, transType, prevKey3Col _  colStr, prevKey3Val _  valStr , loopHL(key1, key2), isaRowId) 
+					set key2Col(key2) = prevKey3Col
+					set key2Val(key2) = prevKey3Val
+
+					set numRecs = numRecs + 1
+				}
+				else  // There is a child record
+		     	{
+			     	// Add the information from parent to next segment
+				     set addToChild = 1
+				}
+
+
+			}
+			if (addToChild = 1)
+			{
+			     // set prevKey3Col =  prevKey3Col _ colStr
+				 // set prevKey3Val =  prevKey3Val _ valStr
+				 WRITE !, "Add to child: " _ prevKey3Col _ "=> " _ prevKey3Val  // _ " / " _ colStr _ " / " _ valStr 
+			}
+			else {			
+				set prevKey3Val = ""
+				set prevKey3Col = "" 
+			}
+		   SET key2=$ORDER(loopHL(key1, key2))
+		}
+		SET key1=$ORDER(loopHL(key1))
+	}
+	if (source.Name = "Interchange") 
+	{
+		WRITE !, source.Name _ ": Create Parent X12 Record" _  colStr _"> " _ valStr
+		set isaRowId = ..InsertX12Data(fileName, transType, $REPLACE(colStr,",", "",,1),  $REPLACE(valStr,",", "",,1), source.RawContent) 
+
+	}
+	elseif (source.Name = "Group")
+	{
+		WRITE !, source.Name _ ": Update Parent X12 Record" _  colStr _" -> " _ valStr
+		Do ..UpdateX12Data(transType, colStr,  valStr, source.RawContent, isaRowId) 
+		WRITE !, "GE- SQL for next ST: " _ colStr _ "-> " _ valStr
+
+	}
+	elseif (seg.Name = "SE") // More than one ST segment	
+	{
+		WRITE !, seg.Name _": Reset Parent Data, segment #" _ segNum
+		set colStr  = origColStr,  valStr = origValStr
+	}
+
+	WRITE !, source.Name  _" # of segments: " _ segNum _ ", GetSegFields: processed records: " _ numRecs _ ", HL segments: " _ numFldinX12 _ "; isaRowId= " _ isaRowId
+]]></Implementation>
+</Method>
+
+<Method name="Process835SegFields">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[fileName:%String,transType:%String,source:EnsLib.EDI.X12.Document,propList:%List,&colStr:%String,&valStr:%String,&isaRowId:%String]]></FormalSpec>
+<Implementation><![CDATA[
+	set loopClp(1) = ""
+	set clpInd = 0
+	set parentHlInd = 0
+
+
+	set numFldinX12 = 1
+	set origColStr  = colStr,  origValStr = valStr
+	
+	WRITE !, "GetSegFields: " _ source.Name  _" # of segments: " _ source.SegCountGet() _ ", GetSegFields: Start process " 
+	WRITE !, "GetSegFields: " _ colStr _" , " _   valStr
+	for segNum=1:1:source.SegCountGet()
+	{
+		
+		set seg = source.GetSegmentAt(segNum)
+		set segPath = source.GetSegmentPath(segNum, .segStat)
+				
+		set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
+		if $$$ISERR(stat)
+		{
+			WRITE !, stat
+			return
+		}
+		// WRITE !, "  -=-= " _ segPath _": " _ source.GetValueAt(segPath)
+		if ( (seg.Name = "IEA") || (seg.Name = "GE") )
+		{
+			QUIT
+		}
+		elseif (seg.Name = "SE")
+		{
+			set loopClp(parentHlInd, clpInd) = loopClp(parentHlInd, clpInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+			QUIT
+		}
+		
+		if (seg.Name = "BPR")
+		{
+			set colStr = origColStr,  valStr = origValStr
+			WRITE !, " -- New BPR " _ origColStr
+		}
+		if ( seg.Name = "CLP")
+		{
+			set clpInd = clpInd + 1
+			set numFldinX12 = 1
+			// WRITE !, " -- New Loop# " _ parentHlInd _","_ clpInd _ ", Data: " _ source.GetValueAt(segPath)
+			set loopClp(parentHlInd, clpInd) = "" // source.GetValueAt(segPath) _ source.SegmentTerminator
+
+		}
+		
+				
+		for fldNum=1:1:seg.Count
+			{
+				set fldKey = pContents(fldNum,"name") 
+				WRITE !, "    " _ source.Name _ "/" _ seg.Name _ "." _ fldNum _ "- " _ segPath _". fldKey: " _ fldKey _"=>" _ source.GetValueAt(segPath)
+				
+				// WRITE !, "    Data: " _ source.Name _ $DATA(loopClp(parentHlInd, clpInd))
+				if ((fldNum = 1) && ( ($DATA(loopClp(parentHlInd, clpInd)) = 1) || ($DATA(loopClp(parentHlInd, clpInd)) = 11) ) )
+				{
+					set loopClp(parentHlInd, clpInd) = loopClp(parentHlInd, clpInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+				}
+				Do ..GetX12FldName($REPLACE(fldKey, ":", ""), segPath_fldKey, .p1, .p2)
+				set colFound = 0
+			 	set propertyNm = ""
+			 	if (propList.Find(p1) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p1
+			 	}
+			 	elseif (propList.Find(p2) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p2
+			 	}
+			 	
+			 	
+			 	if (colFound = 1)
+			 	{
+				 	// WRITE !, "Store column: " _ parentHlInd_","_clpInd_","_numFldinX12_"= "_ propertyNm _ "=>" _ source.GetValueAt(segPath_fldKey)
+				 	set loopClp(parentHlInd,clpInd,numFldinX12, "Col") = propertyNm
+				 	set loopClp(parentHlInd,clpInd,numFldinX12, "Val") = "'" _ $REPLACE($ZSTRIP(source.GetValueAt(segPath_fldKey), "<>WC"),"'", "''") _ "'"
+
+				 	set numFldinX12 = numFldinX12 + 1 
+			 	}
+			}
+				
+	}
+	WRITE !,"-- PROCESSING " _ transType _ " -- "	
+	set numFldinX12 = 0
+	set numRecs = 0
+	set prevKey3Col = "" 
+	set prevKey3Val = ""
+	set key2Col(1) = ""
+	set key2Val(1) = ""
+	
+	// Get all records to be stored
+	set bprCol = "", bprVal = ""
+	SET key1=$ORDER(loopClp(""))
+	
+	WHILE (key1'="") {
+			
+		SET key2=$ORDER(loopClp(key1, ""))
+		WHILE (key2'="") {
+		   	
+		   SET key3=$ORDER(loopClp(key1, key2,""))
+		   WHILE (key3'="") {
+			   // Check for ISA, GS and Loop A and B 
+			   if (key1 = 0)
+			   {
+				   WRITE !, " -- loopClp key3 " _ key1 _", " _ key2	_", " _ key3	
+   				  WRITE !, source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopClp(key1, key2,key3, "Col") _ "-> " _ loopClp(key1, key2,key3, "Val")
+   				  
+
+				  if (colStr [ loopClp(key1, key2,key3, "Col"))
+				  {
+					     WRITE !, "Already exists in colStr: " _ loopClp(key1, key2,key3, "Col") _","_ loopClp(key1, key2,key3, "Val") 
+					     WRITE !, prevKey3Col
+				  }
+				  else
+				  {		   
+				  		set colStr =  colStr _ ", " _ loopClp(key1, key2,key3, "Col")
+				  		set valStr =  valStr _ ", " _ loopClp(key1, key2,key3, "Val")
+				  }
+				  
+   				    
+				  if (prevKey3Col ="")
+			      {
+				     set prevKey3Col =  colStr _ ", " _ loopClp(key1, key2,key3, "Col")
+				     set prevKey3Val =  valStr _ ", " _ loopClp(key1, key2,key3, "Val") 
+
+			     }
+			     else
+			     {
+				     if (prevKey3Col [ loopClp(key1, key2,key3, "Col"))
+				     {
+					     WRITE !, "Already exists in SQL: " _ loopClp(key1, key2,key3, "Col") _","_ loopClp(key1, key2,key3, "Val") 
+				     }
+				     else
+				     {
+				     	set prevKey3Col = prevKey3Col _","_ loopClp(key1, key2,key3, "Col")
+				     	set prevKey3Val = prevKey3Val _","_ loopClp(key1, key2,key3, "Val") 
+				     }
+			     }
+				 WRITE !, "key1 = 0:" _    prevKey3Col
+			   }
+			   else
+			   {
+				     WRITE !, "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopClp(key1, key2,key3, "Col")
+				     // set prevKey3Val = prevKey3Val _ "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopClp(key1, key2,key3, "Col") 
+				     if (prevKey3Col ="")
+				     {
+					     set prevKey3Col =  colStr _ ", " _ loopClp(key1, key2,key3, "Col")
+					     set prevKey3Val =  loopClp(key1, key2,key3, "Val") 
+
+				     }
+				     else
+				     {
+					     if (prevKey3Col [ loopClp(key1, key2,key3, "Col"))
+					     {
+						     WRITE !, "Already exists in SQL: " _ loopClp(key1, key2,key3, "Col")  _","_ loopClp(key1, key2,key3, "Val") 
+					     }
+					     else
+					     {
+						     set prevKey3Col = prevKey3Col _","_ loopClp(key1, key2,key3, "Col")
+						     set prevKey3Val = prevKey3Val _","_ loopClp(key1, key2,key3, "Val") 
+					     }
+				     }
+				     set numFldinX12 = numFldinX12 + 1
+			   }
+		     // Get next subscript 
+		     SET key3 = $ORDER(loopClp(key1, key2, key3))
+		   }
+		   	// WRITE !, seg.Name _ "- Data - Loop# " _ key1 _","_ key2 _ ": " _ prevKey3Col _ "=> " _ prevKey3Val _ " / " _ colStr _ " / " _ valStr  _": " _ loopClp(key1, key2)
+		    if ( ((seg.Name = "SE") || (seg.Name = "LX") ) && (key2 '= 0) && ($DATA(loopClp(key1, key2)) '= 0) )
+			{
+				
+									
+				WRITE !, "InsertX12Data: " _ seg.Name  _ ", " _ transType _ ", Seg: " _ seg.Name _ ", Loop# " _ key1 _","_ key2 _ ", Parent -> " _ $GET(key2Col(key1)) _","_ isaRowId
+				Do ..InsertX12Data(fileName, transType,  colStr,  valStr , $GET(loopClp(key1, key2)),  isaRowId)
+	 
+				set numRecs = numRecs + 1
+				set prevKey3Val = ""
+				set prevKey3Col = "" 
+				set colStr  = bprCol,  valStr = bprVal
+				
+				WRITE !, "Reset col,val: " _ bprCol + ", " _ prevKey3Val
+			 	
+
+			}
+			elseif (((seg.Name = "SE") || (seg.Name = "LX") ) && (key2 = 0) )
+			{
+				WRITE !, "SE key2 = 0: " _ colStr _", " _  valStr
+				set bprCol = colStr, bprVal = valStr
+			}
+			
+									
+			
+		   SET key2=$ORDER(loopClp(key1, key2))
+		}
+		SET key1=$ORDER(loopClp(key1))
+	}
+	WRITE !, "End of loops"
+	if (source.Name = "Interchange") 
+	{
+		WRITE !, source.Name _ ": Create Parent X12 Record" _  colStr _"> " _ valStr
+		set isaRowId = ..InsertX12Data(fileName, transType, $REPLACE(colStr,",", "",,1),  $REPLACE(valStr,",", "",,1), source.RawContent) 
+
+	}
+	elseif (source.Name = "Group")
+	{
+		WRITE !, source.Name _ ": Update Parent X12 Record" _  colStr _" -> " _ valStr
+		Do ..UpdateX12Data(transType, colStr,  valStr, source.RawContent, isaRowId) 
+		WRITE !, "GE- SQL for next ST: " _ colStr _ "-> " _ valStr
+
+	}
+	elseif (seg.Name = "SE") // More than one ST segment	
+	{
+		WRITE !, seg.Name _": Reset Parent Data, segment #" _ segNum
+		set colStr  = origColStr,  valStr = origValStr
+	}
+
+	WRITE !, source.Name  _" # of segments: " _ segNum _ ", GetSegFields: processed records: " _ numRecs _ ", CLP segments: " _ numFldinX12 _ "; isaRowId= " _ isaRowId
+]]></Implementation>
+</Method>
+
+<Method name="Process27xSegFields">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[fileName:%String,transType:%String,source:EnsLib.EDI.X12.Document,propList:%List,&colStr:%String,&valStr:%String,&isaRowId:%String]]></FormalSpec>
+<Implementation><![CDATA[
+	set loopHL(1) = ""
+	set hlInd = 0
+	set parentHlInd = 0
+	set prevHlInd = -1
+	set prevParentHlInd = -1
+	set numFldinX12 = 1
+	set origColStr  = colStr,  origValStr = valStr
+	
+	WRITE !, source.Name  _" # of segments: " _ source.SegCountGet() _ ", GetSegFields: Start process " 
+	for segNum=1:1:source.SegCountGet()
+	{
+		
+		set seg = source.GetSegmentAt(segNum)
+		set segPath = source.GetSegmentPath(segNum, .segStat)
+		
+				
+		set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
+		if $$$ISERR(stat)
+		{
+			WRITE !, stat
+			return
+		}
+		// WRITE !, "-=-= " _ source.GetValueAt(segPath)
+		if ( (seg.Name = "IEA") || (seg.Name = "GE") || (seg.Name = "SE"))
+		{
+			QUIT
+		}
+		elseif(seg.Name = "EB")
+		{
+			continue
+		}
+		
+		if (seg.Name = "HL") 
+		{
+			set prevParentHlInd = parentHlInd
+			set prevHlInd = hlInd
+			
+			
+			set hlInd = source.GetValueAt(segPath_":1")
+
+			set parentHlInd = source.GetValueAt(segPath_":2")
+			if (parentHlInd = "")
+			{
+				set parentHlInd = 1
+			}
+			
+			set numFldinX12 = 1
+			// WRITE !, " -- New Loop# " _ parentHlInd _","_ hlInd _ ", Data: " _ source.GetValueAt(segPath)
+			set loopHL(hlInd, parentHlInd) = source.GetValueAt(segPath) _ source.SegmentTerminator
+			set loopHL(hlInd, parentHlInd, "Type") = source.GetValueAt(segPath_":4")
+		}
+		
+		
+		elseif (hlInd > 0)
+		{
+			set loopHL(hlInd, parentHlInd) = loopHL(hlInd,parentHlInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+			// WRITE !, source.Name _ "." _ segNum _ ", Ind: " _ hlInd _ ": Data: " _ loopHL(hlInd)
+		}
+		else
+		{
+			if ($GET(loopHL(hlInd,parentHlInd)) = "")
+			{
+				set loopHL(hlInd,parentHlInd) =  source.GetValueAt(segPath) _ source.SegmentTerminator
+			}
+			else
+			{
+				set loopHL(hlInd, parentHlInd) =  loopHL(hlInd, parentHlInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+			}
+			// WRITE !, source.Name _ "." _ segNum _ ", Ind: " _ hlInd _ ": Data: " _ parentHlInd _"," _ hlInd
+		}
+		
+		for fldNum=1:1:seg.Count
+			{
+				set fldKey = pContents(fldNum,"name") 
+				// WRITE !, "    " _ source.Name _ "." _ fldNum _ "- " _ segPath _". fldKey: " _ fldKey
+			
+				Do ..GetX12FldName($REPLACE(fldKey, ":", ""), segPath_fldKey, .p1, .p2)
+				set colFound = 0
+			 	set propertyNm = ""
+			 	if (propList.Find(p1) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p1
+			 	}
+			 	elseif (propList.Find(p2) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p2
+			 	}
+			 	elseif (propList.Find($REPLACE(fldKey, ":", "")) > 0)
+			 	{
+				 	//Special case 999.AK2 has generic name: TransactionSetControlNumber
+				 	if ('((segPath [ "AK2") &&(source.Name = "999")))
+				 	{
+					 	set colFound = 1
+					 	set propertyNm = fldKey
+				 	}
+			 	}
+			 	
+			 	if (colFound = 1) // ((colFound = 1) || (fldKey [ "HierarchicalChildCode"))
+			 	{
+				 	// WRITE !, "Store column: " _ parentHlInd_","_hlInd_","_numFldinX12_"= "_ propertyNm _ "=>" _ source.GetValueAt(segPath_fldKey)
+				 	set loopHL(hlInd,parentHlInd,numFldinX12, "Col") = propertyNm
+				 	set loopHL(hlInd,parentHlInd,numFldinX12, "Val") = "'" _ $REPLACE($ZSTRIP(source.GetValueAt(segPath_fldKey), "<>WC"),"'", "''") _ "'"
+
+				 	set numFldinX12 = numFldinX12 + 1 
+			 	}
+			}
+				
+	}
+	
+	/*** PRINT Array ***
+	SET key1=$ORDER(loopHL(""))
+	
+	WHILE (key1'="") {
+		WRITE !, key1 _" - " _ $GET(loopHL(key1))	
+		SET key1=$ORDER(loopHL(key1))
+	}
+	WRITE !,"ORDER"
+	SET key1=$ORDER(loopHL(""))
+	
+	WHILE (key1'="") {
+		WRITE !, key1 _" - " _ $GET(loopHL(key1))	
+		SET key2=$ORDER(loopHL(key1, ""))
+		WHILE (key2'="") {
+			WRITE !,  " -- " _ key1 _ "." _ key2 _ ", Type: " _ $GET(loopHL(key1,key2, "Type")) _ ", DATA: " _ $DATA(loopHL(key1,key2)) _ " => " _ $GET(loopHL(key1,key2))
+			SET key3=$ORDER(loopHL(key1, key2,""))
+		   WHILE (key3'="") {
+			   WRITE !,  " -- " _ key1 _ "." _ key2 _ "." _ key3   _ ", DATA: " _ $DATA(loopHL(key1,key2, key3))
+			   SET key3 = $ORDER(loopHL(key1, key2, key3))
+		   }
+			SET key2=$ORDER(loopHL(key1, key2))
+		}
+		SET key1=$ORDER(loopHL(key1))
+	}
+    *** PRINT Array ***/
+    	
+  WRITE !,"-- PROCESSING " _ transType _ " -- "
+  
+  	// Get all records to be stored
+	set numFldinX12 = 0
+	set numRecs = 0
+	set prevKey3Col = "" 
+	set prevKey3Val = ""
+	set key2Col(1) = ""
+	set key2Val(1) = ""
+	
+	// Get all records to be stored
+	SET key1=$ORDER(loopHL(""))
+	
+	WHILE (key1'="") {
+				
+		SET key2=$ORDER(loopHL(key1, ""))
+		WHILE (key2'="") {
+		   	
+		   SET key3=$ORDER(loopHL(key1, key2,""))
+		   WHILE (key3'="") {
+			   if (key3 = "Type")
+			   {
+				   SET key3 = $ORDER(loopHL(key1, key2, key3))
+				   continue
+			   }
+			   // Check for ISA, GS and Loop A - For all Records
+			   if (key1 = 0) 
+			   {	
+   				  // WRITE !, source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") _ "-> " _ loopHL(key1, key2,key3, "Val")
+	
+			      if (colStr [ loopHL(key1, key2,key3, "Col"))
+				  {
+					     WRITE !, "Already exists in colStr: " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+					     WRITE !, prevKey3Col
+				  }
+				  else
+				  {		   
+				  		WRITE !, "Add colStr: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				  		set colStr =  colStr _ ", " _ loopHL(key1, key2,key3, "Col")
+				  		set valStr =  valStr _ ", " _ loopHL(key1, key2,key3, "Val")
+				  }
+
+				  if (prevKey3Col ="")
+			      {
+				    WRITE !, "Set prevKey3Col: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				     set prevKey3Col =  loopHL(key1, key2,key3, "Col")
+				     set prevKey3Val =  loopHL(key1, key2,key3, "Val") 
+
+			     }
+			     else
+			     {
+				     if ( ( $GET(loopHL(key1, key2,key3, "Col")) '= "" ) && (prevKey3Col [ loopHL(key1, key2,key3, "Col")))
+				     {
+					     WRITE !, "Already exists in SQL: " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+				     else
+				     {
+					    WRITE !, "Add prevKey3Col: " _ source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+
+				     	set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+				     	set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+			     }
+				     
+			   }
+			   else
+			   {
+				     // WRITE !, "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col")
+				     // set prevKey3Val = prevKey3Val _ "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
+				     if (prevKey3Col ="")
+				     {
+					     set prevKey3Col =  loopHL(key1, key2,key3, "Col")
+					     set prevKey3Val =  loopHL(key1, key2,key3, "Val") 
+
+				     }
+				     else
+				     {
+					     if (prevKey3Col [ loopHL(key1, key2,key3, "Col"))
+					     {
+						     WRITE !, "Already exists in SQL: " _ loopHL(key1, key2,key3, "Col")  _","_ loopHL(key1, key2,key3, "Val") 
+					     }
+					     else
+					     {
+						     // WRITE !, "Add to SQL: " _ loopHL(key1, key2,key3, "Col")
+						     set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+						     set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+					     }
+				     }
+				     set numFldinX12 = numFldinX12 + 1
+			   }
+		     // Get next subscript 
+		     SET key3 = $ORDER(loopHL(key1, key2, key3))
+		   }
+		   
+		    WRITE !, seg.Name _ "- Data - Loop# " _ key1 _","_ key2 _ ": " _ prevKey3Col _ "=> " _ prevKey3Val _ " / " _ colStr _ " / " _ valStr  _": " _ loopHL(key1, key2)
+		    WRITE !, key1 _","_ key2 _ "- TYPE: " _ $GET(loopHL(key1, key2, "Type"))
+		   	 
+		   	set addToChild = 0
+		   	if ((key1 = 1) && (key2 = 1))
+			{ 
+		   	 set addToChild = 1
+			}
+			if (key2 >= 2)
+			{
+				if ((key1 > 2) && ($GET(key2Col(key1)) '= "") && ($GET(key2Val(key1)) '= "")) // Get Parent information
+				{
+					 set colNm = $GET(key2Col(key1))
+					 if ( (colNm '= "") && (prevKey3Col [ colNm) )
+				     {
+					     WRITE !, "Add parent information, Already exists in SQL: " _ colNm _","_ $GET(key2Val(key1))
+				     }
+				     else
+				     {
+					     set prevKey3Col = prevKey3Col _","_ $GET(key2Col(key1))
+					     set prevKey3Val = prevKey3Val _","_ $GET(key2Val(key1))
+				     }
+
+				}
+				if ( $GET(loopHL(key1, key2, "Type")) = 0)
+				{
+					WRITE !, "InsertX12Data key2: " _ transType _" Loop# " _ key1 _","_ key2 _ ", Parent -> " _ colStr _","_ valStr
+					Do ..InsertX12Data(fileName, transType, prevKey3Col _  colStr, prevKey3Val _  valStr , loopHL(key1, key2), isaRowId) 
+					set key2Col(key2) = prevKey3Col
+					set key2Val(key2) = prevKey3Val
+
+					set numRecs = numRecs + 1
+				}
+				else  // There is a child record
+		     	{
+			     	// Add the information from parent to next segment
+				     set addToChild = 1
+				}
+
+
+			}
+			if (addToChild = 1)
+			{
+			     // set prevKey3Col =  prevKey3Col _ colStr
+				 // set prevKey3Val =  prevKey3Val _ valStr
+				 WRITE !, "Add to child: " _ prevKey3Col _ "=> " _ prevKey3Val  // _ " / " _ colStr _ " / " _ valStr 
+			}
+			else {			
+				set prevKey3Val = ""
+				set prevKey3Col = "" 
+			}
+		   SET key2=$ORDER(loopHL(key1, key2))
+		}
+		SET key1=$ORDER(loopHL(key1))
+	}
+	if (source.Name = "Interchange") 
+	{
+		WRITE !, source.Name _ ": Create Parent X12 Record" _  colStr _"> " _ valStr
+		set isaRowId = ..InsertX12Data(fileName, transType, $REPLACE(colStr,",", "",,1),  $REPLACE(valStr,",", "",,1), source.RawContent) 
+
+	}
+	elseif (source.Name = "Group")
+	{
+		WRITE !, source.Name _ ": Update Parent X12 Record" _  colStr _" -> " _ valStr
+		Do ..UpdateX12Data(transType, colStr,  valStr, source.RawContent, isaRowId) 
+		WRITE !, "GE- SQL for next ST: " _ colStr _ "-> " _ valStr
+
+	}
+	elseif (seg.Name = "SE") // More than one ST segment	
+	{
+		WRITE !, seg.Name _": Reset Parent Data, segment #" _ segNum
+		set colStr  = origColStr,  valStr = origValStr
+	}
+
+	WRITE !, source.Name  _" # of segments: " _ segNum _ ", GetSegFields: processed records: " _ numRecs _ ", HL segments: " _ numFldinX12 _ "; isaRowId= " _ isaRowId
+]]></Implementation>
+</Method>
+
+<Method name="ProcessOtherSegFields">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[fileName:%String,transType:%String,source:EnsLib.EDI.X12.Document,propList:%List,&colStr:%String,&valStr:%String,&isaRowId:%String]]></FormalSpec>
+<Implementation><![CDATA[
+	
+	set loopHL(1) = ""
+	set hlInd = 0
+	set parentHlInd = 0
+	set prevHlInd = -1
+	set prevParentHlInd = -1
+	set numFldinX12 = 1
+	set origColStr  = colStr,  origValStr = valStr
+	
+	WRITE !, source.Name  _" # of segments: " _ source.SegCountGet() _ ", GetSegFields: Start process " 
+	for segNum=1:1:source.SegCountGet()
+	{
+		
+		set seg = source.GetSegmentAt(segNum)
+		set segPath = source.GetSegmentPath(segNum, .segStat)
+		
+		
+		
+		set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
+		if $$$ISERR(stat)
+		{
+			WRITE !, stat
+			return
+		}
+		// WRITE !, "-=-= " _ source.GetValueAt(segPath)
+		if ( (seg.Name = "IEA") || (seg.Name = "GE") || (seg.Name = "SE"))
+		{
+			QUIT
+		}
+		
+		if (seg.Name = "HL") 
+		{
+			set prevParentHlInd = parentHlInd
+			set prevHlInd = hlInd
+			
+			
+			set hlInd = source.GetValueAt(segPath_":1")
+
+			set parentHlInd = source.GetValueAt(segPath_":2")
+			if (parentHlInd = "")
+			{
+				set parentHlInd = 1
+			}
+			
+			set numFldinX12 = 1
+			// WRITE !, " -- New Loop# " _ parentHlInd _","_ hlInd _ ", Data: " _ source.GetValueAt(segPath)
+			set loopHL(parentHlInd, hlInd) = source.GetValueAt(segPath) _ source.SegmentTerminator
+			
+		}
+		elseif (seg.Name = "CLP")
+		{
+			set prevParentHlInd = hlInd, parentHlInd = hlInd
+			set hlInd = hlInd + 1
+			set numFldinX12 = 1
+			WRITE !, " -- New Loop# " _ parentHlInd _","_ hlInd _ ", Data: " _ source.GetValueAt(segPath)
+			set loopHL(parentHlInd, hlInd) = source.GetValueAt(segPath) _ source.SegmentTerminator
+
+		}
+		
+		elseif (hlInd > 0)
+		{
+			set loopHL(parentHlInd,hlInd) = loopHL(parentHlInd,hlInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+			// WRITE !, source.Name _ "." _ segNum _ ", Ind: " _ hlInd _ ": Data: " _ loopHL(hlInd)
+		}
+		else
+		{
+			if ($GET(loopHL(parentHlInd,hlInd)) = "")
+			{
+				set loopHL(parentHlInd,hlInd) =  source.GetValueAt(segPath) _ source.SegmentTerminator
+			}
+			else
+			{
+				set loopHL(parentHlInd,hlInd) =  loopHL(parentHlInd,hlInd) _ source.GetValueAt(segPath) _ source.SegmentTerminator
+			}
+			// WRITE !, source.Name _ "." _ segNum _ ", Ind: " _ hlInd _ ": Data: " _ parentHlInd _"," _ hlInd
+		}
+		
+		for fldNum=1:1:seg.Count
+			{
+				set fldKey = pContents(fldNum,"name") 
+				// WRITE !, "    " _ source.Name _ "." _ fldNum _ "- " _ segPath _". fldKey: " _ fldKey
+			
+				Do ..GetX12FldName($REPLACE(fldKey, ":", ""), segPath_fldKey, .p1, .p2)
+				set colFound = 0
+			 	set propertyNm = ""
+			 	if (propList.Find(p1) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p1
+			 	}
+			 	elseif (propList.Find(p2) > 0)
+			 	{
+				 	set colFound = 1
+				 	set propertyNm = p2
+			 	}
+			 	elseif (propList.Find($REPLACE(fldKey, ":", "")) > 0)
+			 	{
+				 	//Special case 999.AK2 has generic name: TransactionSetControlNumber
+				 	if ('((segPath [ "AK2") &&(source.Name = "999")))
+				 	{
+					 	set colFound = 1
+					 	set propertyNm = fldKey
+				 	}
+			 	}
+			 	
+			 	if (colFound = 1) // ((colFound = 1) || (fldKey [ "HierarchicalChildCode"))
+			 	{
+				 	// WRITE !, "Store column: " _ parentHlInd_","_hlInd_","_numFldinX12_"= "_ propertyNm _ "=>" _ source.GetValueAt(segPath_fldKey)
+				 	set loopHL(parentHlInd,hlInd,numFldinX12, "Col") = propertyNm
+				 	set loopHL(parentHlInd,hlInd,numFldinX12, "Val") = "'" _ $REPLACE($ZSTRIP(source.GetValueAt(segPath_fldKey), "<>WC"),"'", "''") _ "'"
+
+				 	set numFldinX12 = numFldinX12 + 1 
+			 	}
+			}
+				
+	}
+	
+	WRITE !,"-- PROCESSING " _ transType _ " -- "
+		
 	set numFldinX12 = 0
 	set numRecs = 0
 	set prevKey3Col = "" 
@@ -335,26 +1294,43 @@
 		   WHILE (key3'="") {
 			   // Check for ISA, GS and Loop A and B 
 			   if ( (key1 = 0) || ( (transType [ "27") &&(key2 < 3)) )
-			   {				   
-				  set colStr =  colStr _ ", " _ loopHL(key1, key2,key3, "Col")
-				  set valStr =  valStr _ ", " _ loopHL(key1, key2,key3, "Val")
+			   {	
+   				  WRITE !, source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") _ "-> " _ loopHL(key1, key2,key3, "Val")
+	
+			      if (colStr [ loopHL(key1, key2,key3, "Col"))
+				  {
+					     WRITE !, "Already exists in colStr (27): " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+					     WRITE !, prevKey3Col
+				  }
+				  else
+				  {		   
+				  		set colStr =  colStr _ ", " _ loopHL(key1, key2,key3, "Col")
+				  		set valStr =  valStr _ ", " _ loopHL(key1, key2,key3, "Val")
+				  }
+
 				  if (prevKey3Col ="")
-			     {
+			      {
 				     set prevKey3Col =  loopHL(key1, key2,key3, "Col")
 				     set prevKey3Val =  loopHL(key1, key2,key3, "Val") 
 
 			     }
 			     else
 			     {
-				     set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
-				     set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+				     if (prevKey3Col [ loopHL(key1, key2,key3, "Col"))
+				     {
+					     WRITE !, "Already exists in SQL (27): " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+				     else
+				     {
+				     	set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+				     	set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+				     }
 			     }
 				     
-				  WRITE !, source.Name _ "# " _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") _ "-> " _ loopHL(key1, key2,key3, "Val")
 			   }
 			   else
 			   {
-				     WRITE !, "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col")
+				     // WRITE !, "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col")
 				     // set prevKey3Val = prevKey3Val _ "#" _ key1 _","_ key2_","_ key3 _ ": " _ loopHL(key1, key2,key3, "Col") 
 				     if (prevKey3Col ="")
 				     {
@@ -364,8 +1340,15 @@
 				     }
 				     else
 				     {
-					     set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
-					     set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+					     if (prevKey3Col [ loopHL(key1, key2,key3, "Col"))
+					     {
+						     WRITE !, "Already exists in SQL: " _ loopHL(key1, key2,key3, "Col")  _","_ loopHL(key1, key2,key3, "Val") 
+					     }
+					     else
+					     {
+						     set prevKey3Col = prevKey3Col _","_ loopHL(key1, key2,key3, "Col")
+						     set prevKey3Val = prevKey3Val _","_ loopHL(key1, key2,key3, "Val") 
+					     }
 				     }
 				     set numFldinX12 = numFldinX12 + 1
 			   }
@@ -379,12 +1362,20 @@
 				{
 					if ((key1 > 2) && ($GET(key2Col(key1)) '= "") && ($GET(key2Val(key1)) '= "")) // Get Parent information
 					{
-						 WRITE !, "Add parent information"
+						
+					 if ( prevKey3Col [ $GET(key2Col(key1)) )
+				     {
+					     WRITE !, "Parent information, Already exists (27) in SQL: " _ loopHL(key1, key2,key3, "Col") _","_ loopHL(key1, key2,key3, "Val") 
+				     }
+				     else
+				     {
+						 WRITE !, "Add parent information "_ $GET(key2Col(key1))_","_ $GET(key2Val(key1))
 					     set prevKey3Col = prevKey3Col _","_ $GET(key2Col(key1))
 					     set prevKey3Val = prevKey3Val _","_ $GET(key2Val(key1))
+				     }
 
 					}
-					WRITE !, "InsertX12Data: " _ transType _" Loop# " _ key1 _","_ key2 _ ", Parent -> " _ prevKey3Col _ "-> " _ prevKey3Val
+					// WRITE !, "InsertX12Data: " _ transType _" Loop# " _ key1 _","_ key2 _ ",isaRowId: " _ isaRowId _ ", Parent -> " _ prevKey3Col _ "-> " _ prevKey3Val
 					Do ..InsertX12Data(fileName, transType, prevKey3Col _  colStr, prevKey3Val _  valStr , loopHL(key1, key2),  isaRowId)
 					set key2Col(key2) = prevKey3Col
 					set key2Val(key2) = prevKey3Val
@@ -392,7 +1383,7 @@
 					set numRecs = numRecs + 1
 				}
 			}
-			elseif ( ((transType = "835") || (transType = "999")) && (seg.Name = "SE"))
+			elseif ( ((transType = "835") || (transType = "999")) && ((seg.Name = "SE") || (seg.Name = "LX") ) )
 			{
 					WRITE !, "InsertX12Data: " _ transType _ ", Seg: " _ seg.Name _ ", Loop# " _ key1 _","_ key2 _ ", Parent -> " _ $GET(key2Col(key1)) _","_ isaRowId
 					Do ..InsertX12Data(fileName, transType,  colStr,  valStr , loopHL(key1, key2),  isaRowId)
@@ -404,9 +1395,16 @@
 			{
 				if ((key1 > 2) && ($GET(key2Col(key1)) '= "") && ($GET(key2Val(key1)) '= "")) // Get Parent information
 				{
-					 WRITE !, "Add parent information"
-				     set prevKey3Col = prevKey3Col _","_ $GET(key2Col(key1))
-				     set prevKey3Val = prevKey3Val _","_ $GET(key2Val(key1))
+					 set colNm = $GET(key2Col(key1))
+					 if ( (colNm '= "") && (prevKey3Col [ colNm) )
+				     {
+					     WRITE !, "Add parent information, Already exists in SQL: " _ colNm _","_ $GET(key2Val(key1))
+				     }
+				     else
+				     {
+					     set prevKey3Col = prevKey3Col _","_ $GET(key2Col(key1))
+					     set prevKey3Val = prevKey3Val _","_ $GET(key2Val(key1))
+				     }
 
 				}
 				WRITE !, "InsertX12Data: " _ transType _" Loop# " _ key1 _","_ key2 _ ", Parent -> " _ colStr _","_ valStr
@@ -418,8 +1416,7 @@
 
 			}
 			
-			
-			
+						
 			set prevKey3Val = ""
 			set prevKey3Col = "" 
 			
@@ -437,11 +1434,12 @@
 	{
 		WRITE !, source.Name _ ": Update Parent X12 Record" _  colStr _" -> " _ valStr
 		Do ..UpdateX12Data(transType, colStr,  valStr, source.RawContent, isaRowId) 
+		WRITE !, "GE- SQL for next ST: " _ colStr _ "-> " _ valStr
 
 	}
 	elseif (seg.Name = "SE") // More than one ST segment	
 	{
-		WRITE !, "SE: Reset Parent Data, segment #" _ segNum
+		WRITE !, seg.Name _": Reset Parent Data, segment #" _ segNum
 		set colStr  = origColStr,  valStr = origValStr
 	}
 
@@ -454,11 +1452,11 @@
 <FormalSpec>transType:%String</FormalSpec>
 <ReturnType>%List</ReturnType>
 <Implementation><![CDATA[
-	WRITE !, "Properties for IHC.X12Data" _ transType _": "
+	WRITE !, "Properties for IHC_X12.Data" _ transType _": "
 	#dim propertyList As %Library.ListOfDataTypes;
 	set propertyList = ##class(%Library.ListOfDataTypes).%New()
     Set result=##class(%ResultSet).%New("%DynamicQuery:SQL")
-	Do result.Prepare("SELECT * FROM IHC.X12Data" _ transType)
+	Do result.Prepare("SELECT * FROM IHC_X12.Data" _ transType)
 	Do result.Execute()
 	set colNames=""
 	
@@ -478,7 +1476,7 @@
 <FormalSpec>fileName:%String,transType:%String,colString:%String,valString:%String,x12Data:%String="",isaRowId:%String=""</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-    set insString = "Insert into IHC.X12Data" _ transType _ "("
+    set insString = "Insert into IHC_X12.Data" _ transType _ "("
 	set rowId = ""
 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))     
 	      
@@ -527,28 +1525,42 @@
 			
 			if (rset.%SQLCODE = 0)
 			{		
-				WRITE !, "Retry ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data)
+				WRITE !, "Retry stored X12 with ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data)
 				if ($L(x12Data) > 0)
 				{
 					set rowId = rset.%ROWID
-					set obj = ##class(IHC.X12Data276).%OpenId(rset.%ROWID)
-					set obj.x12Data = x12Data
-					set stat = obj.%Save()
-					WRITE !, "X12 string Save: " _ stat
+					 set classname = "IHC.X12.Data" _ transType
+					  WRITE !, "Check class: " _ classname _ " for Id: " _ rowId
+
+					 if ( $classmethod(classname,"%ExistsId",rowId) )
+					 {
+						 set obj = $classmethod(classname,"%OpenId",rowId)
+						 if ($ISOBJECT(obj))
+						 {
+							 WRITE !, obj.%ClassName() _ ": " _ obj.InterchangeReceiverID
+							 set obj.x12Data = x12Data
+								set stat = obj.%Save()
+								WRITE !, "X12 string Save: " _ stat
+
+						 }
+					 }
 				}
 			}
 			else
 			{
-					WRITE !, "Retry failed: " _ rset.%SQLCODE  _ " -> " _ $SYSTEM.SQL.Functions.SQLCODE(rset.%SQLCODE) _ ", X12 size: " _ $L(x12Data)
+					WRITE !, "SQL INSERT Retry failed: " _ rset.%SQLCODE  _ " -> " _ $SYSTEM.SQL.Functions.SQLCODE(rset.%SQLCODE) _ ", X12 size: " _ $L(x12Data)
+					set ^StoreX12Data("Insert into IHC_X12.Data" _ transType, $ZDATETIME($HOROLOG,3, 1)) = myquery _ " failed: " _ rset.%SQLCODE  _ " -> " _ $SYSTEM.SQL.Functions.SQLCODE(rset.%SQLCODE) _ ", X12 size: " _ $L(x12Data)
 			}
 		}
 		 Catch thrownErr {
+			set ^StoreX12Data("Insert into IHC_X12.Data" _ transType, $ZDATETIME($HOROLOG,3, 1)) = myquery _ " SQL INSERT Error: " _ thrownErr
+
 			If $ZE="" {
 				Set tSC=thrownErr.AsStatus()
-				WRITE !, "Error: " _ tSC
+				WRITE !, "SQL INSERT Error: " _ thrownErr
 			} Else {
 				Set tSC=##class(Ens.Util.Error).EnsSystemError($classname(),"Transform")
-				WRITE !, "System Error: " _ tSC
+				WRITE !, "SQL INSERT System Error: " _ thrownErr
 			}
 		}
 
@@ -573,7 +1585,7 @@
 		
 		if (updStr = "")
 		{
-      		set updStr =  "Update IHC.X12Data" _ transType _ " set " _ $PIECE(colString,delim,rep) _"= " _ $PIECE(valString,delim,rep)
+      		set updStr =  "Update IHC_X12.Data" _ transType _ " set " _ $PIECE(colString,delim,rep) _"= " _ $PIECE(valString,delim,rep)
 		}
 		else
 		{
@@ -605,6 +1617,9 @@
 <FormalSpec><![CDATA[fld:%String,fldPath:%String,&lastFld1:%String,&lastFld2:%String]]></FormalSpec>
 <Implementation><![CDATA[
 	set lastFld1 = "", lastFld2 = ""
+	
+	
+	
 	if ( $FIND(fldPath, "loop") '= 0)
 	{
 		
@@ -614,10 +1629,28 @@
 		
 		if ( $FIND(lastFld1, "loop") = 0)
 		{
+			
 			SET position=$LENGTH(fldPath)+2-$FIND($REVERSE(fldPath),$REVERSE("loop"))
-	 
-	 		set lastFld1 = "lo" _ $ZSTRIP($E(fldPath, position+2, *), "*PN")
-	 		set lastFld2 = "lo" _ $ZSTRIP($E(fldPath, position+2, *), "*P")
+	 		set pathStr = $E(fldPath, position+2, *)
+	 		
+	 		if (($LOCATE(pathStr, "\([2-9]\)") > 1) || ($LOCATE(pathStr, "\([0-9][0-9]+\)") > 1))
+	 		{
+	 		// Replace loop # as 1
+		 		FOR i=2:1:998 {
+			 		// 
+			 		if ( $FIND(pathStr, "("_i_")") '= 0)
+					{
+						// WRITE !, "GetX12FldName Replace subscript: " _ pathStr _ "-> "_i _" - " _ $FIND(pathStr, "("_i_")")
+	      				set pathStr = $REPLACE(pathStr, "("_i_")", "(1)")
+	      				QUIT
+					}
+					
+	      		}
+	 		}
+	 		
+	 		set lastFld1 = "lo" _ $ZSTRIP(pathStr, "*PN")
+	 		set lastFld2 = "lo" _ $ZSTRIP(pathStr, "*P")
+			
 		}
 	}
 	else
