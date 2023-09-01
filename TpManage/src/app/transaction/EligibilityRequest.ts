@@ -21,6 +21,8 @@ export interface EligibilityRequest extends CommonColumns {
   loop2100DNM1NameLastorOrganizationName: string;
   loopCHLHierarchicalChildCode: string;
   loopDHLHierarchicalParentIDNumber: string;
+  loop2000C1TRN1RefId: string;
+  loop2000D1TRN1RefId: string;
   X12DataParentId: string;
   x12Data: string;
 }

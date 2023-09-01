@@ -15,6 +15,10 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { IDropdownSettings } from 'ng-multiselect-dropdown';
 import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
 
+import {MatNativeDateModule} from '@angular/material/core';
+import {MatDatepickerModule} from '@angular/material/datepicker';
+import {MatFormFieldModule} from '@angular/material/form-field';
+
 @Component({
   selector: 'app-transaction',
   templateUrl: './transaction.component.html',
@@ -34,7 +38,6 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       item_text: 'Not Implemented'
     }];
 
-
   panelExpand: boolean = true;
   loading:boolean = false;
   searchTransaction:boolean = false;
@@ -46,7 +49,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   dataTableKey: string[] = [];
   canRenderDetails = false;
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
-
+  searchFieldVal:string = "";
   dataSource = new MatTableDataSource<any>();
 
   usrDisplayColumns= [
@@ -59,10 +62,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   transactionsSearchColumns= [
     {
-      key: 'ApplicationSendersCode',
+      key: 'Invalid',
       type: 'text',
-      label: 'Application SendersCode',
-      transactionCode: '270',
+      label: 'Select Transaction to view the Columns',
+      transactionCode: 'XXX',
       detail: '1'
     }];
 
@@ -73,6 +76,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   @ViewChild("searchField") searchField: ElementRef;
   @ViewChild("searchCndition") searchCndition: ElementRef;
   @ViewChild("transType") transType: ElementRef;
+
+  @ViewChild("matStartDate") matStartDate: string;
+  @ViewChild("matEndDate") matEndDate: string;
 
   searchString = "";
   currentTransType = '';
@@ -92,6 +98,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   selectedItems=[];
 
+
+
   constructor(private TransactionService: RestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
@@ -105,9 +113,18 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     this.form = this.formBuilder.group({
       transType: ['', Validators.required],
       searchField: ['', Validators.required],
-      searchCndition: ['', Validators.required],
-      searchValue: ['', Validators.required]
+      searchCndition: [''],
+      searchValue: [''],
+      matStartDate: [''],
+      matEndDate:[''],
+      InterchangeSenderID:[''],
+      loop23001CLMClaimSubmittersIdentifier:[''],
+      loop2010AAREF1RefId:[''],
+      loop2010BANM11ILIdentificationCode:[''],
+      loop24001DTP1DateTimePeriod:[''],
+      FileName:['']
     });
+
 
     this.dropdownSettings = {
       singleSelection: false,
@@ -145,6 +162,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       for (var item of res)
       {
+        console.info("Push transactionsSearchColumns: " + item.Key)
           this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
       }
       console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
@@ -185,7 +203,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       {
         this.form.controls.transType.setValue(this.currentTransType);
       }
-      console.info("TransType: " +this.form.controls.transType.value)
+      console.info("onSearchTransactions TransType: " +this.form.controls.transType.value)
 
       this.loading = true;
 
@@ -194,6 +212,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
             console.info('Transaction search with: ' + this.searchString);
             this.TransactionService.fetchEligibilityRequests(this.searchString).subscribe((res: any) => {
+
             this.dataSource.data = res;
             this.canRenderDetails = true;
 
@@ -233,12 +252,41 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       }
       else if(this.form.controls.transType.value === '837P'){
+        let staticSearchStr = "";
+        if(this.form.controls.InterchangeSenderID.value !== '')
+        {
+          staticSearchStr = " AND InterchangeSenderID = '" + this.form.controls.InterchangeSenderID.value + "'"
+        }
+        if(this.form.controls.loop23001CLMClaimSubmittersIdentifier.value !== '')
+        {
+          staticSearchStr = staticSearchStr +  " AND loop23001CLMClaimSubmittersIdentifier = '" + this.form.controls.loop23001CLMClaimSubmittersIdentifier.value + "'"
+        }
 
+        if(this.form.controls.loop2010AAREF1RefId.value !== '')
+        {
+          staticSearchStr = " AND loop2010AAREF1RefId = '" + this.form.controls.loop2010AAREF1RefId.value + "'"
+        }
+        if(this.form.controls.loop2010BANM11ILIdentificationCode.value !== '')
+          {
+            staticSearchStr = " AND loop2010BANM11ILIdentificationCode = '" + this.form.controls.loop2010BANM11ILIdentificationCode.value + "'"
+          }
+        if(this.form.controls.loop24001DTP1DateTimePeriod.value !== '')
+            {
+              staticSearchStr = " AND loop24001DTP1DateTimePeriod = '" + this.form.controls.loop24001DTP1DateTimePeriod.value + "'"
+            }
+        if(this.form.controls.FileName.value !== '')
+              {
+                staticSearchStr = " AND FileName = '" + this.form.controls.FileName.value + "'"
+              }
+
+        {
+
+        }
         if(this.searchString.length > 0)
         {
-          this.searchString = " AND " + this.searchString
+          staticSearchStr = staticSearchStr + " AND " + this.searchString
         }
-         this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X222A1' " + this.searchString).subscribe((res: any) => {
+         this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X222A1' " + staticSearchStr).subscribe((res: any) => {
           this.dataSource.data = res;
           this.canRenderDetails = true;
           this.loading = false;
@@ -361,42 +409,55 @@ clearSearch()
 
 addRow() {
 
-      if (this.form.invalid) {
-        console.info('Invalid: ' + this.form.invalid);
-        alert("Search Value is required");
-          return;
-      }
-
-
     this.searchTransaction = true;
     this.submitted = true;
+    this.setSearchField();
 
-    let  sVal = ""
-    for (var item of this.searchColumns)
+      if(this.searchFieldVal === "")
       {
-        if(item.label === this.form.controls.searchField.value)
+        alert("Search column is NULL");
+      }
+      let  sVal = ""
+      for (var item of this.searchColumns)
         {
-          sVal = item.key
-          break;
+          if(item.label === this.searchFieldVal)
+          {
+            sVal = item.key
+            break;
+          }
         }
-      }
-      if(sVal === "")
-      {
-        alert("Value is NULL");
-      }
-      let srchStr = this.form.controls.searchCndition.value
-      if (srchStr === 'Contains')
-      {
-        srchStr = '['
-      }
+        if(sVal === "")
+        {
+          alert("Value is NULL");
+        }
 
-      if(this.searchString !== "")
+      if(this.searchFieldVal === 'Process Time')
       {
-         this.searchString += " AND " + sVal + srchStr  + " '" + this.searchValue +"'";
+        if(this.searchString !== "")
+        {
+          this.searchString += " AND " + sVal +  " BETWEEN '" + this.matStartDate +"' AND '" + this.matEndDate +"'";
+        }
+        else
+        {
+          this.searchString =  sVal + " " + " BETWEEN '" + this.matStartDate +"' AND '" + this.matEndDate +"'";
+        }
       }
       else
       {
-        this.searchString =  sVal + " " + srchStr + " '" + this.searchValue +"'";
+          let srchStr = this.form.controls.searchCndition.value
+          if (srchStr === 'Contains')
+          {
+            srchStr = '['
+          }
+
+          if(this.searchString !== "")
+          {
+            this.searchString += " AND " + sVal + srchStr  + " '" + this.searchValue +"'";
+          }
+          else
+          {
+            this.searchString =  sVal + " " + srchStr + " '" + this.searchValue +"'";
+          }
       }
     }
 
@@ -410,15 +471,27 @@ onRowClicked(row) {
 
 
 onItemSelect(inp: any) {
-    console.log('onItem Select: ' + inp.item_id + ", #: " + this.dataTableLabel.length);
+    console.log('onItem Select: '  + inp +", " + inp.item_id + ", #: " + this.dataTableLabel.length);
+    if (inp.item_id === undefined)
+  {
+    this.dataTableLabel.push(inp);
+    console.log('onItem Select objIndex ' + inp)
+  }
+  else{
     this.dataTableLabel.push(inp.item_text);
     this.dataTableKey.push(inp.item_id);
-
+  }
 }
 
 onItemDeSelect(inp: any)
 {
-  console.log('onItem DeSelect: ' + inp.item_id + ", #: " + this.dataTableLabel.length);
+  console.log('onItem DeSelect: ' + inp +", " + inp.item_id + ", #: " + this.dataTableLabel.length);
+  if (inp.item_id === undefined)
+  {
+    var objIndex = this.dataTableLabel.findIndex(obj => obj === inp);
+    console.log('onItem DeSelect objIndex ' + objIndex)
+  }
+  else{
     var objIndex = this.dataTableLabel.findIndex(obj => obj === inp.item_text);
     console.log('onItem DeSelect objIndex ' + objIndex)
     if (objIndex > -1) {
@@ -429,6 +502,7 @@ onItemDeSelect(inp: any)
     if (objIndex > -1) {
       this.dataTableKey.splice(objIndex, 1);
     }
+  }
 
 }
 saveDisplayColumns()
@@ -436,6 +510,7 @@ saveDisplayColumns()
   var dispCol = <DisplayColumnsArray>{};
   dispCol.displayColumns = [];
   var ind = 0;
+  console.info("selDropdownList #: " + this.selDropdownList.length);
   console.log('Save: ' + this.form.controls.transType.value);
   for (var item of this.selDropdownList)
   {
@@ -474,7 +549,7 @@ transactionChange(evt: any)
   for (var col of this.transactionsSearchColumns)
   {
 
-    if ( ( col.transactionCode == '1') || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
+    if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
     {
       allTempArr.push({item_id:col.key, item_text:col.label});
     }
@@ -484,9 +559,11 @@ transactionChange(evt: any)
 
   for (var col of this.transactionsSearchColumns)
     {
-      if ( (col.transactionCode === '1') || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
+      console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
+      if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
       {
           this.searchColumns.push(col);
+          console.info("searchColumns pushed: " + col.key);
       }
     }
 
@@ -515,23 +592,48 @@ transactionChange(evt: any)
     }
     this.selDropdownList =  tempArr;
   }
-  if(tempArr.length === 0)
+  if(tempArr.length === 0) // Nothing from User display columns
   {
     this.searchColumns = [];
     this.allDropdownList = [];
+    var tempArr2 = [];
     for (var col of this.transactionsSearchColumns)
     {
-      if ( (col.transactionCode === '1') || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
+
+      if (this.form.controls.transType.value === '837P')
+      {
+        if ( col.key === 'loop23001CLMClaimSubmittersIdentifier' ||
+        col.key === 'loop2010AAREF1RefId' ||
+        col.key === 'loop2010BANM11ILIdentificationCode' ||
+        col.key === 'loop24001DTP1DateTimePeriod' ||
+        col.key === 'FileName' ||
+        col.key === 'InterchangeSenderID'
+        )
+        {
+          console.log("In static list , Add to Display column;");
+          tempArr.push({item_id:col.key, item_text:col.label});
+          tempArr2.push({item_id:col.key, item_text:col.label});
+        }
+        else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') ){
+
+          this.searchColumns.push(col);
+          tempArr2.push({item_id:col.key, item_text:col.label});
+          console.log('Search dropdown PUSH: ' + this.form.controls.transType.value +" / " +  col.key);
+        }
+    }
+      else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
       {
           console.info(col.transactionCode + " PUSH " + col.key)
 
           tempArr.push({item_id:col.key, item_text:col.label});
+          tempArr2.push({item_id:col.key, item_text:col.label});
           this.searchColumns.push(col);
       }
     }
     this.selDropdownList =  tempArr;
-    this.allDropdownList = tempArr;
+    this.allDropdownList = tempArr2;
   }
+
   for (var item of this.selDropdownList)
   {
     console.info("selDropdownList key: " + item.item_id +", val: " +item.item_text )
@@ -548,6 +650,12 @@ transactionChange(evt: any)
   this.butSaveDisplay = false;
 }
 
+setSearchField()
+{
+  console.log("In setSearchField: " +this.form.controls.searchField.value)
+  this.searchFieldVal = this.form.controls.searchField.value;
+}
+
 allDropdownListFind(label:string)
 {
   for(var val of this.allDropdownList)
@@ -561,7 +669,23 @@ allDropdownListFind(label:string)
   return -1;
 }
 
+onDateChange(type: any, event: any)
+{
+  var myDate = new Date(event.value);
+  var sqlDt = myDate.getFullYear() + '-' + (myDate.getMonth() + 1) + '-' + myDate.getDate()
+  console.log("In onDateChange " + myDate +" - " + sqlDt)
+  if(type === 'start')
+  {
+    this.matStartDate = sqlDt ;
+  }
+  else
+  {
+    this.matEndDate =   sqlDt;
+  }
+
+
 }
 
+}
 
 

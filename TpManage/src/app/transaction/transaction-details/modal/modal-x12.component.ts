@@ -29,7 +29,7 @@ export class Modalx12Component {
     public modalHelperService: ModalHelperService,
     @Inject(MAT_DIALOG_DATA) public data: string[]
   ) {
-    console.log('Modalx12Component constructor ' );
+    console.log('Modalx12Component constructor: ' + data[1]);
     this.x12Data = data[0];
     this.fileName = data[1];
 

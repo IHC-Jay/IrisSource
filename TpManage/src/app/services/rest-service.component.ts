@@ -29,7 +29,9 @@ import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns
 import { AuthenticationService } from '../services/authentication.service';
 import { Router, ActivatedRoute} from '@angular/router';
 
-const baseUrl = `${environment.apiUrl}`;
+const tpUrl = `${environment.tpUrl}`;
+
+const transUrl = `${environment.transUrl}`;
 
 
 
@@ -73,7 +75,7 @@ export class RestServiceComponent {
     console.log('Test User: ' + usr);
     let url = '';
 
-    url = baseUrl + 'ping';
+    url = tpUrl + 'ping';
 
 
     return this.http.get<{ [key: string]: string }>(
@@ -110,7 +112,7 @@ export class RestServiceComponent {
 
       let url = '';
 
-      url = baseUrl + 'Tps';
+      url = tpUrl + 'Tps';
 
 
       return this.http
@@ -143,7 +145,7 @@ export class RestServiceComponent {
 
       let url = '';
 
-      url = baseUrl + 'TpIdsForTP?name='+tpName;
+      url = tpUrl + 'TpIdsForTP?name='+tpName;
 
 
       return this.http.get<{ [key: string]: TpId }>(
@@ -175,7 +177,7 @@ export class RestServiceComponent {
       console.log('fetchTPforTpId Class: ' + tpName);
       let url = '';
 
-      url = baseUrl + 'TPforTPID?tpid='+tpName;
+      url = tpUrl + 'TPforTPID?tpid='+tpName;
 
 
       return this.http.get<{ [key: string]: TpId }>(
@@ -201,7 +203,7 @@ export class RestServiceComponent {
 
       console.log('Fetch Class');
 
-      let url = baseUrl + 'GetAllTpIds';
+      let url = tpUrl + 'GetAllTpIds';
 
 
       return this.http
@@ -232,7 +234,7 @@ export class RestServiceComponent {
 
       console.log('fetchOwnerTpIds');
 
-      let url = baseUrl + 'GetOwnerTpIds';
+      let url = tpUrl + 'GetOwnerTpIds';
 
 
       return this.http
@@ -265,7 +267,7 @@ export class RestServiceComponent {
 
       let url = '';
 
-      url = baseUrl + 'GetTransactionTypes';
+      url = tpUrl + 'GetTransactionTypes';
 
 
       return this.http
@@ -297,7 +299,7 @@ export class RestServiceComponent {
 
       let url = '';
 
-      url = baseUrl + 'LinksForTPID?TPID='+ tpid;
+      url = tpUrl + 'LinksForTPID?TPID='+ tpid;
 
 
       return this.http
@@ -334,7 +336,7 @@ export class RestServiceComponent {
       console.log('Fetch TpLink Class: ' + tpLink);
       let url = '';
 
-      url = baseUrl + 'TpLink?id='+ tpLink;
+      url = tpUrl + 'TpLink?id='+ tpLink;
 
 
       return this.http
@@ -359,7 +361,7 @@ export class RestServiceComponent {
 
     console.log('deleteTpLink: ' + tpLink);
 
-    let url = baseUrl + 'DeleteTpLink';
+    let url = tpUrl + 'DeleteTpLink';
 
     console.info('Post to delete TPLink: ' + url);
     const body = { id: tpLink, User: this.getCurrentUser()};
@@ -376,10 +378,10 @@ export class RestServiceComponent {
 
     if(add)
     {
-       url = baseUrl + '' + 'NewTpLink';
+       url = tpUrl + '' + 'NewTpLink';
     }
     else{
-      url = baseUrl + '' + 'UpdateTpLink';
+      url = tpUrl + '' + 'UpdateTpLink';
     }
 
     console.info('Post to create/update TPLink: ' + url);
@@ -407,7 +409,7 @@ export class RestServiceComponent {
 
     let url = '';
 
-    url = baseUrl + 'TpIdsForTP?name='+ tpId;
+    url = tpUrl + 'TpIdsForTP?name='+ tpId;
 
     return this.http
       .get<{ [key: string]: TpId }>(
@@ -440,7 +442,7 @@ export class RestServiceComponent {
 
     console.log('addTradingPartner: ' + tradingPartner.Name);
 
-    let url = baseUrl + 'NewTp';
+    let url = tpUrl + 'NewTp';
     tradingPartner.User =  this.getCurrentUser();
 
     console.info('Post to create TP: ' + url);
@@ -453,7 +455,7 @@ export class RestServiceComponent {
 
     console.log('deleteTradingPartner: ' + tpName);
 
-    let url = baseUrl + 'DeleteTp';
+    let url = tpUrl + 'DeleteTp';
 
     console.info('Post to delete TP: ' + url);
    const body = { Name: tpName };
@@ -465,7 +467,7 @@ export class RestServiceComponent {
     console.log('updateTradingPartner: ' + tradingPartner.Name + ", Id: " + tradingPartner.id);
 
 
-    let url = baseUrl + 'UpdateTp';
+    let url = tpUrl + 'UpdateTp';
     tradingPartner.User =  this.getCurrentUser();
     return this.http.post<TradingPartner>(`${url}`, tradingPartner);
 
@@ -486,7 +488,7 @@ export class RestServiceComponent {
     console.log('addTradingPartner TPID: ' + newTpId.Name);
 
 
-    let url = baseUrl + 'NewTpId';
+    let url = tpUrl + 'NewTpId';
     newTpId.User =  this.getCurrentUser();
     console.info('Post to create TPID: ' + url);
     return this.http.post<any>(url, newTpId);
@@ -497,7 +499,7 @@ export class RestServiceComponent {
     console.log('updateTradingPartner TPIT: ' + tpid.Name + ", Id: " + tpid.id);
 
 
-    let url = baseUrl + 'UpdateTpId';
+    let url = tpUrl + 'UpdateTpId';
     tpid.User =  this.getCurrentUser();
     console.info('Post to update TP: ' + url);
     return this.http.post<TpId>(`${url}`, tpid);
@@ -507,7 +509,7 @@ export class RestServiceComponent {
   deleteTPID(tpId: string) : Observable<string> {
 
 
-    let url = baseUrl + 'DeleteTpId';
+    let url = tpUrl + 'DeleteTpId';
 
     console.info('Post to delete TPID: ' + url);
 
@@ -520,7 +522,7 @@ export class RestServiceComponent {
 
     console.log('add bulkTpLinks: ' + link.Link);
 
-    let url = baseUrl + '' + 'BulkTpLinks';
+    let url = tpUrl + '' + 'BulkTpLinks';
 
     console.info('Post to create/update TPLinks: ' + url);
     link.User =  this.getCurrentUser();
@@ -548,7 +550,7 @@ export class RestServiceComponent {
 fetchEligibilityRequests(searchStr: string) {
   console.log('Fetch EligibilityRequest with Auth for: ' + searchStr );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/EligibilityBenefits';
+  let url = transUrl + 'EligibilityBenefits';
 
   if(searchStr.length > 0)
   {
@@ -588,7 +590,7 @@ fetchEligibilityRequests(searchStr: string) {
 fetchClaims(searchStr: string) {
   console.log('Fetch Claim with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/Claims';
+  let url = transUrl + 'Claims';
 
   if(searchStr.length > 0)
   {
@@ -626,7 +628,7 @@ fetchClaims(searchStr: string) {
 fetchClaimStatusReq(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimStatusRequest';
+  let url = transUrl + 'ClaimStatusRequest';
 
   if(searchStr.length > 0)
   {
@@ -665,7 +667,7 @@ fetchClaimStatusReq(searchStr: string) {
 fetchClaimStatusResp(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimStatusResponse';
+  let url = transUrl + 'ClaimStatusResponse';
 
   if(searchStr.length > 0)
   {
@@ -703,9 +705,9 @@ fetchClaimStatusResp(searchStr: string) {
 
 
 fetchEligibilityBenefitResponses(searchStr: string) {
-  console.log('Fetch fetch Eligibility Benefit Responses with Auth ' );
+  console.log('Fetch Eligibility Benefit Responses with Auth ' + searchStr);
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/EligibilityBenefitResponses';
+  let url = transUrl + 'EligibilityBenefitResponses';
   if(searchStr.length > 0)
   {
     url = url + "?searchStr=" + searchStr;
@@ -745,7 +747,7 @@ fetchEligibilityBenefitResponses(searchStr: string) {
 fetchClaimPayment(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimPayment';
+  let url = transUrl + 'ClaimPayment';
 
   if(searchStr.length > 0)
   {
@@ -784,7 +786,7 @@ fetchClaimPayment(searchStr: string) {
 fetchImplementationAcknowledgment(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ImplementationAcknowledgment';
+  let url = transUrl + 'ImplementationAcknowledgment';
 
   if(searchStr.length > 0)
   {
@@ -823,7 +825,7 @@ fetchImplementationAcknowledgment(searchStr: string) {
 fetchClaimAcknowledgment(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/ClaimAcknowledgment';
+  let url = transUrl + 'ClaimAcknowledgment';
 
   if(searchStr.length > 0)
   {
@@ -862,7 +864,7 @@ fetchClaimAcknowledgment(searchStr: string) {
 fetchTransactionFields() {
   console.log('Fetch TransactionFields with Auth ' );
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/TransactionFields';
+  let url = transUrl + 'TransactionFields';
 
 
   return this.http2
@@ -892,7 +894,7 @@ fetchTransactionFields() {
 fetchDisplayColumns() {
 
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/DisplayColumns?userNm=' +  this.getCurrentUser();
+  let url = transUrl + 'DisplayColumns?userNm=' +  this.getCurrentUser();
 
   console.log('Fetch DisplayColumns from  ' + url);
   return this.http2
@@ -930,7 +932,7 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
   dispCol.User =  this.getCurrentUser();
   console.log('saveDisplayColumns ' +  this.getCurrentUser());
 
-  let url = 'http://lp-itfdev03:26973/Rest/Transactions/SaveDisplayColumns';
+  let url = transUrl + 'SaveDisplayColumns';
 
   console.info('Post to SaveDisplayColumns: ' + url +" for " + dispCol.User);
 
@@ -954,21 +956,28 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
 fetchParentRecord(id: string, trans: string) {
 
 
-  let url = "http://lp-itfdev03:26973/Rest/Transactions/GetParentX12?id=" + id +"&transType=" + trans;
+  let url = transUrl + "GetParentX12?id=" + id +"&transType=" + trans;
 
   console.log('Fetch Parent X12 ' + url);
-  return this.http2
-    .get<{ [key: string]: ImplementationAcknowledgment }>(
+  return this.http2.get<{ [key: string]: ImplementationAcknowledgment }>(
       url
     )
 
     .pipe(
       map(responseData => {
-        console.info(responseData);
+        console.info("responseData: " + responseData);
 
-        console.info('return Parent X12 : ' + responseData[0].id );
-        return responseData[0];
+        if(responseData !== undefined && responseData[0] !== undefined)
+        {
 
+          console.info('return Parent X12 : ' + responseData[0].id );
+          return responseData[0];
+        }
+        else
+        {
+          console.info('No data from service');
+          return "No data";
+        }
 
       }),
 
@@ -980,6 +989,170 @@ fetchParentRecord(id: string, trans: string) {
     );
 
 }
+
+openRelated2701Model(trans:string, cRefId: string, dRefId : string,
+  InterchangeSenderID : string,
+  InterchangeReceiverID: string,
+  InterchangeControlNumber: string)
+  {
+
+    let url = transUrl + "GetRelatedEligBenefit?transType="+trans+"&C1TRN1RefId="
+    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+    console.log('Fetch 27x X12 ' + url);
+    return this.http2
+      .get<{ [key: string]: any }>(
+        url
+      )
+
+      .pipe(
+        map(responseData => {
+          console.info(responseData);
+
+          return responseData[0];
+
+
+        }),
+
+        catchError(errorRes => {
+          // Send to analytics server
+          console.error('In openRelated27xModel catchError: ' + errorRes);
+          return errorRes;
+        })
+      );
+  }
+
+
+openRelated2767Model(trans:string, cRefId: string, dRefId : string,
+  InterchangeSenderID : string,
+  InterchangeReceiverID: string,
+  InterchangeControlNumber: string)
+  {
+
+    let url = transUrl + "GetRelatedClaimStatus?transType="+trans+"&C1TRN1RefId="
+    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+    console.log('Fetch 27x X12 ' + url);
+    return this.http2
+      .get<{ [key: string]: any }>(
+        url
+      )
+
+      .pipe(
+        map(responseData => {
+          console.info(responseData);
+
+          return responseData[0];
+
+
+        }),
+
+        catchError(errorRes => {
+          // Send to analytics server
+          console.error('In openRelated27xModel catchError: ' + errorRes);
+          return errorRes;
+        })
+      );
+  }
+
+fetchGetRelatedTransaction(trans: string, grpId: string, InterchangeSenderID : string,
+ InterchangeReceiverID : string,
+  InterchangeControlNumber : string) {
+
+
+  let url = transUrl + "GetRelatedTransaction?GroupControlNumber="
+  + grpId+"&transType="+trans+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+  +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+  console.log('Fetch 999 X12 ' + url);
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        return responseData[0];
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchGetRelatedTransaction catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+openRelated83xModel(trans: string,
+  ClaimSubmittersIdentifier : string, MonetaryAmount :  string)
+  {
+
+
+ let url = transUrl + "GetRelatedClaimInfo?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier
+ + "&MonetaryAmount="+MonetaryAmount;
+
+ console.log('Fetch 83x X12 ' + url);
+ return this.http2
+   .get<{ [key: string]: Claim }>(
+     url
+   )
+
+   .pipe(
+     map(responseData => {
+       console.info(responseData);
+
+       return responseData[0];
+
+
+     }),
+
+     catchError(errorRes => {
+       // Send to analytics server
+       console.error('In openRelated83xModel catchError: ' + errorRes);
+       return errorRes;
+     })
+   );
+
+
+}
+openRelatedClaimAckModel(trans: string,
+  ClaimSubmittersIdentifier : string)
+  {
+
+
+ let url = transUrl + "GetRelatedClaimAck?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier;
+
+ console.log('Fetch 277CA X12 ' + url);
+ return this.http2
+   .get<{ [key: string]: Claim }>(
+     url
+   )
+
+   .pipe(
+     map(responseData => {
+       console.info(responseData);
+
+       return responseData[0];
+
+     }),
+
+     catchError(errorRes => {
+       // Send to analytics server
+       console.error('In openRelatedClaimAckModel catchError: ' + errorRes);
+       return errorRes;
+     })
+   );
+
+
+}
+
 
   }
 

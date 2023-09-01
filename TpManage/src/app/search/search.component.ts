@@ -74,8 +74,6 @@ export class SearchComponent implements OnInit {
      let searchTpIdVal = this.form.controls.searchTpId.value.toString().trim();
 
      console.info('searchTpIdVal: ' + searchTpIdVal);
-    console.info(searchTpIdVal);
-
 
     this.loadedPosts = [];
     this.dataSource = [];
@@ -84,23 +82,35 @@ export class SearchComponent implements OnInit {
     this.selectedTp = '';
 
     this.TradingPartnerService.fetchTPforTpId(searchTpIdVal).subscribe((res: any) => {
-      console.info('onTpIdChange: ' + res.Name);
-      this.selectedTp = res.Name;
-      var tp:TpId  = {id:'0', Name:'1', TPID: searchTpIdVal, Type:'BOTH', isEdit:false, isSelected:false, User:''};
+      if ( res.Name !==  undefined && res.Name !== '')
+      {
+        console.info('onTpIdChange: ' + res.Name);
+        this.selectedTp = res.Name;
+        var tp:TpId  = {id:'0', Name:'1', TPID: res.TPID, Type:'BOTH', isEdit:false, isSelected:false, User:''};
 
-      this.dataSource.push( tp);
+        this.dataSource.push( tp);
 
-      this.TradingPartnerService.fetchTpLinks(searchTpIdVal).subscribe(
-        tpLinksData => {
-          this.loadedPosts = tpLinksData;
-          this.canRenderDetails = true;
-          this.loading = false;
-        },
-        error => {
-          console.error( error.message);
-          this.loading = false;
-        }
-      );
+        this.TradingPartnerService.fetchTpLinks(res.TPID).subscribe(
+          tpLinksData => {
+            this.loadedPosts = tpLinksData;
+            this.canRenderDetails = true;
+            this.loading = false;
+          },
+          error => {
+            console.error( error.message);
+            this.loading = false;
+          }
+        );
+      }
+      else
+      {
+        console.info('fetchTPforTpId returned no row ');
+        this.selectedTp = 'Not Found'
+        var tp:TpId  = {id:'0', Name:'Not Found', TPID: searchTpIdVal, Type:'BOTH', isEdit:false, isSelected:false, User:''};
+        this.dataSource.push( tp);
+        this.canRenderDetails = true;
+        this.loading = false;
+      }
 
     });
 

@@ -21,7 +21,11 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   returnUrl: string;
   displayHelp: string = "Username/Password will used for calling IRIS REST services";
   error = '';
-
+  firstPage = '/TradingPartners';
+  transaction = "";
+  id = "";
+  tpId = "";
+  paramsObject:any;
   currentUser: User;
   isLogin:boolean;
   collapsed = true;
@@ -61,10 +65,37 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
       // get return url from route parameters or default to '/'
       this.returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/login';
+
+      this.route.queryParams
+      .subscribe(params => {
+        this.paramsObject = { ...params.keys, ...params };
+        console.log('paramsObject: ' + this.paramsObject);
+
+        if(params !== undefined && params.page !== undefined)
+        {
+          console.log(params);
+          this.firstPage = params.page;
+          this.transaction = params.transaction;
+          if (this.firstPage.includes("transaction-details") )
+          {
+            this.id = params.id;
+          }
+          else if (this.firstPage.includes("tp-add"))
+          {
+            this.tpId = params.tpId;
+          }
+
+          console.log(this.firstPage);
+          this.onLogin();
+        }
+      }
+    );
+      // console.log('HeaderComponent ngOnInit: ' + this.firstPage)
   }
 
   ngAfterViewInit() {
-    this.focusField.nativeElement.focus();
+    if(this.focusField !== undefined && this.focusField.nativeElement !== undefined)
+      this.focusField.nativeElement.focus();
   }
 
 
@@ -105,9 +136,27 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       .subscribe({
         next: (res) =>
         {
-          console.info('from  authenticationService.login');
+          console.info('from  authenticationService.login : ' + this.firstPage);
           console.info('OK: ' + this.returnUrl);
-          this.router.navigate(['/TradingPartners']);
+
+          if (this.firstPage.includes("transaction-details") )
+          {
+            console.log("navigate: /transaction/transaction-details/ -" + this.id);
+            this.router.navigate(["/transaction/transaction-details/"],
+            {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
+            );
+          }
+          else if (this.firstPage.includes("tp-add"))
+          {
+            console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
+            this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
+            {queryParams: { 'transaction': this.transaction} }
+            );
+          }
+          else{
+            this.router.navigate([this.firstPage]);
+          }
+
           this.isLogin = true;
           this.submitted = true;
           return;

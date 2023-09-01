@@ -49,7 +49,8 @@ export class AddEditComponent implements OnInit {
     receivingTpIds = [];
     ownerTpIds = [];
     canRender = false;
-
+    transaction: string;
+    sub:any;
     allNotes: INotesData[] = [];
 
     trn: tpLinks;
@@ -69,7 +70,7 @@ export class AddEditComponent implements OnInit {
 
      }
 
-     public initializeData()
+public initializeData()
 {
   console.info("1. fetchTpIds");
 
@@ -98,6 +99,15 @@ export class AddEditComponent implements OnInit {
 
         this.parentTpId = this.route.snapshot.params['tpId'];
         this.id = this.route.snapshot.params['tpLink'];
+
+        // From Workflow
+        this.sub = this.route.queryParams
+        .subscribe(params => {
+
+          this.transaction = ''+params['transaction']
+        });
+
+
         this.isAddMode = !this.id;
         console.info('Get TP for id: ' + this.id +", parent: " + this.parentTpId);
         if( this.isAddMode)
@@ -180,15 +190,33 @@ export class AddEditComponent implements OnInit {
         this.form.controls.ParentTpId.setValue(this.parentTpId);
 
       }
+      else{
+        if(this.transaction !== undefined)
+        {
+
+          // Search
+          console.info('setTransactionSetId search: ' + this.transaction + ', ' + this.transactionTypes.length);
+
+          var result = this.transactionTypes.findIndex(item => (item.TransactionSetId + '(' +	item.VERSION +')') === this.transaction);
+          console.info(this.transaction + '- result: ' + result +"=>" + this.transactionTypes[result].NAME);
+          if( result > 0 )
+          {
+            this.form.controls.TransType.setValue(this.transactionTypes[result].NAME);
+            console.log("Set transaction type: " + this.transactionTypes[result].NAME +' , input: ' + this.transaction)
+
+            this.setTransactionSetId();
+          }
+        }
+      }
 
 
     }
-
+/*
     ngAfterViewInit()
     {
       console.info('nfAfter: ' + this.form.controls['Link'].value)
     }
-
+*/
     // convenience getter for easy access to form fields
     get f() { return this.form.controls; }
 
@@ -248,8 +276,9 @@ export class AddEditComponent implements OnInit {
     setTransactionSetId()
     {
 
-      console.info('setTransactionSetId: ' + this.form.controls['TransType'].value + ', ' + this.transactionTypes.length);
+
       var ttVal = this.form.controls['TransType'].value
+      console.info('setTransactionSetId search: ' + ttVal + ', ' + this.transactionTypes.length);
        var result = this.transactionTypes.findIndex(item => item.NAME === ttVal);
        console.info(ttVal + '- result: ' + result);
       this.form.controls['TransactionSetId'].setValue(this.transactionTypes[result].Direction + ': '+ this.transactionTypes[result].TransactionSetId +' / ' +  this.transactionTypes[result].VERSION );
