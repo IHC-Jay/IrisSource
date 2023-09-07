@@ -493,7 +493,8 @@ BPL Definition</Description>
 		Set context.VBCRequest = ##class(EnsLib.HTTP.GenericMessage).%New()
 	Set tStream = ""
 	Set tStream = ##class(%Stream.GlobalCharacter).%New()
-	Do tStream.Write("{"_$CHAR(34)_"empi"_$CHAR(34)_":"_$CHAR(34)_context.EMPI_$CHAR(34)_"}")
+	// Do tStream.Write("{"_$CHAR(34)_"empi"_$CHAR(34)_":"_$CHAR(34)_context.EMPI_$CHAR(34)_"}")
+	 Do tStream.Write("{"_$CHAR(34)_"opCode"_$CHAR(34)_":1,"_$CHAR(34)_"empi"_$CHAR(34)_":"_$CHAR(34)_context.EMPI_$CHAR(34)_"}")
 	Do tStream.Rewind()
 
 		Do context.VBCRequest.HTTPHeaders.SetAt("application/json","content-type")
@@ -542,16 +543,56 @@ BPL Definition</Description>
       else {
         Set tcharStream = ##class(%GlobalCharacterStream).%New()
         Set tStatus = tcharStream.CopyFrom(context.VBCResponse.Stream)
-        $$$TRACE("tcharStream size:"_tcharStream.Size)
-        if (tcharStream.Size > 2 )
-        {
-         set context.VBCFlag ="Yes"
-         $$$TRACE("Set VBC flag Yes ")
-        }
-        else {
-          set context.VBCFlag ="No"
-           $$$TRACE("Set VBC flag No ")
-        }
+        
+         set respText =""
+        While 'tcharStream.AtEnd {
+          Set respText = respText_tcharStream.Read()
+        } 
+        $$$TRACE("VBC service response: "_respText)
+        
+         set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respText)
+            set iter = consumedJSONobj.%GetIterator()
+            set Repstatus = consumedJSONobj.%Get("response").%Get("service-status").%Get("status")
+            $$$TRACE(" Value of response Status "_Repstatus) 
+		
+         if Repstatus [ "SUCCESS"{
+	        $$$TRACE(" Successful Response from VBC Service ")
+	       
+	        set ArraySize = consumedJSONobj.%Get("response").%Get("status-details").%Size()
+	         $$$TRACE(" Value of ArraySize "_ArraySize)
+	         
+	         if ArraySize > 0
+	         { 
+	             set hasvbcplanValue = consumedJSONobj.%Get("response").%Get("status-details").%Get("hasVbcPlan")
+	             $$$TRACE(" Value of hasvbcplanValue  is: "_hasvbcplanValue)
+	          
+	             if (hasvbcplanValue = 1 )
+                     {
+                       set context.VBCFlag ="Yes"
+                       $$$TRACE("Set VBC flag Yes ")
+                     }
+                    else {
+                       set context.VBCFlag ="No"
+                       $$$TRACE("Set VBC flag No ")
+                    }
+	          
+	        }else{
+	           set context.VBCFlag ="No"
+	           $$$TRACE("Service returned empty value due to invalid EMPI number")
+	           Do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "Service did not return VBC info for EMPI: "_context.EMPI)
+	        }
+	        
+	   }else{
+	    if Repstatus [ "ERROR"{   
+	       set context.VBCFlag ="No"
+	       $$$TRACE(" Error calling the Patient MDM service.")
+	       Do ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName, "VBC lookup Service failed for the EMPI: "_context.EMPI)
+		     }
+                
+                  }
+	        
+        
+      
         
     }
     }
@@ -564,7 +605,8 @@ BPL Definition</Description>
     set context.VBCFlag ="No"
     $$$TRACE("Set VBC flag No since EMPI number is not present")
   }
-  ]]]]><![CDATA[>
+  
+  $$$TRACE("Final VBC flag value is : "_context.VBCFlag)]]]]><![CDATA[>
 </code>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToCipherHealth' source='request' target='response' xpos='470' ypos='2700' />
 <foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2800' xend='200' yend='350' >
