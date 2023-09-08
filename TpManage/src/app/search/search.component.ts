@@ -14,6 +14,7 @@ import {
   transition,
   trigger
 } from '@angular/animations';
+
 const DEFAULT_DURATION = 300;
 @Component({
   selector: 'app-search',

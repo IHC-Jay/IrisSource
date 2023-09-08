@@ -114,7 +114,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   logout() {
     this.authenticationService.logout();
-    localStorage.clear();
+    sessionStorage.clear();
     this.isLogin = false;
     this.f.username.setValue('');
     this.f.password.setValue('');
@@ -164,6 +164,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         error: (e) => {
           console.error('onLogin catchError: ' +e);
           this.router.navigate(['/']);
+          alert('Login failed: ' + e)
           this.displayHelp = "Login failed";
           this.loading = false;
           return;

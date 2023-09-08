@@ -16,7 +16,7 @@ export class AuthenticationService {
   constructor(private usrService: RestServiceComponent) {
 
     this.currentUserSubject = new BehaviorSubject<User>(
-      JSON.parse(localStorage.getItem("currentUser"))
+      JSON.parse(sessionStorage.getItem("currentUser"))
     );
     this.currentUser = this.currentUserSubject.asObservable();
 
@@ -39,7 +39,7 @@ export class AuthenticationService {
         user.firstName = res
         user.username = username
         user.password = password
-        localStorage.setItem("currentUser", JSON.stringify(user));
+        sessionStorage.setItem("currentUser", JSON.stringify(user));
         this.currentUserSubject.next(user);
         console.info('login currentUserValue: ' + (this.currentUserSubject.value!== null) );
         return user;
@@ -50,7 +50,7 @@ export class AuthenticationService {
   logout() {
     // remove user from local storage to log user out
     console.info('logout currentUserValue: ' + (this.currentUserSubject.value.firstName));
-    localStorage.removeItem("currentUser");
+    sessionStorage.removeItem("currentUser");
     this.currentUserSubject.next(null);
   }
 

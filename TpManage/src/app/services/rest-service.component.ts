@@ -60,7 +60,7 @@ export class RestServiceComponent {
      if( this.currentUser === '')
      {
       this.authenticationService.logout();
-      localStorage.clear();
+      sessionStorage.clear();
       this.router.navigate(['/']);
      }
      return this.currentUser;

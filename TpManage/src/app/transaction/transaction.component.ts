@@ -12,7 +12,7 @@ import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { Router, ActivatedRoute } from '@angular/router';
-import { IDropdownSettings } from 'ng-multiselect-dropdown';
+import {MatSelectModule} from '@angular/material/select';
 import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
 
 import {MatNativeDateModule} from '@angular/material/core';
@@ -76,7 +76,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   @ViewChild("searchField") searchField: ElementRef;
   @ViewChild("searchCndition") searchCndition: ElementRef;
   @ViewChild("transType") transType: ElementRef;
-
+  @ViewChild("displayCols") displayCols: ElementRef;
   @ViewChild("matStartDate") matStartDate: string;
   @ViewChild("matEndDate") matEndDate: string;
 
@@ -103,6 +103,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   constructor(private TransactionService: RestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
+
   }
 
 
@@ -463,7 +464,7 @@ addRow() {
 
 
 onRowClicked(row) {
-      console.log('Row clicked: ' + row + ", Search: " + this.searchString);
+      console.log('Row clicked: ' + row.id + ", Search: " + this.searchString);
       this.router.navigate(["/transaction/transaction-details/"],
       {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString } }
        );
@@ -527,6 +528,34 @@ saveDisplayColumns()
 
           console.info("TransactionService: " + res);
 
+          this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
+            this.transactionsSearchColumns = [];
+
+              for (var item of res)
+              {
+                console.info("Push transactionsSearchColumns: " + item.Key)
+                  this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
+              }
+              console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
+              console.info("Usr Columns: " + this.usrDisplayColumns.length);
+              this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
+                this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
+                this.usrDisplayColumns.push(...res);
+
+                if(this.currentTransType !== '')
+                {
+
+                console.info("User display columns: " + this.usrDisplayColumns.length);
+                this.transactionChange(this.currentTransType);
+
+                console.info('Transaction search with: ' + this.searchString);
+                this.onSearchTransactions();
+                }
+              });
+
+            });
+
+
         });
 }
 
@@ -559,7 +588,7 @@ transactionChange(evt: any)
 
   for (var col of this.transactionsSearchColumns)
     {
-      console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
+      // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
       if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
       {
           this.searchColumns.push(col);
@@ -582,7 +611,7 @@ transactionChange(evt: any)
           var selInd = this.allDropdownListFind(col.label);
           if(selInd !== -1)
           {
-            console.info(disp.TransactionCode + " PUSH " + disp.key + "===" + col.key +", selInd: " + selInd)
+            console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
             tempArr.push({item_id:selInd, item_text:col.label});
 
             break;

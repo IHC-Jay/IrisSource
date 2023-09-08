@@ -49,8 +49,11 @@ import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion
 import { Modalx12Component } from './transaction/transaction-details/modal/modal-x12.component';
 import { ModalHelperService } from './transaction/transaction-details/modal/modal-helper.service';
 
+
 import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
+
+import { AngularSplitModule } from 'angular-split';
 
 @NgModule({
   declarations: [
@@ -95,8 +98,8 @@ import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/
     NgMultiSelectDropDownModule.forRoot(),
     MatExpansionModule,
     MatNativeDateModule,
-    MatDatepickerModule
-
+    MatDatepickerModule,
+    AngularSplitModule
   ],
   exports:[
     MatTableModule,
