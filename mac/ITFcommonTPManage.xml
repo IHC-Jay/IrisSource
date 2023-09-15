@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="ITFcommonTPManage" type="MAC" languagemode="0"><![CDATA[
+#include Ensemble
+	
+ WRITE !, "IHC_ITF_ITFCOMMON_TPManage"
+
+ WRITE !, $NAMESPACE
+ set flNm = "/home/cacheusr/TpManage/TpIds.txt" // TRANSACTIONTYPES.txt"  // TpIds.txt" // tpNms.txt"
+ 
+ /***
+tpNms.txt
+
+	 select p.name,b.name
+	 from
+	 "ECENABLEMENT_SH"."BIZROLEDEF" b, "ECENABLEMENT_SH"."PARTY"  p
+	 where p.BIZROLEDEFSID = b.bizroledefsid;
+
+tpIds.txt
+
+	select  ind.identifiersid, ind.value, 
+	DECODE(nvl(to_char(ind.comments), 'X12Identifier'), 'X12Identifier', 'BOTH', 'X12Identifier-GS','GS'), p.name
+	from
+	identifier ind, PARTY  p
+	where ind.partysid = p.partysid
+	and ind.value is not null
+	order by p.name; 
+
+IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES
+
+ SELECT
+distinct regexp_replace(trn.NAME, 'OutRT|OutB|InRT|InB', '')  as NAME
+ , dir.caption as Direction, trn.CODE as TransactionSetId, trn.version, replace(regexp_replace(trn.description, 'Batch|Real Time',''), '- ','') as DESCRIPTION
+FROM
+    traderelationship rsh, TPMTRANSACTION trn, agreement ag,
+    BIZDOCUMENTDEF bz,  entransactiondirection dir
+    where rsh.tpmtransactionsid = trn.tpmtransactionsid
+    and ag.tpmtransactionsid = trn.tpmtransactionsid
+    and ag.Name like 'IMH%' and ag.Name not like '%Catch%' and ag.Name not like '%Test%' and ag.Name not like '%Custom%'
+    and bz.BIZDOCUMENTDEFSID = trn.BIZDOCUMENTDEFSID
+    and dir.enumid = TRANSACTIONDIRECTIONID
+    order by  trn.CODE;
+    
+ ***/
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ if (##class(%File).Exists(flNm))
+ {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set status = fileObj.Open("R")
+	 set numRecs = 0, numDup = 0, numIns = 0, numErr = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 WRITE !, "End of File: " _sc _ ", " _ eol
+			 QUIT
+		 }
+		 else
+		 {
+			 if ($L(text) > 0)
+			 set numRecs = numRecs + 1
+			 
+			 if (flNm [ "TpIds" ) {  // TpId
+				 set tpNm = $ZSTRIP($PIECE(text, "	", 4),"<>W")
+				 set tpId = $ZSTRIP($PIECE(text, "	", 2),"<>W")
+				 set typ = $ZSTRIP($PIECE(text, "	", 3),"<>W")
+				 set ediId = $ZSTRIP($PIECE(text, "	", 1),"<>W")
+				 write !, "TPID -> " _ line _ ". " _ tpNm _ ":" _ typ
+				 set line = line + 1
+				 
+				set tradingPartnerId = ""
+				&SQL(select ID into :tradingPartnerId FROM IHC_ITF_ITFCOMMON_TPManage.TradingPartner where Name = :tpNm)
+				if SQLCODE '= 0
+				{			
+						WRITE !, "Error in finding TP: " _ SQLCODE
+						 
+				}
+				if (tradingPartnerId = "")
+				{
+						WRITE !, "ID for TP is empty " _ tpNm
+						 
+				}
+				else
+				{
+					Set cm = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%New()
+					#dim tp As IHC.ITF.ITFCOMMON.TPManage.TradingPartner
+					set tp = ##class(IHC.ITF.ITFCOMMON.TPManage.TradingPartner).%OpenId(tradingPartnerId)
+					set cm.TPFK = tp
+					set cm.TPID = tpId
+					set cm.Type = typ
+					set cm.EdifecsID = ediId
+					set cm.Name = tpNm _ " TpId"
+					set cm.CreatedDtTM = dtTm
+					set cm.LastmodDtTM = dtTm
+					set cm.LastmodID = "lpjnaras"
+					set cm.CreateID = "lpjnaras"
+					
+					set stat = cm.%Save()
+					
+					WRITE !, tpId _ " - Save: " _ stat
+					if ($$$ISOK(stat))
+					{
+						set numIns = numIns + 1
+					}
+					else
+					{
+						set numErr= numErr + 1
+					}
+			
+				} 
+			} //TpId
+	
+			elseif (flNm [ "TradingPartners" ) 
+			{ //Trading Partner
+			
+				 set tpNm = $ZSTRIP($PIECE(text, "	", 1),"<>W")
+				 set typ = $ZSTRIP($PIECE(text, "	", 2),"<>W")
+				 
+				 &SQL(INSERT INTO  IHC_ITF_ITFCOMMON_TPManage.TradingPartner (ContactEmail, ContactName, ContactPhone, 
+				 CreateID, CreatedDtTM, LastmodDtTM, LastmodID, Name, Type)
+				 values('TDB@a.com', 'TBD', '555-1212','lpjnaras',:dtTm,:dtTm,'lpjnaras',:tpNm,:typ))
+				 if (SQLCODE = 0)
+				 {
+					 // WRITE !, "Inserted " _ tpNm _ " / " _typ
+					 set numIns = numIns + 1
+				 }
+				 elseif (SQLCODE = "-119")
+				 {
+					 // WRITE !, "Duplicate: " _ tpNm _ " / " _typ
+					 set numDup = numDup + 1
+				 }
+				 else
+				 {
+					 WRITE !, SQLCODE _ ": " _ tpNm _ " / " _typ
+					 set numErr= numErr + 1
+				 }
+				 		 
+
+			 }
+			 else 
+			{ //TRANSACTIONTYPES
+			
+				 set trNm = $ZSTRIP($PIECE(text, "	", 1),"<>W")
+				 set direc = $ZSTRIP($PIECE(text, "	", 2),"<>W")
+				 set type = $ZSTRIP($PIECE(text, "	", 3),"<>W")
+				 set ver = $ZSTRIP($PIECE(text, "	", 4),"<>W")
+				 set desc = $ZSTRIP($PIECE(text, "	", 5),"<>W")
+				 
+				 &SQL(INSERT INTO  IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES
+				  ( NAME, Direction, TransactionSetId, VERSION,DESCRIPTION,
+				 CreateID, CreatedDtTM, LastmodDtTM, LastmodID )
+				 values(:trNm, :direc,:type,:ver,:desc
+				 ,'lpjnaras',:dtTm,:dtTm,'lpjnaras'))
+				 if (SQLCODE = 0)
+				 {
+					 // WRITE !, "Inserted " _ trNm _ " / " _type
+					 set numIns = numIns + 1
+				 }
+				 elseif (SQLCODE = "-119")
+				 {
+					 // WRITE !, "Duplicate: " _ trNm _ " / " _type
+					 set numDup = numDup + 1
+				 }
+				 else
+				 {
+					 WRITE !, SQLCODE _ ": " _ trNm _ " / " _type
+					 set numErr= numErr + 1
+				 }
+				 		 
+
+			 }
+			 
+		 }
+
+ 		
+ 	
+ 	}
+	do fileObj.Close()
+  
+  }
+  WRITE !, "DONE processing " _ numRecs _ ", inserted: " _ numIns _ ", Duplcates: " _ numDup _", errors: " _ numErr
+  WRITE !, "----"
+]]></Routine>
+</Export>

@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="InsertTpLink" type="MAC" languagemode="0"><![CDATA[
+#include Ensemble
+ WRITE !, $NAMESPACE _" - insertTpLinksRTOut"
+ kill ^tpIdGlobal
+  
+ set flNm = "/home/lpjnaras/inboundLinks-IRIS.txt" // "/home/lpjnaras/insertTpLinksRTOut-IRIS"
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ set separtor = "," // "	"
+ 
+ /*** Process - RT/Out
+   File: tpLinks-PROD
+   Run:
+   sed 's/"//g' tpLinks-PROD |  sed 's/\&quot;//g' > inboundLinks-2.txt
+   grep -E "ID.X12Identifier|ReceiverID|SenderID|ApplicationSettings" inboundLinks-2.txt > inboundLinks-IRIS.txt
+
+
+ SQL:
+ SELECT  rsh.TRADERELATIONSHIPSID,
+  REPLACE(rsh.Name ||'-' || pt1.name ||'-' || pt2.name, ' ', '_'),
+  pt1.partysid as sender,   pt2.partysid as receiver,
+  regexp_replace(trn.NAME, 'OutRT|OutB|InRT|InB', '') as TPMTRANSACTIONSID,
+  ag.Name ||'-'|| bz.caption ||'-'|| fmt.name ||'-'|| pm.name, ar.RESOLVEDCONFIGURATIONXML,pm.name
+FROM
+    traderelationship rsh, TPMTRANSACTION trn, agreement ag,
+    BIZDOCUMENTDEF bz, FORMAT fmt, PROCESSINGMODE pm,
+    APPLICATIONRESOLUTION ar, party pt1, party pt2, agreementversion av
+where rsh.tpmtransactionsid = trn.tpmtransactionsid and rsh.isactive = 1 and ar.isvalid = 1
+    and ag.tpmtransactionsid = trn.tpmtransactionsid
+    -- and ag.description is not null 
+    and ag.Name like 'IMH%' and ag.Name not like '%Catch%' and ag.Name not like '%Test%' and ag.Name not like '%Custom%'
+    and bz.BIZDOCUMENTDEFSID = trn.BIZDOCUMENTDEFSID
+    and fmt.formatsid = trn.FORMATSID
+    and pm.processingmodesid = trn.processingmodesid
+    and ar.traderelationshipsid = rsh.traderelationshipsid
+    and pt1.partysid = rsh.SENDERPARTYSID
+    and pt2.partysid = rsh.receiverpartysid
+    and ar.agreementversionsid = av.agreementversionsid
+    and ar.applicationresolutionsid  = 
+    (select MAX(applicationresolutionsid) from APPLICATIONRESOLUTION ar2 
+        where ar2.traderelationshipsid = rsh.traderelationshipsid)
+    and pm.name = 'RealTime' and TRANSACTIONDIRECTIONID =1
+    order by rsh.TRADERELATIONSHIPSID
+    ;
+    
+  and pm.name = 'Batch' and TRANSACTIONDIRECTIONID =2
+ ***/
+ 
+ set numIds = 1
+ set numRows = 1
+ set numSave = 0
+ set numDups = 0
+ if (##class(%File).Exists(flNm))
+ {
+	 
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set status = fileObj.Open("R")
+	 while 'fileObj.AtEnd {
+		 set ttId = ""
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 WRITE !, "End of File: " _sc _ ", " _ eol
+			 QUIT
+		 }
+		 else
+		 {
+			 if (($L(text) > 0) && ($F(text, "<ApplicationSettings") > 1))
+			 {
+				 set numIds = 0
+				 set numRows = 1 + numRows
+				 
+				 set edifecsId = $ZSTRIP($PIECE(text, separtor, 1),"<>W")
+
+				 set tpLnkNm = $ZSTRIP($PIECE(text, separtor, 2),"<>W")
+				 set tt = $ZSTRIP($PIECE(text, separtor, 5),"<>W")
+				  set notes = $ZSTRIP($PIECE(text, separtor, 6),"<>W")
+			 	  WRITE !, edifecsId _". " _tpLnkNm _", TRANSACTIONTYPE: " _ tt _", Notes: " _ notes
+				 set line = line + 1
+				 &SQL(select ID, Direction into :ttId, :direc FROM IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES  where NAME = :tt)
+					if SQLCODE '= 0
+					{			
+							WRITE !, tt _ " - Error in finding TRANSACTIONTYPES: " _ SQLCODE
+							 
+					}
+					elseif (ttId = "")
+					{
+							WRITE !, "TRANSACTIONTYPES is empty " _ tt
+							 
+					}
+					else
+					{
+						set ttObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRANSACTIONTYPES).%OpenId(ttId)
+					}
+					// write !, " -> " _ line _ ". " _ tpLnkNm _ ":" _ tt _ ", Notes: " _ $FIND(notes, "Batch") _ ", " _direc
+			 }
+			 elseif(($L(text) > 0) && ($F(text, "Name") > 1))
+			 {
+			    
+			   set inpTpNm = $ZSTRIP($PIECE($PIECE(text, ">", 2), "<", 1),"<>W")
+			   // write !, numIds _". NAME - Property: " _ inpTpNm _ "= "
+			 }
+			 elseif(($L(text) > 0) && ($F(text, "Value") > 1))
+			 {			
+			 	set ediId = $ZSTRIP($PIECE($PIECE(text, "sid=", 2), "}<", 1),"<>W")
+			    // write ediId _"  value -> " 
+			    &SQL(select ID into :tpId FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where EdifecsID = :ediId)
+					if SQLCODE '= 0
+					{			
+							WRITE !, "EdifecsID: " _ ediId _ "- Error in finding TP: " _ SQLCODE
+							 
+					}
+					elseif (tpId = "")
+					{
+							WRITE !, "ID for TP is empty " _ ediId
+							 
+					}
+					elseif (numIds < 4)
+					{
+						set tpId = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%OpenId(tpId)
+						// WRITE "- ID: tpId.%Id(): " _ tpId.%Id()
+						if ((inpTpNm = "GroupReceiverID" ) && ( $F(text, "ReceiverPartner.ID.X12Identifier")> 1))
+						{
+							set grpRecvId = tpId
+							set numIds = 1 + numIds
+						}
+						elseif ((inpTpNm = "GroupSenderID") && ( $F(text, "SenderPartner.ID.X12Identifier") > 1))
+						{
+							set grpSendId = tpId
+							set numIds = 1 + numIds
+						}
+						elseif ((inpTpNm = "InterchangeReceiverID") && ( $F(text, "ReceiverPartner.ID.X12Identifier")> 1) )
+						{
+							set isaRecvId = tpId
+							set numIds = 1 + numIds
+						}
+						elseif ((inpTpNm = "InterchangeSenderID")&& ( $F(text, "SenderPartner.ID.X12Identifier") > 1))
+						{
+							set isaSendId = tpId
+							set numIds = 1 + numIds
+						}
+						// WRITE numIds _". IHC.ITF.ITFCOMMON.TPManage.TPIDS: " _ tpId.TPID
+					}
+					 
+			
+					if (numIds >= 4)
+					{
+						Set cm = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%New()
+
+						set cm.GsReceiverId = grpRecvId
+						set cm.GsSenderId = grpSendId
+						set cm.IsaReceiverId = isaRecvId
+						set cm.IsaSenderId = isaSendId
+						set cm.NAME = tpLnkNm
+						set cm.EdifecsID = edifecsId
+						set cm.TRANSTYPE = ttObj
+						set cm.SNIP = 1
+						// set cm.Active = 1
+						// set cm.Notes = notes
+						set cm.Routing = "RT"
+						set cm.Ack  = "Always"
+						set cm.Separators = "|*^:"
+						if ($FIND(notes, "Batch") > 1)
+						{
+							set cm.Mode = "Batch" 
+						}
+						else
+						{
+							set cm.Mode = "RT" 
+						}
+						set cm.CreatedDtTM = dtTm
+						set cm.LastmodDtTM = dtTm
+						set cm.LastmodID = "lpjnaras"
+						set cm.CreateID = "lpjnaras"
+						set cm.UniqueId = 0
+						
+						set stat = cm.%Save()
+						
+						
+						if ($$$ISERR(stat))
+						{
+							set grpRecvIdID = grpRecvId.%Id(), grpSendIdID = grpSendId.%Id(), isaRecvIdID = isaRecvId.%Id(), isaSendIdID = isaSendId.%Id()
+							set TRANSTYPE = ttObj.%Id(), mode = cm.Mode
+							&SQL(INSERT INTO IHC_ITF_ITFCOMMON_TPManage.TRADELINKS 
+							(CreateID, Ack, Active, CreatedDtTM, GsReceiverId, GsSenderId,IsaReceiverId,IsaSenderId,
+							 Mode, Routing, TRANSTYPE, SNIP, Separators, NAME,  EdifecsID) 
+							VALUES('lpjnaras', 'Negative', 1, :dtTm, 
+							:grpRecvIdID, :grpSendIdID, :isaRecvIdID, :isaSendIdID, :mode, 
+							'UHIN Batch', :TRANSTYPE, 1, '|*^:', :tpLnkNm, edifecsId))
+							IF SQLCODE'=0 {
+							     // WRITE !, tpLnkNm _ " - INSERT Error code ",SQLCODE
+							     IF SQLCODE '= -119 // Duplicate
+							     {
+									WRITE !, tpLnkNm _ " -INSERT SQL error: " _ SQLCODE
+								    // WRITE !, "Save: " _ stat 
+							     	&SQL(SELECT ID into :lnkId from IHC_ITF_ITFCOMMON_TPManage.TRADELINKS where NAME = :tpLnkNm)
+							     	if (lnkId > 0)
+							     	{
+								     	WRITE " - Duplicate name: " _ tpLnkNm _", ID: " _ lnkId _", SQLCODE: " _ SQLCODE _", SQL select: " _ lnkId
+								     	set numDups = numDups + 1
+							     	}
+							     	else
+							     	{
+								     	WRITE !, tpLnkNm _ " SQL select: " _ lnkId
+   									   	WRITE !, " cm.GsReceiverId = " _ grpRecvId.TPID _", cm.GsSenderId = " _ grpSendId.TPID
+										WRITE !, " cm.IsaReceiverId = " _ isaRecvId.TPID _",  cm.IsaSenderId = "_ isaSendId.TPID
+										WRITE !, " cm.NAME = " _ tpLnkNm _", " _ ttObj.NAME _ ", " _ cm.Mode 
+
+								    	WRITE !, "'lpjnaras', 'Negative', 1, '" _ dtTm _"', '"_ grpRecvIdID _"', '"_grpSendIdID _"', '"_isaRecvIdID _"', '"_isaSendIdID _"', '"_mode _"', 'UHIN Batch', "_ TRANSTYPE _", 1, '|*^:' , '"_tpLnkNm _"', "_ edifecsId
+							     	}
+							     }
+							     else
+							     {
+								     WRITE "Duplicate name: " _ tpLnkNm _", SQLCODE: " _ SQLCODE
+								     set numDups = numDups + 1
+							     }
+							     
+							} 
+							else
+							{
+								 WRITE !, tpLnkNm _ " - INSERT successful"
+								set numSave = 1 + numSave
+								set numIds = 0
+							}
+							
+						}
+						else
+						{
+							WRITE !, tpLnkNm _ " - SAVE successful"
+							 set numSave = 1 + numSave
+							 set numIds = 0
+						}
+						
+					}	
+		 	}
+		 }
+			 		 
+	 }
+	 do fileObj.Close()
+  }
+  else
+  {
+	 WRITE !, flNm _" cound not open"
+  }
+ 	
+  WRITE !, numSave _" saved of " _ numRows _", duplicates: " _ numDups
+ 	
+
+]]></Routine>
+</Export>
