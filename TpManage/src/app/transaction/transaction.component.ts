@@ -29,7 +29,7 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 
 export class TransactionComponent implements OnInit, AfterViewInit {
   displayLabel: string = "Display columns:";
-  TransactionTypes= ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999"];
+  TransactionTypes= ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
   butSaveDisplay: boolean = false;
 
    nyiColumns = [
@@ -364,6 +364,17 @@ export class TransactionComponent implements OnInit, AfterViewInit {
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Implementation Acknowledgment array: " + this.dataSource.data.length);
+         this.setControls();
+        });
+
+      }
+      else if(this.form.controls.transType.value === 'TA1'){
+
+        this.TransactionService.fetchInterchangeAcknowledgment(this.searchString).subscribe((res: any) => {
+         this.dataSource.data = res;
+         this.canRenderDetails = true;
+         this.loading = false;
+         console.info("Interchange Acknowledgment array: " + this.dataSource.data.length);
          this.setControls();
         });
 

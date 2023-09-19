@@ -173,6 +173,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
 
    }
+   onHome()
+   {
+    this.router.navigate(["/transaction"]);
+   }
 
 }
 

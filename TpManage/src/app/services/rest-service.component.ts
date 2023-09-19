@@ -22,6 +22,7 @@ import {ClaimStatusResp} from '../transaction/ClaimStatusResp'
 import {ClaimStatusReq} from '../transaction/ClaimStatusReq'
 import {ClaimPayment} from '../transaction/ClaimPayment'
 import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
+import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgement';
 import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
 import { transition } from '@angular/animations';
 
@@ -822,6 +823,44 @@ fetchImplementationAcknowledgment(searchStr: string) {
 
 }
 
+fetchInterchangeAcknowledgment(searchStr: string) {
+  console.log('Fetch Interchange Ack with Auth ' );
+
+  let url = transUrl + 'InterchangeAcknowledgment';
+
+  if(searchStr.length > 0)
+  {
+    url = url + "?searchStr=" + searchStr;
+  }
+  return this.http2
+    .get<{ [key: string]: InterchangeAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const InterchangeAcknowledgmentArray: InterchangeAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            InterchangeAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + InterchangeAcknowledgmentArray.length );
+        return InterchangeAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
 fetchClaimAcknowledgment(searchStr: string) {
   console.log('Fetch Claim Status Response with Auth ' );
 

@@ -162,6 +162,17 @@ export class TransactionDetailComponent {
           });
 
         }
+        else if(this.transaction === 'TA1'){
+
+          this.TransactionService.fetchInterchangeAcknowledgment("id='" + this.id+"'").subscribe((res: any) => {
+            this.canRenderDetails = true;
+            this.dataSource.data = res;
+            this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
+             this.fileName = this.dataSource.data[0].FileName.replace(/^.*[\\\/]/, '');
+          });
+
+        }
+
 
   });
 
