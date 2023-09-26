@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonOverture">
+<Description>
+Business process to translate AmWell ADT to Overture service</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66736,66496.419299</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Ping Service Operation to get the Access Token</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-PingDir-Json-Wsrc-ACCESSTOKEN"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="OvertureServiceTargetConfigName">
+<Description>
+Ping Service Operation to get the Access Token</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-IhcHie-Demogr-Json-Wsrc-OVERTURE"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>OvertureServiceTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Method name="CallOvertureService">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[token:%String,mrn:%String,jsonReq:Ens.StringContainer,pConfigName:%String,&process1:Ens.BusinessProcess,&mrnPar]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+		#dim status AS %Status=$$$OK
+		$$$TRACE(" Inside CallOvertureServices()..........")
+		
+     $$$TRACE(" Target Operation: " _ process1.OvertureServiceTargetConfigName) 
+     set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.OvertureService).%New() 
+     set httpPingServiceRequestObj.accessToken = token
+     set httpPingServiceRequestObj.streamObject = jsonReq
+     $$$TRACE(" Calling Overture Service  - BEGIN ")     
+     set status = process1.SendRequestSync(process1.OvertureServiceTargetConfigName,httpPingServiceRequestObj,.overtureServiceResponse)
+     $$$TRACE(" Calling Overture Service  - END ")
+     if (status=$$$OK){
+	    $$$TRACE("Call Overture service ..Operation OK status.")      
+        set overtureServiceResponseData=overtureServiceResponse.Stream  
+        $$$TRACE( " overtureServiceResponseData : "_overtureServiceResponseData)
+        set statusCode = overtureServiceResponse.Attributes.GetAt("StatusCode")       
+        $$$TRACE( " statusCode : "_statusCode)
+        set stream =   overtureServiceResponseData
+       	set respData = ""
+       	While 'stream.AtEnd { 
+       		set respData = respData _ stream.ReadLine(,.sc,.eol)       		
+       	}
+        $$$TRACE(" httpStatusCode: "_statusCode)    
+        
+       // set respdata = respData _ " JSON Request: "_jsonProcessRequest.StringValue_$CHAR(10)
+        
+        if (statusCode'="200"){
+	    	if (statusCode="401"){
+		   		$$$TRACE("  CheckError... ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryCheckError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid access token. Response: ["_respData_"]. Retrying...") 
+		   	}elseif (statusCode="400"){
+		    	$$$TRACE("  In Status Code 400... ")
+		    	$$$TRACE(" respData "_respData)
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respData)
+   		    }elseif (statusCode [ "5"){
+			    $$$TRACE("  HTTP status codes starting 5.. ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process1.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respData_"].") 
+		    }else{
+		    	$$$TRACE("  DisableMsgError.... ")
+        		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName," Response from Overture Service Post Operation: "_respData) 
+		    }
+		} else {
+        		$$$TRACE("Overture Service call status 200 OK !!! ")
+        		Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process1.%ConfigName) 
+        		
+        		set respJSONstring = respData          		
+          		$$$TRACE(" respData "_respData)
+          		                 
+        } 
+    }else{
+	    set errTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    $$$TRACE("Call Overture Service ERR TEXT: "_errTxt)
+	        	   
+    } 
+	   
+	      quit status
+]]></Implementation>
+</Method>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='7200' width='2000' >
+<context>
+<property name='accessTokenTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+
+<property name='insFlag' type='%String' instantiate='0' initialexpression='"0"' />
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='insRelNcid' type='%String' instantiate='0' />
+<property name='MsgType' type='%String' instantiate='0' />
+<property name='insPlanIdIN12Numeric' type='%String' initialexpression='""' instantiate='0' />
+<property name='insCompNcid' type='%String' initialexpression='""' instantiate='0' />
+<property name='in12' type='%String' initialexpression='""' instantiate='0' />
+
+</context>
+<sequence xend='200' yend='6450' >
+<scope xpos='200' ypos='250' xend='200' yend='6350' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr) 
+   
+ ]]]]><![CDATA[>
+</code>
+<code name='ValidateMessage' xpos='200' ypos='650' >
+<annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
+<![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
+ set tempStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,validationSettingValue)
+ if (tempStatus'=$$$OK){
+    set context.ValidationPassed=0    
+    }]]]]><![CDATA[>
+</code>
+<if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='6100' >
+<true>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
+<code name='initializeAccessTokenTarget' xpos='470' ypos='1850' >
+<![CDATA[ 
+ set context.accessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.accessTokenTargetConfigName)
+ }else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+<code name='CallWebServiceAccessTokenFromPing' xpos='470' ypos='2350' >
+<![CDATA[ 
+  $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
+   set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+   set status =  process.SendRequestSync(context.accessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+   if ($$$ISOK(status)){
+      $$$TRACE("AcsessToken Operation status - OK")
+      set context.restAccessTokenHttpResponse=accessTokenResponse      
+      Set tcharStream = ##class(%GlobalCharacterStream).%New()
+      Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+      set text=""
+      While 'tcharStream.AtEnd {
+        Set text = text_tcharStream.Read($$$MaxStringLength)
+      } 
+      set context.accessToken = text
+      $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+      if (context.accessToken=""){
+	      $$$TRACE(" Access Token is blank/empty")
+	      set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+	  }      
+    }
+    else {
+	    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+    }
+   ]]]]><![CDATA[>
+</code>
+
+<code name='CheckForRelationshipLookuptable' xpos='740' ypos='1650' >
+<![CDATA[ 
+    set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.AmWellAdtHl7ToCern.AmWellToCernerRelationships")
+  	if (retVal = 0){
+		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Lookup table IHC.ITF.Process.Bpl.AmWellAdtHl7ToCern.AmWellToCernerRelationships not exists")  
+  	}
+]]]]><![CDATA[>
+</code>
+
+<code name='getInsuranceRelationship' xpos='740' ypos='1650' >
+<![CDATA[ 
+     Set insRelIN117 =request.GetValueAt("IN1(1):InsuredsRelationshipToPatien.identifierST")
+     $$$TRACE("insRelIN117: " _ insRelIN117) 
+     set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmWellAdtHl7ToCern.AmWellToCernerRelationships", insRelIN117, .retVal )     
+     if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("Unable to get Insurance Relationship value from the lookup table. ")       
+     }else {
+	   $$$TRACE(" insRelIN117: ["_insRelIN117_"].  Ncid :[" _retVal_"]")
+	   set context.insRelNcid = retVal
+    }
+]]]]><![CDATA[>
+</code>
+
+<code name='getMessageType' xpos='200' ypos='650' >
+<![CDATA[  
+    Set context.MsgType = request.GetValueAt("MSH:9.2")     
+ ]]]]><![CDATA[>
+</code>
+
+<code name='InsuranceMappings' xpos='740' ypos='1650' >
+<![CDATA[ 
+      if ((context.MsgType = "A04") || (context.MsgType = "A28")){
+     	Set insPlanIdIN12 =request.GetValueAt("IN1(1):InsurancePlanID.identifierST")
+     	$$$TRACE("IN1.2(InsurancePlanID): " _ insPlanIdIN12) 
+     	if ($L($ZSTRIP(insPlanIdIN12,"*W"))>0){
+	     	    set context.insPlanIdIN12Numeric = $ZSTRIP(insPlanIdIN12,"*PA")
+	     	  	set context.in12 = context.insPlanIdIN12Numeric
+		     	try{
+		     		set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueParent(context.insPlanIdIN12Numeric , "IN1-2", context.hddTargetConfigName, .process, .retNcid)
+		            $$$TRACE(" Returned Ncid from HDD: " _ retNcid)
+		            set context.insCompNcid = retNcid
+		      		$$$TRACE("IN1.3(InsuranceompanyNID) from Hdd: " _ context.insCompNcid) 
+		     	}catch(exVar){
+	 			    set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	    		    $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	 				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+				}	         	
+     	}else{
+	     	$$$TRACE("IN1.2 is empty. Looking for IN1-3 ...") 
+	     	Set insPlanIdIN13Rep =request.GetValueAt("IN1(1):3(1).1")
+	     	if (insPlanIdIN13Rep '= ""){		
+				try{
+					set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getNcidFromRep(insPlanIdIN13Rep, "IN1(1):3(1).1", "526050881", "529857606", context.hddTargetConfigName, .process, .retNcid) 
+					set context.in12 = retNcid
+					try{
+						$$$TRACE("IN1.2 from Hdd: " _ context.in12)		     			
+	    			    $$$TRACE(" Calling getUniqueParent()...................... " )
+         				set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getUniqueParent(context.in12 , "IN1-2", context.hddTargetConfigName, .process, .retNcid)						
+						$$$TRACE("IN1.3(InsuranceompanyNID) from Hdd: " _ retNcid)
+						set context.insCompNcid = retNcid 
+     				}catch(exVar){
+	     				set exVarData = $ZSTRIP(exVar.Data,"*C")	     
+	     				$$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+	     				if exVar.Code [ "ITFCOMMON:10108" {
+		   				    $$$TRACE("IN1.2 from Hdd is blank: [" _ context.in12_"]. Sending the record without the insurance information.  The billing team would look up the insurance information and add it to the record. ")
+							Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell - No matching Insurance","No matching insurance defined in HDD with domain 526050881 and context 529857606 for the REP (IN1-3) : ["_insPlanIdIN13Rep _ "]. The billing team would look up the insurance information and add it to the record. "_exVarData,process.%ConfigName)
+					    	do process.SendAlert(emailAlertRequest)
+					    	set context.insFlag = "1"
+	   	 				}elseif(exVar.Code [ "ITFCOMMON:10109") {
+		   				    $$$TRACE("IN1.2 from Hdd is blank: [" _ context.in12_"]. Sending the record without the insurance information.  The billing team would look up the insurance information and add it to the record. ")
+							Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell - No matching Insurance","No matching insurance defined in HDD with domain 526050881 and context 529857606 for the REP (IN1-3) : ["_insPlanIdIN13Rep _ "]. The billing team would look up the insurance information and add it to the record. "_exVarData,process.%ConfigName)
+					    	do process.SendAlert(emailAlertRequest)
+					    	set context.insFlag = "1"
+		 				}elseif(exVar.Code [ "ITFCOMMON:10106") {
+		   	 			    set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
+		 				}elseif(exVar.Code [ "ITFCOMMON:10103") {
+		   	 				set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,exVarData)	
+		   	 				Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell - No matching Insurance","No matching insurance defined in HDD with domain 526050881 and context 529857606 for the REP (IN1-3) : ["_insPlanIdIN13Rep _ "]. The billing team would look up the insurance information and add it to the record. "_exVarData,process.%ConfigName)
+					    	do process.SendAlert(emailAlertRequest)
+					    	set context.insFlag = "1"	  
+		 				}else{
+			 				//Any other Unexpected error
+			 				set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
+		 				}
+	 				}
+				}catch(exVar){
+	     			set exVarData = $ZSTRIP(exVar.Data,"*C")
+	     			$$$TRACE(" exVarData --> "_exVarData)
+					if ( ($L(context.in12)=0) || (context.in12="ERROR") ){
+					// context.in12 blank from HDD means its NOT defined in HDD.
+						if ($L(context.in12)=0){
+							$$$TRACE("IN1.2 from Hdd is blank: [" _ context.in12_"]. Sending the record without the insurance information.  The billing team would look up the insurance information and add it to the record. ")
+							Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell - No matching Insurance","No matching insurance defined in HDD with domain 526050881 and context 529857606 for the REP (IN1-3) : ["_insPlanIdIN13Rep _ "]. The billing team would look up the insurance information and add it to the record. ",process.%ConfigName)
+					    	do process.SendAlert(emailAlertRequest)
+					    	set context.insFlag = "1"
+						}else{
+							set status=##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)						
+						}
+					}
+				}
+	     	
+					
+	     	}
+   
+					/*	set context.insCompNcid = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.Utility).getUniqueParent(context.in12, context.hddTargetConfigName, .process)
+		     			
+		     				if ($L(context.insCompNcid)=0){
+								$$$TRACE("Insurance Company Ncid from Hdd is blank: [" _ context.insCompNcid_"]. Sending the record without the insurance information.  The billing team would look up the insurance information and add it to the record. ")
+								Set emailAlertRequest=##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError("AmWell - No matching Insurance","getUniqueParent Hdd call failed to get the Insurance company ncid from the Insurance plan ncid: "_context.in12 _ " Relationship Ncid:529857609. Context Ncid:2000. The billing team would look up the insurance information and add it to the record. ",process.%ConfigName)
+							    do process.SendAlert(emailAlertRequest) 
+							    set context.insFlag = "1"
+							}else{
+								Set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,"getUniqueParent Hdd call failed to get the Insurance company ncid from the Insurance plan ncid: "_context.in12 _ " Relationship Ncid:529857609. Context Ncid:2000  ")
+							}
+							*/
+						
+		     		
+				}
+			}	     	
+	    
+     
+]]]]><![CDATA[>
+</code>
+
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.AmWellAdtHl7ToGenericJsonOverture' source='request' target='response' xpos='470' ypos='2700' >
+<annotation><![CDATA[translates AmWell Hl7 Adt to Xml]]]]><![CDATA[></annotation>
+</transform>
+
+<code name='ConvertXmlToJSONAndCallOvertureServicePost' xpos='470' ypos='2800' >
+<![CDATA[  
+    $$$TRACE("Converting XML to JSON Operation.. ")
+    set xmlStr=response.OutputToString()  
+    $$$TRACE("DTL Output: "_xmlStr)  	       
+    set json = ##class(IHC.ITF.ITFCOMMON.Util.XmlToJson).CreateJson(xmlStr)
+    $$$TRACE("JSON string: "_json)             
+    set jsonProcessRequest=##class(Ens.StringContainer).%New()
+    set jsonProcessRequest.StringValue= ##class(Ens.Util.FunctionSet).SubString(json, 20, $LENGTH(json)-1)
+    $$$TRACE("JSON string-Removed root XML element: "_jsonProcessRequest.StringValue)                
+  	
+    
+    set status =##class(IHC.ITF.Process.Bpl.AmWellAdtHl7ToGenericJsonOverture).CallOvertureService(context.accessToken,"",jsonProcessRequest,process.%ConfigName,.process,.mrnRet)
+    if (status=$$$OK){
+	    $$$TRACE(" Overture service response Successful... ")
+	    
+    }else{
+	    set statusTxt = $SYSTEM.Status.GetOneErrorText(status)
+	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,statusTxt)  
+	}   	   
+    
+  ]]]]><![CDATA[>
+</code>
+
+</true>
+<false>
+<trace name='Message Validation Failed' value='"Message Validation Failed"' xpos='200' ypos='900' />
+<code name='Skip message' xpos='200' ypos='1000' >
+<![CDATA[ set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record.")
+]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='6200' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>AmWellAdtHl7ToGenericJsonOvertureDefaultData</DefaultData>
+<Data name="AmWellAdtHl7ToGenericJsonOvertureDefaultData">
+<Subscript>"AmWellAdtHl7ToGenericJsonOverture"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>OvertureServiceTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
