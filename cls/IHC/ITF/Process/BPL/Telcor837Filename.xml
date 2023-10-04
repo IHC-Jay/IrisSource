@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.BPL.Telcor837Filename">
+<Description>
+</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66479,54413.409028</TimeCreated>
+
+<Property name="DestinationFilePath">
+<Description>
+This should be the file path the eventual business operation should send to</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>Telcor837FilenameDefaultData</DefaultData>
+<Data name="Telcor837FilenameDefaultData">
+<Subscript>"Telcor837Filename"</Subscript>
+<Value name="1">
+<Value>DestinationFileName</Value>
+</Value>
+<Value name="2">
+<Value>DestinationFilePath</Value>
+</Value>
+</Data>
+</Storage>
+
+<Parameter name="SETTINGS">
+<Default>DestinationFilePath:Additional</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2000' width='2000' >
+<context>
+<property name='response' type='IHC.ITF.Provider.DStruc.Record.StreamContainerWithFilepath' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='originalFilename' type='%String' initialexpression='"PENDING"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='filenameSegments' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='isolatedFilename' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
+<property name='destinationFilename' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='destinationFilepath' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ClaimData' type='%String' initialexpression='"pending"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1500' >
+<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<trace name='Enter BPL' value='"Entering BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<code name='Incoming Message (first 100)' xpos='200' ypos='450' >
+<![CDATA[  Do request.Stream.Rewind()
+  Set context.ClaimData=""
+  While (request.Stream.AtEnd = 0) {
+    Set context.ClaimData=context.ClaimData_request.Stream.Read(1)  
+  }
+   $$$TRACE("Incoming Claim Data (first 100):"_$EXTRACT(context.ClaimData,1,100))
+]]]]><![CDATA[>
+</code>
+<code name='Check ReplyCodeActions' xpos='200' ypos='550' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError and get Target Config Names' xpos='200' ypos='650' >
+<annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ 
+ 
+ $$$TRACE("Max Errors: " _ maxErr)
+   //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   set status=##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "Initialization error, No TargetConfigNames found!")
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ }
+  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+   ]]]]><![CDATA[>
+</code>
+<code name='Derive the outgoing filename' xpos='200' ypos='750' >
+<annotation><![CDATA[Derive the outgoing filename; the same filename needs to go to the R1 outbounds and to Edifecs for Transaction Management]]]]><![CDATA[></annotation>
+<![CDATA[  //Get the incoming filename
+  
+  //Separate the filename from the path
+  SET inputfilename=$PIECE(request.OriginalFilename,"/",*)
+  
+  $$$TRACE("inputfilename="_inputfilename)
+  
+  if ($FIND(inputfilename,"_")>0) // If there are underscores in the input file name
+  {
+     //Derive the file date from the incoming filename
+     SET inputfiledate=$EXTRACT($PIECE(inputfilename,"_",4,99),1,8)
+     $$$TRACE("inputfiledate="_inputfiledate)
+     
+     //Derive the uniqueID from the incoming filename
+     SET uniqueID=$PIECE(inputfilename,"_",2)
+     $$$TRACE("uniqueID="_uniqueID)
+     
+
+     SET context.destinationFilename = inputfiledate_".A153.837P01D."_uniqueID_".TXT"
+     $$$TRACE("destinationFilename="_context.destinationFilename)
+     
+  }
+  //if the incoming filename does NOT contain an underscore
+  else
+  {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Input 837 X12 file received from Telcor has invalid file name . Please verify and correct the input file name as per expected standards and reprocess the file.")
+  }
+]]]]><![CDATA[>
+</code>
+<code name='Read the outgoing filepath' xpos='200' ypos='850' >
+<![CDATA[ 
+ set destinationFilepath = ##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DestinationFilePath",.pstatus)
+ if ($$$ISOK(pstatus)){
+	 set context.destinationFilepath = destinationFilepath
+ 	$$$TRACE("context.destinationFilepath " _ context.destinationFilepath)
+ }else{
+    Set status = $$$ERROR("Initialization error, No DestinationFilePath found! Set the DestinationFilePath setting.")	 
+ } ]]]]><![CDATA[>
+</code>
+<code name='Store the message' xpos='200' ypos='950' >
+<annotation><![CDATA[We need to copy the incoming data to the outgoing request object so we can send along the new filename.]]]]><![CDATA[></annotation>
+<![CDATA[ //Create a global stream to persist file content
+	set stream=##class(%Stream.GlobalCharacter).%New()
+
+	Set status= stream.CopyFromAndSave(request.Stream)
+	
+	if $$$ISERR(status)
+	{
+	   $$$TRACE("Skip message, stream copy failed")
+	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Skip the record.")
+	   Quit
+	}
+
+	$$$TRACE(request.OriginalFilename_" (ID "_request.%Id()_") has been successfully saved to database. Stream OID is "_stream.%Oid()_"; Stream ID is "_stream.%Id()_".")
+	set context.response=##class(IHC.ITF.Provider.DStruc.Record.StreamContainerWithFilepath).%New(stream)
+	
+	//set context.NewFilePath = $PIECE(request.OriginalFilename, "/",*-1)
+	
+	//set context.response.OriginalFilename = request.OriginalFilename
+	//SET context.response.NewFilePath = context.destinationfilepath
+	//SET context.response.NewFileName = context.destinationfilename
+	
+	SET context.response.DestinationFilePath = context.destinationFilepath
+	$$$TRACE("context.response.DestinationFilePath="_context.response.DestinationFilePath)
+	SET context.response.DestinationFileName = context.destinationFilename
+	$$$TRACE("context.response.DestinationFileName="_context.response.DestinationFileName)
+	SET context.response.SourceFileName = $PIECE(request.OriginalFilename,"/",*)
+	$$$TRACE("context.response.SourceFileName="_context.response.SourceFileName)]]]]><![CDATA[>
+</code>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1050' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='IHC.ITF.Provider.DStruc.Record.StreamContainerWithFilepath' >
+<assign property="callrequest" value="context.response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='RESETERROR' xpos='200' ypos='1150' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall name='CATCH ALL' xpos='200' ypos='1250' xend='200' yend='350' >
+<code name='CALL PROCESS ERROR' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
