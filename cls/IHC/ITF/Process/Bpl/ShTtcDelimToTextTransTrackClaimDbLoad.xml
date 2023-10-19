@@ -19,8 +19,16 @@ Use this template to start your BPL</Description>
 <Type>%Integer</Type>
 </Property>
 
+<Property name="LoadBalanceOperations">
+<Description>
+LoadBalanceOperations - Number of operations to which the transaction needs to sent (Round Robin).
+Name the operation specified in Target Config Names with an ending of -#, like -1, -2, etc.</Description>
+<Type>%Integer</Type>
+<InitialExpression>5</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>TimeOutForSPCall:Additional</Default>
+<Default>TimeOutForSPCall:Additional,LoadBalanceOperations:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -30,6 +38,9 @@ Use this template to start your BPL</Description>
 <Subscript>"ShTtcDelimToTextTransTrackClaimDbLoad"</Subscript>
 <Value name="1">
 <Value>TimeOutForSPCall</Value>
+</Value>
+<Value name="2">
+<Value>LoadBalanceOperations</Value>
 </Value>
 </Data>
 </Storage>
@@ -83,6 +94,9 @@ BPL Definition</Description>
 <property name='arr1' type='IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKTRANINSERT' instantiate='0' />
 <property name='arr10' type='IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKLINECASINSERT' instantiate='0' />
 <property name='TimeOutForSPCall' type='%Integer' instantiate='0' />
+<property name='LoadBalanceOperations' type='%Integer' instantiate='0' />
+
+
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -127,10 +141,11 @@ BPL Definition</Description>
 </code>
 <trace name='stream read' value='"stream:Test Read:"' xpos='200' ypos='650' />
 <trace name='Filename' value='"requestDotOriginalFilename:"_request.OriginalFilename' xpos='200' ypos='750' />
-<code name='Process the data' xpos='196' ypos='850' >
+<code name='Process the data' xpos='200' ypos='850' >
 <![CDATA[  // This code is shared by ShTtcDelimToTextTransTrackClaimDbLoadRetry
  // Modify that code also
  $$$TRACE("inside code block")
+ 
  Set line=request.Stream.Read()
  $$$TRACE("line:"_line)
  	
@@ -306,6 +321,10 @@ BPL Definition</Description>
  //$$$TRACE("context.TimeOutForSPCall:"_context.TimeOutForSPCall)
  set context.TimeOutForSPCall=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutForSPCall",.pstatus)
   $$$TRACE("timeout:"_context.TimeOutForSPCall)
+  
+  set context.LoadBalanceOperations=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","LoadBalanceOperations",.pstatus)
+  $$$TRACE("LoadBalanceOperations:"_context.LoadBalanceOperations)
+ 
  set response=##class(Ens.StringContainer).%New()
  if Event="IHCSP_EDITRK_TRANX_INSERT"
  {
@@ -325,8 +344,21 @@ BPL Definition</Description>
 		set context.arr1.TransFileName = X12FileName
 		
 		$$$TRACE("arr val:"_context.arr)
+		if ($DATA(^TransTrackingLoadBalance) = 0)
+	        {
+		   set ^TransTrackingLoadBalance = 1
+	        }
+	        else
+	        {
+		  set ^TransTrackingLoadBalance = $INCREMENT(^TransTrackingLoadBalance)
+		  if (^TransTrackingLoadBalance > context.LoadBalanceOperations)
+		  {
+		 	set ^TransTrackingLoadBalance = 1
+		  }
+	        }
+	$$$TRACE("SendRequestSync - Use ^TransTrackingLoadBalance # " _ ^TransTrackingLoadBalance)
 	
-        set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr1,.response,context.TimeOutForSPCall)
+        set tStatus=process.SendRequestSync(context.targetConfigNames _ "-" _ ^TransTrackingLoadBalance,context.arr1,.response,context.TimeOutForSPCall)
         
 		if ('tStatus) 
 		{
@@ -347,14 +379,14 @@ BPL Definition</Description>
      
 				 $$$TRACE("Success response from operation")
 				 $$$TRACE("Errorcode in inside errorcode if..else:"_Errorcode)
-				 Do ##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKTRANXINSERTTransaction(context.arr1)
+				 Do ##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKTRANXINSERTTransaction(context.arr1, ^TransTrackingLoadBalance)
 			}
 			else
 			{
 				 if ( (Errorcode="8") || (ErrorDesc [ "DUPLICATE"))
 				 {
 				        // Do not report error for duplicates
-					Do ##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKTRANXINSERTTransaction(context.arr1)
+					Do ##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKTRANXINSERTTransaction(context.arr1, ^TransTrackingLoadBalance)
 				 }
 				 else
 				 {
@@ -394,10 +426,10 @@ BPL Definition</Description>
 				
 		$$$TRACE("arr val:"_context.arr)
 			
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKCLAIMINSERTExists(context.arr) = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).IHCSPEDITRKCLAIMINSERTExists(context.arr, .operNum) = $$$OK)
 		{
-				$$$TRACE("Transaction exists")
-				set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr,.response,context.TimeOutForSPCall)
+				$$$TRACE("TRKCLAIM Transaction exists, Use Operation: " _ operNum)
+				set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr,.response,context.TimeOutForSPCall)
 				if ('tStatus) 
 				{
 					Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,"Unable to insert new CLAIM  record into IHCSP_EDITRK_TRANX_INSERT table")
@@ -463,10 +495,10 @@ BPL Definition</Description>
 		
 		$$$TRACE("context.arr2 value:"_context.arr2)
 		$$$TRACE("context.targetConfigNames value:"_context.targetConfigNames)
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).CLAIMS837Exists(context.arr2) = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).CLAIMS837Exists(context.arr2, .operNum) = $$$OK)
 		{
-			$$$TRACE("Transaction exists")
-			set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr2,.response,context.TimeOutForSPCall)
+			$$$TRACE("837 Transaction exists " _"-" _ operNum)
+			set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr2,.response,context.TimeOutForSPCall)
 
 			
 				
@@ -525,10 +557,10 @@ BPL Definition</Description>
 
 		Set context.arr3.GroupAckCode=GroupAckCode
 		Set context.arr3.TransSetAckCode=TransSetAckCode
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOING999Exists(context.arr3) = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOING999Exists(context.arr3, .operNum) = $$$OK)
 		{
-			$$$TRACE("Transaction exists")
-			 set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr3,.response,context.TimeOutForSPCall)
+			$$$TRACE("999 Transaction exists" _"-" _ operNum)
+			 set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr3,.response,context.TimeOutForSPCall)
 
 			
 			
@@ -585,11 +617,11 @@ BPL Definition</Description>
 
 		Set context.arr4.InterchangeControlNumber=InterchangeControlNumber
 
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOINGTA1Exists(context.arr4)  = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOINGTA1Exists(context.arr4, .operNum)  = $$$OK)
 		{
-			$$$TRACE("Transaction exists")
+			$$$TRACE("TA1 Transaction exists" _"-" _ operNum)
 		
-			set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr4,.response,context.TimeOutForSPCall)
+			set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr4,.response,context.TimeOutForSPCall)
 
 			
 		
@@ -646,11 +678,11 @@ BPL Definition</Description>
 		Set context.arr5.InterchangeTime=InterchangeTime
 
 		Set context.arr5.InterchangeControlNumber=InterchangeControlNumber
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).TRADPARTNOTFOUNDExists(context.arr5) = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).TRADPARTNOTFOUNDExists(context.arr5, .operNum) = $$$OK)
 		{
-			$$$TRACE("Transaction exists")
+			$$$TRACE("TP not found Transaction exists" _"-" _ operNum)
 		
-			set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr5,.response,context.TimeOutForSPCall)
+			set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr5,.response,context.TimeOutForSPCall)
 
 			
 		
@@ -723,11 +755,11 @@ BPL Definition</Description>
     	    // Read new values for this message - RITM0128055 
 	    Set context.arr6.ClmExtRef = $PIECE(line,"|@@|",72)	
 		
-		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOINGCLAIMSExists(context.arr6) = $$$OK)
+		if (##class(IHC.ITF.PAYER.Process.Util.CheckTransaction).OUTGOINGCLAIMSExists(context.arr6, .operNum) = $$$OK)
 		{
-			$$$TRACE("Transaction exists")
+			$$$TRACE("OUTGOINGCLAIMS Transaction exists" _"-" _ operNum)
 		
-			set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr6,.response,context.TimeOutForSPCall)
+			set tStatus=process.SendRequestSync(context.targetConfigNames _"-" _ operNum,context.arr6,.response,context.TimeOutForSPCall)
 
 			
 			
