@@ -48,6 +48,20 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing filt
 <Type>%Boolean</Type>
 </Property>
 
+<Property name="DoCernWebEdgeRestCall">
+<Description>
+Boolean Proptery to determine if Do the Cern WebEdge REST Call for DISPENSEFROMLOC.</Description>
+<Type>%Boolean</Type>
+</Property>
+
+<Property name="WebEdgeTargetConfigName">
+<Description>
+Cern WebEdge service call Operation for doing REST call for DISPENSEFROMLOC- the IRIS target name used for WebEdge call</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-CernEdge-Wsrc-MEDDISPENSELOC"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="HddTargetConfigName">
 <Description>
 HDD Operation: The target name used for HDD calls</Description>
@@ -77,7 +91,7 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing Non-
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,HddTargetConfigName:Additional,LocationOperationsTable:Additional,FilterOutMSH4Table:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute,DoFilterOutByDispenseFromLoc,DoDCOrderHasDischargeDateCheck,DoNonShortNameLookup</Default>
+<Default>-NextOperation,-TargetConfigNames,-TargetConfigMask,HddTargetConfigName:Additional,LocationOperationsTable:Additional,FilterOutMSH4Table:Additional,WebEdgeTargetConfigName:Additional,FilterInMedsTable:Additional,DoFilterInByMeds,FilterInRouteTable:Additional,DoFilterInByRoute,DoFilterOutByDispenseFromLoc,DoCernWebEdgeRestCall,DoDCOrderHasDischargeDateCheck,DoNonShortNameLookup</Default>
 </Parameter>
 
 <Method name="OnGetConnections">
@@ -209,6 +223,12 @@ Boolean Proptery to determine if IVXCloud Pharmacy Med Orders will be doing Non-
 </Value>
 <Value name="11">
 <Value>DoFilterOutByDispenseFromLoc</Value>
+</Value>
+<Value name="12">
+<Value>DoCernWebEdgeRestCall</Value>
+</Value>
+<Value name="13">
+<Value>WebEdgeTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -453,9 +473,23 @@ BPL Definition</Description>
 <property name='doDispenseFromLocFilterOut' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='FoundIVXDispenseLocation' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='donefilteringIn' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='doCallForDispenseFromLoc ' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='doCernWebEdgeCall' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='jsonRequest' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='webEdgeTarget' type='%String' initialexpression='"Op-CernEdge-Wsrc-MEDDISPENSELOC"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='icentraSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
 </context>
-<sequence xend='200' yend='4400' >
-<scope xpos='200' ypos='250' xend='200' yend='4300' >
+<sequence xend='200' yend='4950' >
+<scope xpos='200' ypos='250' xend='200' yend='4850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Scope for Cerner Med Orders to IVXCloud]]]]><![CDATA[></annotation>
 </trace>
@@ -533,8 +567,8 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='HddTargetConfigName Property' xpos='200' ypos='1050' >
-<annotation><![CDATA[Verify and Get HddTargetConfigName Property from component property settings]]]]><![CDATA[></annotation>
+<code name='GetTargetProperties' xpos='200' ypos='1050' >
+<annotation><![CDATA[Verify and Get Target Properties from component property settings]]]]><![CDATA[></annotation>
 <![CDATA[ 
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"HddTargetConfigName",.configValue)
 
@@ -544,6 +578,7 @@ BPL Definition</Description>
  {
    $$$TRACE("HddTargetConfigName check error: " _pstatus)
    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get HDDTargetConfigName from property settings and it is required to do any HDD calls!")
+   
  }
  else
  {
@@ -553,10 +588,37 @@ BPL Definition</Description>
  	     $$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
      }else{
          Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get HDDTargetConfigName from property settings and it is required to do any HDD calls!")
+         
      }
  	
  }
-  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"WebEdgeTargetConfigName",.configValue)
+
+ $$$TRACE("PSTATUS is: "_$Extract(pstatus,1,48))
+
+ if ( ($$$ISERR(pstatus)) || (configValue = "") )
+ {
+   $$$TRACE("WebEdgeTargetConfigName check error: " _pstatus)
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get WebEdgeTargetConfigName from property settings and it is required to do any WebEdge REST calls!")
+ }
+ else
+ {
+ 	$$$TRACE("Found Property WebEdgeTargetConfigName, set value is: " _configValue)
+ 	 set context.webEdgeTarget=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","WebEdgeTargetConfigName",.pstatus)
+     if ($$$ISOK(pstatus)){
+ 	    $$$TRACE("Cern WebEdgeTarget: " _ context.webEdgeTarget)
+ 	    //GetItemSettingValue:DoCernWebEdgeRestCall
+		set context.doCernWebEdgeCall=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","DoCernWebEdgeRestCall",.pstatus)
+		if ($$$ISOK(pstatus)){
+			$$$TRACE("Boolean doCernWebEdgeCall: [" _ context.doCernWebEdgeCall_"]")
+		}else{
+			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get DoCernWebEdgeRestCall from property settings and a valid boolean value required!")
+		}
+     }else{
+         Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "***Unable to get WebEdgeTargetConfigName from property settings and it is required to do any WebEdge REST calls!")
+     }
+ 
+ }
 ]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='1150' >
@@ -689,7 +751,18 @@ BPL Definition</Description>
  $$$TRACE("Next step is to check if we are doing Dispense From Location Filtering In.")
  ]]]]><![CDATA[>
 </code>
-<foreach name='DoRXOGroupFilteringWork' property='request.{RXOgrp()}' key='context.RXOGroupCount' xpos='200' ypos='2050' xend='200' yend='550' >
+<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='2050' >
+<annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
+<![CDATA[ $$$TRACE("Get ORC-2 OrderID-PlacerNumber")
+ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
+ Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
+ $$$TRACE("PharmOrderPlacerNumber: " _context.PharmOrderPlacerNumber) 
+ if ($ISVALIDNUM(context.PharmOrderPlacerNumber)=0){
+     $$$TRACE("ORC-2 PharmOrderPlacerNumber value is NOT a VALID numeric value. ")
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message for IVXCloud Pharmacy Med Orders has an invalid ORC-2 Pharm Order (Placer) Number value supplied from Cerner! iCentra Value received is - PHI: ["_context.PharmOrderPlacerNumber_"].  Expecting numeric Values.***")
+  }]]]]><![CDATA[>
+</code>
+<foreach name='DoRXOGroupFilteringWork' property='request.{RXOgrp()}' key='context.RXOGroupCount' xpos='200' ypos='2150' xend='200' yend='550' >
 <annotation><![CDATA[Work for Med FilterIn and DispenseFromLoc FilterIn]]]]><![CDATA[></annotation>
 <foreach name='WorkingOBXGroup' property='request.{RXOgrp(context.RXOGroupCount).OBX()}' key='context.RXOOBXCount' xpos='200' ypos='250' xend='200' yend='550' >
 <annotation><![CDATA[Traverse OBX segment for FilterIn Logic for IVXCloud Med Orders]]]]><![CDATA[></annotation>
@@ -759,7 +832,8 @@ BPL Definition</Description>
 	 $$$TRACE("FilterIn for IVXCloud Dispense From Location or Work Flow Sequences was successful! Done with FilterIn Logic")
 	 set context.donefilteringIn=1
  }else{
-	 $$$TRACE("Still have filtering In Logic to do.")
+	 $$$TRACE("Try to call the Cern WebEdge REST call to find Dispense From Location.")
+	 set context.doCernWebEdgeCall = 1
 	 }
  ]]]]><![CDATA[>
 </code>
@@ -793,7 +867,7 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<foreach name='FilterInByRoute' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2150' xend='200' yend='350' >
+<foreach name='FilterInByRoute' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='2250' xend='200' yend='350' >
 <annotation><![CDATA[Work RXE group for RXR Route value and check against DoFilterInByRoute]]]]><![CDATA[></annotation>
 <code name='GetDoFilterInByRouteAndRouteVal' xpos='200' ypos='250' >
 <annotation><![CDATA[If DoFilterInByRoute Setting is set then GET RXR Route value and check if it is allowed ]]]]><![CDATA[></annotation>
@@ -812,6 +886,7 @@ BPL Definition</Description>
  
           if ($$$ISOK(pstatus)&&(returnVal="1")){
                $$$TRACE("Found an Allowed Route, so Pharmacy Med Order is allowed!")
+               set context.donefilteringIn=1
                
           }else {
 	           $$$TRACE("Return value: "_returnVal_" Could not find Route Value in the table.")
@@ -832,18 +907,123 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 </foreach>
-<code name='GetORC2OrderPlacerNumber' xpos='200' ypos='2250' >
-<annotation><![CDATA[Get ORC-2 value and ensure Order Number is valid numeric value]]]]><![CDATA[></annotation>
-<![CDATA[ $$$TRACE("Validate Pharmacy Order Number(ORC-2)...") 
- Set context.PharmOrderPlacerNumber=request.GetValueAt("ORC:PlacerOrderNumber.entityidentifier")
- $$$TRACE("PharmOrderPlacerNumber: " _context.PharmOrderPlacerNumber) 
- if ($ISVALIDNUM(context.PharmOrderPlacerNumber)=0){
-     $$$TRACE("ORC-2 PharmOrderPlacerNumber value is NOT a VALID numeric value. ")
-     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "***HL7 message for IVXCloud Pharmacy Med Orders has an invalid ORC-2 Pharm Order (Placer) Number value supplied from Cerner! iCentra Value received is - PHI: ["_context.PharmOrderPlacerNumber_"].  Expecting numeric Values.***")
-  }
-  ]]]]><![CDATA[>
+<code name='LastChanceForDispenseFromLoc' xpos='200' ypos='2350' >
+<![CDATA[ if ((context.donefilteringIn=0)&&(context.doDispenseFromLocFilterOut=1) &&(context.FoundIVXDispenseLocation=0)) {
+    $$$TRACE("Dispense From Location has not been found yet...") 
+    if ((context.doCallForDispenseFromLoc=1) && (context.doCernWebEdgeCall = 1)){
+    $$$TRACE("Make call to iCentra WebEdge REST call for DispenseFromLoc. Sending in OrderID: ["_context.PharmOrderPlacerNumber_"]")
+   
+    set context.jsonRequest=##class(Ens.StringRequest).%New()
+    set context.jsonRequest.StringValue="{"_$CHAR(34)_"IVX_IN_JSON"_$CHAR(34)_":{"_$CHAR(34)_"ORDER_ID"_$CHAR(34)_":"_$CHAR(34)_context.PharmOrderPlacerNumber_$CHAR(34)_"}}"
+    
+    }
+ }]]]]><![CDATA[>
 </code>
-<code name='WorkPID8Gender' xpos='200' ypos='2350' >
+<if name='CheckDoCernWebEdgeCall' condition='(context.doCallForDispenseFromLoc=1) &amp;&amp; (context.doCernWebEdgeCall = 1)' xpos='200' ypos='2450' xend='200' yend='2800' >
+<true>
+<transform name='TransformJsonToHttps' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='335' ypos='2600' />
+<code name='WorkJSONHTTPSCall' xpos='335' ypos='2700' >
+<![CDATA[  $$$TRACE("Call REST Operation")
+  $$$TRACE("Call REST Operation")
+ set statusCode=""
+ set statusDesc=""
+ if (context.icentraSvcRequest'="") {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync(context.webEdgeTarget,context.icentraSvcRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set context.restHttpResponse=httpRESTResponse
+      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+          set statusCode=$piece(statusLine," ",2)
+          set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+	  // If status code is not 000 the check the reponse to see if it got processed correctly or not 
+      if (statusCode'="000"){
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"REST service response with code: "_statusCode_"  Desc: "_statusDesc) 
+      }else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        set text=""
+        While ('tcharStream.AtEnd) {
+          Set text = text_tcharStream.Read($$$MaxStringLength)
+        } 
+        $$$TRACE("REST service response: "_text)
+        If ($$$IsdefObject(tcharStream)) {
+		Do tcharStream.Rewind()
+		Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(tcharStream)
+		$$$TRACE("Status Message: "_tConsumedJSON.%Get("message"))
+		set iter = tConsumedJSON.%GetIterator()
+		set statusKey=""
+		set statusCode=""
+		#dim statusIter As %Iterator.Object
+		#dim detailIter As %Iterator.Array
+		do iter.%GetNext(.key , .value )
+		set iter = value.%GetIterator()
+		while (iter.%GetNext(.key , .value )) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if (key="service-status") {
+	        set statusIter=value.%GetIterator()
+	     }elseif ((key="code") && (statusKey="service-status")) {
+	       set statusCode=value
+	     }
+	     if (key="status-details") {
+                set detailIter = value.%GetIterator()
+	     }else {
+	        continue
+	     }
+		}
+		while (statusIter.%GetNext(.key , .value )) {
+			$$$TRACE("key = "_key_" , value = "_value)
+			if (key="code") {
+				set statusCode=value
+				if (statusCode="000") {
+					while (detailIter.%GetNext(.key , .value )) {
+						$$$TRACE("key = "_key_" , value = "_value)
+						if (key="DISP_LOCATION") {
+							$$$TRACE("key = "_key_" , value = "_value)
+							if (value '=""){
+							     set webEdgeDispenseFromLocation=##class(Ens.Util.FunctionSet).ToUpper(value)
+							     $$$TRACE("Have DISP_LOCATION WebEdge value found is: "_webEdgeDispenseFromLocation)
+                                 set findReturnVal = $FIND(_webEdgeDispenseFromLocation,"IVX")
+                                 $$$TRACE("Searching DISP_LOCATION for IVX substring - return value of 1 or greater means IVX string is found, value of 0 it is not found. Find Method return value is: ["_findReturnVal_"]")
+                                 if (findReturnVal=0){
+                                     $$$TRACE("Cern WebEdge REST call did not find IVX.  ")
+                                     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"HL7 record does not have an allowed IVXCloud Pharmacy Order Med. Skipping this record.  ****HL7 MessageControlID: " _ context.MSH10)
+                                 }else{
+                                     $$$TRACE("FOUND IVXCLOUD DISPENSEFROMLOC!!")
+                                 }
+							}else{
+							     set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,"CernWebEdge call did not find a return value for DISPENSEFROMLOC for OrderId: ["_context.PharmOrderPlacerNumber_"]" )
+							}
+							
+						}elseif (key="ORDER_ID") {
+							$$$TRACE("key = "_key_" , value = "_value)
+							set webEdgeMedOrderID=value
+							$$$TRACE("OrderId returned is: ["_webEdgeMedOrderID_"] *** OrderId sent as part of JSON REST calls was: ["_context.PharmOrderPlacerNumber_"]***")
+						}
+					}
+				}else {
+					set status=##class(IHC.ITF.ITFCOMMON.Utility).ProcessErrorExt(process.%ConfigName,"iCentra service failed to query for Med Order Dispense From Location for Pharmacy ORDER_ID:"_context.PharmOrderPlacerNumber_" with Status: "_value)
+					quit
+				}
+			}
+		}
+	}
+	$$$TRACE("REST Service response Status Code: "_statusCode)
+      }
+    }else {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+ }
+]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<code name='WorkPID8Gender' xpos='200' ypos='2900' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:Sex")
  set context.HL7SpecValue= "PIDgrp.PID:Sex"
  if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -883,7 +1063,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='WorkPID30DeathIndicator' xpos='200' ypos='2450' >
+<code name='WorkPID30DeathIndicator' xpos='200' ypos='3000' >
 <![CDATA[  set context.Ncid = request.GetValueAt("PID:PatientDeathIndicator")
   set context.HL7SpecValue= "PID:PatientDeathIndicator"
   if (context.Ncid '= "" && $ISVALIDNUM(context.Ncid)) {
@@ -920,7 +1100,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 location Work' xpos='200' ypos='2550' >
+<code name='PV1-3 location Work' xpos='200' ypos='3100' >
 <annotation><![CDATA[Get PV1-3 value and  Validate it - make sure it is not blank. If good set location values for doing HDD Lookup]]]]><![CDATA[></annotation>
 <![CDATA[ 
  
@@ -948,7 +1128,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 Location HDD Work' xpos='200' ypos='2650' >
+<code name='PV1-3 Location HDD Work' xpos='200' ypos='3200' >
 <annotation><![CDATA[Do HDD Lookups and work return response]]]]><![CDATA[></annotation>
 <![CDATA[  
  set context.Ncid = context.locationNcid
@@ -1022,7 +1202,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='PV1-3 UNITPOCUnitOrclinicLocation HDD Work' xpos='200' ypos='2750' >
+<code name='PV1-3 UNITPOCUnitOrclinicLocation HDD Work' xpos='200' ypos='3300' >
 <annotation><![CDATA[Do UNITPOCUnitOrclinic HDD Lookups and work return response]]]]><![CDATA[></annotation>
 <![CDATA[  
  if (context.doAdditionalPOCUnitLookup = 1){ 
@@ -1065,7 +1245,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='MSH_4_Facility' xpos='200' ypos='2850' >
+<code name='MSH_4_Facility' xpos='200' ypos='3400' >
 <annotation><![CDATA[Lookup Facility NCID in HDD and get Rep back and set context variable]]]]><![CDATA[></annotation>
 <![CDATA[ $$$TRACE("Working MSH-4 value for the FACILITY")
  set context.Ncid = context.MSH4LocationNCID
@@ -1100,7 +1280,7 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderControlID' xpos='200' ypos='2950' >
+<code name='ORCOrderControlID' xpos='200' ypos='3500' >
 <annotation><![CDATA[Lookup ORC-1 OrderControlID NCID in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ set context.Ncid = request.GetValueAt("ORC:OrderControl")
  set context.HL7SpecValue= "ORC:OrderControl"
@@ -1134,7 +1314,7 @@ BPL Definition</Description>
    
  }]]]]><![CDATA[>
 </code>
-<code name='ORCOrderStatus' xpos='200' ypos='3050' >
+<code name='ORCOrderStatus' xpos='200' ypos='3600' >
 <annotation><![CDATA[Lookup ORC-5 OrderStatus in HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[ 
  set context.Ncid = request.GetValueAt("ORC:OrderStatus")
@@ -1173,7 +1353,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='3150' >
+<code name='ORCQTIntervalRepeatPattern' xpos='200' ypos='3700' >
 <annotation><![CDATA[Lookup ORC-7 QuantityTimingIntervalRepeatPattern In HDD and set Rep to context variable]]]]><![CDATA[></annotation>
 <![CDATA[  set context.Ncid = request.GetValueAt("ORC:QuantityTiming.interval.repeatpattern")
  set context.HL7SpecValue= "ORC:QuantityTiming.interval.repeatpattern"
@@ -1219,8 +1399,8 @@ BPL Definition</Description>
  }
 ]]]]><![CDATA[>
 </code>
-<trace name='DoneWorkingOrc' value='"Done Working ORC "' xpos='200' ypos='3250' />
-<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3350' xend='200' yend='950' >
+<trace name='DoneWorkingOrc' value='"Done Working ORC "' xpos='200' ypos='3800' />
+<foreach name='Work RXE Group' property='request.{RXEgrp()}' key='context.RXEIndex' xpos='200' ypos='3900' xend='200' yend='950' >
 <annotation><![CDATA[Do the HDD Work for the RXE Group]]]]><![CDATA[></annotation>
 <trace name='Inside RXE Group' value='"Inside RXE Group"' xpos='200' ypos='250' />
 <code name='Working RXEQTIntervalRepeatPattern' xpos='200' ypos='350' >
@@ -1509,10 +1689,10 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='3450' />
-<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToIvxCloudPharmacy' source='request' target='response' xpos='200' ypos='3550' />
-<trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='3650' />
-<code name='SetTargetFromLookup' xpos='200' ypos='3750' >
+<trace name='BackFromRXEGroup' value='"Returned From RXEGroup HDD Work"' xpos='200' ypos='4000' />
+<transform name='DTL' class='IHC.ITF.Transform.Dtl.CernOrdersHl7ToIvxCloudPharmacy' source='request' target='response' xpos='200' ypos='4100' />
+<trace name='Back From DTL Log Response' value='"Back From DTL"' xpos='200' ypos='4200' />
+<code name='SetTargetFromLookup' xpos='200' ypos='4300' >
 <annotation><![CDATA[get list of targets to send to for the MSH-4]]]]><![CDATA[></annotation>
 <![CDATA[  $$$TRACE("Setting target")
  $$$TRACE("Set Target From Lookup Table - MSH-4 is the KEY and gets Ensemble Operation Name as return value.")
@@ -1528,7 +1708,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='BuildTargetListFromTarget' xpos='200' ypos='3850' >
+<code name='BuildTargetListFromTarget' xpos='200' ypos='4400' >
 <annotation><![CDATA[Building Target List from Target value from lookup table]]]]><![CDATA[></annotation>
 <![CDATA[ set length = $L(context.Target, ",")
  $$$TRACE("Length of Target Locations=" _length)
@@ -1549,7 +1729,7 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<foreach name='Send To Targets' property='context.TargetList' key='context.TargetListIndex' xpos='200' ypos='3950' xend='200' yend='450' >
+<foreach name='Send To Targets' property='context.TargetList' key='context.TargetListIndex' xpos='200' ypos='4500' xend='200' yend='450' >
 <call name='SendToEachTarget' target='@context.TargetList.GetAt(context.TargetListIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
@@ -1557,12 +1737,12 @@ BPL Definition</Description>
 </call>
 <trace name='TraceOut' value='"Message Sent"' xpos='200' ypos='350' />
 </foreach>
-<code name='Reset Error' xpos='200' ypos='4050' >
+<code name='Reset Error' xpos='200' ypos='4600' >
 <annotation><![CDATA[Reset Error Counter]]]]><![CDATA[></annotation>
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='4150' xend='200' yend='350' >
+<catchall xpos='200' ypos='4700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
