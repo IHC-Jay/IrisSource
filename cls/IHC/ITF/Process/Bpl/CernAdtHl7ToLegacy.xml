@@ -32,9 +32,37 @@ The target names to receive production test patient data</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="EncounterTypeFilterInTargetConfigName">
+<Description>
+ Encounter type filter for Webcollect/R1 interfaces</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default><![CDATA[HddTargetConfigName:Additional,LabResendTargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?LabResendTargetConfigNames=1&productionName=@productionId},ClinicTargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?ClinicTargetConfigNames=1&productionName=@productionId},-NextOperation,-TargetConfigMask]]></Default>
+<Default><![CDATA[HddTargetConfigName:Additional,EncounterTypeFilterInTargetConfigName:Additional,LabResendTargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?LabResendTargetConfigNames=1&productionName=@productionId},ClinicTargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?ClinicTargetConfigNames=1&productionName=@productionId},-NextOperation,-TargetConfigMask]]></Default>
 </Parameter>
+
+<Method name="GetEncounterTypeFilterInTargetConfigName">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ConfigName:%String,targetList:%ListOfObjects,targetSetting:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+ 
+	set configValue=##class(Ens.Director).GetItemSettingValue(ConfigName,"Host",targetSetting,.pstatus)
+	For iTarget=1:1:$L(configValue, ",") 
+        { 
+            Set tOneTarget=$ZStrip($P(configValue,",",iTarget),"<>W")  
+            Continue:""=tOneTarget
+            
+            set stat = targetList.Insert(tOneTarget)
+            $$$TRACE("tOneTarget " _ tOneTarget _ " " _ stat)
+         }
+          $$$TRACE("targetList count " _ targetList.Count())
+         return $$$OK
+]]></Implementation>
+</Method>
 
 <XData name="BPL">
 <Description>
@@ -485,6 +513,28 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='encTypetargetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+
+
+<property name='encTypeFilterInFlag' type='%String' initialexpression='"N"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='10' />
+</parameters>
+</property>
+
+<property name='encounterTypeFilterInTargetConfigName' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='10' />
+</parameters>
+</property>
+
+
+
+
 </context>
 <sequence xend='200' yend='3550' >
 <scope xpos='200' ypos='250' xend='200' yend='3450' >
@@ -627,15 +677,24 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 
-<code name='FilterEncounterTypeForDownstreams' xpos='470' ypos='1700' >
-<![CDATA[ 
-		set pv118PatientTypeNcid = request.GetValueAt("PV1:PatientType") 
-		if ( pv118PatientTypeNcid = "530389044"){			
-			 $$$TRACE("Filtering out the record..."  )
-			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(context.configName, "PV1-18,PatientTypeNcid:"_pv118PatientTypeNcid_" is not a supported encounter type to Legcay interfaces. Skipping the message..")
+<code name='getEncounterTypeFilterInTargetConfigList' xpos='470' ypos='1700' >
+<![CDATA[  set st = ##class(IHC.ITF.Process.Bpl.CernAdtHl7ToLegacy).GetEncounterTypeFilterInTargetConfigName(process.%ConfigName, context.encTypetargetList,"EncounterTypeFilterInTargetConfigName")
+ $$$TRACE("Count(encTypetargetList): " _ context.encTypetargetList.Count() )
+ if (context.encTypetargetList.Count()>0){
+	 set pv118PatientTypeNcid = request.GetValueAt("PV1:PatientType") 
+		if (pv118PatientTypeNcid = "530389044") {
+			set context.encTypeFilterInFlag = "Y"
+			 $$$TRACE("Sending record to EncounterTypeFilterInTargets.."  )
+		}else{
+			set context.encTypeFilterInFlag = "N"
 		}
+ }else{
+	 set context.encTypeFilterInFlag = "N"
+ }
  ]]]]><![CDATA[>
 </code>
+
+
 
 
 <code name=' Get   Rep From Ncid' xpos='470' ypos='1500' >
@@ -976,6 +1035,8 @@ BPL Definition</Description>
 <annotation><![CDATA[translates iCentra Adt to Legacy Hl7]]]]><![CDATA[></annotation>
 </transform>
 
+<if name='encTypeFilterInFlag' condition='(context.encTypeFilterInFlag = "N")' xpos='470' ypos='2000' xend='470' yend='2600' >
+<true>
 <if name='SendToLabResendTargets' condition='context.labResend = "1"' xpos='470' ypos='2200' xend='470' yend='3000' >
 <true>
 <trace value='"Route 1"' xpos='470' ypos='2350' />
@@ -1052,6 +1113,18 @@ BPL Definition</Description>
 </if>
 </false>
 </if>
+</true>
+<false>
+<foreach name='SendToEncounterFilterInTargetconfig' property='context.encTypetargetList' key='context.targetConfigIndex' xpos='470' ypos='1800' xend='200' yend='350' >
+<call name='CallEncTypeFilterInTargetConfigNames' target='@context.encTypetargetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+</false>
+</if>
+
 <code name='RESETERROR' xpos='470' ypos='3100' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 
@@ -1098,6 +1171,9 @@ BPL Definition</Description>
 </Value>
 <Value name="4">
 <Value>ProdTestPatTargetConfigNames</Value>
+</Value>
+<Value name="5">
+<Value>EncounterTypeFilterInTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
