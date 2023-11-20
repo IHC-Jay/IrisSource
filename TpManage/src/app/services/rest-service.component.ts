@@ -351,7 +351,7 @@ export class RestServiceComponent {
           }),
           catchError(errorRes => {
             // Send to analytics server
-            console.error('In getTpFromIris catchError: ' + errorRes);
+            console.error('In TpLink catchError: ' + errorRes);
             return throwError(errorRes);
           })
         );

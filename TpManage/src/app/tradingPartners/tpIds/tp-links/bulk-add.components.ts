@@ -20,10 +20,10 @@ export class BulkAddComponents implements OnInit {
 
     submitted = false;
 
-    BatchackTypes:string[] = ["Negative","Always", "Never"];
-    RTackTypes = ["Never","Negative"];
+    BatchackTypes:string[] = ["Error","Always", "Never"];
+    RTackTypes = ["Never","Error"];
     modeTypes:string[] = ["Batch","RT"];
-    routingTypes:string[] =["UHIN Batch","R1 Batch","UMR Batch","Loopback Batch"];
+    routingTypes:string[] =  ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
     ownerTpIds = [];
     canRender = false;
 
@@ -156,7 +156,7 @@ public initializeData()
 
 
     private createUpdateTpLink() {
-      console.info('Create TPLink for name: ' + this.form.value);
+      console.info('Create TPLinks for name: ' + this.form.value);
       this.tpService.addBulkTpLinks(this.form.value)
           .pipe(first())
           .subscribe((res) => {

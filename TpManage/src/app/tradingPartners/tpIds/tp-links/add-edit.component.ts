@@ -14,7 +14,6 @@ export class TransTypes
   NAME:string;
   TransactionSetId:string;
   VERSION: string;
-  Direction: string;
 }
 
 export class INotesData {
@@ -43,9 +42,11 @@ export class AddEditComponent implements OnInit {
     showTpIds: boolean = false;
     submitted = false;
     sendingTpIds = [];
-    ackTypes:string[] = ["Negative","Always","Never"];
+    ackTypes:string[] = ["Error","Always","Never"];
+    direcTypes:string[] =["In", "Out"];
     modeTypes:string[] = ["Batch","RT"];
-    routingTypes:string[] =["UHIN Batch","R1 Batch","UMR Batch","Loopback Batch"];
+    routingTypes:string[];
+
     receivingTpIds = [];
     ownerTpIds = [];
     canRender = false;
@@ -121,7 +122,10 @@ public initializeData()
           TransType: ['', Validators.required],
           TransactionSetId: [''],
           Mode: ['', Validators.required],
-          Ack: ['', Validators.required],
+          Direction: ['', Validators.required],
+          IsaAck: ['', Validators.required],
+          GsAck: ['', Validators.required],
+          StAck: ['', Validators.required],
           GsReceiverId: ['', Validators.required],
           GsSenderId: ['', Validators.required],
           IsaSenderId: ['', Validators.required],
@@ -162,12 +166,38 @@ public initializeData()
                 if(key === 'TransType')
                 {
                   ttype =x[key].toString();
-                  console.info('patchValue 1: ' + key + ' :: ' + ttype );
+
                   this.form.controls.TransType.setValue(ttype);
                   this.setTransactionSetId();
 
-                  // break;
                 }
+                if(key === 'Mode')
+                {
+                  this.form.controls['Mode'].setValue(x[key].toString());
+                }
+                if(key === 'Routing')
+                {
+                  this.form.controls['Routing'].setValue(x[key].toString());
+                }
+                if(key === 'GsReceiverId')
+                {
+                this.form.controls.GsReceiverId.setValue(x[key].toString());
+                }
+                if(key === 'IsaReceiverId')
+                {
+                  console.log("IsaReceiverId.setValue " + x[key].toString());
+                    this.form.controls.IsaReceiverId.setValue(x[key].toString());
+                }
+                if(key === 'GsSenderId')
+                {
+                 this.form.controls.GsSenderId.setValue(x[key].toString());
+                }
+                if(key === 'IsaSenderId')
+                {
+                  console.log("IsaSenderId.setValue " + x[key].toString());
+                  this.form.controls.IsaSenderId.setValue(x[key].toString());
+                }
+
                 if(key === 'CustomProp')
                 {
 
@@ -258,18 +288,24 @@ public initializeData()
       if(this.form.controls['Mode'].value === 'RT')
       {
           this.batchMode = false;
-          this.ackTypes = ["Never","Negative"];
+          this.ackTypes = ["Error","Never"];
           this.form.controls.Routing.setValue('RT');
+          this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket"];
+          this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
       else {
         this.batchMode = true;
-        this.ackTypes = ["Negative","Always","Never"];
+        this.ackTypes = ["Error","Always","Never"];
+        this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
         this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
       if(this.isAddMode)
       {
-        this.form.controls.Ack.setValue(this.ackTypes[0]);
+        this.form.controls.IsaAck.setValue(this.ackTypes[0]);
+        this.form.controls.GsAck.setValue(this.ackTypes[0]);
+        this.form.controls.StAck.setValue(this.ackTypes[0]);
         this.form.controls.SNIP.setValue('1')
+        // this.form.controls.Direction.setValue(this.direcTypes[0]);
       }
     }
 
@@ -281,12 +317,34 @@ public initializeData()
       console.info('setTransactionSetId search: ' + ttVal + ', ' + this.transactionTypes.length);
        var result = this.transactionTypes.findIndex(item => item.NAME === ttVal);
        console.info(ttVal + '- result: ' + result);
-      this.form.controls['TransactionSetId'].setValue(this.transactionTypes[result].Direction + ': '+ this.transactionTypes[result].TransactionSetId +' / ' +  this.transactionTypes[result].VERSION );
+      this.form.controls['TransactionSetId'].setValue(this.transactionTypes[result].TransactionSetId +' / ' +  this.transactionTypes[result].VERSION );
       console.info('TransType : ' +this.form.controls['TransactionSetId'].value);
+
+      if(this.transactionTypes[result].TransactionSetId === '271' ||
+      this.transactionTypes[result].TransactionSetId === '277' ||
+      this.transactionTypes[result].TransactionSetId === '835'
+      )
+      {
+        this.form.controls.Direction.setValue(this.direcTypes[1]);
+      }
+      else
+      {
+        this.form.controls.Direction.setValue(this.direcTypes[0]);
+      }
+
+      if( this.transactionTypes[result].TransactionSetId.startsWith('27'))
+      {
+        this.modeTypes = ["Batch","RT"];
+      }
+      else
+      {
+        this.modeTypes = ["Batch"];
+      }
+
       this.form.controls.Mode.setValue(this.modeTypes[0]);
       this.setRtBatch();
 
-      if( this.transactionTypes[result].Direction === 'Inbound')
+      if( this.form.controls['Direction'].value === 'In')
       {
         this.sendertpIdHelp = 'Parent TPId';
         this.receivertpIdHelp = 'TPIds for owner';
@@ -294,10 +352,12 @@ public initializeData()
         this.receivingTpIds=[];
         this.sendingTpIds[0] = this.parentTpId ;
         this.receivingTpIds = this.ownerTpIds;
-        this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
-        this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
-        this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
-        this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
+        if (this.isAddMode) {
+          this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
+          this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
+          this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
+          this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
+        }
       }
       else {
         this.sendertpIdHelp = 'TPIds for owner';
@@ -306,10 +366,12 @@ public initializeData()
         this.sendingTpIds = [];
         this.receivingTpIds[0] = this.parentTpId ;
         this.sendingTpIds = this.ownerTpIds;
-        this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
-        this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
-        this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
-        this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
+        if (this.isAddMode) {
+          this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
+          this.form.controls.IsaReceiverId.setValue(this.receivingTpIds[0]);
+          this.form.controls.GsSenderId.setValue(this.sendingTpIds[0]);
+          this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
+          }
       }
       this.showTpIds = true;
     }
