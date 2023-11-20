@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.PAYER.WorkFlow">
+<Description>
+</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66354,55875.187156</TimeCreated>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>WorkFlowDefaultData</DefaultData>
+<Data name="WorkFlowDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"WorkFlow"</Subscript>
+<Value name="1">
+<Value>TpmUrl</Value>
+</Value>
+</Data>
+</Storage>
+
+<Property name="TpmUrl">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>TpmUrl:Additional</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='IHC.ITF.PAYER.WorkFlow.problemReport ' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='Resolved' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='DevelopmentAction' type='%String' instantiate='0' />
+<property name='TestingAction' type='%String' instantiate='0' />
+<property name='wfResp' type='EnsLib.Workflow.TaskResponse' instantiate='0' />
+<property name='x12Doc' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='x12Data' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='32000' />
+</parameters>
+</property>
+<property name='x12Rec' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='32000' />
+</parameters>
+</property>
+<property name='link' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1024' />
+</parameters>
+</property>
+<property name='errDetail' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='1000' />
+</parameters>
+</property>
+<property name='tpmUrl' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='450' >
+<code xpos='200' ypos='250' >
+<![CDATA[ // Get TPM URL
+  set configValue=""
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TpmUrl",.configValue)
+  set context.tpmUrl=configValue
+  if ( context.tpmUrl = "")
+  {
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, TPM URL not found") 
+  }
+]]]]><![CDATA[>
+</code>
+<while name='while' condition='context.Resolved=0' xpos='200' ypos='350' xend='200' yend='1350' >
+<annotation>
+        Work on this problem until it is resolved.
+        (Click on the loop icon to see details of this while loop.)
+      </annotation>
+<if name='TP error' condition='$F(request.Problem, "TP Relationship not found") &gt; 1' xpos='200' ypos='250' xend='200' yend='1250' >
+<true>
+<code name='Get X12' xpos='470' ypos='400' >
+<![CDATA[  set context.x12Rec = request.MessageBodyId _ ": Not Found"
+	
+	if (request.ErrorType [ "TP Not found")
+	{
+	  set context.errDetail = "Add TPs and Relationship"
+	  set context.link = context.tpmUrl _ "/TradingPartners"
+	  set request.Problem = "TP Not found"
+	}
+	else
+	{
+	  set context.errDetail = "Add Relationship"
+	    // inbound
+            if ( (request.TransType [ "270") || (request.TransType [ "276") || (request.TransType [ "837") || (request.TransType [ "820") || (request.TransType [ "278"))
+            {
+                set context.link = context.tpmUrl _ "/TradingPartners/tpIds/tp-links/tp-add/" _ request.IsaSender _ "?transaction=" _ request.TransType
+            }
+            else
+            {
+                set context.link = context.tpmUrl _ "/TradingPartners/tpIds/tp-links/tp-add/" _ request.IsaReceiver  _ "?transaction=" _ request.TransType
+            }
+	}
+	 
+		set x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(request.MessageBodyId)
+
+		if (($IsObject(x12Doc)) &&(x12Doc.%IsA("EnsLib.EDI.X12.Document")))
+		{
+		     // '\r' - Ascii 13 (Carriage Return), '\n' - Ascii 10 (Linefeed / Newline)
+		     set context.x12Rec = x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10))
+		}
+		else
+		{
+		     set context.x12Rec= request.MessageBodyId _ ": X12 data Not Found from EnsLib.EDI.X12.Document"
+		}
+  set request.ErrorType = $REPLACE(request.ErrorType , ";", ""_$CHAR(13) _$CHAR(10))
+	
+  
+]]]]><![CDATA[>
+</code>
+<call name='Notify team - WF-TP-Errors' target='WF-TP-Errors' async='1' xpos='470' ypos='500' >
+<annotation><![CDATA[Send the problem report TP team
+        ]]]]><![CDATA[></annotation>
+<request type='EnsLib.Workflow.TaskRequest' >
+<assign property="callrequest.%Actions" value="&quot;Corrected,Ignored&quot;" action="set" />
+<assign property="callrequest.%Subject" value="request.Problem" action="set" />
+<assign property="callrequest.%Message" value="&quot;Problem reported by &quot;_request.ReportedBy" action="set" />
+<assign property="callrequest.%FormFields" value="&quot;Comments,Details,TransType,MessageBodyId,x12Data,TpManagement,link&quot;" action="set" />
+<assign property="callrequest.%FormTemplate" value="&quot;TpWfForm.csp&quot;" action="set" />
+<assign property="callrequest.%FormValues" value="context.errDetail" action="set" key="&quot;Details&quot;" />
+<assign property="callrequest.%FormValues" value="request.ErrorType" action="set" key="&quot;Comments&quot;" />
+<assign property="callrequest.%FormValues" value="request.MessageBodyId" action="set" key="&quot;MessageBodyId&quot;" />
+<assign property="callrequest.%FormValues" value="context.x12Rec" action="set" key="&quot;x12Data&quot;" />
+<assign property="callrequest.%FormValues" value="request.TransType" action="set" key="&quot;TransType&quot;" />
+<assign property="callrequest.%FormValues" value="context.link" action="set" key="&quot;link&quot;" />
+</request>
+<response type='EnsLib.Workflow.TaskResponse' >
+<assign property="context.DevelopmentAction" value="callresponse.%Action" action="set" />
+<assign property="context.wfResp" value="callresponse" action="set" />
+</response>
+</call>
+<sync name='Wait For TP to be added' calls='Notify team - WF-TP-Errors' type='all' xpos='470' ypos='600' />
+<if name='Fixed?' condition='context.DevelopmentAction="Corrected"' xpos='470' ypos='700' xend='470' yend='1150' >
+<annotation><![CDATA[TP added.
+        ]]]]><![CDATA[></annotation>
+<true>
+<code name='Resend' xpos='740' ypos='850' >
+<![CDATA[ $$$TRACE("Id: " _ context.wfResp.%TaskStatus.SessionId)
+ $$$TRACE("Form count:" _ context.wfResp.%FormValues.Count()) 
+
+ set msgId = context.wfResp.%FormValues.GetAt("MessageBodyId")
+  $$$TRACE("Resend MessageBodyId:" _ msgId) 
+   set context.x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(msgId)
+
+   $$$TRACE("x12 name: " _ context.x12Doc.Name)]]]]><![CDATA[>
+</code>
+<call name='Resend X12' target='ShResendRouter' async='1' xpos='740' ypos='950' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="context.x12Doc" action="set" />
+</request>
+</call>
+<assign name="Resolve" property="context.Resolved" value="1" action="set" xpos='740' ypos='1050' />
+</true>
+<false>
+<assign name="Not a problem" property="context.Resolved" value="1" action="set" xpos='470' ypos='850' />
+</false>
+</if>
+</true>
+<false>
+<code name='get x12' xpos='200' ypos='400' >
+<![CDATA[  
+  set context.x12Doc =  ##class(EnsLib.EDI.X12.Document).%OpenId(request.MessageBodyId)
+  if (($IsObject(context.x12Doc)) &&(context.x12Doc.%IsA("EnsLib.EDI.X12.Document")))
+  {
+     set context.x12Data = context.x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10))
+  }
+]]]]><![CDATA[>
+</code>
+<call name='Notify Team - WF-Inbound-Data-Errors' target='WF-Inbound-Data-Errors' async='1' xpos='200' ypos='500' >
+<annotation><![CDATA[Send the problem to Data error]]]]><![CDATA[></annotation>
+<request type='EnsLib.Workflow.TaskRequest' >
+<assign property="callrequest.%Actions" value="&quot;Called TP&quot;" action="set" />
+<assign property="callrequest.%Subject" value="&quot;Data error from Interface: &quot;_request.ReportedBy" action="set" />
+<assign property="callrequest.%Message" value="request.Problem _ &quot;, Source: &quot; _ context.x12Doc.Source" action="set" />
+<assign property="callrequest.%FormTemplate" value="&quot;DeWfForm.csp&quot;" action="set" />
+<assign property="callrequest.%FormValues" value="request.ErrorType" action="set" key="&quot;Comments&quot;" />
+<assign property="callrequest.%FormValues" value="context.x12Data" action="set" key="&quot;x12Data&quot;" />
+<assign property="callrequest.%FormValues" value="&quot;Inbound data failed in Validation&quot;" action="set" key="&quot;Details&quot;" />
+<assign property="callrequest.%FormValues" value="request.MessageBodyId" action="set" key="&quot;MessageBodyId&quot;" />
+<assign property="callrequest.%FormFields" value="&quot;Comments,Details,CustomerName,MessageBodyId,x12Data&quot;" action="set" />
+<assign property="callrequest.%FormValues" value="request.Contact" action="set" key="&quot;Contact&quot;" />
+<assign property="callrequest.%FormValues" value="request.TransType" action="set" key="&quot;TransType&quot;" />
+</request>
+<response type='EnsLib.Workflow.TaskResponse' >
+<assign property="context.TestingAction" value="callresponse.%Action" action="set" />
+</response>
+</call>
+<sync name='WaitForWFtoclose' calls='Notify Team - WF-Inbound-Data-Errors' type='all' xpos='200' ypos='600' />
+<assign name="Resolved" property="context.Resolved" value="1" action="set" xpos='200' ypos='700' />
+</false>
+</if>
+</while>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
