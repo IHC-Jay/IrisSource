@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest">
 <Description>
 BPL for ADT Sunquest. It subscribes to Legacy translator and converts it to Sunquest specific.</Description>
@@ -16,7 +16,7 @@ BPL for ADT Sunquest. It subscribes to Legacy translator and converts it to Sunq
 </Parameter>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>CernAdtHl7ToSunquestDefaultData</DefaultData>
 <Data name="CernAdtHl7ToSunquestDefaultData">
 <Subscript>"CernAdtHl7ToSunquest"</Subscript>
@@ -81,8 +81,8 @@ BPL Definition</Description>
 <property name='EthnicityDomain' type='%String' initialexpression='"526817687"' instantiate='0' />
 <property name='Ethnicity' type='%String' instantiate='0' />
 </context>
-<sequence xend='200' yend='2200' >
-<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<sequence xend='200' yend='2300' >
+<scope xpos='200' ypos='250' xend='200' yend='2200' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
 <trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' />
 <code name='Initialization &amp; Validation' xpos='200' ypos='550' >
@@ -112,7 +112,12 @@ BPL Definition</Description>
  //CheckForLookupTables
  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer")
  if (retVal = 0){
- 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer not exists")  
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FacilityToServer does not exists")  
+ }
+ 
+ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FilterOutMSH4")
+ if (retVal = 0){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FilterOutMSH4 does not exists")  
  }
  
  //Validate the message against schema
@@ -163,25 +168,30 @@ BPL Definition</Description>
     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InitializationError(process.%ConfigName, "Unable to get HDDTargetConfigName, shutting down.")
  }]]]]><![CDATA[>
 </code>
-<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='750' xend='200' yend='1850' >
+<if name='isValid Msg' condition='context.isValidationPassed' xpos='200' ypos='750' xend='200' yend='1950' >
 <true>
-
-<code name='TeleHealth Filter' xpos='335' ypos='900' >
+<code name='MSH4FacilityFilterFromZZZ' xpos='335' ypos='900' >
 <![CDATA[
 	try{
-	   $$$TRACE(" Calling GetUniqueRepByNcid... " )
-	   set msh4Facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
-       set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(msh4Facility, "ZZZ(2).2", "529415645", context.HddTargetConfigName, .process, .resp) 
-        		 $$$TRACE(" Returned Rep from HDD: " _ resp)
-        		 set context.sendingFacility = resp
-        		 if ((resp="119") || (resp="190") || (resp="260")){
-	        		 set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," MSH-4 (ZZZ(2).12):"_msh4Facility_" in a TeleHealth Facility. Hdd method-getRepFromNcid returns REP "_resp_" in context 529415645. Skipping the record..")
-	        	 }
-     		}catch(exVar){
+	    $$$TRACE(" Calling GetUniqueRepByNcid... " )
+	    set msh4Facility = request.GetValueAt("ZZZ(2):12VisitRemarks")
+        set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(msh4Facility, "ZZZ(2).12", "529415645", context.HddTargetConfigName, .process, .resp) 
+        $$$TRACE(" Returned Rep from HDD: " _ resp)
+        set context.sendingFacility = resp
+        set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FilterOutMSH4,context.sendingFacility,.returnVal)
+        $$$TRACE("Return value from lookup table ="_returnVal)
+        $$$TRACE("PSTATUS: "_$Extract(pstatus,1,48))
+        if ((returnVal '= "Unknown") && (returnVal="FilterOutRecord")){
+	         set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," MSH-4 (ZZZ(2).12) location value:"_msh4Facility_" in a TeleHealth or Other Facility setup to be filtered out in table: IHC.ITF.Process.Bpl.CernAdtHl7ToSunquest.Lookup.FilterOutMSH4. Hdd method-getRepFromNcid returns REP "_resp_" in context 529415645. Skipping the record..")
+        }else{
+			$$$TRACE("Lookup did not find MSH4 (ZZZ(2).12) in table. So MSH4 (ZZZ(2).12) value is allowed, so ADT event will be processed!")
+        }
+     }catch(exVar){
 	     		set exVarData = $ZSTRIP(exVar.Data,"*C")
 	     		$$$TRACE(" exVarData --> "_exVarData)
+	     		$$$TRACE(" exVarCode -->"_ exVar.Code)
 	     		if exVar.Code [ "ITFCOMMON:10108" {
-		   			// InutDataError - one of the input parameters from source is blank. FIlter out the record..		   			
+		   			// InutDataError - one of the input parameters from source is blank. Filter out the record..		   			
 		  			set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
 	   	 		}elseif(exVar.Code [ "ITFCOMMON:10109") {
 		   	 		// HddDataError - one of the input parameters from source is invalid or not defined in HDD, send to terminalogy team
@@ -193,12 +203,11 @@ BPL Definition</Description>
 			 		//Any other Unexpected error
 			 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
 		 		}
-	 		}
-	 		
+	 }
+	 
  ]]]]><![CDATA[>
 </code>
-
-<code name='Facility Lookup' xpos='335' ypos='900' >
+<code name='Facility Lookup' xpos='335' ypos='1000' >
 <![CDATA[ try {
     set clinicFlag =request.GetValueAt("ZZZ(2):27UB92Condition") 
     if (clinicFlag ="") {
@@ -209,7 +218,7 @@ BPL Definition</Description>
    			set ncid = facility  
      		try{
 	    		 $$$TRACE(" Calling GetUniqueRepByNcid... " )
-       			 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(ncid, "ZZZ(2).2", context.FacilityContext, context.HddTargetConfigName, .process, .resp) 
+       			 set status=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepFromNcid(ncid, "ZZZ(2).12", context.FacilityContext, context.HddTargetConfigName, .process, .resp) 
         		 $$$TRACE(" Returned Rep from HDD: " _ resp)
         		 set context.sendingFacility = resp
         		 
@@ -247,9 +256,7 @@ BPL Definition</Description>
     }
  }]]]]><![CDATA[>
 </code>
-
-
-<code name='getUniqueRepByRep' xpos='200' ypos='750' >
+<code name='getUniqueRepByRep' xpos='335' ypos='1100' >
 <annotation><![CDATA[getRepByRep-ethnicity rep to rep lookup]]]]><![CDATA[></annotation>
 <![CDATA[  
    set pid22 = request.GetValueAt("PID:EthnicGroup(1).text")   
@@ -287,14 +294,12 @@ BPL Definition</Description>
    
   ]]]]><![CDATA[>
 </code>
-
-
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='1100' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToSunquest' source='request' target='response' xpos='335' ypos='1200' >
 <annotation><![CDATA[translate Cerner Legacy ADT to Sunquest ADT format]]]]><![CDATA[></annotation>
 </transform>
-<trace name='Output Message' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1200' />
-<code name='getBroadcastFacilities' xpos='335' ypos='1300' >
-<annotation><![CDATA[Facility names from Loopup Table]]]]><![CDATA[></annotation>
+<trace name='Output Message' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1300' />
+<code name='getBroadcastFacilities' xpos='335' ypos='1400' >
+<annotation><![CDATA[Facility names from Lookup Table]]]]><![CDATA[></annotation>
 <![CDATA[
  $$$TRACE("Initial Facility Id: "_context.sendingFacility)
     
@@ -314,10 +319,10 @@ BPL Definition</Description>
      $$$TRACE("Value of PV1-18.1 "_response.GetValueAt("PV1:18.1") )
  }]]]]><![CDATA[>
 </code>
-<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1400' xend='335' yend='1650' >
+<if name='isCernBroadFac' condition='(context.sendingFacility = "199") &amp;&amp; (context.broadCastFacility &apos;= "")' xpos='335' ypos='1500' xend='335' yend='1750' >
 <annotation><![CDATA[Check if we have Cerner broadcast facilities]]]]><![CDATA[></annotation>
 <true>
-<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1550' xend='200' yend='700' >
+<foreach name='Send To Each Broadcast Fac' property='context.broadCastFacilityList' key='context.bcFacIndex' xpos='605' ypos='1650' xend='200' yend='700' >
 <code name='Validation &amp; Update Msg' xpos='200' ypos='250' >
 <![CDATA[ set context.BroadcastResponse = response.%ConstructClone(1)
  set context.bcFacId = context.broadCastFacilityList.GetAt(context.bcFacIndex)
@@ -390,7 +395,7 @@ BPL Definition</Description>
 </foreach>
 </true>
 <false>
-<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1550' xend='200' yend='800' >
+<foreach name='Send to Each Target Conf' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1650' xend='200' yend='800' >
 <switch name='Check for A44' xpos='200' ypos='250' xend='200' yend='700' >
 <case condition='(response.GetValueAt("MSH:9.2") = "A44")  &amp;&amp; (response.GetValueAt("PV1:18.1") = "I")' name='A01 case' >
 <code name='Send 2 Msgs' xpos='470' ypos='400' >
@@ -439,13 +444,13 @@ BPL Definition</Description>
 </foreach>
 </false>
 </if>
-<code name='Reset Error' xpos='335' ypos='1750' >
+<code name='Reset Error' xpos='335' ypos='1850' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 </true>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<catchall xpos='200' ypos='2050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
