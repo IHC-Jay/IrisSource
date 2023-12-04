@@ -8,6 +8,45 @@ Accepts objects of type Ens.StreamContainer and saves the encapsulated stream da
 <System>4</System>
 <TimeCreated>65395,79909.262508</TimeCreated>
 
+<Property name="SuccessEmailSubject">
+<Description>
+This is the subject to use on the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="SucessEmailBody">
+<Description>
+Email This is the body that will be included in the success email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="FailureEmailSubject">
+<Description>
+This is the subject to use on the failure email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="FailureEmailBody">
+<Description>
+Email This is the body that will be included in the failure email
+Email Identifier - "%FN-FileName,%CD-CurrentDate,%CT-CurrentTime"</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="2500"/>
+</Property>
+
+<Property name="valueToBeReplaced">
+<Description>
+Property to store the values to be replaced</Description>
+<Type>%String</Type>
+<Collection>array</Collection>
+</Property>
+
 <Parameter name="ADAPTER">
 <Default>EnsLib.File.OutboundAdapter</Default>
 </Parameter>
@@ -60,7 +99,7 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>Host:Basic, TargetFilePath:Basic, TargetFileName:Basic, Credentials:Additional, LftpCmd:Additional, STDOUT:Additional, STDERR:Additional</Default>
+<Default>Host:Basic, TargetFilePath:Basic, TargetFileName:Basic, Credentials:Additional, LftpCmd:Additional, STDOUT:Additional, STDERR:Additional,SuccessEmailSubject:Additional, SucessEmailBody:Additional,FailureEmailSubject:Additional, FailureEmailBody:Additional</Default>
 </Parameter>
 
 <Method name="OnMessage">
@@ -71,6 +110,12 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 	Set tUsername=tCredential.Username
 	Set tPassword=tCredential.Password
 	set tFilename=..TargetFileName
+	set MaxRetry = (..FailureTimeout/..RetryInterval)+1
+	Set updatedSuccessEmailSubject = ..replaceWithParticularFormat(..SuccessEmailSubject)
+	Set updatedFailureEmailSubject = ..replaceWithParticularFormat(..FailureEmailSubject)
+	Set updatedSuccessEmailbody = ..replaceWithParticularFormat(..SucessEmailBody)
+	Set updatedFailureEmailbody = ..replaceWithParticularFormat(..FailureEmailBody)
+
 	Quit:'$IsObject(pRequest.Stream) $$$ERROR($$$EnsErrGeneral,"No Stream contained in StreamContainer Request")
 	If "@"'=$E(..Adapter.FilePath) {
 		Set tFilename=..Adapter.CreateFilename(##class(%File).GetFilename(pRequest.OriginalFilename),tFilename)
@@ -103,15 +148,42 @@ See the method Ens.Util.File.CreateTimestamp() for documentation of timestamping
 		Set tCMD = ##class(Ens.Util.FunctionSet).replace(tCMD,"%6",..TargetFilePath)
 		$$$TRACE("Lftp file: " _ tFilename)
 		Set tStatus= ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(tCMD, ..STDOUT, ..STDERR) 
+        if tStatus=0 {
+	       If ..SuccessEmailSubject '= "" 
+		   {
+			 $$$TRACE("Sending alert for successful file transfer.")
+			 do ..ItfSendEmailOnSuccess(updatedSuccessEmailSubject, updatedSuccessEmailbody)
+		   }
+		   Else 
+		   {
+		 	 $$$TRACE("No SuccessEmailSubject found; email will not be sent.")
+		   }
+         
+		   If ##class(%File).Exists(fullFileNm) {
+		 	 $$$TRACE("Delete File: " _ fullFileNm )
+			 Set tSC = ##class(%File).Delete(fullFileNm)
+		   }
+		   else {
+		     Set tSC=$$$ERROR($$$GeneralError,"Unable to execute command: "_tCMD) 
+		   }
+        }
+        else
+	    {		
+		  If ..FailureEmailSubject '= "" 
+		  {
+			$$$TRACE(MaxRetry_"  Retry Count inside else part : "_..RetryCount)
+			$$$TRACE("Sending alert for failure in file transfer.")
+			do ..valueToBeReplaced.SetAt(tSC,"%EM")
+			Set updatedFailureEmailSubject = ..replaceWithParticularFormat(updatedFailureEmailSubject)
+			Set updatedFailureEmailbody = ..replaceWithParticularFormat(updatedFailureEmailbody)
+			do ..ItfSendEmailOnError(updatedFailureEmailSubject, updatedFailureEmailbody)
+		  }
+		  Else 
+		  {
+			$$$TRACE("No FailureEmailSubject found; email will not be sent.")
+		  }
+	    }
 
-
-		If ##class(%File).Exists(fullFileNm) {
-			$$$TRACE("Delete File: " _ fullFileNm )
-			Set tSC = ##class(%File).Delete(fullFileNm)
-		}
-		else {
-		    Set tSC=$$$ERROR($$$GeneralError,"Unable to execute command: "_tCMD) 
-		}
 	 }
 	 else {
         Set tSC=$$$ERROR($$$GeneralError,"Unable to Save data to the file path. "_..Adapter.FilePath) 
@@ -156,6 +228,39 @@ Return an array of connections for drawing lines on the config diagram</Descript
 			} catch {  }
 		}
 	}
+]]></Implementation>
+</Method>
+
+<Method name="replaceWithParticularFormat">
+<FormalSpec>SubBody:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+     Set key = ""
+    For
+    {
+	    Set ReplaceVal = ..valueToBeReplaced.GetNext(.key)
+	    Set SubBody = $REPLACE(SubBody,key,ReplaceVal)
+	    Quit:key=""
+    }
+    $$$TRACE("Done with replacement")
+	Quit SubBody
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnSuccess">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnSuccess(sub, txt, ..%ConfigName)
+ do ..SendAlert(alert)
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnError">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(sub, txt, ..%ConfigName)
+ Set status= ..SendAlert(alert)
 ]]></Implementation>
 </Method>
 </Class>
