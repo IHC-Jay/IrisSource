@@ -17,9 +17,32 @@ For production environment, Check this box.</Description>
 <Type>%Boolean</Type>
 </Property>
 
+<Property name="VoceraTargetConfigName">
+<Description>
+Vocera base target operation name</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Vocera-Adt-Hl7tcp"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>ProcessingId:Additional,isProdConnected:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>ProcessingId:Additional,isProdConnected:Additional,VoceraTargetConfigName:Additional,-NextOperation,-TargetConfigMask,-TargetConfigNames</Default>
 </Parameter>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("Inside  Method OnGetConnections")
+	Do ##super(.pArray,pItem)
+	set numIn = 3
+	For j=0:1:numIn-1{
+	If pItem.GetModifiedSetting("VoceraTargetConfigName",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue_"-"_j,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+	}
+]]></Implementation>
+</Method>
 
 <XData name="BPL">
 <Description>
@@ -28,21 +51,17 @@ BPL Definition</Description>
 <Data><![CDATA[
 <process language='objectscript' request='Ens.Request' height='3000' width='2000' >
 <context>
-<property name='targetConfigIndex' type='%Integer' instantiate='0' />
-<property name='targetList' type='%String' collection='list' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='250' />
-</parameters>
-</property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-<property name='facilityRep' type='%String' instantiate='0' />
-<property name='targetConfig' type='%String' instantiate='0' />
+
+
 <property name='processingId' type='%String' initialexpression='"P"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='5' />
 </parameters>
 </property>
 <property name='prdConnected' type='%Boolean'/>
+<property name='voceraTargetConfigName' type='%String' instantiate='0' />
+<property name='targetConfig' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='2750' >
 <scope xpos='200' ypos='250' xend='200' yend='2650' >
@@ -61,16 +80,7 @@ BPL Definition</Description>
 <annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  $$$TRACE("Max Errors: " _ maxErr)  
- set configValue = "" 
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = "") ){   
-   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
- }else{
-      $$$TRACE("TargetConfigNames: " _configValue )
- }  
- set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
- $$$TRACE("TargetConfigNames: " _context.targetList)
- $$$TRACE("Count: " _ context.targetList.Count())
+
 ]]]]><![CDATA[>
 </code>
 <code name='ValidateMessage' xpos='200' ypos='650' >
@@ -94,6 +104,8 @@ BPL Definition</Description>
  }else{	 
  	 $$$TRACE("Config setting ProcessingId not set. Using default value of "_context.processingId)	 
  } 
+ 
+ 
   ]]]]><![CDATA[>
 </code>
 
@@ -111,6 +123,14 @@ BPL Definition</Description>
 <![CDATA[ 
 	 set context.prdConnected=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","isProdConnected",.pstatus)
  	$$$TRACE("isProdConnected: " _ context.prdConnected)
+ 	
+ 	 set context.voceraTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","VoceraTargetConfigName",.pstatus)
+ 	if ($$$ISOK(pstatus)){
+ 		$$$TRACE("VoceraTargetConfigName: " _ context.voceraTargetConfigName) 	
+ 	}else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No VoceraTargetConfigName found.")   	
+ 	} 
+ 
   ]]]]><![CDATA[>
 </code>
 
@@ -133,13 +153,13 @@ BPL Definition</Description>
    	if (context.prdConnected = 1){
 	   	$$$TRACE(" Connected to Vocera PRODUCTION host ")
    	  if (allowedFacSet1 [ msh4SendingFacility){
-   	  	set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-0"
+   	  	set context.targetConfig = context.voceraTargetConfigName_"-0"
    	  	$$$TRACE("Sending to "_context.targetConfig)
    	  }elseif (allowedFacSet2 [ msh4SendingFacility){
-		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-1"
+		  set context.targetConfig = context.voceraTargetConfigName_"-1"
 		  $$$TRACE("Sending to "_context.targetConfig)
    	  }elseif (allowedFacSet3 [ msh4SendingFacility){
-		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-2"
+		  set context.targetConfig = context.voceraTargetConfigName_"-2"
 		  $$$TRACE("Sending to "_context.targetConfig)
 	  }else{
 		  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Sending Facility in MSH-4 :"_msh4SendingFacility_" is not allowed Voceara facility. Filtering out")  
@@ -148,18 +168,18 @@ BPL Definition</Description>
    	}else{
 	   	$$$TRACE(" Connected to Vocera TEST ")
 	   if (allowedFacSet1 [ msh4SendingFacility){
-   	  	set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+   	  	set context.targetConfig = context.voceraTargetConfigName_"-TEST"
    	  	$$$TRACE("Sending to TEST host: "_context.targetConfig)
    	  }elseif (allowedFacSet2 [ msh4SendingFacility){
-		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+		  set context.targetConfig = context.voceraTargetConfigName_"-TEST"
 		  $$$TRACE("Sending to TEST host: "_context.targetConfig)
    	  }elseif (allowedFacSet3 [ msh4SendingFacility){
-		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+		  set context.targetConfig = context.voceraTargetConfigName_"-TEST"
 		  $$$TRACE("Sending to TEST host:"_context.targetConfig)
 	  }else{
 		  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Sending Facility in MSH-4 :"_msh4SendingFacility_" is not allowed Voceara facility. Filtering out")  
 	  }
-	  $$$TRACE("Sending to "_context.targetConfig)	
+	  
    	}
 	  	
 	  
@@ -208,6 +228,9 @@ BPL Definition</Description>
 </Value>
 <Value name="2">
 <Value>isProdConnected</Value>
+</Value>
+<Value name="3">
+<Value>VoceraTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
