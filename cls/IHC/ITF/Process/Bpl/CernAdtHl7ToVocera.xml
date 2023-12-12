@@ -4,13 +4,6 @@
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>66808,72036.021431543</TimeCreated>
 
-<Property name="HddTargetConfigName">
-<Description>
-HDD Operation: The target name used for HDD calls</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="50"/>
-</Property>
-
 <Property name="ProcessingId">
 <Description>
 Processing ID: Test environment "T", Production environment "P"</Description>
@@ -18,8 +11,14 @@ Processing ID: Test environment "T", Production environment "P"</Description>
 <Parameter name="MAXLEN" value="10"/>
 </Property>
 
+<Property name="isProdConnected">
+<Description>
+For production environment, Check this box.</Description>
+<Type>%Boolean</Type>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,ProcessingId:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>ProcessingId:Additional,isProdConnected:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -36,17 +35,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-<property name='hddTargetConfigName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='facilityRep' type='%String' instantiate='0' />
+<property name='targetConfig' type='%String' instantiate='0' />
 <property name='processingId' type='%String' initialexpression='"P"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='5' />
 </parameters>
 </property>
+<property name='prdConnected' type='%Boolean'/>
 </context>
 <sequence xend='200' yend='2750' >
 <scope xpos='200' ypos='250' xend='200' yend='2650' >
@@ -86,16 +82,6 @@ BPL Definition</Description>
     
     }]]]]><![CDATA[>
 </code>
-<code name='initializeHddTarget' xpos='200' ypos='750' >
-<![CDATA[ 
- set context.hddTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","HddTargetConfigName",.pstatus)
- if ($$$ISOK(pstatus) &&(context.hddTargetConfigName '="")){
- 	$$$TRACE("HddTargetConfigName: " _ context.hddTargetConfigName)
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No HddTargetConfigName found.")   	
- } 
-  ]]]]><![CDATA[>
-</code>
 <if name='Check If Message Is Valid' condition='context.ValidationPassed' xpos='200' ypos='950' xend='200' yend='2400' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='1100' />
@@ -110,53 +96,87 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
-<code name='isMemberToVoceraEngageFacilityInclusionSet' xpos='470' ypos='1600' >
-<annotation><![CDATA[isMember]]]]><![CDATA[></annotation>
-<![CDATA[  
-    set domainNcid = "530440753"
-    set memberNcid = request.GetValueAt("ZZ1:2")
-        $$$TRACE("MSH-4/ZZ1-2(iCentra Sending Facility Ncid: " _ memberNcid) 
-     try{
-	     $$$TRACE(" Calling isMember() to check VoceraEngageFacility InclusionSet... " )
-         set status = ##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).isMember(domainNcid , "ZZ12", memberNcid, "MSH4", context.hddTargetConfigName, .process, .retStr)
-		 $$$TRACE(" isMember(VoceraFacility): " _ retStr)
-		 
-		 if (retStr="0"){
-	 	   $$$TRACE(" Sending facility in LegacyPlus(ZZ1-2)/iCentra(MSH-4) "_memberNcid_" is not in the VoceraEngageFacilityInclusionSet domain : "_domainNcid_" Skipping the record.." _memberNcid)
-	 	   set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Sending facility in LegacyPlus(ZZ1-2)/iCentra(MSH-4) "_memberNcid_" is not in the VoceraEngageFacilityInclusionSet domain : "_domainNcid_" Skipping the record.." _memberNcid )
-		 }
-     }catch(exVar){
-	     set exVarData = $ZSTRIP(exVar.Data,"*C")	     
-	     $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
-	     if exVar.Code [ "ITFCOMMON:10108" {
-		    set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,exVarData)
-	   	 }elseif(exVar.Code [ "ITFCOMMON:10109") {
-		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).HddDataError(process.%ConfigName,exVarData)
-		 }elseif(exVar.Code [ "ITFCOMMON:10106") {
-		   	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,exVarData)		  
-		 }elseif(exVar.Code [ "ITFCOMMON:10103") {
-		   	 set status = ##class(IHC.ITF.ITFCOMMON.Utility).WarnMsgError(process.%ConfigName,exVarData)		  
-		 }else{
-			 //Any other Unexpected error
-			 set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error."_exVarData)
-		 }
-	 }
-    //}
-    
+
+<code name='CheckForLookupTables' xpos='470' ypos='1600' >
+<annotation><![CDATA[CheckLookupTableExists]]]]><![CDATA[></annotation>
+<![CDATA[
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.CernAdtHl7ToVocera.Lookup.AllowedVoceraFacilities")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"IHC.ITF.Process.Bpl.CernAdtHl7ToVocera.Lookup.AllowedVoceraFacilities does not exists")  
+  }  
   ]]]]><![CDATA[>
+</code>
+
+<code name='ProdHost' xpos='200' ypos='750' >
+<![CDATA[ 
+	 set context.prdConnected=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","isProdConnected",.pstatus)
+ 	$$$TRACE("isProdConnected: " _ context.prdConnected)
+  ]]]]><![CDATA[>
+</code>
+
+
+
+<code name='CheckFacilityAndOutboundSet' xpos='470' ypos='1600' >
+<annotation><![CDATA[CheckFacilityAndOutboundSet]]]]><![CDATA[></annotation>
+<![CDATA[
+      set msh4SendingFacility = request.GetValueAt("MSH:4.1") 
+      $$$TRACE("Sending Facility in MSH-4:"_msh4SendingFacility)
+      set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToVocera.Lookup.AllowedVoceraFacilities", "Set1", .retVal ) 
+      $$$TRACE("Set1 Facilities:"_retVal)
+      set allowedFacSet1 = retVal
+   	  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToVocera.Lookup.AllowedVoceraFacilities", "Set2", .retVal ) 
+      $$$TRACE("Set2 Facilities:"_retVal)
+      set allowedFacSet2 = retVal
+      set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToVocera.Lookup.AllowedVoceraFacilities", "Set3", .retVal ) 
+      $$$TRACE("Set3 Facilities:"_retVal)
+      set allowedFacSet3 = retVal
+   	if (context.prdConnected = 1){
+	   	$$$TRACE(" Connected to Vocera PRODUCTION host ")
+   	  if (allowedFacSet1 [ msh4SendingFacility){
+   	  	set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-0"
+   	  	$$$TRACE("Sending to "_context.targetConfig)
+   	  }elseif (allowedFacSet2 [ msh4SendingFacility){
+		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-1"
+		  $$$TRACE("Sending to "_context.targetConfig)
+   	  }elseif (allowedFacSet3 [ msh4SendingFacility){
+		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp-2"
+		  $$$TRACE("Sending to "_context.targetConfig)
+	  }else{
+		  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Sending Facility in MSH-4 :"_msh4SendingFacility_" is not allowed Voceara facility. Filtering out")  
+	  }	  
+	  
+   	}else{
+	   	$$$TRACE(" Connected to Vocera TEST ")
+	   if (allowedFacSet1 [ msh4SendingFacility){
+   	  	set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+   	  	$$$TRACE("Sending to TEST host: "_context.targetConfig)
+   	  }elseif (allowedFacSet2 [ msh4SendingFacility){
+		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+		  $$$TRACE("Sending to TEST host: "_context.targetConfig)
+   	  }elseif (allowedFacSet3 [ msh4SendingFacility){
+		  set context.targetConfig = "Out-Vocera-Adt-Hl7tcp"
+		  $$$TRACE("Sending to TEST host:"_context.targetConfig)
+	  }else{
+		  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Sending Facility in MSH-4 :"_msh4SendingFacility_" is not allowed Voceara facility. Filtering out")  
+	  }
+	  $$$TRACE("Sending to "_context.targetConfig)	
+   	}
+	  	
+	  
+ ]]]]><![CDATA[>
 </code>
 
 
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToVocera' source='request' target='response' xpos='470' ypos='2200' >
 <annotation><![CDATA[Translates Cerner adt to Vocera]]]]><![CDATA[></annotation>
 </transform>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='470' ypos='2300' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+
+<call name='Send to TargetConfigNames' target='@context.targetConfig' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
-</foreach>
+
 </true>
 <false>
 <code name='Skip message' xpos='200' ypos='1100' >
@@ -184,10 +204,10 @@ BPL Definition</Description>
 <Data name="CernAdtHl7ToVoceraDefaultData">
 <Subscript>"CernAdtHl7ToVocera"</Subscript>
 <Value name="1">
-<Value>HddTargetConfigName</Value>
+<Value>ProcessingId</Value>
 </Value>
 <Value name="2">
-<Value>ProcessingId</Value>
+<Value>isProdConnected</Value>
 </Value>
 </Data>
 </Storage>
