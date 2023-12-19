@@ -63,14 +63,18 @@ SelectHealth Claims Medicare interfaces main process target name</Description>
  	 set reqObj.DestinationFileName = scheduleId_".xml"
 	 set reqObj.DestinationFilePath = destinationFilePath_"BiztalkScheduler/Response"
 	 try{
- 	 	set tmpStatus = process1.SendRequestAsync(claimsResponseFileTargetConfigName,reqObj)
+ 	 	set tmpStatus = process1.SendRequestSync(claimsResponseFileTargetConfigName,reqObj)
+ 	 	if ($$$ISOK(tmpStatus)){
+	 	 	$$$TRACE("Response file sent..."_reqObj.DestinationFileName )
+ 	 		set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process1.%ConfigName, retCode)
+ 	 	}
 	 }catch(ex){
-		 Set tmpStatus = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Unable to write to file path :"_destinationFilePath_"Error:"_ex)   			 
+		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,"Unable to write to file path :"_destinationFilePath_"Error:"_ex)   			 
 	 }
  	  	 	 
- 	 $$$TRACE("Response file sent..."_reqObj.DestinationFileName )
+ 	 
     
-   quit tmpStatus
+   quit status
 ]]></Implementation>
 </Method>
 
@@ -117,12 +121,10 @@ BPL Definition</Description>
 <property name='guiIdProf' type='%String' instantiate='0' />
 <property name='guiIdInst' type='%String' instantiate='0' />
 <property name='destinationFilePath' type='%String' instantiate='0' />
-<property name='returnCode' type='%String' initialexpression='""' instantiate='0' />
-<property name='returnDesc' type='%String' initialexpression='""' instantiate='0' />
 <property name='schedId' type='%String' initialexpression='""' instantiate='0' />
 <property name='shMedicare837TargetConfigName' type='%String' initialexpression='"Sh-Claims-Xml_Sh-837-MEDICARE"' instantiate='0' >
 <parameters>
-<parameter name='MAXLEN'  value='50' />
+<parameter name='MAXLEN'  value='100' />
 </parameters>
 </property>
 </context>
@@ -176,6 +178,19 @@ BPL Definition</Description>
   ]]]]><![CDATA[>
 </code>
 
+<code name='Validate-DocType' xpos='200' ypos='650' >
+<annotation><![CDATA[Validate DocType]]]]><![CDATA[></annotation>
+<![CDATA[
+  if (request.DocType=""){
+	set returnDesc = "Invalid inbound Medicare Claims record..."
+	set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("4",returnDesc,context.schedId, context.destinationFilePath,.process)    
+  }
+   set ^IHC.SHEDI.MedicareErrMsg = ""
+	set ^IHC.SHEDI.MedicareSuccessBatchCount = 0
+    set ^IHC.SHEDI.MedicareErrBatchCount = 0
+  ]]]]><![CDATA[>
+</code>
+
 <code name='CheckDatesAndSetIsAdHoc' xpos='200' ypos='750' >
 <![CDATA[ 
     set context.pStartDt = request.GetValueAt("FromDate")
@@ -185,18 +200,13 @@ BPL Definition</Description>
     set context.P3 = request.GetValueAt("P3")
     set context.P4 = request.GetValueAt("P4")
     set context.schedId = request.GetValueAt("ScheduleId")
-    set context.guiIdProf = $System.Util.CreateGUID()
-    set context.guiIdInst = $System.Util.CreateGUID()
-    
     
     if ((context.pStartDt [ "12:00:00 AM") && (context.pEndDt ["11:59:59 PM")){
     	set context.isAdHoc = context.P1
 	}else{
 	    if ((context.P1 '="N") || (context.P2 '="B")){
-		    set context.returnCode ="4"
-		    set context.returnDesc = "Invalid start/end datetime. Skipping the invalid trigger request.."
-		    set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-		    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, context.returnDesc)
+		    set returnDesc = "Invalid start/end datetime. Skipping the invalid trigger request.."
+		    set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("4",returnDesc,context.schedId, context.destinationFilePath,.process)		    
 		}
 	}	
 		
@@ -207,66 +217,47 @@ BPL Definition</Description>
 <![CDATA[ 
 	 if ((context.P4 = "HMO") || (context.P4 = "PPO")){
 		 $$$TRACE( " PlanType: ["_context.P4_"]")
+		 set context.guiIdProf = $System.Util.CreateGUID()
+    	 set context.guiIdInst = $System.Util.CreateGUID()
 	 }else{
-		 set context.returnCode ="4"
-		 set context.returnDesc = "Skipping the invalid request - Neither HMO nor PPO, Invalid file type..."
-		 set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId,context.destinationFilePath,.process)
-		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," Skipping the invalid request - Neither HMO nor PPO, Invalid file type..."_context.P4)   	
+		 set returnDesc = "Skipping the invalid request - Neither HMO nor PPO, Invalid file type..."
+		 set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("4",returnDesc,context.schedId,context.destinationFilePath,.process)		 
 	 }
 	 ]]]]><![CDATA[>
 </code>  
 
-	 	  
 <if condition='(context.P2="B")' xpos='200' ypos='350' xend='200' yend='1200' >
 <true>
-<sequence name='seqBC' xpos='200' ypos='950' xend='200' yend='1550' >
-<scope xpos='200' ypos='250' xend='200' yend='1450' >
 <code name='GetProfAndInstBatchCount' xpos='335' ypos='500' >
 <![CDATA[ 
+	$$$TRACE(" Context.P2 is B. Gettting both Prof and Inst batch count in Sync ... ")
     set bcReqObjProf = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).BatchCountRequest("6",context.guiIdProf,context.pStartDt,context.pEndDt,context.P3,context.isAdHoc,context.P4)
     set bcReqObjInst = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).BatchCountRequest("5",context.guiIdInst,context.pStartDt,context.pEndDt,context.P3,context.isAdHoc,context.P4)
-       ]]]]><![CDATA[>
-</code>
-<call name='ProfBatchCount' target='@context.tpdsMedicareClaimsTargetConfigName' async='1' xpos='335' ypos='600' >
-<request type='IHC.ITF.Request.ShMedicareClaims' >
-<assign property="callrequest" value="bcReqObjProf" action="set" />
-</request>
-<response type='IHC.ITF.Response.ShMedicareClaims' />
-</call>
-<call name='InstBatchCount' target='@context.tpdsMedicareClaimsTargetConfigName' async='1' xpos='335' ypos='700' >
-<request type='IHC.ITF.Request.ShMedicareClaims' >
-<assign property="callrequest" value="bcReqObjInst" action="set" />
-</request>
-<response type='IHC.ITF.Response.ShMedicareClaims' />
-</call>
-<trace name='debug1' value='"Waiting for ProfBatchCount,InstBatchCount to finish... "' xpos='335' ypos='800' />
-<sync calls='ProfBatchCount,InstBatchCount' timeout='1800' type='all' xpos='335' ypos='900' />
-<trace name='debug2' value='"Sync ProfBatchCount, InstBatchCount complete... "' xpos='335' ypos='1000' />
-<code name='BatchCount' xpos='335' ypos='1100' >
-<![CDATA[ 
-	set pResponse = syncresponses.GetAt("ProfBatchCount")
-	set iResponse = syncresponses.GetAt("InstBatchCount")
-	set context.batchCountProf=pResponse.BatchCount                
-	//set context.batchCountProf="0"               
-	set context.batchCountInst=iResponse.BatchCount 
-	$$$TRACE(" BatchCount Prof: "_context.batchCountProf)               
-	$$$TRACE(" BatchCount Inst: "_context.batchCountInst)	
-]]]]><![CDATA[>
-</code>
-<faulthandlers>
-<catchall xpos='200' ypos='1300' xend='200' yend='450' >
-<code name='CatchAllBatchCountSP' xpos='200' ypos='350' >
-<![CDATA[ 
-		set context.returnCode ="8"
-		 set context.returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Prof/Inst BatchCount.."
-		 set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, context.returnDesc)
-	]]]]><![CDATA[>
-</code>
-</catchall>
-</faulthandlers>
-</scope>
-</sequence>
+    
+    $$$TRACE(" Begin ShspMedicareClaimStsSet call(Prof) ... ")
+	set tStatus=process.SendRequestSync(context.tpdsMedicareClaimsTargetConfigName,bcReqObjProf,.dbProfResponse)
+  	$$$TRACE(" After ShspMedicareClaimStsSet call(Prof) : "_tStatus)
+  	if ($$$ISOK(tStatus)){
+       $$$TRACE(" Batch Count(Prof): "_dbProfResponse.BatchCount)  
+       set context.batchCountProf= dbProfResponse.BatchCount  
+  	}else{	 	
+		set returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Prof BatchCount. Prof GUID:["_context.guiIdProf_"]"
+		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("8",returnDesc,context.schedId, context.destinationFilePath,.process)		
+  	}
+ 	
+ 	$$$TRACE(" Begin ShspMedicareClaimStsSet call(Inst) ... ")
+	set tStatus=process.SendRequestSync(context.tpdsMedicareClaimsTargetConfigName,bcReqObjInst,.dbInstResponse)
+  	$$$TRACE(" After ShspMedicareClaimStsSet call(Inst) : "_tStatus)
+  	if ($$$ISOK(tStatus)){
+       $$$TRACE(" Batch Count(Inst): "_dbInstResponse.BatchCount)  
+       set context.batchCountInst= dbInstResponse.BatchCount  
+  	}else{
+	 	set returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Inst BatchCount. Inst GUID: ["_context.guiIdInst_"]"
+		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("8",returnDesc,context.schedId, context.destinationFilePath,.process)
+  	}
+  	
+ ]]]]><![CDATA[>
+</code> 
 </true>
 <false>
 <if condition='(context.P2="P")' xpos='200' ypos='350' xend='200' yend='1200' >
@@ -277,10 +268,8 @@ BPL Definition</Description>
 	$$$TRACE("Waiting for ProfBatchCount...")
 	set tstatus = process.SendRequestSync(context.tpdsMedicareClaimsTargetConfigName,bcReqObjProf,.resp)
 	if ($$$ISERR(tstatus)){
-		set context.returnCode ="8"
-		 set context.returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Prof BatchCount.."
-		 set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, context.returnDesc)
+		 set context.returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Prof BatchCount..Prof GUID:["_context.guiIdProf_"]"
+		 set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("8",returnDesc,context.schedId, context.destinationFilePath,.process)		 
  	}else{
 		set context.batchCountProf=resp.BatchCount
 		$$$TRACE(" ProfBatchCount: "_context.batchCountProf) 
@@ -297,10 +286,8 @@ BPL Definition</Description>
     $$$TRACE("Waiting for InstBatchCount...")
     set tstatus = process.SendRequestSync(context.tpdsMedicareClaimsTargetConfigName,bcReqObjInst,.resp)
     if ($$$ISERR(tstatus)){
-		set context.returnCode ="8"
-		 set context.returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Prof BatchCount.."
-		 set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-		 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, context.returnDesc)
+		 set returnDesc = "Error while calling the SP -- TPDS.PK_MEDICARE_CLMS_MGR.SHSP_MEDICARE_CLM_STS_SET, Failed to get the Inst BatchCount..Inst GUID:"_context.guiIdInst
+		 set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("8",returnDesc,context.schedId, context.destinationFilePath,.process)		 
  	}else{
 		set context.batchCountInst=resp.BatchCount
   		$$$TRACE(" InstBatchCount: "_context.batchCountInst) 
@@ -311,10 +298,8 @@ BPL Definition</Description>
 <false>
  <code name='Invalid P2' xpos='335' ypos='1300' >
 <![CDATA[ 
-	set context.returnCode ="4"
-	set context.returnDesc = "Invalid P2 value: ["_context.P2_"]. Skipping the trigger file request.."
-	set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-	set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,context.returnDesc)   
+	set returnDesc = "Invalid P2 value: ["_context.P2_"]. Skipping the trigger file request.."
+	set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("4",returnDesc,context.schedId, context.destinationFilePath,.process)	
 ]]]]><![CDATA[>
 </code>
 </false>
@@ -324,16 +309,13 @@ BPL Definition</Description>
 </false>
 </if>
 
-
 <assign property="context.totalBatchCounts" value="context.batchCountInst+context.batchCountProf" action="set" xpos='200' ypos='1050' />
 <if condition='(context.totalBatchCounts=0)' xpos='200' ypos='1150' xend='200' yend='1400' >
 <true>
 <code name='CheckBatchCount' xpos='335' ypos='1300' >
 <![CDATA[ 
-	set context.returnCode ="4"
-	set context.returnDesc = "Batch count is 0. Skipping the trigger file request.."
-	set tmpStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.destinationFilePath,.process)
-	set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,context.returnDesc)   
+	set returnDesc = "Batch count is 0. Skipping the trigger file request.."
+	set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicare).createAndSendResponse("4",returnDesc,context.schedId, context.destinationFilePath,.process)	
 	]]]]><![CDATA[>
 </code>
 </true>
@@ -351,8 +333,7 @@ BPL Definition</Description>
    set extractReqObj.pMedicareType = context.P2
    set extractReqObj.pStartDate = context.pStartDt
    set extractReqObj.pEndDate = context.pEndDt
-   
-   
+   set extractReqObj.pTotalBatchCounts = context.batchCountProf + context.batchCountInst
    set tStatus = process.SendRequestAsync(context.shMedicare837TargetConfigName,extractReqObj)
    $$$TRACE(" Sent to "_context.shMedicare837TargetConfigName)
 ]]]]><![CDATA[>
