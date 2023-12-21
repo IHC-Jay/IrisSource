@@ -45,8 +45,6 @@ This Style block contains page-specific CSS style definitions.</Description>
 </XData>
 
 <XData name="PageContents">
-<Description>
-This XML block defines the contents of this pane.</Description>
 <XMLNamespace>http://www.intersystems.com/zen</XMLNamespace>
 <Data><![CDATA[
 <pane xmlns="http://www.intersystems.com/zen" width="100%">
@@ -65,7 +63,7 @@ This XML block defines the contents of this pane.</Description>
 <dataCombo id="namespace" align="left" label="Namespace" editable="false" displayColumns="1" valueColumn="1" choiceColumn="1"
   onchange="zenPage.ChangeNS();"  queryClass="%SYS.Namespace" queryName="List" />
   <spacer width="20"/>
-  <combobox id="msgType" label="Message Type" value="HL7" >
+  <combobox id="msgType" label="Message Type" value="HL7" onchange="zenPage.ChangeMsgType();">
   <option value="1" text="HL7" />
   <option value="2" text="XML" />
   <option value="3" text="X12" />
@@ -76,8 +74,13 @@ This XML block defines the contents of this pane.</Description>
   <option value="8" text="StreamContainer FC" />
   <option value="9" text="StreamContainer CG" />
   <option value="10" text="StreamContainer CF" />
+  <option value="11" text="Other" />
 </combobox>
+<spacer width="10"/>
+<text hidden="true" label="Class Name # " id="clsNm" name="clsNm" size="30" required="true"/>
   </hgroup>
+  
+
  <spacer height="20"/>
  <hgroup width="100%">
  <fieldSet id="fldSetSrcComponents" legend=" Components " width="40%" >
@@ -204,6 +207,27 @@ This XML block defines the contents of this pane.</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="ChangeMsgType">
+<Language>javascript</Language>
+<ClientMethod>1</ClientMethod>
+<Implementation><![CDATA[
+	
+	var srcField = zenPage.getComponentById('msgType').getValue();
+	clsNm = zenPage.getComponentById('clsNm');
+	
+	zenSetProp('lblAccess','content','Getting MsgType: ' + srcField);
+	
+	if(srcField == "Other" || srcField == 11)
+	{
+		clsNm.setProperty('hidden', false);		
+	}
+	else
+	{
+		clsNm.setProperty('hidden', true);
+	}
+]]></Implementation>
+</Method>
+
 <Method name="changeFields">
 <Language>javascript</Language>
 <ClientMethod>1</ClientMethod>
@@ -307,12 +331,15 @@ This XML block defines the contents of this pane.</Description>
  try {
 	 set $NAMESPACE = nmSp
 	 set retStr = ""
+	 set clsNm = ""
 	 
  	set sesId = %page.%GetValueById("sesId")
     set createTm = %page.%GetValueById("createTm")
     set msgBodyId = %page.%GetValueById("msgBodyId")
+    
  	
  	 set msgType = 	%page.%GetValueById("msgType")
+ 	 
  	 
 	 SET myquery = 5 
 
@@ -369,10 +396,33 @@ This XML block defines the contents of this pane.</Description>
 	  }
 	 
 	  
+	  ELSEIF ((msgType = "Other")  || ( msgType = 11)) 
+	  {
+		  set clsNm = %page.%GetValueById("clsNm")
+		  if (clsNm = "")
+		  {
+			  return "Class Name is required for messae type: Other"
+		  }
+		  else
+		  {
+			  
+			 set len = $LENGTH(clsNm, ".")
+			 
+			 set tabNm = $PIECE(clsNm, ".", 1)
+			 for ind=2:1:len-1
+			 {
+				 set tabNm = tabNm _ "_" _ $PIECE(clsNm, ".", ind)
+			 }
+			 set tabNm = tabNm _ "." _ $PIECE(clsNm, ".", len)
+ 
+			 SET myquery(1) = " select SessionId, mh.TimeCreated, MessageBodyId, msg.ID as Data "
+		 	 SET myquery(2) = " from  Ens.MessageHeader mh, " _ tabNm _ " msg "
+		 	 SET myquery(3) = " where mh.MessageBodyId = msg.ID and MessageBodyClassName = '" _ clsNm _ "' "
+		  }
+	  }
 	  ELSE
 	  {
-		  set retStr = "Invalid message type: " _ msgType
-		  return retStr
+		  return msgType _" is not valid messae type"
 	  }
 	 
 	    
@@ -405,28 +455,29 @@ This XML block defines the contents of this pane.</Description>
 		set val2 = rangeVal2 	
 	 }
  	 
- 		
   SET tStatement = ##class(%SQL.Statement).%New()
   SET qStatus = tStatement.%Prepare(.myquery)
   IF qStatus'=1 {
 	    set retStr =  "%Prepare failed:" DO $System.Status.DisplayError(qStatus) 
 	    return retStr _ qStatus
 	 }
- set retStr = "Execute " _ srcComp _ ", " _ destComp _ ", " _ val1 _ ", " _ val2 _ ", Max rows: " _ recCnt
-	    
-  SET rset = tStatement.%Execute(srcComp, destComp, val1, val2)
-  IF rset.%SQLCODE=0 { set retStr =  "<BR> Executed a query successfully: <I> Source: " _ srcComp_", Destination: " _  destComp_", Range: " _  rangeVal1 _", " _  rangeVal2 _ ", Type: " _ msgType _ "</I>"}
-  ELSEIF rset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ rset.%Message) }
-  ELSE { set retStr =  retStr _ ", CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message   return retStr}
-  Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Get records from " _ myquery(1))
-  set arrInd = 0
-  Set tMsgIdArr = ""
-  Do ##class(%File).CreateDirectoryChain( "/itf-share/itf-tmp/tmp-extracts/" _ $USERNAME)
-  set fileNm = $ZSTRIP("/itf-share/itf-tmp/tmp-extracts/" _ $USERNAME _ "/" _ srcComp_"_" _  destComp _ "_" _ $ZDATETIME($ZTIMESTAMP,8,1,2) _ ".txt", "*W")
-  
-  Set file=##class(%File).%New(fileNm)
+	 
+	set retStr = "Execute " _ srcComp _ ", " _ destComp _ ", " _ val1 _ ", " _ val2 _ ", Max rows: " _ recCnt
+
+	SET rset = tStatement.%Execute(srcComp, destComp, val1, val2)
+	IF rset.%SQLCODE=0 { set retStr =  "<BR> Executed a query successfully: <I> Source: " _ srcComp_", Destination: " _  destComp_", Range: " _  rangeVal1 _", " _  rangeVal2 _ ", Type: " _ msgType _ "</I>"}
+	ELSEIF rset.%SQLCODE=-361 { $$$LOGERROR("Query exists: " _ rset.%Message) }
+	ELSE { set retStr =  retStr _ ", CREATE QUERY error: " _ rset.%SQLCODE_", "_rset.%Message   return retStr}
+
+	Do ##class(IHC.ITF.ITFCOMMON.Utility).WriteToFile("Get records from " _ myquery(1))
+	set arrInd = 0
+	Set tMsgIdArr = ""
+	Do ##class(%File).CreateDirectoryChain( "/itf-share/itf-tmp/tmp-extracts/" _ $USERNAME)
+	set fileNm = $ZSTRIP("/itf-share/itf-tmp/tmp-extracts/" _ $USERNAME _ "/" _ srcComp_"_" _  destComp _ "_" _ $ZDATETIME($ZTIMESTAMP,8,1,2) _ ".txt", "*W")
+
+   Set file=##class(%File).%New(fileNm)
 	
-	Do file.Open("WSN")
+   Do file.Open("WSN")
 		
    WHILE rset.%Next() {
 	 set arrInd = arrInd + 1
@@ -461,9 +512,46 @@ This XML block defines the contents of this pane.</Description>
 	     		Do file.WriteLine(rset.Data)
 	     	 }
 	     }
+	     elseif ((msgType = "Other")  || ( msgType = 11)) 
+	     {
+		     Do file.WriteLine(arrInd _ ". " _ clsNm _ ", ID: " _ rset.Data)
+		     Set class=$$$NormalizeClassname(clsNm)
+	 
+			 Set oref=$$$CreateObject(class)
+			 If oref=$$$NULLOREF { 
+			   Do file.WriteLine(class _ ": Object Not created")
+			   QUIT
+			 }
+			 if ($IsObject(oref))
+			 {
+			  set obj = oref.%OpenId(rset.Data)
+			  Do file.WriteLine(obj _ ", class: " _ obj.%ClassName())
+		      if ($IsObject(obj))
+		      {
+			      /*
+					  	set stat = obj.XMLExportToString(.str)
+					  	if (($$$ISOK(stat)) && (str '= ""))
+					  	{
+					  		Do file.WriteLine(str)
+					  	}
+			  	 */
+		      
+		        set fileNm2 = $ZSTRIP("/itf-share/itf-tmp/tmp-extracts/" _ $USERNAME _ "/" _ srcComp_"_" _  destComp _ "_" _ $ZDATETIME($ZTIMESTAMP,8,1,2) _ "-" _ arrInd _ ".txt", "*W")
+
+		        #dim st as %FileCharacterStream
+			  	set stat = obj.XMLExportToStream(.st)
+			  	if (($$$ISOK(stat)) && ($IsObject(st)))
+			  	{
+				  	Set stream=##class(%Stream.FileCharacter).%New()
+				  	Do stream.LinkToFile(fileNm2)
+				  	Do stream.CopyFromAndSave(st)
+			  	}
+		      }
+			 } 	
+	     }
 	     else
 	     {
-	     	Do file.WriteLine(rset.Data)
+	     	Do file.WriteLine(msgType _": " _rset.Data)
 	     }
      }
      else
