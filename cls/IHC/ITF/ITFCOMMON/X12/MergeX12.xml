@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.X12.MergeX12">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>66851,29339.093065668</TimeCreated>
+
+<Method name="ProcessX12Records">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+	set prevX12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%New()
+	#dim interchange As %ArrayOfDataTypes
+	set interchange = ##class(%ArrayOfDataTypes).%New()
+	set group  = ##class(%ArrayOfDataTypes).%New()
+	set ST  = ##class(%ArrayOfDataTypes).%New()
+	
+	#dim rs As %SQL.StatementResult
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc_Record.DndCoreErsX12Record where status = 'InProcess' order by SenderID")
+		
+		While rs.%Next() {
+			
+			set id = rs.%Get("ID")
+			set x12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%OpenId(id)
+			
+			if ($IsObject(x12Rec))
+			{
+				 
+				if ( x12Rec.SenderID '= prevX12Rec.SenderID)
+				{				
+					
+					if (prevX12Rec.SenderID '= "")
+					{
+						
+						Do ..MergeSTs(prevX12Rec, interchange, group , ST )
+						
+					}
+					$$$TRACE( "New Sender: " _x12Rec.SenderID _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
+					Do interchange.Clear()
+					Do group.Clear()
+					Do ST.Clear()
+					
+					DO ..ParseX12(x12Rec.X12stream, .source)
+					DO ..GetISA(source, interchange)				
+					DO ..GetGS(source, group)					
+					Do ..GetST(source, ST)
+
+				}
+				else
+				{
+					$$$TRACE( " - Repeat Sender: " _ x12Rec.SenderID _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
+					DO ..ParseX12(x12Rec.X12stream, .source)
+					Do ..GetST(source, ST)
+					set prevX12Rec.Status = "Merged"
+					Do prevX12Rec.%Save()
+				}
+				set prevX12Rec = x12Rec
+				
+			}
+			else
+			{
+				$$$TRACE( id _ "- Not an object")
+			}
+		}
+		
+		Do ..MergeSTs(prevX12Rec, interchange, group , ST )
+]]></Implementation>
+</Method>
+
+<Method name="MergeSTs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Rec:IHC.ITF.DStruc.Record.DndCoreErsX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	if (ST.Count() > 1)
+	{
+			
+		$$$TRACE( " ---> Merge: " _ ST.Count() _" STs")
+		#dim X12stream As %Stream.GlobalCharacter
+		set X12stream = ##class(%Stream.GlobalCharacter).%New()
+		Do X12stream.Write(interchange.GetAt(1).OutputToString())
+		Do X12stream.Write(group.GetAt(1).OutputToString())
+		set st = ""
+		for i=1:1:ST.Count()
+		{
+			#dim str As EnsLib.EDI.X12.Document
+			set str = ST.GetNext(.st)
+			
+			
+			set stat = str.SetValueAt("000"_i, "1:2" ,"set","")
+			// WRITE !, "Set ST control number: " _ stat _ ", ST size: " _ str.FullSize)
+			$$$TRACE( "New ST control number: " _ str.GetValueAt("1:2"))  
+			Do X12stream.Write(str.OutputToString())
+		}
+		
+		Do group.GetAt(2).SetValueAt(ST.Count(),"1")
+		Do X12stream.Write(group.GetAt(2).OutputToString())
+		Do X12stream.Write(interchange.GetAt(2).OutputToString())
+
+		$$$TRACE( " --- Merged Stream: " _ X12stream.Size)
+
+		
+		set newX12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%New()
+		set newX12Rec.Status = "Processed-Batched"
+		set newX12Rec.X12stream = X12stream
+		set newX12Rec.SenderID= x12Rec.SenderID
+		set newX12Rec.CKPYREFID = x12Rec.CKPYREFID
+		set newX12Rec.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+		Do newX12Rec.%Save()
+		set x12Rec.Status = "Merged"
+	}
+	else
+	{
+		set x12Rec.Status = "Processed-Single"
+	}
+	if (x12Rec.CKPYREFID '= "")
+	{
+		Do x12Rec.%Save()
+	}
+]]></Implementation>
+</Method>
+
+<Method name="ParseX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[fileStream:%Stream.GlobalCharacter,&source]]></FormalSpec>
+<Implementation><![CDATA[
+	#dim source As EnsLib.EDI.X12.Document
+	
+	// $$$TRACE( "Stream length: " _ fileStream.Size)
+
+	set x12Data = ""
+	do
+	{
+		set len = 32000
+		set x12Data = x12Data _ fileStream.Read(.len, .sc)
+		
+	} while(len >= 0 && sc = 1)
+	
+	
+    Try {
+		set source = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
+		 }
+	 Catch thrownErr {
+		If $ZE="" {
+			Set tSC=thrownErr.AsStatus()
+			$$$LOGERROR( "Error: " _ tSC)
+		} Else {
+			Set tSC=##class(Ens.Util.Error).EnsSystemError($classname(),"Transform")
+			$$$LOGERROR(  "System Error: " _ tSC)
+		}
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetISA">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>source:EnsLib.EDI.X12.Document,interchange:%ArrayOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+		
+    Try {
+		
+		 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+		 {
+			
+				Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 
+													
+			// WRITE !,  "ISA - IDs: " _ source.GetValueAt("ISA:InterchangeSenderID")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID")
+
+			
+			// WRITE !, source.Name _" # of Children " _ source.ChildCount  _" # of segments: " _ source.SegCountGet() 
+			#dim seg As EnsLib.EDI.X12.Segment 
+
+			for segNum=1:1:source.SegCountGet()
+			{
+				
+				set seg = source.GetSegmentAt(segNum)
+				set segPath = source.GetSegmentPath(segNum, .segStat)
+						
+				set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
+				if $$$ISERR(stat)
+				{
+					$$$TRACE( "Error in GetContentArray: " _ stat)
+					return
+				}
+				if (segPath [ "ISA")
+				{		
+					Do interchange.SetAt(seg, 1)
+				}
+				elseif (segPath [ "IEA")
+				{		
+					Do interchange.SetAt(seg, 2)
+				}
+				
+			}
+		 }
+	 }
+	 Catch thrownErr {
+		If $ZE="" {
+			Set tSC=thrownErr.AsStatus()
+			$$$LOGERROR( "GetISA Error: " _ tSC)
+		} Else {
+			Set tSC=##class(Ens.Util.Error).EnsSystemError($classname(),"Transform")
+			$$$LOGERROR( "GetISA System Error: " _ tSC)
+		}
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetGS">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>source:EnsLib.EDI.X12.Document,group:%ArrayOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	Set k1="",tSC=1
+					
+	For {
+		Set k1=source.NextChild(k1,source.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		if ('$IsObject(k1))
+		{
+			// WRITE !, "-- No more FunctionalGroups --"
+			
+			QUIT
+		}
+		Set source.FunctionalGroups(k1)=k1
+		If ""=k1.DocType {
+			Set tDocType = k1.resolveChildDocType()
+			Set tSC =k1.PokeDocType(tDocType)
+		}
+		Set tSC =source.FunctionalGroups(k1).BuildMap()
+		if $$$ISERR(tSC)
+		{
+			$$$TRACE( "FunctionalGroups BuildMap: " _ tSC)
+			return
+		}
+		#dim gsSeg As EnsLib.EDI.X12.Segment 						
+		For si=1:1:source.FunctionalGroups(k1).SegCount 
+        {
+	        set gsSeg = source.FunctionalGroups(k1).GetSegmentAt(si)
+			set gsSegPath = source.FunctionalGroups(k1).GetSegmentPath(si, .gsSegStat)
+			
+			// WRITE !, gsSeg.OutputToString() _" -->" _ gsSeg.DocType
+			if (gsSegPath [ "GS") 
+			{
+	
+				Do group.SetAt(gsSeg, 1)
+			}
+			elseif (gsSegPath [ "GE")
+			{
+				set sg2 = gsSeg.%ConstructClone(1)
+				Do sg2.SetValueAt("x", "1","set","")
+				Do group.SetAt(sg2, 2)
+				
+				// WRITE !, sg2.DocType _": " _ sg2.OutputToString()
+			}			 
+
+        }
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetST">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>source:EnsLib.EDI.X12.Document,ST:%ArrayOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	Set k1="",tSC=1
+	set source.DocType="HIPAA_5010:Interchange:Group"
+					
+	For {
+		Set k1=source.NextChild(k1,source.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		if ('$IsObject(k1))
+		{
+			// WRITE !, "-- No more FunctionalGroups --"
+			
+			QUIT
+		}
+		Set source.FunctionalGroups(k1)=k1
+		If ""=k1.DocType {
+			Set tDocType = k1.resolveChildDocType()
+			Set tSC =k1.PokeDocType(tDocType)
+		}
+		Set tSC =source.FunctionalGroups(k1).BuildMap()
+		if $$$ISERR(tSC)
+		{
+			$$$TRACE( "FunctionalGroups BuildMap: " _ tSC)
+			return
+		}
+		
+        
+		For i=1:1:source.FunctionalGroups(k1).ChildCount
+        { 
+          #dim individualST As EnsLib.EDI.X12.Document
+          set individualST = source.FunctionalGroups(k1).getNthChild(i,2)
+          If ""=individualST.DocType {
+			Set tDocType = individualST.resolveChildDocType()
+			Set tSC =individualST.PokeDocType(tDocType)
+		 }
+		 Set tSC =individualST.BuildMap()
+		if $$$ISERR(tSC)
+		{
+			$$$TRACE( "FunctionalGroups BuildMap: " _ tSC)
+			return
+		}
+
+           // WRITE !, i _". " _ individualST.DocType // _ "= " _ individualST.OutputToString()
+          
+          
+	        set refGroupIDind=individualST.GetSegmentIndex("TRN",.refGroupIDstatus)  
+	        set GroupID=individualST.GetValueAt(refGroupIDind_":2")
+	        set stCtrlNum = individualST.GetValueAt("1:2")
+	        
+	        set st2 = individualST.%ConstructClone(1)
+
+	        $$$TRACE("   ST: " _ stCtrlNum _ ": " _ GroupID _", count: " _ individualST.SegCount _", size: " _ individualST.FullSize _ ", ST2 size: " _ st2.FullSize)
+	        
+	        Do ST.SetAt(st2 , GroupID)
+
+        }  
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
