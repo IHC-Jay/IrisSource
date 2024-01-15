@@ -8,50 +8,63 @@
 <Method name="ProcessX12Records">
 <ClassMethod>1</ClassMethod>
 <Implementation><![CDATA[
-	set prevX12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%New()
+	set prevX12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%New()
 	#dim interchange As %ArrayOfDataTypes
 	set interchange = ##class(%ArrayOfDataTypes).%New()
 	set group  = ##class(%ArrayOfDataTypes).%New()
 	set ST  = ##class(%ArrayOfDataTypes).%New()
+	set tpInfo = ""
 	
 	#dim rs As %SQL.StatementResult
-		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc_Record.DndCoreErsX12Record where status = 'InProcess' order by SenderID")
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc.DndCoreErsX12Record where status = 'InProcess' order by ReceiverId")
 		
 		While rs.%Next() {
 			
 			set id = rs.%Get("ID")
-			set x12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%OpenId(id)
+			set x12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%OpenId(id)
 			
 			if ($IsObject(x12Rec))
 			{
 				 
-				if ( x12Rec.SenderID '= prevX12Rec.SenderID)
-				{				
+				if ( x12Rec.ReceiverId '= prevX12Rec.ReceiverId)
+				{	
+					$$$TRACE( "New ReceiverId: " _x12Rec.ReceiverId _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
 					
-					if (prevX12Rec.SenderID '= "")
+					if (prevX12Rec.ReceiverId '= "") // Skip first record
 					{
-						
-						Do ..MergeSTs(prevX12Rec, interchange, group , ST )
-						
+						Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo)
 					}
-					$$$TRACE( "New Sender: " _x12Rec.SenderID _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
+					
 					Do interchange.Clear()
 					Do group.Clear()
 					Do ST.Clear()
-					
-					DO ..ParseX12(x12Rec.X12stream, .source)
-					DO ..GetISA(source, interchange)				
-					DO ..GetGS(source, group)					
-					Do ..GetST(source, ST)
+			
+					// Get Merge option for the TP
+					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
+					if (tpInfo [ "Batched")
+					{				
+						DO ..ParseX12(x12Rec.X12stream, .source)
+						DO ..GetISA(source, interchange)				
+						DO ..GetGS(source, group)					
+						Do ..GetST(source, ST)
+					}
+					else
+					{
+						Do ..MergeSTs(x12Rec, interchange, group , ST, tpInfo )
+					}
 
 				}
-				else
+				elseif (tpInfo [ "Batched")
 				{
-					$$$TRACE( " - Repeat Sender: " _ x12Rec.SenderID _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
+					$$$TRACE( " - Repeat ReceiverId: " _ x12Rec.ReceiverId _", CKPYREFID: " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
 					DO ..ParseX12(x12Rec.X12stream, .source)
 					Do ..GetST(source, ST)
 					set prevX12Rec.Status = "Merged"
 					Do prevX12Rec.%Save()
+				}
+				else
+				{
+					Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo )
 				}
 				set prevX12Rec = x12Rec
 				
@@ -61,14 +74,14 @@
 				$$$TRACE( id _ "- Not an object")
 			}
 		}
-		
-		Do ..MergeSTs(prevX12Rec, interchange, group , ST )
+		// Last Record
+		Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo )
 ]]></Implementation>
 </Method>
 
 <Method name="MergeSTs">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>x12Rec:IHC.ITF.DStruc.Record.DndCoreErsX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes</FormalSpec>
+<FormalSpec>x12Rec:IHC.ITF.DStruc.DndCoreErsX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes,tpInfo:%String</FormalSpec>
 <Implementation><![CDATA[
 	if (ST.Count() > 1)
 	{
@@ -98,18 +111,20 @@
 		$$$TRACE( " --- Merged Stream: " _ X12stream.Size)
 
 		
-		set newX12Rec = ##class(IHC.ITF.DStruc.Record.DndCoreErsX12Record).%New()
+		set newX12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%New()
 		set newX12Rec.Status = "Processed-Batched"
 		set newX12Rec.X12stream = X12stream
-		set newX12Rec.SenderID= x12Rec.SenderID
+		set newX12Rec.ReceiverId= x12Rec.ReceiverId
 		set newX12Rec.CKPYREFID = x12Rec.CKPYREFID
 		set newX12Rec.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+		set newX12Rec.Route = $PIECE(tpInfo, "#", 1)
 		Do newX12Rec.%Save()
 		set x12Rec.Status = "Merged"
 	}
 	else
 	{
 		set x12Rec.Status = "Processed-Single"
+		set x12Rec.Route = $PIECE(tpInfo, "#", 1)
 	}
 	if (x12Rec.CKPYREFID '= "")
 	{
@@ -162,7 +177,7 @@
 			
 				Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 
 													
-			// WRITE !,  "ISA - IDs: " _ source.GetValueAt("ISA:InterchangeSenderID")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID")
+			// WRITE !,  "ISA - IDs: " _ source.GetValueAt("ISA:InterchangeReceiverId")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID")
 
 			
 			// WRITE !, source.Name _" # of Children " _ source.ChildCount  _" # of segments: " _ source.SegCountGet() 
@@ -313,6 +328,50 @@
 
         }  
 	}
+]]></Implementation>
+</Method>
+
+<Method name="GetTpLinkInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set retStr = ""
+	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME " _
+ "FROM IHC_ITF_ITFCOMMON_TPManage.TRADELINKS lnk, IHC_ITF_ITFCOMMON_TPManage.TPIDS tp, IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tt " _
+ "where tp.ID = lnk.IsaReceiverId and tt.TransactionSetId = '835' AND tt.ID = lnk.TRANSTYPE " _
+ "AND tp.TPID = '" _ tpId _ "' " )
+		
+	While rs.%Next() {
+		set nm = rs.%Get("NAME")
+		set id = rs.%Get("ID")
+		$$$TRACE("TP Link: " _ nm _", Id: " _ id)	
+				
+		Set tpLink = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(id)
+		if ($IsObject(tpLink))
+		{
+		 set retStr = tpLink.Routing
+		 
+		 
+		 Set tSet="",tId=""
+			For {
+				Set tSet = tpLink.customProp.GetNext(.tId)
+				Quit:""=tId
+				if (tSet.Key = "BatchingMode835")
+				{
+					set retStr = retStr _ "#" _tSet.Value
+					$$$TRACE("TP Link for" _ tpId _ ": " _ id _ ": " _tpLink.NAME _", Routing: " _ retStr)
+					QUIT
+				}
+			}
+			
+		}
+		else
+		{
+		 WRITE !, "Not an object"
+		}
+	}
+	return retStr
 ]]></Implementation>
 </Method>
 </Class>
