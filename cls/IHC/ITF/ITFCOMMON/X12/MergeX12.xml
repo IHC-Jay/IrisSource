@@ -8,7 +8,7 @@
 <Method name="ProcessX12Records">
 <ClassMethod>1</ClassMethod>
 <Implementation><![CDATA[
-	set prevX12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%New()
+	set prevX12Rec = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%New()
 	#dim interchange As %ArrayOfDataTypes
 	set interchange = ##class(%ArrayOfDataTypes).%New()
 	set group  = ##class(%ArrayOfDataTypes).%New()
@@ -16,21 +16,21 @@
 	set tpInfo = ""
 	
 	#dim rs As %SQL.StatementResult
-		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc.DndCoreErsX12Record where status = 'InProcess' order by ReceiverId")
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc.DndCoreEraX12Record where status = 'InProcess' order by ReceiverId")
 		
 		While rs.%Next() {
 			
 			set id = rs.%Get("ID")
-			set x12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%OpenId(id)
+			set x12Rec = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(id)
 			
 			if ($IsObject(x12Rec))
 			{
-				 
+				$$$TRACE( " -- ReceiverId: " _x12Rec.ReceiverId _", Prev ReceiverId: " _ prevX12Rec.ReceiverId) 
 				if ( x12Rec.ReceiverId '= prevX12Rec.ReceiverId)
 				{	
-					$$$TRACE( "New ReceiverId: " _x12Rec.ReceiverId _", " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
+					$$$TRACE( "New ReceiverId: " _x12Rec.ReceiverId _", " _ x12Rec.CKPYREFID)
 					
-					if (prevX12Rec.ReceiverId '= "") // Skip first record
+					if (prevX12Rec.ReceiverId '= "") // Not First record
 					{
 						Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo)
 					}
@@ -42,29 +42,74 @@
 					// Get Merge option for the TP
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
 					if (tpInfo [ "Batched")
-					{				
-						DO ..ParseX12(x12Rec.X12stream, .source)
-						DO ..GetISA(source, interchange)				
-						DO ..GetGS(source, group)					
-						Do ..GetST(source, ST)
+					{	
+						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+						{	
+							// DO ..ParseX12(x12Rec.X12stream, .source)
+							DO ..GetISA(source, interchange)				
+							DO ..GetGS(source, group)					
+							Do ..GetST(source, ST)
+						}
+						else
+						{
+							set x12Rec.Status = "ValidationFailed-Processed-Single"
+							Do x12Rec.%Save()
+							continue
+						}
 					}
 					else
 					{
-						Do ..MergeSTs(x12Rec, interchange, group , ST, tpInfo )
+						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+						{
+							// DO ..ParseX12(x12Rec.X12stream, .source)
+							DO ..GetISA(source, interchange)
+						}
+						else
+						{
+							set x12Rec.Status = "ValidationFailed-Processed-Single"
+							Do x12Rec.%Save()
+						}
+				
 					}
 
 				}
 				elseif (tpInfo [ "Batched")
 				{
 					$$$TRACE( " - Repeat ReceiverId: " _ x12Rec.ReceiverId _", CKPYREFID: " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
-					DO ..ParseX12(x12Rec.X12stream, .source)
-					Do ..GetST(source, ST)
-					set prevX12Rec.Status = "Merged"
-					Do prevX12Rec.%Save()
+					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+					{
+						// DO ..ParseX12(x12Rec.X12stream, .source)
+						Do ..GetST(source, ST)
+						set x12Rec.Status = "Merged"
+						Do x12Rec.%Save()
+					}
+					else
+					{
+						set prevX12Rec.Status = "ValidationFailed-Processed-Single"
+						Do prevX12Rec.%Save()
+					}
 				}
 				else
 				{
+					
+					$$$TRACE("Repeat TP, not batched, tpInfo: " _ tpInfo) // Is not a batch - Get ISA values
+												
 					Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo )
+					Do interchange.Clear()
+					Do group.Clear()
+					Do ST.Clear()
+					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
+					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+					{
+						// DO ..ParseX12(x12Rec.X12stream, .source)
+						DO ..GetISA(source, interchange)
+					}
+					else
+					{
+						set x12Rec.Status = "ValidationFailed-Processed-Single"
+						Do x12Rec.%Save()
+					}
+	
 				}
 				set prevX12Rec = x12Rec
 				
@@ -74,62 +119,58 @@
 				$$$TRACE( id _ "- Not an object")
 			}
 		}
-		// Last Record
-		Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo )
+		if (interchange.Count() > 1)
+		{
+			// Last Record
+			Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo )
+		}
 ]]></Implementation>
 </Method>
 
-<Method name="MergeSTs">
+<Method name="ValidateX12">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>x12Rec:IHC.ITF.DStruc.DndCoreErsX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes,tpInfo:%String</FormalSpec>
+<FormalSpec><![CDATA[X12stream:%Stream.GlobalCharacter,tpInfo:%String,&source]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	if (ST.Count() > 1)
+	set tSC = $$$OK	
+	set snipLevel = $PIECE(tpInfo, "#", 3)
+
+	$$$TRACE( " X12 Validation, Stream length:" _ X12stream.Size)
+
+	set pDocIn = ##class(EnsLib.EDI.X12.Document).%New()
+	set pDocIn = pDocIn.ImportFromLibraryStream(X12stream, .tSC)
+	
+	if ($$$ISOK(tSC))
 	{
-			
-		$$$TRACE( " ---> Merge: " _ ST.Count() _" STs")
-		#dim X12stream As %Stream.GlobalCharacter
-		set X12stream = ##class(%Stream.GlobalCharacter).%New()
-		Do X12stream.Write(interchange.GetAt(1).OutputToString())
-		Do X12stream.Write(group.GetAt(1).OutputToString())
-		set st = ""
-		for i=1:1:ST.Count()
+
+		if (pDocIn.DocType = "")
 		{
-			#dim str As EnsLib.EDI.X12.Document
-			set str = ST.GetNext(.st)
-			
-			
-			set stat = str.SetValueAt("000"_i, "1:2" ,"set","")
-			// WRITE !, "Set ST control number: " _ stat _ ", ST size: " _ str.FullSize)
-			$$$TRACE( "New ST control number: " _ str.GetValueAt("1:2"))  
-			Do X12stream.Write(str.OutputToString())
+		   set pDocIn.DocType = "HIPAA_5010:Interchange:Group" 
 		}
-		
-		Do group.GetAt(2).SetValueAt(ST.Count(),"1")
-		Do X12stream.Write(group.GetAt(2).OutputToString())
-		Do X12stream.Write(interchange.GetAt(2).OutputToString())
 
-		$$$TRACE( " --- Merged Stream: " _ X12stream.Size)
+		if (pDocIn.%Extends("EnsLib.EDI.X12.Document"))
+		{
+			set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(pDocIn, "SNIP", snipLevel)
 
-		
-		set newX12Rec = ##class(IHC.ITF.DStruc.DndCoreErsX12Record).%New()
-		set newX12Rec.Status = "Processed-Batched"
-		set newX12Rec.X12stream = X12stream
-		set newX12Rec.ReceiverId= x12Rec.ReceiverId
-		set newX12Rec.CKPYREFID = x12Rec.CKPYREFID
-		set newX12Rec.CreateTime = $ZDATETIME($HOROLOG,3, 1)
-		set newX12Rec.Route = $PIECE(tpInfo, "#", 1)
-		Do newX12Rec.%Save()
-		set x12Rec.Status = "Merged"
+			if ($$$ISERR(tSC))
+			{
+				$$$LOGERROR( " -*- X12 Validation failed, RawContent length: " _ $L(pDocIn.RawContent))
+				set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(pDocIn, "All", "SNIP", snipLevel, "All") 
+				  if ($IsObject(reply))
+				  {
+					  $$$TRACE("X12BatchReply: " _ reply.OutputToString() )
+				  }
+				  // TBD - Store in long term storage, start SH workflow
+				
+			}
+			else
+			{
+				$$$TRACE( " X12 Validation passed")
+				SET source = pDocIn
+			}
+		}
 	}
-	else
-	{
-		set x12Rec.Status = "Processed-Single"
-		set x12Rec.Route = $PIECE(tpInfo, "#", 1)
-	}
-	if (x12Rec.CKPYREFID '= "")
-	{
-		Do x12Rec.%Save()
-	}
+	return tSC
 ]]></Implementation>
 </Method>
 
@@ -177,7 +218,7 @@
 			
 				Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 
 													
-			// WRITE !,  "ISA - IDs: " _ source.GetValueAt("ISA:InterchangeReceiverId")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID")
+			$$$TRACE("ISA - IDs: " _ source.GetValueAt("ISA:InterchangeReceiverId")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID"))
 
 			
 			// WRITE !, source.Name _" # of Children " _ source.ChildCount  _" # of segments: " _ source.SegCountGet() 
@@ -224,48 +265,54 @@
 <FormalSpec>source:EnsLib.EDI.X12.Document,group:%ArrayOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 	Set k1="",tSC=1
-					
-	For {
-		Set k1=source.NextChild(k1,source.GetSegmentIndex("GroupDocsRef",.tSCTrans))
-		if ('$IsObject(k1))
-		{
-			// WRITE !, "-- No more FunctionalGroups --"
-			
-			QUIT
-		}
-		Set source.FunctionalGroups(k1)=k1
-		If ""=k1.DocType {
-			Set tDocType = k1.resolveChildDocType()
-			Set tSC =k1.PokeDocType(tDocType)
-		}
-		Set tSC =source.FunctionalGroups(k1).BuildMap()
-		if $$$ISERR(tSC)
-		{
-			$$$TRACE( "FunctionalGroups BuildMap: " _ tSC)
-			return
-		}
-		#dim gsSeg As EnsLib.EDI.X12.Segment 						
-		For si=1:1:source.FunctionalGroups(k1).SegCount 
-        {
-	        set gsSeg = source.FunctionalGroups(k1).GetSegmentAt(si)
-			set gsSegPath = source.FunctionalGroups(k1).GetSegmentPath(si, .gsSegStat)
-			
-			// WRITE !, gsSeg.OutputToString() _" -->" _ gsSeg.DocType
-			if (gsSegPath [ "GS") 
-			{
 	
-				Do group.SetAt(gsSeg, 1)
-			}
-			elseif (gsSegPath [ "GE")
+	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		Do
+		{	
+			Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 				
+		
+			Set k1=source.NextChild(k1,source.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			if ('$IsObject(k1))
 			{
-				set sg2 = gsSeg.%ConstructClone(1)
-				Do sg2.SetValueAt("x", "1","set","")
-				Do group.SetAt(sg2, 2)
+				// WRITE !, "-- No more FunctionalGroups --"
 				
-				// WRITE !, sg2.DocType _": " _ sg2.OutputToString()
-			}			 
+				QUIT
+			}
+			Set source.FunctionalGroups(k1)=k1
+			If ""=k1.DocType {
+				Set tDocType = k1.resolveChildDocType()
+				Set tSC =k1.PokeDocType(tDocType)
+			}
+			Set tSC =source.FunctionalGroups(k1).BuildMap()
+			if $$$ISERR(tSC)
+			{
+				$$$TRACE( "FunctionalGroups BuildMap: " _ tSC)
+				return
+			}
+			#dim gsSeg As EnsLib.EDI.X12.Segment 						
+			For si=1:1:source.FunctionalGroups(k1).SegCount 
+	        {
+		        set gsSeg = source.FunctionalGroups(k1).GetSegmentAt(si)
+				set gsSegPath = source.FunctionalGroups(k1).GetSegmentPath(si, .gsSegStat)
+				
+				// WRITE !, gsSeg.OutputToString() _" -->" _ gsSeg.DocType
+				if (gsSegPath [ "GS") 
+				{
+		
+					Do group.SetAt(gsSeg, 1)
+				}
+				elseif (gsSegPath [ "GE")
+				{
+					set sg2 = gsSeg.%ConstructClone(1)
+					Do sg2.SetValueAt("x", "1","set","")
+					Do group.SetAt(sg2, 2)
+					
+					// WRITE !, sg2.DocType _": " _ sg2.OutputToString()
+				}			 
 
-        }
+        	}
+		}while ($IsObject(k1))
 	}
 ]]></Implementation>
 </Method>
@@ -331,13 +378,81 @@
 ]]></Implementation>
 </Method>
 
+<Method name="MergeSTs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Rec:IHC.ITF.DStruc.DndCoreEraX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes,tpInfo:%String</FormalSpec>
+<Implementation><![CDATA[
+	if (interchange.Count() > 1)
+	{
+		#dim isaDoc As EnsLib.EDI.X12.Segment
+		set isaDoc = interchange.GetAt(1)
+		set tSC = isaDoc.DocTypeSet("HIPAA_5010:ISA")
+		set isaUniqId = $ZSTRIP(isaDoc.GetValueAt("InterchangeSenderId"), "*W")   _"-" _ $ZSTRIP(isaDoc.GetValueAt("InterchangeReceiverID"), "*W")  _"-" _ $ZSTRIP(isaDoc.GetValueAt("InterchangeControlNumber"), "*W")
+		
+		if (ST.Count() > 1)
+		{
+				
+			$$$TRACE(x12Rec.CKPYREFID _", " _ isaUniqId _ " ---> Merge: " _ ST.Count() _" STs")
+			#dim X12stream As %Stream.GlobalCharacter
+			set X12stream = ##class(%Stream.GlobalCharacter).%New()
+			Do X12stream.Write(isaDoc.OutputToString())
+			Do X12stream.Write(group.GetAt(1).OutputToString())
+			set st = ""
+			for i=1:1:ST.Count()
+			{
+				#dim str As EnsLib.EDI.X12.Document
+				set str = ST.GetNext(.st)
+				
+				
+				set stat = str.SetValueAt("000"_i, "1:2" ,"set","")
+				// WRITE !, "Set ST control number: " _ stat _ ", ST size: " _ str.FullSize)
+				$$$TRACE( "New ST control number: " _ str.GetValueAt("1:2"))  
+				Do X12stream.Write(str.OutputToString())
+			}
+			
+			Do group.GetAt(2).SetValueAt(ST.Count(),"1")
+			Do X12stream.Write(group.GetAt(2).OutputToString())
+			Do X12stream.Write(interchange.GetAt(2).OutputToString())
+
+			$$$TRACE(isaUniqId _", --- Merged Stream size: " _ X12stream.Size)
+			
+			set newX12Rec = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%New()
+			set newX12Rec.Status = "Processed-Batched"
+			set newX12Rec.X12stream = X12stream
+			set newX12Rec.ReceiverId= x12Rec.ReceiverId
+			set newX12Rec.CKPYREFID = x12Rec.CKPYREFID
+			set newX12Rec.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+			set newX12Rec.Route = $PIECE(tpInfo, "#", 1)
+			set newX12Rec.TpLinkId = $PIECE(tpInfo, "#", 2)
+			set newX12Rec.SNIP = $PIECE(tpInfo, "#", 3)
+			set newX12Rec.IsaUniqId = isaUniqId
+			Do newX12Rec.%Save()
+			set x12Rec.Status = "Merged"
+		}
+		else
+		{
+			$$$TRACE(isaUniqId _ " ---> Single" )
+			set x12Rec.Status = "Processed-Single"
+			set x12Rec.Route = $PIECE(tpInfo, "#", 1)
+			set x12Rec.TpLinkId = $PIECE(tpInfo, "#", 2)
+			set x12Rec.SNIP = $PIECE(tpInfo, "#", 3)
+			set x12Rec.IsaUniqId = isaUniqId
+		}
+		if (x12Rec.CKPYREFID '= "")
+		{
+			Do x12Rec.%Save()
+		}
+	}
+]]></Implementation>
+</Method>
+
 <Method name="GetTpLinkInfo">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>tpId:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	set retStr = ""
-	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME " _
+	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME, lnk.SNIP " _
  "FROM IHC_ITF_ITFCOMMON_TPManage.TRADELINKS lnk, IHC_ITF_ITFCOMMON_TPManage.TPIDS tp, IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tt " _
  "where tp.ID = lnk.IsaReceiverId and tt.TransactionSetId = '835' AND tt.ID = lnk.TRANSTYPE " _
  "AND tp.TPID = '" _ tpId _ "' " )
@@ -345,12 +460,12 @@
 	While rs.%Next() {
 		set nm = rs.%Get("NAME")
 		set id = rs.%Get("ID")
-		$$$TRACE("TP Link: " _ nm _", Id: " _ id)	
+		// $$$TRACE("TP Link: " _ nm _", Id: " _ id)	
 				
 		Set tpLink = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(id)
 		if ($IsObject(tpLink))
 		{
-		 set retStr = tpLink.Routing
+		 set retStr = tpLink.Routing _ "#" _id _"#" _ rs.%Get("SNIP")
 		 
 		 
 		 Set tSet="",tId=""
@@ -360,7 +475,7 @@
 				if (tSet.Key = "BatchingMode835")
 				{
 					set retStr = retStr _ "#" _tSet.Value
-					$$$TRACE("TP Link for" _ tpId _ ": " _ id _ ": " _tpLink.NAME _", Routing: " _ retStr)
+					
 					QUIT
 				}
 			}
@@ -371,6 +486,7 @@
 		 WRITE !, "Not an object"
 		}
 	}
+	$$$TRACE("TP Link for" _ tpId _ ": " _ ", Return: " _ retStr)
 	return retStr
 ]]></Implementation>
 </Method>

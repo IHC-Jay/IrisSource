@@ -1,0 +1,314 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Operation.ShDNDERA835Jdbc">
+<Description>
+This class has method to call the select heatlh Stored procedures and also generate the EFT file if call is successful</Description>
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>63459,50388.534767</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+This class is used to write the EDIFECS data from Oracle server to a file</Description>
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.Request,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$LOGERROR("Invalid Request Type: " _ pRequest)
+	quit $$$ERROR(5001,"Invalid Request, expecting Ens.StreamContainer")
+]]></Implementation>
+</Method>
+
+<Method name="ProcessDndRecords">
+<Description>
+This method calls Select Health Stored procedure getIHCPK_DND_CORE_ERA_IHCSP_DND_CORE_ERA_PRINT to get the EFT data in ACH format
+and reads the result set to create outputs it to the file.</Description>
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	#dim tRTs As %ListOfObjects
+	#dim tResultSet,snap As EnsLib.SQL.Snapshot
+
+	set ioParms=5
+	
+	// DND_Medical_835 to trigger medical and DND_Dental_835 for Dental
+
+	if (pRequest.OriginalFilename [ "DND_Medical_835")
+	{
+		set ioParms(1)= "DMES" 
+	}
+	elseif (pRequest.OriginalFilename [ "DND_Dental_835")
+	{
+		set ioParms(1)= "DDES" 
+	}
+	else
+	{
+		 set tSC = $$$ERROR($$$FileNameInvalid, "Invalid filename: " _ pRequest.OriginalFilename)
+		 QUIT tSC
+	}
+	set triggerTime = $ZDATETIME($HOROLOG,3, 1)
+
+	$$$TRACE("Inside "_..%ConfigName_" Method ProcessDndRecords- " _ $ZDATETIME($HOROLOG,8, 1))
+	
+	
+	set ioParms(1,"SqlType")=12
+	set ioParms(2,"SqlType")=4
+	set ioParms(3,"SqlType")=12
+	set ioParms(4,"SqlType")=1
+	set ioParms(5,"LOB")=0
+	set ioParms(5,"SqlType")=-10
+	 
+	set pResponse = ##class(Ens.StringContainer).%New()
+	Set pResponse.StringValue = ""
+
+    $$$TRACE("Calling getIHCPK_DND_CORE_ERA_IHCSP_DND_CORE_ERA_PRINT")
+	
+	Set tQuery="{call DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_PRINT(?,?,?,?,?)}"
+
+	
+	Set snap=##class(EnsLib.SQL.Snapshot).%New()
+	Set snap.MaxRowsToGet=-1
+	Set tRTs=##class(%Library.ListOfObjects).%New()
+	Do tRTs.Insert(snap)
+
+	Set RowCountFromDb = 0
+	
+	Set HasMoreRecords = 0
+
+	set recId = 0
+	set execNum = 1
+	try
+	{
+		do 
+		{
+		  	$$$TRACE("Calling ExecuteProcedureParmArray #"_ execNum _ ", Time:  "_ $ZDATETIME($HOROLOG,8, 1))
+		  			
+		  	Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,"ioooo#",.ioParms)
+						  
+		  	$$$TRACE("Returned from ExecuteProcedureParmArray() tSC= "_tSC)
+		  	set execNum = execNum + 1
+		  	if ($$$ISOK(tSC)){
+			  		
+			  	If '$IsObject(tRTs) {
+				  	$$$TRACE("Stored proc did not return a result set; relevent data is contained in tOutParms.")
+			  		$$$TRACE("tOutParms.Count()="_tOutParms.Count())
+			  		$$$TRACE("tOutParms.GetAt(1) Error Code="_tOutParms.GetAt(1))
+			  		$$$TRACE("tOutParms.GetAt(2) Error Description="_tOutParms.GetAt(2))
+			  		$$$TRACE("tOutParms.GetAt(3) Has More Records="_tOutParms.GetAt(3))
+			  		$$$TRACE("tOutParms.GetAt(4) p_era_values_ref_cur="_tOutParms.GetAt(4))
+			 		$$$TRACE("- tResultSet is not an object, or has an RowCount of 0")
+			  	    //set tSC=$$$ERROR("ITFSHKBEFT001","Error in result Set from the SQL call to SH or Rowcount zero ,   Error Code : "_tOutParms.GetAt(1)_"   Error Description : "_tOutParms.GetAt(2))	
+			  	    $$$TRACE("Error in result Set from the SQL call to SH or Rowcount zero ,   Error Code : "_tOutParms.GetAt(1)_"   Error Description : "_tOutParms.GetAt(2))	
+			  	    Quit
+			  	}
+			  	
+			  	if (tOutParms.Size < 3)
+			  	{
+		  		    $$$LOGERROR("Error in calling the SP, returned tOutParms os size: "  _ tOutParms.Size)
+				  	QUIT
+			  	}
+			  	$$$TRACE("tOutParms.Size="_tOutParms.Size_" || Error code: "_tOutParms.GetAt(1)_" || Error desc:  "_tOutParms.GetAt(2)_" || has more records:  "_tOutParms.GetAt(3)) 
+		
+			  	set tResultSet=tRTs.GetAt(1)
+			 
+			  	
+				$$$TRACE("tRTs count "_tRTs.Count() _ "Stored proc returned # of rows: "_tResultSet.RowCount _" Column Count: "_tResultSet.ColCount)
+				  
+			  	If $ZStrip(tOutParms.GetAt(3),"<>P") = "Y"
+			  	{
+			  		Set HasMoreRecords = 1
+			  	}
+			  	Else
+			  	{
+				  	Set HasMoreRecords = 0
+			  	}
+			  	
+			  	Set RowCountFromDb = RowCountFromDb+tResultSet.RowCount
+
+				set tSC=..StoreDndResultSet(tResultSet, .recId, triggerTime)
+				if (HasMoreRecords = 0)
+            	{
+	            	if (recId > 0 )
+	            	{
+		            	set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%OpenId(recId)
+	 					set list.Status = "Ready"
+	 					set list.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+					  	set stat = list.%Save()
+					  	$$$TRACE("LAST Record Id: " _ recId _ " is Ready, Save status:" _ stat)
+	            	}
+	            	set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%New()
+ 					set list.Status = "EndOfRun"
+ 					set list.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+ 					set list.CKPYREFID = triggerTime
+ 					set list.TriggerTime = triggerTime
+				  	set stat = list.%Save()
+				  	$$$TRACE("Insert EndOfRun record")
+
+            	}
+			  	
+		  	}
+		  	else
+		  	{
+			  	$$$LOGERROR("Error in calling the SP, returned status: "  _ tSC)
+			  	If $IsObject(tRTs) {
+				  	set tSC = $$$OK
+			  	}
+			  	QUIT
+
+		  	}
+
+		}While HasMoreRecords = 1
+		$$$TRACE("Completed ExecuteProcedureParmArray. Toral records: " _ RowCountFromDb _ ", HasMoreRecords: " _ HasMoreRecords _ ", " _ $ZDATETIME($HOROLOG,8, 1))
+		
+		
+	}
+	catch errobj {
+	    $$$LOGERROR("Error in calling the SP: "  _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	    set pResponse.StringValue="FAILURE in calling the SP"
+	    set tSC = $$$ERROR("Error in calling the SP " _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	}
+	
+  	Set pResponse = ##class(Ens.StringContainer).%New()
+
+  	Set pResponse.StringValue = "DND.IHCPK_DND_CORE_ERA.IHCSP_DND_CORE_ERA_PRINT~"_RowCountFromDb _"~"_ triggerTime  _"~"_$ZDATETIME($HOROLOG,8, 1)
+    $$$TRACE("Exit from ProcessDndRecords, stat: " _ tSC _ ", Time: " _ $ZDATETIME($HOROLOG,8, 1))
+	quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="StoreDndResultSet">
+<Description>
+Method to process the result set and generate file
+The methods reads the result set sequentially and expects it to have the result sent in sequence.
+The output file has following structure 
+CKPYREFID%%%_SEQNO%%%%LO%%%%SEGMENT%%%%ELEMENT%%%%ELEMENTVALUE%%%%</Description>
+<FormalSpec><![CDATA[pResultSet:EnsLib.SQL.Snapshot,&recId,triggerTime:%DateTime]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	
+	#dim tSC As %Status=$$$OK
+	
+	Set parentId = 0
+	set list = $$$NULLOREF
+    
+
+		set rowNum=pResultSet.%Next(.sc)
+		if ((rowNum=0) || $$$ISERR(sc)){
+			set tSC=$$$ERROR("ITFSHKBEFT002","Error Reading Result set - step 1- Row count  :"_pResultSet.RowCount)
+			quit tSC
+		}
+		
+		$$$TRACE("Before looping the resultset, Time: " _ $ZDATETIME($HOROLOG,8, 1))
+		
+		set resultsetNum = 0
+		#dim list as IHC.ITF.DStruc.DndCoreEraRecord;	
+		while ('pResultSet.AtEnd) {
+		  	set CKPYREFID=pResultSet.Get("CKPY_REF_ID")
+		  	set SEQNO=pResultSet.Get("SEQ_NO")
+		  	set LOOP=pResultSet.Get("LOOP")
+		  	set SEGMENT=pResultSet.Get("SEGMENT")
+		  	set ELEMENT=pResultSet.Get("ELEMENT")
+		  	set ELEMENTVALUE=pResultSet.Get("ELEMENT_VALUE")
+		  	set resultsetNum = resultsetNum + 1
+		  		  	
+		  	if (rowNum = 1)
+		  	{
+			  	if ((SEGMENT '= "ISA") || (ELEMENT '= "06")) 
+            	{
+	            	$$$TRACE( rowNum _ "*** - Find the Record for: " _ CKPYREFID)
+	            	
+            	}
+            	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * from IHC_ITF_DStruc.DndCoreEraRecord  where CKPYREFID = " _ CKPYREFID)
+ 
+				While rs.%Next() {
+					set id = rs.%Get("ID")
+					WRITE !, "DndCoreEraRecord: " _ id _": " _ rs.%Get("CKPYREFID") 
+					set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%OpenId(id)
+
+ 				}
+		  	}
+            if ((SEGMENT = "ISA") && (ELEMENT = "06")) 
+            {
+	            if (recId > 0)
+	            {
+		            set parentId = recId
+	            }
+	            
+            	if (parentId > 0 )
+            	{
+	            	set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%OpenId(parentId)
+ 					set list.Status = "Ready"
+ 					set list.CreateTime = $ZDATETIME($HOROLOG,3, 1)
+				  	set stat = list.%Save()
+				  	$$$TRACE("DndCoreEraRecord Id: " _ parentId _ ", CKPYREFID " _ list.CKPYREFID _ " is Ready, Save status:" _ stat _ ", Time: " _ $ZDATETIME($HOROLOG,8, 1))
+            	}
+            	
+				set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%New()
+ 				set list.CKPYREFID = CKPYREFID
+ 				set list.Status = "Extracting"
+ 				set list.TriggerTime = triggerTime
+				  set stat = list.%Save()
+				  if ($$$ISERR(tSC)){
+	  				$$$LOGERROR("Save of DndCoreEraRecord failed." _ tSC)
+	  				QUIT 
+  					} 
+				  set parentId = list.%Id()
+				  set recId = parentId
+				  $$$TRACE("ROWNUM: " _ rowNum _", " _ CKPYREFID _ " Seg / Element: " _ SEGMENT _"/" _ ELEMENT _", New Record Id: " _ parentId _ ", Time: " _ $ZDATETIME($HOROLOG,8, 1))
+            }
+            
+            if (CKPYREFID '= list.CKPYREFID)
+            {
+	            $$$LOGERROR("Unique Id for the CFF set do not match: " _ CKPYREFID _" '= " _ list.CKPYREFID)
+            }
+             
+             set obj = ##class(IHC.ITF.DStruc.DndCoreEraRecordFields).%New()
+
+			 Set obj.LOOP = LOOP
+			 Set obj.SEGMENT = SEGMENT
+			 Set obj.ELEMENT = ELEMENT
+			 set obj.ELEMENTVALUE = ELEMENTVALUE
+			 // set obj.ParentProp = list
+			 set obj.RecordId = parentId
+			 
+			 set tSC = obj.%Save()
+			 // $$$TRACE("DndCoreEraRecord: " _ parentId _", Element: " _ obj.%Id())
+ 			 
+           
+  			if ($$$ISERR(tSC)){
+	  				$$$LOGERROR("Save of DndCoreEraRecordFields failed." _ tSC)
+	  				QUIT 
+  			} 
+  				
+  			
+			set rowNum=pResultSet.%Next(.tSC)
+			if ($$$ISERR(tSC)){
+				 set tSC=$$$ERROR("ITFSHKBEFT003","Incomplete Result set received or Error processing Resultset in looping Resultset.")
+				 QUIT
+			}
+
+		} 
+		$$$TRACE("After looping "_ resultsetNum _" rows in the resultset, Time: " _ $ZDATETIME($HOROLOG,8, 1))
+		if ($IsObject(list))
+		{
+			$$$TRACE("Last record: " _ list.%Id() _", CKPYREFID: " _ list.CKPYREFID)
+		}
+		
+		quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.StreamContainer">
+	<Method>ProcessDndRecords</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
