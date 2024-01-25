@@ -8,24 +8,45 @@
 <ClassMethod>1</ClassMethod>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
- set retStr = " - DnD to 835 X12 report - "
+ set retStr = "<HTML> <h2> - DnD to 835 X12 report - </h2> <TABLE border=""1""><TR><TH>#</TH><TD>Trading Partner</TH><TH>Payment Count</TH><TH>Claim Count</TH><TH>Validation failed</TH> </TR>"
  
-
-
   set totpayCnt = 0
   set totclmCnt = 0
   set totFailclmCnt = 0
   set tpNum = 1
-  Set sr = ##class(%SQL.Statement).%ExecDirect(," select TRIM(REPLACE(tpId.Name, 'TPID','')) || ' (' || ELEMENTVALUE || ')' as tpNm,  count(*) as payCnt, ELEMENTVALUE as tpid from IHC_ITF_DStruc.DndCoreEraRecordFields, IHC_ITF_ITFCOMMON_TPManage.TPIDS tpId where SEGMENT = 'ISA' and element = '08' and tpId.TPID = ELEMENTVALUE group by ELEMENTVALUE, tpId.Name order by tpId.Name")
+  
+  Set sr = ##class(%SQL.Statement).%ExecDirect(," select distinct  count(*) as payCnt, ELEMENTVALUE as tpid " _
+                 " from IHC_ITF_DStruc.DndCoreEraRecordFields where SEGMENT = 'ISA' and element = '08' group by ELEMENTVALUE")
+              
   While sr.%Next() {
-	 
-	 set tpNm = sr.%Get("tpNm")
 	 set tpId = sr.%Get("tpid")
+	 set tpNm = ""
+	 
+	   Set sr2 = ##class(%SQL.Statement).%ExecDirect(," select TRIM(tp.Name) as tpNm from IHC_ITF_ITFCOMMON_TPManage.TPIDS tpId , IHC_ITF_ITFCOMMON_TPManage.TradingPartner tp " _
+                " where tpId.TPFK = tp.ID and tpId.TPID = '" _ tpId _"'")
+        While sr2.%Next() 
+  		{
+	  		if (sr2.%ROWCOUNT > 1)
+	  		{
+		  		set tpNm = tpNm _ "<BR>"
+	  		}
+	 		set tpNm = tpNm _ " " _sr2.%Get("tpNm") _ " (" _ tpId _ ")"
+  		}
+  		
+  		if (sr2.%ROWCOUNT > 1)
+  		{
+	  		set tpNm = tpNm _"<BR><B>(*** Fix TP ***)</B> <a href=""http://lpv-itfwin12:8080/"">TP management</a>"
+  		}
+  		if (sr2.%ROWCOUNT = 0)
+  		{
+	  		set tpNm = tpNm _"<BR><B>(*** TP not found ***)</B> <a href=""http://lpv-itfwin12:8080/"">TP management</a>"
+  		}
+	 
 
 	 set payCnt = sr.%Get("payCnt")
 	 set totpayCnt = totpayCnt + payCnt
 	
- 	 set retStr =  retStr _ $CHAR(13) _ tpNum _". Trading Partner: " _ tpNm _ ", Payment Count: " _ payCnt
+ 	 set retStr =  retStr _ "<TR><TD>" _ tpNum _"</TD><TD>" _ tpNm _ "</TD><TD> " _ payCnt _ "</TD>"
  	 set tpNum = tpNum + 1
 		 Set sr2 = ##class(%SQL.Statement).%ExecDirect(,"  select ' TPID: ' || x.ReceiverId as tpTxt, DECODE(x.Status, 'VALIDATIONFAILED-PROCESSED-SINGLE', 'Validation Failed Count: ', 'MERGED', 'Claim Count: ', 'SENT-PROCESSED-SINGLE', 'Claim Count: ', x.Status)  as txt, count(f.ID) as clmCnt from IHC_ITF_DStruc.DndCoreEraRecordFields f, IHC_ITF_DStruc.DndCoreEraRecord r, IHC_ITF_DStruc.DndCoreEraX12Record x where SEGMENT = 'CLP' and element = '02' and r.ID = f.RecordId and x.CKPYREFID = r. CKPYREFID and x.status != 'SENT-PROCESSED-BATCHED' and x.ReceiverId = '" _ tpId _"' group by x.status, x.ReceiverId")
 		  While sr2.%Next() {
@@ -34,43 +55,48 @@
 			  
 			 if (payTxt [ "Fail")
 			 {
-				set retStr =  retStr _  " -- " _ payTxt _ clmCnt _ " -- "
+				set retStr =  retStr _  " <TD>" _ clmCnt _ " </TD> "
 				set totFailclmCnt = totFailclmCnt + clmCnt
 			 }
 			 else
 			 {	
-				set retStr =  retStr _  ", " _ payTxt _ clmCnt
+				set retStr =  retStr _   "<TD> " _clmCnt _ " </TD> "
 				set totclmCnt = totclmCnt + clmCnt
 			 }
 
 		  }
+		  set retStr =  retStr _ "</TR>"
   }
-  set retStr =  retStr _ $CHAR(13)_ $CHAR(13) _ "Total counts- Payments: " _ totpayCnt _", Claims: Good: " _ totclmCnt _", Failed: " _ totFailclmCnt _", Total: " _ (totclmCnt + totFailclmCnt)
+  set retStr =  retStr _ "</TABLE>"
   
  #dim sr As %SQL.StatementResult;
  
   Set sr = ##class(%SQL.Statement).%ExecDirect(," select 'Total number of Trading Partners: ' || count(distinct ELEMENTVALUE) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields  where SEGMENT = 'ISA' and element = '08'")
  While sr.%Next() {
-	 set retStr =  retStr _ $CHAR(13) _ sr.%Get("txt")
+	 set retStr =  retStr _ $CHAR(13)_ $CHAR(13) _ sr.%Get("txt")
  }
- Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of records received:  ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields  where SEGMENT = 'TRN' and element = '02'")
+ Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of Records received:  ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields  where SEGMENT = 'TRN' and element = '02'")
  While sr.%Next() {
 	 set retStr =  retStr _ $CHAR(13) _ sr.%Get("txt")
  }
-  Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of payments received: ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields where SEGMENT = 'TRN' and element = '02'")
+  Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of Payments received: ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields where SEGMENT = 'TRN' and element = '02'")
   While sr.%Next() {
 	 set retStr =  retStr _ $CHAR(13) _ sr.%Get("txt")
   }
-  Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of claims received: ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields where SEGMENT = 'CLP' and element = '02'")
+  Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Total number of Claims received: ' || count(*) as txt from IHC_ITF_DStruc.DndCoreEraRecordFields where SEGMENT = 'CLP' and element = '02'")
   While sr.%Next() {
 	 set retStr =  retStr _ $CHAR(13) _ sr.%Get("txt")
   }
+  
+  set retStr =  retStr _ $CHAR(13)_ $CHAR(13) _ "Calculated counts- Payments: " _ totpayCnt _", Claims: Good: " _ totclmCnt _", Failed: " _ totFailclmCnt _", Total: " _ (totclmCnt + totFailclmCnt)
+
   Set sr = ##class(%SQL.Statement).%ExecDirect(,"select 'Trigger message was received at : ' ||  MAX(triggertime) as txt from IHC_ITF_DStruc.DndCoreEraRecord")
   While sr.%Next() {
 	 set retStr =  retStr _ $CHAR(13) _ $CHAR(13) _ sr.%Get("txt")
   }
   
  set retStr =  retStr _ $CHAR(13) _ "Report message was generate at : " _ $ZDATETIME($HOROLOG,3, 1)
+ set retStr =  retStr _ "</HTML>"
  return retStr
 ]]></Implementation>
 </Method>
