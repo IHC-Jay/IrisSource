@@ -16,6 +16,7 @@
 	set group  = ##class(%ArrayOfDataTypes).%New()
 	set ST  = ##class(%ArrayOfDataTypes).%New()
 	set tpInfo = ""
+	set reply = ""
 	
 	#dim rs As %SQL.StatementResult
 		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT x.ID FROM IHC_ITF_DStruc.DndCoreEraX12Record x, IHC_ITF_DStruc.DndCoreEraRecord r " _
@@ -47,32 +48,57 @@
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
 					if (tpInfo [ "Batched")
 					{	
-						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
 						{	
-							// DO ..ParseX12(x12Rec.X12stream, .source)
 							DO ..GetISA(source, interchange)				
 							DO ..GetGS(source, group)					
 							Do ..GetST(source, ST)
 						}
 						else
 						{
-							set x12Rec.Status = "ValidationFailed-Processed-Single"
-							Do x12Rec.%Save()
+							set x12Rec.Status = "ValidationFailed-Processed-Batched"
+
+							if ($IsObject(reply))
+							{
+								set x12Rec.X12Replystream = reply
+							}
+							else
+							{
+								$$$LOGERROR("X12 reply is not a stream object")
+							}
+							set stat = x12Rec.%Save()
+							if ($$$ISERR(stat))
+							{
+								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
+							}
+
 							continue
 						}
 					}
 					else
 					{
 						
-						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
 						{
-							// DO ..ParseX12(x12Rec.X12stream, .source)
 							DO ..GetISA(source, interchange)
 						}
 						else
 						{
 							set x12Rec.Status = "ValidationFailed-Processed-Single"
-							Do x12Rec.%Save()
+
+							if ($IsObject(reply))
+							{
+								set x12Rec.X12Replystream = reply
+							}
+							else
+							{
+								$$$LOGERROR("X12 reply is not a stream object")
+							}
+							set stat = x12Rec.%Save()
+							if ($$$ISERR(stat))
+							{
+								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
+							}
 						}
 				
 					}
@@ -87,7 +113,7 @@
 					}
 						
 					$$$TRACE( " - Repeat ReceiverId: " _ x12Rec.ReceiverId _", CKPYREFID: " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
-					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
 					{
 						// DO ..ParseX12(x12Rec.X12stream, .source)
 						Do ..GetST(source, ST)
@@ -96,8 +122,22 @@
 					}
 					else
 					{
-						set x12Rec.Status = "ValidationFailed-Processed-Single"
-						Do x12Rec.%Save()
+						set x12Rec.Status = "ValidationFailed-Processed-Batched"
+
+						if ($IsObject(reply))
+						{
+							set x12Rec.X12Replystream = reply
+						}
+						else
+						{
+							$$$LOGERROR("X12 reply is not an object")
+						}
+						set stat = x12Rec.%Save()
+						if ($$$ISERR(stat))
+						{
+								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
+						}
+
 					}
 				}
 				else
@@ -110,7 +150,7 @@
 					Do group.Clear()
 					Do ST.Clear()
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
-					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source)))
+					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
 					{
 						// DO ..ParseX12(x12Rec.X12stream, .source)
 						DO ..GetISA(source, interchange)
@@ -118,7 +158,20 @@
 					else
 					{
 						set x12Rec.Status = "ValidationFailed-Processed-Single"
-						Do x12Rec.%Save()
+						if ($IsObject(reply))
+						{
+							set x12Rec.X12Replystream = reply
+						}
+						else
+						{
+							$$$LOGERROR("X12 reply is not an object")
+						}
+						set stat = x12Rec.%Save()
+						if ($$$ISERR(stat))
+						{
+							$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
+						}
+
 					}
 	
 				}
@@ -141,7 +194,7 @@
 
 <Method name="ValidateX12">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[X12stream:%Stream.GlobalCharacter,tpInfo:%String,&source]]></FormalSpec>
+<FormalSpec><![CDATA[X12stream:%Stream.GlobalCharacter,tpInfo:%String,&source,&reply]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	set tSC = $$$OK	
@@ -167,10 +220,15 @@
 			if ($$$ISERR(tSC))
 			{
 				$$$LOGERROR( " -*- X12 Validation failed, " _ tpInfo _ ", RawContent length: " _ $L(pDocIn.RawContent))
-				set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(pDocIn, "All", "SNIP", snipLevel, "All") 
-				  if ($IsObject(reply))
+				#dim replyDoc as EnsLib.EDI.X12.Document
+				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(pDocIn, "All", "SNIP", snipLevel, "All") 
+				  if ($IsObject(replyDoc))
 				  {
-					  $$$TRACE("X12BatchReply: " _ reply.OutputToString() )
+				  	  set reply = ##class(%Stream.GlobalCharacter).%New()
+					  set oStat = replyDoc.OutputToLibraryStream(reply)
+
+					  $$$TRACE("X12BatchReply stream size: " _  reply.Size _ ", OutToStream: " _ oStat)
+					  
 				  }
 				  // TBD - Store in long term storage, start SH workflow
 				
