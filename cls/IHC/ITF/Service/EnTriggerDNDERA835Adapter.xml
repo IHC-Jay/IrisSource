@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Service.EnTriggerDNDERA835Adapter">
+<Super>Ens.InboundAdapter</Super>
+<TimeCreated>66856,29765.760819661</TimeCreated>
+
+<Parameter name="CONTAINERCLASS">
+<Default>Ens.StreamContainer</Default>
+</Parameter>
+
+<Method name="OnInit">
+<Description>
+This user callback method is called just after %OnNew()</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("ShTriggerDNDERA835Adapter OnInit " )
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnTask">
+<Description>
+default InboundAdapter behavior: always call ProcessInput on CallInterval</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	try {
+		set message = ""
+		set recId = ""
+	
+		#dim rs As %SQL.Statement
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID, CKPYREFID, Status FROM IHC_ITF_DStruc.DndCoreEraRecord where Status in ('Ready', 'EndOfRun') ORDER BY ID")
+		
+		While rs.%Next() {
+			
+			if (rs.%Get("CKPYREFID") '= "")
+			{
+				set recId = rs.%Get("ID")
+				set message = "ID#" _ recId
+				set message = message _ "# CKPYREFID#" _ rs.%Get("CKPYREFID") _"# Status#" _ rs.%Get("Status")
+				$$$TRACE("ID#" _ rs.%Get("ID"))
+						  	
+				QUIT
+			}
+		}
+		if message = ""
+		{
+    		 $$$TRACE("No message in the queue")
+    		 Quit 
+		}
+		$$$TRACE("Got a Message: " _ message)
+		set list = ##class(IHC.ITF.DStruc.DndCoreEraRecord).%OpenId(recId)
+		set list.Status = "InProcess"
+		set list.ProcessTime = $ZDATETIME($HOROLOG,3, 1)
+	  	set stat = list.%Save()
+	  	$$$TRACE("Record Id: " _ recId _ " is InProcess, Save status:" _ stat)
+		
+		Set tSC = ..SendMessageToService(message)	   
+			
+               
+	 } catch err
+     {
+	     if $GET(%objlasterror) '= ""
+	    {
+	        set errMsg =  $System.Status.GetErrorText(%objlasterror)
+	    }
+	    else
+	    {
+		    set errMsg = "No obj"
+	    }
+	    set alert = ##class(Ens.AlertRequest).%New()
+	    set alert.AlertText = "Exception: Name: " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " / Details: " _ errMsg
+	    do ..BusinessHost.SendAlert(alert)
+	    //$$$LOGALERT("Exception: Name: " _ err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " / Details: " _ errMsg)
+	    Set tSC=$$$ERROR($$$GeneralError, err.Name _ " / Location:" _ err.Location _ " / Data: " _err.Data _ " " _ errMsg)
+	    
+    }
+    
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="SendMessageToService">
+<FormalSpec>comMsg:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status
+	Set tSc = $$$OK
+		
+	set strData=##class(%Stream.GlobalCharacter).%New()
+	
+	$$$TRACE("SendMessageToService: Write to stream")
+	set wStat = strData.Write(comMsg)
+	$$$TRACE("stream write: " _ comMsg _ ", stat: " _ wStat)
+	            
+	Set tStream=$classmethod(..#CONTAINERCLASS,"%New",strData)
+	$$$TRACE("SendMessageToService: Call ProcessInput")
+	Set tSC=..BusinessHost.ProcessInput(tStream)  Quit:$$$ISERR(tSC)
+	$$$TRACE("SendMessageToService: ProcessInput " _ tSc)
+	Return tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnTearDown">
+<Description>
+This user callback method is called just before %OnClose()</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("OnTearDown")
+	Quit $$$OK
+]]></Implementation>
+</Method>
+</Class>
+</Export>
