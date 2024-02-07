@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
 import {User} from '../login/user';
-import {RestServiceComponent} from '../services/rest-service.component';
+
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError } from 'rxjs';
 
@@ -43,7 +43,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   background = 'white';
 
   constructor(private router: Router, private authenticationService: AuthenticationService,
-    private TradingPartnerService: RestServiceComponent,
       private formBuilder: FormBuilder,
       private route: ActivatedRoute
     )
@@ -51,6 +50,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.authenticationService.currentUser.subscribe(x => {
         this.currentUser = x
         this.isLogin = (x != null);
+        console.log("HeaderComponent: " + this.currentUser)
         }
         );
     }

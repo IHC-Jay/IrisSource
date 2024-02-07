@@ -3,7 +3,7 @@ import { Router, ActivatedRoute, RouteConfigLoadEnd } from '@angular/router';
 import { AbstractControlOptions, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { first } from 'rxjs/operators';
 import { FormsModule, ReactiveFormsModule, FormGroupDirective } from '@angular/forms';
-import { RestServiceComponent } from '../../../services/rest-service.component';
+import { TpRestServiceComponent } from '../../../services/tprest-service.component';
 import { EventListenerFocusTrapInertStrategy } from '@angular/cdk/a11y';
 import { tpLinks } from './tp-links';
 import { CreateNoteComponent } from './create-note/create-note.component';
@@ -16,7 +16,7 @@ export class TransTypes
   VERSION: string;
 }
 
-export class INotesData {
+export class KVP {
   id: number;
   Key: string;
   Value: string;
@@ -41,6 +41,8 @@ export class AddEditComponent implements OnInit {
     batchMode: boolean = true;
     showTpIds: boolean = false;
     submitted = false;
+    transaction835:boolean = false;
+
     sendingTpIds = [];
     ackTypes:string[] = ["Error","Always","Never"];
     direcTypes:string[] =["In", "Out"];
@@ -52,7 +54,7 @@ export class AddEditComponent implements OnInit {
     canRender = false;
     transaction: string;
     sub:any;
-    allNotes: INotesData[] = [];
+    customProp: KVP[] = [];
 
     trn: tpLinks;
 
@@ -65,7 +67,7 @@ export class AddEditComponent implements OnInit {
         private formBuilder: FormBuilder,
         private route: ActivatedRoute,
         private router: Router,
-        private tpService: RestServiceComponent,
+        private tpService: TpRestServiceComponent,
         private cdRef: ChangeDetectorRef
     ) {
 
@@ -123,9 +125,9 @@ public initializeData()
           TransactionSetId: [''],
           Mode: ['', Validators.required],
           Direction: ['', Validators.required],
-          IsaAck: ['', Validators.required],
-          GsAck: ['', Validators.required],
-          StAck: ['', Validators.required],
+          ISAAck: ['', Validators.required],
+          GSAck: ['', Validators.required],
+          STAck: ['', Validators.required],
           GsReceiverId: ['', Validators.required],
           GsSenderId: ['', Validators.required],
           IsaSenderId: ['', Validators.required],
@@ -134,7 +136,8 @@ public initializeData()
           SNIP: ['', Validators.required],
           Separators   : ['|*^:', Validators.maxLength(4)],
           UniqueId: [''],
-          allNotes: [''],
+          MergeFlg: [''],
+          customProp: [''],
           Active: ['']
       });
       this.initializeData();
@@ -175,43 +178,89 @@ public initializeData()
                 {
                   this.form.controls['Mode'].setValue(x[key].toString());
                 }
-                if(key === 'Routing')
+                else if(key === 'ISAAck')
+                {
+                  this.form.controls['ISAAck'].setValue(x[key].toString());
+                }
+                else if(key === 'GSAck')
+                {
+                  this.form.controls['GSAck'].setValue(x[key].toString());
+                }
+                else if(key === 'STAck')
+                {
+                  this.form.controls['STAck'].setValue(x[key].toString());
+                }
+                else if(key === 'Routing')
                 {
                   this.form.controls['Routing'].setValue(x[key].toString());
                 }
-                if(key === 'GsReceiverId')
+                else if(key === 'Direction')
+                {
+                  this.form.controls['Direction'].setValue(x[key].toString());
+                }
+                else if(key === 'Separators')
+                {
+                  this.form.controls['Separators'].setValue(x[key].toString());
+                }
+                else if(key === 'SNIP')
+                {
+                  this.form.controls['SNIP'].setValue(x[key].toString());
+                }
+                else if(key === 'TransType')
+                {
+                  this.form.controls['TransType'].setValue(x[key].toString());
+                }
+                else if(key === 'GsReceiverId')
                 {
                 this.form.controls.GsReceiverId.setValue(x[key].toString());
                 }
-                if(key === 'IsaReceiverId')
+                else if(key === 'IsaReceiverId')
                 {
                   console.log("IsaReceiverId.setValue " + x[key].toString());
                     this.form.controls.IsaReceiverId.setValue(x[key].toString());
                 }
-                if(key === 'GsSenderId')
+                else if(key === 'GsSenderId')
                 {
                  this.form.controls.GsSenderId.setValue(x[key].toString());
                 }
-                if(key === 'IsaSenderId')
+                else if(key === 'IsaSenderId')
                 {
                   console.log("IsaSenderId.setValue " + x[key].toString());
                   this.form.controls.IsaSenderId.setValue(x[key].toString());
                 }
 
-                if(key === 'CustomProp')
+                else if(key === 'customProp')
                 {
 
                   for(var index in x[key])
                   {
                       console.log(index +". " + x[key][index].Key + "> " + x[key][index].Value);
 
-                      let cs = new INotesData();
+                      let cs = new KVP();
                       cs.id =  Number(index);
                       cs.Key = x[key][index].Key;
                       cs.Value = x[key][index].Value;
-                      this.allNotes.push(cs)
+
+                      if(cs.Key === 'BatchingMode835')
+                      {
+                        if(cs.Value === 'Batched')
+                        {
+                          this.form.controls.MergeFlg.setValue(true);
+                        }
+                        else {
+                          this.form.controls.MergeFlg.setValue(false);
+                        }
+                      }
+                      else
+                      {
+
+                        this.customProp.push(cs)
+                      }
                   }
 
+                }
+                else{
+                  console.log(key +"-- Not mapped")
                 }
               }
              }
@@ -301,9 +350,9 @@ public initializeData()
       }
       if(this.isAddMode)
       {
-        this.form.controls.IsaAck.setValue(this.ackTypes[0]);
-        this.form.controls.GsAck.setValue(this.ackTypes[0]);
-        this.form.controls.StAck.setValue(this.ackTypes[0]);
+        this.form.controls.ISAAck.setValue(this.ackTypes[0]);
+        this.form.controls.GSAck.setValue(this.ackTypes[0]);
+        this.form.controls.STAck.setValue(this.ackTypes[0]);
         this.form.controls.SNIP.setValue('1')
         // this.form.controls.Direction.setValue(this.direcTypes[0]);
       }
@@ -373,12 +422,37 @@ public initializeData()
           this.form.controls.IsaSenderId.setValue(this.sendingTpIds[0]);
           }
       }
+      if(this.transactionTypes[result].TransactionSetId === '835')
+      {
+        this.transaction835 = true;
+      }
+      else
+      {
+        this.transaction835 = false;
+      }
+
       this.showTpIds = true;
     }
 
     private createUpdateTpLink(addFlg: boolean) {
-      this.form.value.allNotes = this.allNotes;
-      console.info('Create TPLink for name: ' + this.form.value.allNotes.length +", allNotes: " + this.allNotes.length);
+      this.form.value.customProp = this.customProp;
+      console.info('Create TPLink for name: ' + this.form.value.TransactionSetId +", customProp: " + this.customProp.length);
+      if ( String(this.form.value.TransactionSetId).startsWith('835'))
+      {
+        let kv = new KVP();
+        kv.Key = "BatchingMode835"
+        if(this.form.controls.MergeFlg.value == true)
+        {
+          console.info('Add Merge for ' + this.form.value.TransType)
+          kv.Value = "Batched"
+        }
+        else {
+          console.info('Remove Merge for ' + this.form.value.TransType)
+          kv.Value = "Individual"
+        }
+        this.customProp.push(kv)
+
+      }
       this.tpService.addUpdateTpLink(this.form.value, addFlg)
           .pipe(first())
           .subscribe((res) => {
@@ -400,7 +474,7 @@ public initializeData()
               }
             }
             else{
-              alert('createUpdateTpLink else: ' + res.Error);
+              alert('createUpdateTpLink Status: ' + res);
               retStr = res.Error;
             }
             if(retStr !== 'OK')
@@ -413,14 +487,14 @@ public initializeData()
 
     }
 
-    onApplyNote(note: INotesData) {
-      if (this.allNotes.length === 0) {
-        const newNote = { ...note, id: 1 };
-        this.allNotes = [...this.allNotes, newNote];
+    createKV(kv: KVP) {
+      if (this.customProp.length === 0) {
+        const newKV = { ...kv, id: 1 };
+        this.customProp = [...this.customProp, newKV];
       } else {
-        const [{ id: newId }] = [...this.allNotes].reverse();
-        const newNote = { ...note, id: newId + 1 };
-        this.allNotes = [...this.allNotes, newNote];
+        const [{ id: newId }] = [...this.customProp].reverse();
+        const newKV = { ...kv, id: newId + 1 };
+        this.customProp = [...this.customProp, newKV];
       }
     }
 

@@ -15,12 +15,12 @@ isExpanded: boolean;
 TPID: string;
 Routing: string;
 SNIP: string;
-IsaAck: string;
-GsAck: string;
-StAck: string;
+ISAAck: string;
+GSAck: string;
+STAck: string;
 Separators: string;
 UniqueId: string;
 Active: boolean;
 User: string;
-CustomProp: {Key: string, Value: string }[];
+customProp: {Key: string, Value: string }[];
 }

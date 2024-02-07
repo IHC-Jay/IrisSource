@@ -3,7 +3,7 @@ import { Router, ActivatedRoute} from '@angular/router';
 import { AbstractControlOptions, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { first } from 'rxjs/operators';
 import { FormsModule, ReactiveFormsModule, FormGroupDirective } from '@angular/forms';
-import { RestServiceComponent } from '../../../services/rest-service.component';
+import { TpRestServiceComponent } from '../../../services/tprest-service.component';
 import { bulkTpLinks } from './bulk-tp-links';
 
 @Component(
@@ -36,7 +36,7 @@ export class BulkAddComponents implements OnInit {
       private formBuilder: FormBuilder,
       private route: ActivatedRoute,
       private router: Router,
-      private tpService: RestServiceComponent,
+      private tpService: TpRestServiceComponent,
       private cdRef: ChangeDetectorRef
   ) {
 

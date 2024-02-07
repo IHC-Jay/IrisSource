@@ -6,7 +6,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs/operators';
 import { Subscription } from 'rxjs';
 import { tpLinks } from './tp-links';
-import { RestServiceComponent } from '../../../services/rest-service.component';
+import { TpRestServiceComponent } from '../../../services/tprest-service.component';
 import { Injectable } from '@angular/core';
 import * as _ from 'lodash';
 import { MatPaginator } from '@angular/material/paginator';
@@ -63,7 +63,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpLinksArray: tpLinks[] = [];
 
-  constructor(public dialog: MatDialog, private router: Router, private route: ActivatedRoute, private tpLinksService: RestServiceComponent
+  constructor(public dialog: MatDialog, private router: Router, private route: ActivatedRoute, private tpLinksService: TpRestServiceComponent
   ) {
     this.tpIdToLink = this.tpId;
 

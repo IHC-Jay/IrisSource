@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { INotesData } from '../add-edit.component';
+import { KVP } from '../add-edit.component';
 import { tpLinks } from '../tp-links';
 
 @Component({
@@ -8,8 +8,8 @@ import { tpLinks } from '../tp-links';
   styleUrls: ['./single-note.component.css']
 })
 export class SingleNoteComponent {
-  @Input() allNotes: INotesData[];
-  @Input() singleNote: INotesData;
+  @Input() customProp: KVP[];
+  @Input() singleNote: KVP;
 
   constructor()
   {
@@ -17,12 +17,12 @@ export class SingleNoteComponent {
 
   }
 
-  @Output('allNotesChange') allNotesChange: EventEmitter<
-    INotesData[]
+  @Output('customPropChange') customPropChange: EventEmitter<
+    KVP[]
   > = new EventEmitter();
 
-  deleteNote(singleNote: INotesData) {
-    this.allNotes = this.allNotes.filter(e => e !== singleNote);
-    this.allNotesChange.emit(this.allNotes);
+  deleteNote(singleNote: KVP) {
+    this.customProp = this.customProp.filter(e => e !== singleNote);
+    this.customPropChange.emit(this.customProp);
   }
 }

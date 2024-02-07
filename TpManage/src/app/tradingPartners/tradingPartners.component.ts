@@ -4,7 +4,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { forkJoin, Observable, of } from 'rxjs';
 import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
-import {RestServiceComponent} from '../services/rest-service.component';
+import {TpRestServiceComponent} from '../services/tprest-service.component';
 import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
@@ -39,6 +39,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
   public pageNumber = 0;
   searchText:string;
   ifSelect:boolean = false;
+  ifAdd:boolean = false;
 
     displayedColumns: string[] = TradingPartnerColumns.map((col) => col.key);
     columnsSchema: any = TradingPartnerColumns;
@@ -55,7 +56,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     @ViewChild(MatPaginator) paginator: MatPaginator;
 
     constructor(public dialog: MatDialog,
-      private TradingPartnerService: RestServiceComponent)
+      private TradingPartnerService: TpRestServiceComponent)
     {
 
     }
@@ -108,6 +109,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       };
       this.dataSource.data = [newRow, ...this.dataSource.data];
       this.ifSelect = true;
+      this.ifAdd = true;
     }
 
     editRow(row: TradingPartner) {
@@ -138,7 +140,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
         this.TradingPartnerService.updateTradingPartner(row).subscribe(() => (row.isEdit = false));
         this.ifSelect = false;
       }
-
+      this.ifAdd = false;
     }
     cancelRow(row: TradingPartner)
     {
@@ -148,6 +150,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
         this.dataSource.data = [...this.dataSource.data];
       }
       this.ifSelect = false;
+      this.ifAdd = false;
     }
 
     removeRow(row: TradingPartner)  {

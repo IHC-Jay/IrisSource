@@ -4,7 +4,7 @@ import { FormsModule,  FormBuilder, FormGroup, FormControl, Validators } from '@
 import {TradingPartner} from '../tradingPartners/TradingPartner';
 import {TpId, TpIdColumns} from '../tradingPartners/tpIds/TpId';
 import {tpLinks} from '../tradingPartners/tpIds/tp-links/tp-links';
-import {RestServiceComponent} from '../services/rest-service.component';
+import {TpRestServiceComponent} from '../services/tprest-service.component';
 import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
 import {
   AUTO_STYLE,
@@ -45,7 +45,7 @@ export class SearchComponent implements OnInit {
   @ViewChild("searchTpId") focusField: ElementRef;
 
 
-  constructor(private TradingPartnerService: RestServiceComponent,
+  constructor(private TradingPartnerService: TpRestServiceComponent,
     private formBuilder: FormBuilder
   ){
 

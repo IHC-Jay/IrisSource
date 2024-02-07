@@ -4,7 +4,8 @@ import { BehaviorSubject, Observable } from "rxjs";
 import { map } from "rxjs/operators";
 
 import { User } from "../login/user";
-import {RestServiceComponent} from './rest-service.component';
+import {TpRestServiceComponent} from './tprest-service.component';
+import {TransRestServiceComponent} from './transrest-service.component';
 
 
 @Injectable({ providedIn: "root" })
@@ -13,14 +14,20 @@ export class AuthenticationService {
  private currentUserSubject: BehaviorSubject<User>;
   public currentUser: Observable<User>;
 
-  constructor(private usrService: RestServiceComponent) {
+  constructor(private tpService: TpRestServiceComponent, private tpTransService: TransRestServiceComponent,
+              private usrTransService: TransRestServiceComponent
+    ) {
 
     this.currentUserSubject = new BehaviorSubject<User>(
       JSON.parse(sessionStorage.getItem("currentUser"))
     );
     this.currentUser = this.currentUserSubject.asObservable();
 
-    console.info('AuthenticationService constructor');
+    console.info('In AuthenticationService constructor ' );
+    this.currentUser.forEach(user =>
+    {
+      console.info('AuthenticationService constructor ' + user);
+    });
 
   }
 
@@ -31,7 +38,7 @@ export class AuthenticationService {
 
   login(username: string, password: string) {
 
-      return this.usrService.validateUser(username, password).pipe(map(res => {
+      return this.tpService.validateUser(username, password, this).pipe(map(res => {
         console.info(' AuthenticationService login validateUser: ' + res);
         let user = new User();
         user.authdata = window.btoa(username + ":" + password);
@@ -41,7 +48,12 @@ export class AuthenticationService {
         user.password = password
         sessionStorage.setItem("currentUser", JSON.stringify(user));
         this.currentUserSubject.next(user);
-        console.info('login currentUserValue: ' + (this.currentUserSubject.value!== null) );
+        if (this.currentUserSubject.value!== null)
+        {
+          console.info('login currentUserValue: ' + this.currentUser );
+          this.tpTransService.setcurrentUser(username);
+
+        }
         return user;
       }));
 

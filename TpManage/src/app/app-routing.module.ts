@@ -1,5 +1,7 @@
 import { Component, NgModule } from '@angular/core';
 import { Routes, RouterModule } from '@angular/router';
+import { HeaderComponent } from './header/header.component';
+import { AuthGuard } from './login/auth.guard';
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
@@ -11,8 +13,7 @@ import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
 import {TransactionDetailComponent} from './transaction/transaction-details/transaction-details.component';
 
-import { HeaderComponent } from './header/header.component';
-import { AuthGuard } from './login/auth.guard';
+
 
 const appRoutes: Routes = [
   {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard]},

@@ -1,7 +1,7 @@
 import { Component, OnInit, ViewChild } from '@angular/core';
 import { ActivatedRoute, RouteReuseStrategy } from '@angular/router';
 
-import {RestServiceComponent} from '../../services/rest-service.component';
+import {TpRestServiceComponent} from '../../services/tprest-service.component';
 import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
 import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
@@ -27,7 +27,7 @@ export class TpIdComponent implements OnInit {
   valid: any = {};
   @ViewChild(MatPaginator, {static: true}) paginator: MatPaginator;
 
-  constructor(public dialog: MatDialog, private route: ActivatedRoute,  private tpIdService: RestServiceComponent) { }
+  constructor(public dialog: MatDialog, private route: ActivatedRoute,  private tpIdService: TpRestServiceComponent) { }
 
   ngOnInit() {
     // First get the product id from the current route.

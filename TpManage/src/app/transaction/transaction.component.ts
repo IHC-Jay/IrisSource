@@ -5,7 +5,7 @@ import {EligibilityRequest} from './EligibilityRequest'
 import {Claim} from './Claims';
 import {ClaimStatusResp} from './ClaimStatusResp';
 import {ClaimStatusReq} from './ClaimStatusReq';
-import {RestServiceComponent} from '../services/rest-service.component';
+import {TransRestServiceComponent} from '../services/transrest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
 
@@ -29,7 +29,22 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 
 export class TransactionComponent implements OnInit, AfterViewInit {
   displayLabel: string = "Display columns:";
-  TransactionTypes= ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+
+  searchTypes = [
+      "Batch, Last 24 hours ",
+      "Batch, Last 7 days ",
+      "Batch, Last 30 days ",
+      "RT, Last 24 hours ",
+      "RT, Last 7 days ",
+      "RT, Last 30 days "
+    ];
+
+    maxCount = ["10", "25", "50", "100", "200"];
+
+  transactionTypes: string[] = [];
+  rtTransactionTypes= ["270", "271","276", "277", "999", "TA1"];
+  batchTransactionTypes= ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+
   butSaveDisplay: boolean = false;
 
    nyiColumns = [
@@ -75,12 +90,15 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   @ViewChild("searchValue") searchValue: ElementRef;
   @ViewChild("searchField") searchField: ElementRef;
   @ViewChild("searchCndition") searchCndition: ElementRef;
+  @ViewChild("searchType") searchType: ElementRef;
+  @ViewChild("rowCnt") rowCnt: ElementRef;
   @ViewChild("transType") transType: ElementRef;
   @ViewChild("displayCols") displayCols: ElementRef;
   @ViewChild("matStartDate") matStartDate: string;
   @ViewChild("matEndDate") matEndDate: string;
 
   searchString = "";
+  searchTypeString = "";
   currentTransType = '';
   sub:any;
   isTableExpanded = false;
@@ -100,7 +118,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
 
 
-  constructor(private TransactionService: RestServiceComponent,
+  constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
 
@@ -112,6 +130,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     console.info("ngOnInit");
 
     this.form = this.formBuilder.group({
+      searchType: ['', Validators.required],
+      rowCnt:['', Validators.required],
       transType: ['', Validators.required],
       searchField: ['', Validators.required],
       searchCndition: [''],
@@ -138,14 +158,22 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
     this.sub = this.route.queryParams.subscribe(params => {
       // Defaults to '' if no query param provided.
-      this.currentTransType =  params['trans'] || '';
-      this.searchString = params['search'] || '';
 
-      console.log('ngOnInit - Query params ' + this.searchString +", transType: " + this.currentTransType);
+      this.currentTransType =  params['transaction'] || '';
+      this.searchString = params['search'] || '';
+      this.searchTypeString = params['searchTypeString'];
+
+      console.log('ngOnInit - Query params ' + this.searchTypeString +", transType: " + this.currentTransType);
+
+
       if (this.currentTransType !== '')
       {
+        this.form.controls.searchType.setValue(this.searchTypeString);
+        this.searchTypeChange(null);
         this.form.controls.transType.setValue(this.currentTransType);
         this.form.controls.searchValue.setValue(this.searchString);
+        this.form.controls.rowCnt.setValue("25");
+
         if (this.searchString !== '')
         {
           this.searchTransaction = true;
@@ -163,7 +191,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       for (var item of res)
       {
-        console.info("Push transactionsSearchColumns: " + item.Key)
+        // console.info("Push transactionsSearchColumns: " + item.Key)
           this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
       }
       console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
@@ -199,12 +227,13 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   onSearchTransactions()
     {
-
+      this.canRenderDetails = false;
+      console.info("onSearchTransactions TransType: " +this.form.controls.transType.value +",  currentTransType: " +  this.currentTransType)
       if (this.form.controls.transType.value === '' && this.currentTransType !== '')
       {
         this.form.controls.transType.setValue(this.currentTransType);
       }
-      console.info("onSearchTransactions TransType: " +this.form.controls.transType.value)
+
 
       this.loading = true;
 
@@ -212,7 +241,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       {
 
             console.info('Transaction search with: ' + this.searchString);
-            this.TransactionService.fetchEligibilityRequests(this.searchString).subscribe((res: any) => {
+            this.TransactionService.fetchEligibilityRequests(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
 
             this.dataSource.data = res;
             this.canRenderDetails = true;
@@ -221,18 +250,13 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
             this.loading = false;
 
-            if(this.dataSource.data.length === 0)
-            {
-              alert("No rows found for " + this.searchString);
-            }
-            this.clearSearch();
             this.setControls();
             });
 
       }
       else if(this.form.controls.transType.value === '271'){
 
-        this.TransactionService.fetchEligibilityBenefitResponses(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchEligibilityBenefitResponses(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -243,7 +267,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
       else if(this.form.controls.transType.value === '835'){
 
-        this.TransactionService.fetchClaimPayment(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchClaimPayment(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -287,7 +311,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         {
           staticSearchStr = staticSearchStr + " AND " + this.searchString
         }
-         this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X222A1' " + staticSearchStr).subscribe((res: any) => {
+         this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X222A1' " + staticSearchStr, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
           this.dataSource.data = res;
           this.canRenderDetails = true;
           this.loading = false;
@@ -301,7 +325,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         {
           this.searchString = " AND " + this.searchString
         }
-        this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X223A2' " + this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X223A2' " + this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -315,7 +339,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         {
           this.searchString = " AND " + this.searchString
         }
-        this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X224A2' " + this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchClaims("VersionReleaseIndustryIdenti='005010X224A2' " + this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -326,7 +350,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
       else if(this.form.controls.transType.value === '276'){
 
-        this.TransactionService.fetchClaimStatusReq(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchClaimStatusReq(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -337,7 +361,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
        else if(this.form.controls.transType.value === '277'){
 
-         this.TransactionService.fetchClaimStatusResp(this.searchString).subscribe((res: any) => {
+         this.TransactionService.fetchClaimStatusResp(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
           this.dataSource.data = res;
           this.canRenderDetails = true;
           this.loading = false;
@@ -348,7 +372,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
        }
        else if(this.form.controls.transType.value === '277CA'){
 
-        this.TransactionService.fetchClaimAcknowledgment(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchClaimAcknowledgment(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -359,7 +383,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
        else if(this.form.controls.transType.value === '999'){
 
-        this.TransactionService.fetchImplementationAcknowledgment(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchImplementationAcknowledgment(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -370,7 +394,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
       else if(this.form.controls.transType.value === 'TA1'){
 
-        this.TransactionService.fetchInterchangeAcknowledgment(this.searchString).subscribe((res: any) => {
+        this.TransactionService.fetchInterchangeAcknowledgment(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -475,9 +499,9 @@ addRow() {
 
 
 onRowClicked(row) {
-      console.log('Row clicked: ' + row.id + ", Search: " + this.searchString);
+      console.log('Row clicked: ' + row.id + ", Search: " + this.searchString + ', searchTypeString: '+ this.searchTypeString );
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString } }
+      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
        );
   }
 
@@ -544,7 +568,7 @@ saveDisplayColumns()
 
               for (var item of res)
               {
-                console.info("Push transactionsSearchColumns: " + item.Key)
+                // console.info("Push transactionsSearchColumns: " + item.Key)
                   this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
               }
               console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
@@ -574,6 +598,21 @@ expandCollapse(index: boolean) {
   this.panelExpand = index;
 }
 
+searchTypeChange(evt: any)
+{
+  this.displayLabel = "Display columns for: "+this.form.controls.searchType.value;
+  this.searchTypeString = this.form.controls.searchType.value
+  if ( String(this.form.controls.searchType.value).startsWith('RT'))
+  {
+      this.transactionTypes = [...this.rtTransactionTypes];
+  }
+  else{
+    this.transactionTypes = [...this.batchTransactionTypes];
+  }
+  this.form.controls.rowCnt.setValue(this.maxCount[1]);
+
+}
+
 transactionChange(evt: any)
 {
   this.displayLabel = "Display columns for: "+this.form.controls.transType.value;
@@ -586,6 +625,12 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
+  console.info(this.displayLabel +", this.currentTransType: " + this.currentTransType)
+  if(this.form.controls.transType.value !== this.currentTransType)
+  {
+    this.clearSearch();
+  }
+  this.currentTransType = this.form.controls.transType.value;
   for (var col of this.transactionsSearchColumns)
   {
 
@@ -603,7 +648,7 @@ transactionChange(evt: any)
       if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
       {
           this.searchColumns.push(col);
-          console.info("searchColumns pushed: " + col.key);
+          // console.info("searchColumns pushed: " + col.key);
       }
     }
 
@@ -622,7 +667,7 @@ transactionChange(evt: any)
           var selInd = this.allDropdownListFind(col.label);
           if(selInd !== -1)
           {
-            console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
+            // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
             tempArr.push({item_id:selInd, item_text:col.label});
 
             break;
@@ -663,7 +708,7 @@ transactionChange(evt: any)
     }
       else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
       {
-          console.info(col.transactionCode + " PUSH " + col.key)
+          // console.info(col.transactionCode + " PUSH " + col.key)
 
           tempArr.push({item_id:col.key, item_text:col.label});
           tempArr2.push({item_id:col.key, item_text:col.label});
@@ -676,7 +721,7 @@ transactionChange(evt: any)
 
   for (var item of this.selDropdownList)
   {
-    console.info("selDropdownList key: " + item.item_id +", val: " +item.item_text )
+    // console.info("selDropdownList key: " + item.item_id +", val: " +item.item_text )
       this.dataTableLabel.push(item.item_text);
       this.dataTableKey.push(item.item_id);
       this.selectedItems.push({key:item.item_id, label:item.item_text})
@@ -702,7 +747,7 @@ allDropdownListFind(label:string)
   {
     if(val.item_text === label)
     {
-      console.info("allDropdownListFind: " + val.item_id);
+      // console.info("allDropdownListFind: " + val.item_id);
       return val.item_id
     }
   }

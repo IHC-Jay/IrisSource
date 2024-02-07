@@ -5,7 +5,7 @@ import { EligibilityRequest } from '../EligibilityRequest';
 import { transition } from '@angular/animations';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { RestServiceComponent } from '../../services/rest-service.component';
+import { TransRestServiceComponent } from '../../services/transrest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
 import { MatDialog } from '@angular/material/dialog';
 import { Modalx12Component } from './modal/modal-x12.component';
@@ -29,12 +29,13 @@ export class TransactionDetailComponent {
   ak1CtrlNum:string;
   ak1ver:string;
   searchStr:string;
+  searchTypeString:string;
   transaction:string;
   x12Data:string;
   fileName = "TEST";
 
   constructor(
-    private TransactionService: RestServiceComponent,
+    private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder,
     private route: ActivatedRoute,
     private router: Router,
@@ -55,7 +56,8 @@ export class TransactionDetailComponent {
       this.id = ''+params['id'] || '0';
       this.transaction = ''+params['transaction'] || '0';
       this.searchStr = params['search'];
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr);
+      this.searchTypeString = params['searchTypeString'];
+      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString);
     });
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
@@ -70,7 +72,7 @@ export class TransactionDetailComponent {
           || Number.parseInt(item.TransactionCode) == 1)
           {
             this.displayedColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
-            console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
+            // console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
           }
 
         }
@@ -78,7 +80,7 @@ export class TransactionDetailComponent {
         if(this.transaction === '270')
         {
 
-          this.TransactionService.fetchEligibilityRequests("id='" + this.id +"'").subscribe((res: any) => {
+          this.TransactionService.fetchEligibilityRequests("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
 
             this.canRenderDetails = true;
             this.dataSource.data = res;
@@ -91,7 +93,7 @@ export class TransactionDetailComponent {
         if(this.transaction === '271')
         {
 
-          this.TransactionService.fetchEligibilityBenefitResponses("id='" + this.id +"'").subscribe((res: any) => {
+          this.TransactionService.fetchEligibilityBenefitResponses("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
 
             this.canRenderDetails = true;
             this.dataSource.data = res;
@@ -102,7 +104,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction.startsWith('837')){
 
-          this.TransactionService.fetchClaims("id='" + this.id+"'").subscribe((res: any) => {
+          this.TransactionService.fetchClaims("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -111,8 +113,7 @@ export class TransactionDetailComponent {
 
         }
         else if(this.transaction === '835'){
-
-          this.TransactionService.fetchClaimPayment("id='" + this.id+"'").subscribe((res: any) => {
+          this.TransactionService.fetchClaimPayment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -122,7 +123,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '276'){
 
-          this.TransactionService.fetchClaimStatusReq("id='" + this.id +"'").subscribe((res: any) => {
+          this.TransactionService.fetchClaimStatusReq("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -132,7 +133,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '277'){
 
-          this.TransactionService.fetchClaimStatusResp("id='" + this.id +"'").subscribe((res: any) => {
+          this.TransactionService.fetchClaimStatusResp("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -142,7 +143,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction.toString() === '277CA'){
 
-          this.TransactionService.fetchClaimAcknowledgment("id='" + this.id+"'").subscribe((res: any) => {
+          this.TransactionService.fetchClaimAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -152,7 +153,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '999'){
 
-          this.TransactionService.fetchImplementationAcknowledgment("id='" + this.id+"'").subscribe((res: any) => {
+          this.TransactionService.fetchImplementationAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -164,7 +165,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === 'TA1'){
 
-          this.TransactionService.fetchInterchangeAcknowledgment("id='" + this.id+"'").subscribe((res: any) => {
+          this.TransactionService.fetchInterchangeAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -192,7 +193,7 @@ export class TransactionDetailComponent {
               if(i === question)
               {
                 var val = jsonData[i];
-                console.info(loopnum + ". getSelectedValue: " + question +'= ' + val);
+                // console.info(loopnum + ". getSelectedValue: " + question +'= ' + val);
                 if(question === "x12Data" )
                 {
                   if (val.startsWith("ISA"))
@@ -238,14 +239,20 @@ export class TransactionDetailComponent {
 
       console.log('To Transactions: ' + this.transaction + "/" + this.searchStr);
       this.router.navigate(["/transaction/"],
-      {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
+      // {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
+      {
+        queryParams: { transaction: this.transaction,
+          'search': this.searchStr,
+          'searchTypeString': this.searchTypeString }
+    }
+
        );
   }
 
   openX12Modal(): void {
     console.info("openX12Modal: " + this.X12DataParentId + ", " + this.transaction);
 
-    this.TransactionService.fetchParentRecord(this.X12DataParentId, this.transaction).subscribe((res: any) => {
+    this.TransactionService.fetchParentRecord(this.X12DataParentId, this.transaction, this.searchTypeString).subscribe((res: any) => {
       this.canRenderDetails = true;
       let val = ""
 
@@ -304,7 +311,7 @@ export class TransactionDetailComponent {
     this.TransactionService.fetchGetRelatedTransaction(tranType, grpNum,
       this.dataSource.data[0].InterchangeSenderID,
       this.dataSource.data[0].InterchangeReceiverID,
-      this.dataSource.data[0].InterchangeControlNumber
+      this.dataSource.data[0].InterchangeControlNumber, this.searchTypeString
 
       ).subscribe((res: any) => {
       this.canRenderDetails = true;
@@ -368,7 +375,7 @@ export class TransactionDetailComponent {
           this.dataSource.data[0].loop2000C1TRN1RefId, this.dataSource.data[0].loop2000D1TRN1RefId,
           this.dataSource.data[0].InterchangeSenderID,
           this.dataSource.data[0].InterchangeReceiverID,
-          this.dataSource.data[0].InterchangeControlNumber
+          this.dataSource.data[0].InterchangeControlNumber, this.searchTypeString
 
           ).subscribe((res: any) => {
           this.canRenderDetails = true;
@@ -422,7 +429,7 @@ export class TransactionDetailComponent {
         this.dataSource.data[0].loop2200E1TRNRefId,
         this.dataSource.data[0].InterchangeSenderID,
         this.dataSource.data[0].InterchangeReceiverID,
-        this.dataSource.data[0].InterchangeControlNumber
+        this.dataSource.data[0].InterchangeControlNumber, this.searchTypeString
         ).subscribe((res: any) => {
         this.canRenderDetails = true;
         let val = ""
