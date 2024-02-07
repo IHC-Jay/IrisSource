@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Export generator="Cache" version="25">
+<Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.Sh835ToTransTrackRemitCff">
 <Description>
 </Description>
@@ -9,7 +9,7 @@
 <TimeCreated>63791,19088.262931</TimeCreated>
 
 <Storage name="Default">
-<Type>%Library.CacheStorage</Type>
+<Type>%Storage.Persistent</Type>
 <DefaultData>Sh835ToTransTrackRemitCffDefaultData</DefaultData>
 <Data name="Sh835ToTransTrackRemitCffDefaultData">
 <Subscript>"Sh835ToTransTrackRemitCff"</Subscript>
@@ -51,7 +51,7 @@
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='IHC.ITF.ITFCOMMON.DataStructure.JmsMessageWithProperties' height='5150' width='2420' >
+<process language='objectscript' request='Ens.StringRequest' height='5150' width='2420' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='configName' type='%String' initialexpression='""' instantiate='0' >
@@ -81,6 +81,7 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='dndCoreEraX12Record' type='IHC.ITF.DStruc.DndCoreEraX12Record' instantiate='0' />
 </context>
 <sequence xend='200' yend='1450' >
 <scope xpos='200' ypos='250' xend='200' yend='1350' >
@@ -98,27 +99,35 @@ BPL Definition</Description>
   set context.targetConfigNames=configValue
   ]]]]><![CDATA[>
 </code>
-<code name='Get JMS properties' xpos='200' ypos='650' >
-<![CDATA[ $$$TRACE("# of Properties: " _ request.Properties.Count())
- set context.transTrackDateTimeStamp = request.Properties.GetAt("RemitTransTrackDateTimeStamp")
- if ($L(context.transTrackDateTimeStamp) > 0)
- {
-     $$$TRACE("Found RemitTransTrackDateTimeStamp")
-      
- }
- set context.transTrackDateTimeStamp = $REPLACE(context.transTrackDateTimeStamp,"]", "")
+<code name='Get X12 properties' xpos='200' ypos='650' >
+<![CDATA[ $$$TRACE("X12Record: " _ request.StringValue)
  
- // <PropertiesItem PropertiesKey="obConnection">UMRBatch</PropertiesItem>
- set context.obConnection = request.Properties.GetAt("obConnection")
+ set context.dndCoreEraX12Record = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(request.StringValue)
+ 
+ 
+ if ($IsObject(context.dndCoreEraX12Record))
+ {
+     $$$TRACE("Found DndCoreEraX12Record, X12stream size: " _ context.dndCoreEraX12Record.X12stream.Size)
+      
+ 
+     set context.transTrackDateTimeStamp = context.dndCoreEraX12Record.ProcessedTime
+ 
+
+     set context.obConnection = context.dndCoreEraX12Record.Route
+ }
+ if (context.dndCoreEraX12Record.X12stream.Size <= 0)
+ {
+    set status = $$$ERROR($$$InvalidOutputStream, "Zero size X12 stream")
+ }
  ]]]]><![CDATA[>
 </code>
 <if name='TrackDateTimeStamp is valid' condition='($L(context.transTrackDateTimeStamp) &gt; 0) ' xpos='200' ypos='750' xend='200' yend='1100' >
 <true>
 <code name='Get TRN 02 or 04 and call the operation' xpos='470' ypos='900' >
-<![CDATA[ set ediDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Message, .pStat )
+<![CDATA[ set ediDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(context.dndCoreEraX12Record.X12stream, .pStat )
  if (pStat '= $$$OK){  	
   $$$TRACE("Failed to create X12 message from Stream" _ pStat)
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "X12 message validation failed, Skipping the record." _ request.RawContent)
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "X12 message validation failed, Skipping the record." _ context.dndCoreEraX12Record.ID)
  }
  set ediDoc.DocType="HIPAA_5010:Interchange"
  $$$TRACE("Interchange: # of chidren: " _ ediDoc.ChildCount)
@@ -136,7 +145,7 @@ BPL Definition</Description>
  	
  	//Get TRN-02
   	set trnsNum = transactionDoc.GetValueAt("TRN:RefId", , .pStat)
-  	$$$TRACE(trnsNum _ ", " _ pStat)
+  	$$$TRACE("TRN:RefId: " _ trnsNum _ ", Status: " _ pStat)
   	
   	set value = ""
   	set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Sh835ToTransTrackRemitCff.Lookup.obConnectionForTRN4", context.obConnection,.value)
