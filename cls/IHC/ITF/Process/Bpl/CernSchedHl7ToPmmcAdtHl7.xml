@@ -13,6 +13,13 @@ HDD Operation: The target name used for HDD calls</Description>
 <Parameter name="MAXLEN" value="50"/>
 </Property>
 
+<Property name="SelfPayWsrcTargetConfigName">
+<Description>
+CernEdge Service - Check Patient insurance is SelfPay or not</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Property name="AllowedEventTypes">
 <Description>
 PMMC - ALlowed event types</Description>
@@ -28,7 +35,7 @@ Processing ID: Test environment "T", Production environment "P"</Description>
 </Property>
 
 <Parameter name="SETTINGS">
-<Default>HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>SelfPayWsrcTargetConfigName:Additional,HddTargetConfigName:Additional,AllowedEventTypes:Additional,ProcessingId:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <XData name="BPL">
@@ -45,6 +52,11 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='selfPayWsrcTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='hddTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -64,7 +76,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='gender' type='%String' initialexpression='""' instantiate='0' />
-<property name='selfPayDesc' type='%String' instantiate='0' />
+
+<property name='isSelfPay' type='%String' instantiate='0' initialexpression='"N"' />
+
+
 </context>
 <sequence xend='200' yend='2550' >
 <scope xpos='200' ypos='250' xend='200' yend='2450' >
@@ -131,6 +146,20 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
+
+<code name='initializeSelfPayWsrcTarget' xpos='200' ypos='850' >
+<![CDATA[ 
+ set context.selfPayWsrcTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","SelfPayWsrcTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus) &&(context.selfPayWsrcTargetConfigName '="")){
+ 	$$$TRACE("SelfPayWsrcTargetConfigName: " _ context.selfPayWsrcTargetConfigName)
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No SelfPayWsrcTargetConfigName found.")   	
+ } 
+  ]]]]><![CDATA[>
+</code>
+
+
+
 <code name='ValidateMessage' xpos='200' ypos='950' >
 <annotation><![CDATA[Example how to validate message per error setting]]]]><![CDATA[></annotation>
 <![CDATA[ set validationSettingValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Validation",.pstatus)
@@ -155,29 +184,7 @@ BPL Definition</Description>
  } 
   ]]]]><![CDATA[>
 </code>
-<code name='CheckForSelfPay' xpos='470' ypos='1400' >
-<annotation><![CDATA[Check SelfPay]]]]><![CDATA[></annotation>
-<![CDATA[
-    set isSelfPay = "0"
-	set k1="",tSC=1  
-    
-    For { 
-     Set k1=request.GetNextIndex("NTEgrp.NTE()",k1,.tSCTrans)  Quit:k1=""      	     
-     
-	 	set insPlanDesc = request.GetValueAt("NTEgrp.NTE("_k1_"):Comment()") 
-	 	$$$TRACE("Insurance plan Description:: " _ insPlanDesc)   
-	 	if ($ZCONVERT(insPlanDesc,"U")["SELF PAY"){
-		 	set isSelfPay = "1"
-		 	set context.selfPayDesc = insPlanDesc
-		}  
-     
-    }    
-    if (isSelfPay="0"){
-	    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, " Insurance plan is not Self pay. Skipping the record..")
-	}  
-     
-    ]]]]><![CDATA[>
-</code>
+
 <code name='FinNumber' xpos='470' ypos='1500' >
 <annotation><![CDATA[get FinNumber]]]]><![CDATA[></annotation>
 <![CDATA[     
@@ -197,6 +204,80 @@ BPL Definition</Description>
      
     ]]]]><![CDATA[>
 </code>
+
+
+<code name='CheckInsuranceIsSelfPay' xpos='200' ypos='1450' >
+<![CDATA[   
+	set jsonRequest=##class(Ens.StringRequest).%New()
+    set jsonRequest.StringValue="{"_$CHAR(34)_"ATT_JSON"_$CHAR(34)_":{"_$CHAR(34)_"FIN"_$CHAR(34)_":"_$CHAR(34)_context.finNumber_$CHAR(34)_"}}" 
+    Set httpObj = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ""
+	Set tStream = ##class(%Stream.GlobalCharacter).%New()	
+	Do tStream.Write(jsonRequest.StringValue)
+	Do tStream.Rewind()	
+	Do httpObj.HTTPHeaders.SetAt("application/json","content-type")
+	Do httpObj.HTTPHeaders.SetAt(tStream.Size,"content-length")
+	Set httpObj.Stream = ##class(%Stream.GlobalBinary).%New()
+	Set tStatus = httpObj.Stream.CopyFrom(tStream)
+	$$$TRACE("Calling SelfPay Rest service - Begin..")
+	set status = process.SendRequestSync(context.selfPayWsrcTargetConfigName,httpObj,.selfPayResp)
+	$$$TRACE("Calling SelfPay Rest service - End..")
+    if ($$$ISOK(status)){	  
+      	set serviceResp=selfPayResp
+       	set statusLine=serviceResp.HTTPHeaders.GetAt("StatusLine")
+       	$$$TRACE("statusLine : "_statusLine)
+      	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)
+      	}
+      	$$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)	
+      	Set respStream = ##class(%GlobalCharacterStream).%New()
+        Set respStatus = respStream.CopyFrom(serviceResp.Stream)
+        set respText =""
+        While 'respStream.AtEnd {
+         		Set respText = respText_respStream.Read()
+        } 
+        $$$TRACE("SelfPay service response: "_respText)                	
+      	if (statusCode'="200"){
+        	$$$TRACE("Error in Service Call. StatusCode :"_statusCode)
+        	if (statusCode="400"){
+		    	$$$TRACE("  In Status Code 400... ")		    
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.   Response: "_respText)
+   		    }elseif(statusCode="415"){
+	   		    $$$TRACE("  In Status Code 415... ")		    
+		    	set status=##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Invalid/Bad request.Unsupported type sent to the service.   Response: "_respText)
+   		    }elseif ($E(statusCode,1)="5"){
+			    $$$TRACE("  HTTP status codes starting 5.. ")
+		   		set status=##class(IHC.ITF.ITFCOMMON.Utility).RetryMsgError(process.%ConfigName,"Http Status code: ["_statusCode_"]. Response: ["_respText_"].") 
+		    }else{
+		    	$$$TRACE("  DisableMsgError.... ")
+        		set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," Response from SelfPay Service: "_respText) 
+		    }
+      	} else {	    	
+	        set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(respText)
+            set iter = consumedJSONobj.%GetIterator()
+            set respStatus = consumedJSONobj.%Get("response").%Get("service-status").%Get("status")
+            $$$TRACE(" Value of response Status "_respStatus) 
+			if (respStatus="SUCCESS"){
+	        	$$$TRACE(" Successful Response from SelfPay Service!!! ")	        	
+	            set context.isSelfPay = consumedJSONobj.%Get("response").%Get("status-details").%Get("IS-SELF-PAY")	            
+	            $$$TRACE(" context.isSelfPay:  ["_context.isSelfPay_"]")
+	            if context.isSelfPay ="true"{
+	            	$$$TRACE(" Patient has SelfPay Insurance..")
+	            }else{
+		            set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, " Insurance plan is not Self pay. Skipping the record..")
+		        }
+			}else{
+				set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, " Service is unable to fetch the data. Skipping the record..")
+			}
+		}
+    }else{
+    	$$$TRACE("No Successful Response from SelfPay Service.")
+    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, " No successful response from the service..Failing the record with an error..")
+	}  	
+ ]]]]><![CDATA[>
+</code>
+
 <code name='CheckForLookupTables' xpos='470' ypos='1600' >
 <annotation><![CDATA[CheckLookupTableExists]]]]><![CDATA[></annotation>
 <![CDATA[
@@ -433,9 +514,12 @@ BPL Definition</Description>
 <Value>HddTargetConfigName</Value>
 </Value>
 <Value name="2">
-<Value>AllowedEventTypes</Value>
+<Value>SelfPayWsrcTargetConfigName</Value>
 </Value>
 <Value name="3">
+<Value>AllowedEventTypes</Value>
+</Value>
+<Value name="4">
 <Value>ProcessingId</Value>
 </Value>
 </Data>
