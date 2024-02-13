@@ -1,0 +1,1145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Task.ImportTpInfoFromEdifecs">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>63636,19056.158729</TimeCreated>
+
+<Property name="LastModifiedDate">
+<Type>%Integer</Type>
+<InitialExpression>30</InitialExpression>
+</Property>
+
+<Property name="ImportFromEdifecs">
+<Type>%Boolean</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Property name="TpImportScript">
+<Type>%String</Type>
+<InitialExpression>"/home/cacheusr/TpManage/edifecs/cleanCmd"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="TpImportDirec">
+<Type>%String</Type>
+<InitialExpression>"/home/cacheusr/TpManage/"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Property name="outputFile">
+<Type>%String</Type>
+<InitialExpression>"/itf-share/itf-tmp/ImportTpInfoFromEdifecs"</InitialExpression>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set tSC = $$$OK
+  set $NAMESPACE = "EDIPAYER"
+  
+   	set fileNm = $ZSTRIP(..outputFile _ "-" _ $ZDATETIME($ZTIMESTAMP,8,1,2) _ ".txt", "*W")
+
+   Set outFile=##class(%File).%New(fileNm)
+	
+   Do outFile.Open("WSN")
+   Do outFile.WriteLine( " TP import Run Time: " _ $ZDATETIME($ZTIMESTAMP,8,1,2) _ " on " _$SYSTEM)
+
+  set cmd = ..TpImportScript
+  if (..ImportFromEdifecs =1)
+  {
+	  Do ..ReadFromEdifecs(cmd, outFile)
+  }
+  Do ..ImportTradingPartners(..TpImportDirec _ "TradingPartners.txt", outFile, ..LastModifiedDate)
+  Do ..ImportTPIDs(..TpImportDirec _ "TpIds.txt", outFile, ..LastModifiedDate)
+  Do ..ImportTranTypes(..TpImportDirec _ "TRANSACTIONTYPES.txt", outFile)
+  Do ..ImportTpLinks(..TpImportDirec _ "tpLinks-IRIS.txt", outFile, ..LastModifiedDate)
+  
+  return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ReadFromEdifecs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>cmd:%String,outFile:%File</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSc = $$$OK
+	
+	 set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(cmd, "/itf-share/itf-tmp/lpjnaras/TpManage.out", "/itf-share/itf-tmp/lpjnaras/TpManage.err")
+	 
+	 if (stat = 0)
+	 {
+		 Do outFile.WriteLine( "Created new TP files from Edifecs")
+	 	// Clean the <ApplicationSettings>
+	 	// set cleanCmd = "/home/cacheusr/TpManage/edifecs/cleanCmd"
+	 	// Do ##class(IHC.ITF.ITFCOMMON.Utility).ExecuteShellCmd(cleanCmd, "/itf-share/itf-tmp/lpjnaras/TpManage.out", "/itf-share/itf-tmp/lpjnaras/TpManage.err")
+	 }
+	 else
+	 {
+		 set tSc = $$$ERROR($$$GeneralError, "Error in " _ cmd)
+		 
+	 }
+	 return tSc
+]]></Implementation>
+</Method>
+
+<Method name="ImportTradingPartners">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>flNm:%String,outFile:%File,LastModifiedDate:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set tSC = $$$OK
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ set separator = "~! "
+ SET todayNum=$PIECE($HOROLOG,",",1)
+ set sqlUsr = "hsadmin"
+
+ if (##class(%File).Exists(flNm))
+ {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set tSC = fileObj.Open("R")
+	 set numRecs = 0, numDup = 0, numIns = 0, numErr = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+			 QUIT
+		 }
+		 else
+		 {
+			 
+			 if ($L(text) <= 0)
+			 {
+			   continue
+			 } 
+			 set numRecs = numRecs + 1
+			 
+ 			 //Trading Partner
+		     // Do outFile.WriteLine( text _", length: " _ $L(text, separator)
+			 set modDt = $ZSTRIP($PIECE(text, separator, 29),"<>W")
+			 set tpNm = $ZSTRIP($PIECE(text, separator, 2),"<>W")
+			 if ((todayNum - $ZDATEH(modDt, 3)) > LastModifiedDate)
+			 {
+				 // Do outFile.WriteLine( tpNm _" modifed on " _ modDt)
+			 }
+			 else
+			 {
+			     Do outFile.WriteLine( "Insert or update: " _ tpNm)
+				 set ediId = $ZSTRIP($PIECE(text, separator, 1),"<>W")
+				 
+				 set typ = $ZSTRIP($PIECE(text, separator, 3),"<>W")
+				 set tele = $ZSTRIP($PIECE(text, separator, 4),"<>W")
+				 if (tele = "-")
+				 {
+					 set tele = "555-1212"
+				 }
+				 set em = $ZSTRIP($PIECE(text, separator, 5),"<>W")
+				 if (em = "-")
+				 {
+					 set em = "TDB@"_tpNm
+				 }
+				 
+				 if ( (tpNm '= "") && (typ '= ""))
+				 {
+					 &SQL(INSERT INTO  IHC_ITF_ITFCOMMON_TPManage.TradingPartner 
+					 (ContactEmail, ContactName, ContactPhone, 
+					 CreateID, CreatedDtTM, LastmodDtTM, LastmodID, Name, Type, EdifecsId)
+					 values(:em, 'TBD', :tele,:sqlUsr,:dtTm,:dtTm,:sqlUsr,:tpNm,:typ,:ediId))
+					 if (SQLCODE = 0)
+					 {
+						 // Do outFile.WriteLine( "Inserted " _ tpNm _ " / " _typ)
+						 set numIns = numIns + 1
+					 
+						 set OutConn270RTAcks= $ZSTRIP($PIECE(text, separator, 7),"<>W")
+						 set OutConn820Acks= $ZSTRIP($PIECE(text, separator, 8),"<>W")
+						 set ElementSeparator= $ZSTRIP($PIECE(text, separator, 9),"<>W")
+						 set ISACompElementSeparator= $ZSTRIP($PIECE(text, separator, 10),"<>W")
+						 set OutConn271RT= $ZSTRIP($PIECE(text, separator, 11),"<>W")
+
+						 set OutConn837DAcks= $ZSTRIP($PIECE(text, separator, 12),"<>W")
+						 set OutConn278Acks= $ZSTRIP($PIECE(text, separator, 13),"<>W")
+						 set OutConn276RTAcks= $ZSTRIP($PIECE(text, separator, 14),"<>W")
+						 set OutConn277RT = $ZSTRIP($PIECE(text, separator, 15),"<>W")
+						 set OutConn271B = $ZSTRIP($PIECE(text, separator, 16),"<>W")
+						 set OutConn837PAcks= $ZSTRIP($PIECE(text, separator, 17),"<>W")
+						 set AckUsag999RT= $ZSTRIP($PIECE(text, separator, 18),"<>W")
+						 set OutConn270BAcks= $ZSTRIP($PIECE(text, separator, 19),"<>W")
+						 set OutConn835= $ZSTRIP($PIECE(text, separator, 20),"<>W")
+						 set OutConn277CA= $ZSTRIP($PIECE(text, separator, 21),"<>W")
+						 set OutConn837IAcks= $ZSTRIP($PIECE(text, separator, 22),"<>W")
+						 set AckUsage999= $ZSTRIP($PIECE(text, separator, 23),"<>W")
+						 set OutConn277B= $ZSTRIP($PIECE(text, separator, 24),"<>W")
+						 set AckUsageTA1= $ZSTRIP($PIECE(text, separator, 25),"<>W")
+						 set AckUsageTA1RT= $ZSTRIP($PIECE(text, separator, 26),"<>W")
+						 set OutConn276BAcks= $ZSTRIP($PIECE(text, separator, 27),"<>W")
+						 set BatchingMode835= $ZSTRIP($PIECE(text, separator, 28),"<>W")
+						 
+						  &SQL(INSERT INTO  IHC_ITF_ITFCOMMON_TPManage.CustomFields 
+						 (EdicTpId, AckUsage999, AckUsage999RT, AckUsageTA1, AckUsageTA1RT, BatchingMode835, 
+						 ElementSeparator, ISACompElementSeparator, OutConn270BAcks, OutConn270RTAcks, OutConn271B, 
+						 OutConn271RT, OutConn276BAcks, OutConn276RTAcks, OutConn277B, OutConn277CA, OutConn277RT, 
+						 OutConn278Acks, OutConn820Acks, OutConn835, OutConn837DAcks, OutConn837IAcks, OutConn837PAcks)
+						 values(:ediId, :AckUsage999, :AckUsage999RT, :AckUsageTA1, :AckUsageTA1RT, :BatchingMode835, 
+						  :ElementSeparator, :ISACompElementSeparator, :OutConn270BAcks, :OutConn270RTAcks, :OutConn271B, 
+						  :OutConn271RT, :OutConn276BAcks, :OutConn276RTAcks, :OutConn277B, :OutConn277CA, :OutConn277RT, 
+						  :OutConn278Acks, :OutConn820Acks, :OutConn835, :OutConn837DAcks, :OutConn837IAcks, :OutConn837PAcks
+						  		 ))
+						 if (SQLCODE = 0)
+						 {
+							 Do outFile.WriteLine( "Inserted CustomFields " _ AckUsage999 _ " / " _ediId)
+						 }
+						 else
+						 {
+							 Do outFile.WriteLine( SQLCODE _ ": " _ AckUsage999 _ " / " _ediId  _ " / " _ OutConn837PAcks)
+						 }
+					 }
+				 
+				 
+					 elseif (SQLCODE = "-119")
+					 {
+						 // Do outFile.WriteLine( "Duplicate: " _ tpNm _ " / " _typ)
+						 set numDup = numDup + 1
+						 
+						 // Update
+						 &SQL(UPDATE  IHC_ITF_ITFCOMMON_TPManage.TradingPartner 
+							set ContactEmail = :em, ContactPhone = :tele, 
+								LastmodDtTM = :dtTm, LastmodID = :sqlUsr,  
+								Type=:typ, EdifecsId = :ediId where Name = :tpNm)
+								
+						Do outFile.WriteLine( "  UPDATE " _ tpNm _ " - SQLCODE: " _ SQLCODE	)	
+					 }
+					 else
+					 {
+						 Do outFile.WriteLine( "SQLCODE: " _ SQLCODE _ ", TP: " _ tpNm _ ", Type: " _typ)
+						 set numErr= numErr + 1
+					 }
+				 }
+				 else
+				 {
+					 Do outFile.WriteLine( "SKIP: " _ tpNm)
+				 }
+				
+			 }
+		 }
+	 }
+	 Do fileObj.Close()
+	 Do outFile.WriteLine( "DONE processing " _ flNm _", # of rows: " _ numRecs _ ", inserted: " _ numIns _ ", Duplicates: " _ numDup _", errors: " _ numErr)
+ }
+ else
+ {
+	 Do outFile.WriteLine( "Can't open file: " _ flNm)
+ }
+
+ return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ImportTPIDs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>flNm:%String,outFile:%File,LastModifiedDate:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set separator = "~! "
+  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+  SET todayNum=$PIECE($HOROLOG,",",1)
+  set sqlUsr = "hsadmin"
+  if (##class(%File).Exists(flNm))
+  {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set tSC = fileObj.Open("R")
+	 set numRecs = 0, numDup = 0, numIns = 0, numErr = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+			 QUIT
+		 }
+		 else
+		 {	
+		    if ($L(text) <= 0)
+			{
+			   continue
+			}
+			set ediId = $ZSTRIP($PIECE(text, separator, 1),"<>W")
+		 	set tpId = $ZSTRIP($PIECE(text, separator, 2),"<>W")			
+			set tpNm = $ZSTRIP($PIECE(text, separator, 3),"<>W")
+			set typ = $ZSTRIP($PIECE(text, separator, 4),"<>W")
+			
+			set modDt = $ZSTRIP($PIECE(text, separator, 5),"<>W")
+
+			 if ((todayNum - $ZDATEH(modDt, 3)) > LastModifiedDate)
+			 {
+				 // Do outFile.WriteLine( tpNm _" modifed on " _ modDt)
+			 }
+			 else
+			 {
+			 
+				// write !, "TPID -> " _ line _ ". " _ tpNm _ ":" _ typ
+				set line = line + 1
+				
+				if ((tpNm = "") || (tpId = ""))
+				{
+					continue
+				}
+				 
+				set tradingPartnerId = ""
+				&SQL(select ID into :tradingPartnerId FROM IHC_ITF_ITFCOMMON_TPManage.TradingPartner where Name = :tpNm)
+				if SQLCODE '= 0
+				{			
+						Do outFile.WriteLine( "Error in finding TP for: " _  tpNm _ ", SQLCODE: " _ SQLCODE)
+						 
+				}
+				if (tradingPartnerId = "")
+				{
+						Do outFile.WriteLine( "ID for TP is empty " _ tpNm)
+						 
+				}
+				else
+				{
+					Set cm = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%New()
+					#dim tp As IHC.ITF.ITFCOMMON.TPManage.TradingPartner
+					set tp = ##class(IHC.ITF.ITFCOMMON.TPManage.TradingPartner).%OpenId(tradingPartnerId)
+					if ($IsObject(tp))
+					{
+						set cm.TPFK = tp
+						set cm.TPID = $ZSTRIP(tpId,"<>WC")
+						set cm.Type =  $SELECT(typ="":"BOTH",typ="null":"BOTH",1:typ) 
+						set cm.EdifecsID = ediId
+						set cm.Name = tpNm _ " TpId"
+						set cm.CreatedDtTM = dtTm
+						set cm.LastmodDtTM = dtTm
+						set cm.LastmodID = sqlUsr
+						set cm.CreateID = sqlUsr
+						
+						set stat = cm.%Save()
+						
+						
+						if ($$$ISOK(stat))
+						{
+							set numIns = numIns + 1
+							Do outFile.WriteLine( tpNm _ ", " _ tpId _ ", " _ tp _ ", " _ ediId _ ", " _ typ _ " - Saveed")
+						}
+						else
+						{
+							
+							&SQL(SELECT count(*) into :numRows from IHC_ITF_ITFCOMMON_TPManage.TPIDS where TPID = :tpId)
+							// Do outFile.WriteLine( SQLCODE _", #: " _ numRows)
+							if ((SQLCODE = 0) && (numRows >= 1))
+							{
+								set numDup = numDup + 1
+								if (numRows > 1)
+								{
+									Do outFile.WriteLine( " -***- Same TPID " _ tpId _ " exists multiple times ("_ numRows _ ") in IHC_ITF_ITFCOMMON_TPManage.TPIDS: " )
+									
+									set myquery = "SELECT NAME, EdifecsID FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where TPID = '" _ tpId _"'"
+						    set tStatement = ##class(%SQL.Statement).%New()
+							  set qStatus = tStatement.%Prepare(myquery)
+							   if qStatus'=1 {write "%Prepare failed:" do $System.Status.DisplayError(qStatus) quit}
+							  set rset = tStatement.%Execute()
+							  while rset.%Next()
+								{
+									
+										if SQLCODE = 0
+										{			
+												Do outFile.WriteLine( "  - Name: " _ rset.%Get("NAME") _ ", EdifecsID: " _ rset.%Get("EdifecsID"))
+										}
+
+								}
+								
+								}
+								// Do outFile.WriteLine( "Duplicate TPID: " _ tpNm _ ", " _ tpId )
+							}
+							else
+							{
+								
+								Do outFile.WriteLine( tpNm _ ", " _ tpId _ ", " _ tp _ ", " _ ediId _ ", " _ typ _ " - Save error: " _ stat)
+								set numErr= numErr + 1
+							}
+						}
+					}
+					else
+					{
+						Do outFile.WriteLine( tpNm _" not found in IHC.ITF.ITFCOMMON.TPManage.TradingPartner")
+					}
+			 	}
+			} 
+		 }
+	 }
+ 	 Do outFile.WriteLine( "Processed: " _ flNm)
+	 DO fileObj.Close()
+
+  }
+  else
+ {
+	 Do outFile.WriteLine( "Can't open file: " _ flNm)
+ }
+]]></Implementation>
+</Method>
+
+<Method name="ImportTranTypes">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>flNm:%String,outFile:%File</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set separator = "~! "
+  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+  set sqlUsr = "hsadmin"
+  if (##class(%File).Exists(flNm))
+  {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set tSC = fileObj.Open("R")
+	 set numRecs = 0, numDup = 0, numIns = 0, numErr = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+			 QUIT
+		 }
+		 else
+		 {
+			 if ($L(text) <= 0)
+			 {
+			   continue
+			 }
+			 //TRANSACTIONTYPES
+			
+				 set trNm = $ZSTRIP($PIECE(text, separator, 1),"<>W")
+				 set direc = $ZSTRIP($PIECE(text, separator, 2),"<>W")
+				 set type = $ZSTRIP($PIECE(text, separator, 3),"<>W")
+				 set ver = $ZSTRIP($PIECE(text, separator, 4),"<>W")
+				 set desc = $ZSTRIP($PIECE(text, separator, 5),"<>W")
+				 
+				 
+				 if (trNm '= "")
+				 {
+				 
+					 &SQL(INSERT INTO  IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES
+					  ( NAME,  TransactionSetId, VERSION,DESCRIPTION,
+					 CreateID, CreatedDtTM, LastmodDtTM, LastmodID )
+					 values(:trNm, :type,:ver,:desc
+					 ,:sqlUsr,:dtTm,:dtTm,:sqlUsr))
+					 if (SQLCODE = 0)
+					 {
+						 // Do outFile.WriteLine( "Inserted " _ trNm _ " / " _type)
+						 set numIns = numIns + 1
+					 }
+					 elseif (SQLCODE = "-119")
+					 {
+						 // Do outFile.WriteLine( "Duplicate: " _ trNm _ " / " _type)
+						 set numDup = numDup + 1
+					 }
+					 else
+					 {
+						 Do outFile.WriteLine( SQLCODE _ ": " _ trNm _ " / " _type)
+						 set numErr= numErr + 1
+					 }
+				 }
+		 }
+	 }
+ 	 Do outFile.WriteLine( "Processed: " _ flNm)
+	 DO fileObj.Close()
+
+  }
+  else
+ {
+	 Do outFile.WriteLine( "Can't open file: " _ flNm)
+ }
+]]></Implementation>
+</Method>
+
+<Method name="ImportTpLinks">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>flNm:%String,outFile:%File,LastModifiedDate:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set separator = "~! "
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ SET todayNum=$PIECE($HOROLOG,",",1)
+ set sqlUsr = "hsadmin"
+ set separtor = "~! "
+ set numIds = 1
+ set numTp = 0
+ set numSave = 0
+ set numDups = 0
+ set numErr=0
+ set line = 0
+ set ttObj = ""
+ set edifecsId = "", tt = "", notes = "", severity="", trans = ""
+ set isaSender = "", isaReceiver ="", gsSender  = "", gsReceiver = ""
+ set interchange = 0, functionalGroup = 0, transaction = 0, route = "", getCN = 0, level = "", ackStr = "", sepStr = "", batch835 = ""
+ 
+  if (##class(%File).Exists(flNm))
+  {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set tSC = fileObj.Open("R")
+	 set numRecs = 0, numDup = 0, numIns = 0, numErr = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+			 QUIT
+		 }
+		 else
+		 {
+			 if ($L(text) <= 0)
+			 {
+			   continue
+			 }
+			 // --
+			 set line = line + 1
+			 if (($L(text) > 0) && ($F(text, "RESOLVEDCONFIGURATIONXML:<ApplicationSettings>") > 1))
+			 {
+				 set numIds = 0
+				 set numTp = 1 + numTp
+				 
+				 set interchange = 0, functionalGroup = 0, transaction = 0, route = "", trans = "", getCN = 0, level = "", ackStr = "", sepStr = ""
+				 set cnStr = "", severity = "", isaSendEdicId = "", isaRecvEdicId = "", direction = "", type = "", usage = "", batch835 = ""
+
+				 set edifecsId = $ZSTRIP($PIECE(text, separtor, 1),"<>W")
+				 set sender = $ZSTRIP($PIECE(text, separtor, 3),"<>W")
+				 set receiver = $ZSTRIP($PIECE(text, separtor, 4),"<>W")
+				 set tpLnkNm = $ZSTRIP($PIECE(text, separtor, 2),"<>W")
+				 set tt = $ZSTRIP($PIECE(text, separtor, 5),"<>W")
+				 set notes = $ZSTRIP($PIECE(text, separtor, 6),"<>W")
+				 set mode = $ZSTRIP($PIECE(text, separtor, 7),"<>W")
+				 set modDt = $ZSTRIP($PIECE(text, separtor, 11),"<>W")
+				 Do outFile.WriteLine(tpLnkNm _": " _ modDt _ " = " _ todayNum _ "-" _ $ZDATEH(modDt, 3))
+				 
+				 if ((todayNum - $ZDATEH(modDt, 3)) > LastModifiedDate)
+				 {
+					 // Do outFile.WriteLine( tpLnkNm _" modifed on " _ modDt)
+					 set tpLnkNm = ""
+				 }
+				 else
+				 {
+				 
+				  	set direction = $ZSTRIP($PIECE(text, separtor, 10),"<>W")
+			 	 
+			 	 	&SQL(select ID into :id FROM IHC_ITF_ITFCOMMON_TPManage.TRADELINKS  where NAME = :tpLnkNm)
+			 	 
+					if ((SQLCODE = 0) && (id > 0))
+					{			
+							//Do outFile.WriteLine( tpLnkNm _ "  ---- Duplicate in finding TRADELINKS " _ SQLCODE)
+							set numDups = numDups + 1
+							set numApSet = 0
+							while (1)
+							{
+								set text = fileObj.ReadLine(,.sc, .eol)
+								if $$$ISERR(sc) 
+								 {
+									 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+									 QUIT
+								 }
+								 
+								 else
+								 {
+									 if ($F(text, "<ApplicationSettings>") > 1)
+									 {
+										 set numApSet = 1
+									 }
+								 }
+								 set line = line + 1
+							 	if ( ($F(text, "</ApplicationSettings>") > 1) && (numApSet = 1) )
+							 	{
+								 	QUIT
+							 	}
+							}
+							
+							// Do outFile.WriteLine( "PROCESS: " _ fileObj.ReadLine(,.sc, .eol) _ " / " _ text _", " _ numApSet)
+							continue
+							 
+					}
+					
+					
+			 	 	&SQL(select ID, TransactionSetId into :ttId, :trans FROM IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES  where NAME = :tt)
+					if SQLCODE '= 0
+					{			
+							Do outFile.WriteLine( tt _ " - Error in finding TRANSACTIONTYPES: " _ SQLCODE)
+							QUIT
+							 
+					}
+					elseif (ttId = "")
+					{
+							Do outFile.WriteLine( "TRANSACTIONTYPES is empty " _ tt)
+							 
+					}
+					else
+					{
+						set ttObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRANSACTIONTYPES).%OpenId(ttId)
+					}
+					Do outFile.WriteLine( edifecsId _ ". " _tpLnkNm _"  --TT : " _ tt _", Direction: " _ direction)
+				 }
+				 
+			 }
+			 elseif  (($F(text, "</ApplicationSettings>") > 1) && (severity '= "") )
+			 {
+				  set transaction = 0
+				  if (tpLnkNm '= "")
+				  {
+				  	// INSERT --
+				       Do outFile.WriteLine( edifecsId _". " _tpLnkNm _", TRANSACTIONTYPE: " _ tt _", Notes: " _ notes _", SeverityConfig: " _ severity _ ", ControlNumber: " _ cnStr)
+				       Do outFile.WriteLine( "  - ISA: " _ isaSender _"->" _ isaReceiver _" / GS: " _gsSender _" -> "_gsReceiver  _", Route: " _ route _", Ack: " _ ackStr _", Separators: " _ sepStr )
+
+			       	
+						Set cm = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%New()
+
+						set tpId1 = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%OpenId(isaReceiver)
+						
+						set cm.IsaReceiverId = tpId1
+						set tpId2 = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%OpenId(isaSender)
+						
+						set cm.IsaSenderId = tpId2
+						set tpId3 = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%OpenId(gsReceiver)
+						
+						set cm.GsReceiverId =  tpId3
+						set tpId4 = ##class(IHC.ITF.ITFCOMMON.TPManage.TPIDS).%OpenId(gsSender)
+						
+						set cm.GsSenderId =  tpId4
+						
+						if ( ($IsObject(tpId1)) && ($IsObject(tpId2)) && ($IsObject(tpId3)) && ($IsObject(tpId4)) && ($IsObject(ttObj)) )
+						{
+							set cm.NAME = $ZSTRIP(tpLnkNm,"<>WC")
+							set cm.EdifecsID = $ZSTRIP(edifecsId,"<>WC")
+							set cm.TRANSTYPE = ttObj
+							set cm.SNIP = 0
+							if (severity ="L1-L2")
+							{
+								set cm.SNIP = 2
+							}
+							elseif (severity ="L1")
+							{
+								set cm.SNIP = 1
+							}
+							if (direction = 1)
+							{
+								set cm.Direction = "In"
+							}
+							else
+							{
+								set cm.Direction = "Out"
+							}
+							
+							set cm.Active = 1
+							set cm.Notes = $ZSTRIP(notes,"<>WC")
+							set cm.Routing = $ZSTRIP($SELECT(route="":"NA",route=" ":"NA",1:route),"<>WC")
+							set cm.ISAAck  = $ZSTRIP($PIECE(ackStr, ";", 1),"<>WC")
+							set cm.GSAck  = $ZSTRIP($PIECE(ackStr, ";", 2),"<>WC")
+							
+							set cm.STAck  = "NEVER"
+							if ($L(ackStr, ";") > 2)
+							{
+								set stStr = $ZSTRIP($PIECE(ackStr, ";", 3),"<>WC")
+								
+								if ($L(stStr) > 0)
+								{
+									set cm.STAck  = stStr
+								}
+							}
+														
+							set cm.Separators = "|*^:"
+							if ($FIND(mode, "Batch") > 1)
+							{
+								set cm.Mode = "Batch" 
+							}
+							else
+							{
+								set cm.Mode = "RT" 
+							}
+							set cm.CreatedDtTM = dtTm
+							set cm.LastmodDtTM = dtTm
+							set cm.LastmodID = sqlUsr
+							set cm.CreateID = sqlUsr
+							set cm.ControlNumber = $ZSTRIP(cnStr,"<>WC")
+		
+	    			
+						 	set stat = cm.%Save()
+													
+							if ($$$ISERR(stat))
+							{
+								  
+								Do $SYSTEM.Status.DisplayError(stat)
+								
+								Do outFile.WriteLine( " - Name: " _cm.NAME _ ", TT: " _ cm.TRANSTYPE _ ", Tp1: " _ tpId1.Name _ ",2: " _ tpId2.Name _ ",3: " _ tpId3.Name _ ",4: " _ tpId4.Name _", Mode: " _ cm.Mode)
+								Do outFile.WriteLine( ", ACK: " _ cm.ISAAck _", " _ cm.GSAck _", " _ cm.STAck  _", ControlNumber: " _ cm.ControlNumber)
+								Do outFile.WriteLine(  "EdifecsId: " _ cm.EdifecsID _", " _ cm.Notes _", Routing: " _ cm.Routing _" / " _ route _"; ")
+								set numErr = numErr + 1
+								
+								&SQL(SELECT count(*) into :numRows from IHC_ITF_ITFCOMMON_TPManage.TRADELINKS where NAME = :tpLnkNm)
+								// Do outFile.WriteLine( SQLCODE _", #: " _ numRows
+								if ((SQLCODE = 0) && (numRows >= 1))
+								{
+									set numDup = numDup + 1
+									if (numRows > 1)
+									{
+										Do outFile.WriteLine( " -***- Same Link exists multiple times in IHC_ITF_ITFCOMMON_TPManage.TRADELINKS: " _ tpLnkNm)
+									}
+									 Do outFile.WriteLine( "Duplicate Link: " _ tpLnkNm )
+								}
+								
+							}
+							
+							// Insert Custom Properties
+							Set tpLink = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(cm.%Id())
+	
+							If $IsObject(tpLink) {
+								set kv1 = ##class(IHC.ITF.ITFCOMMON.TPManage.KeyValue).%New()
+				   			 	set kv1.Key = "Separators"
+				    			set kv1.Value = sepStr			    						    			
+				    			set stat = tpLink.customProp.Insert(kv1)
+				    			
+				    			set kv2 = ##class(IHC.ITF.ITFCOMMON.TPManage.KeyValue).%New()
+				    			set kv2.Key = "Severity"
+				    			set kv2.Value = severity		    						    			
+				    			set stat = tpLink.customProp.Insert(kv2)
+				    			
+				    			if (batch835 '= "")
+				    			{
+					    			set kv3 = ##class(IHC.ITF.ITFCOMMON.TPManage.KeyValue).%New()
+					    			set kv3.Key = $PIECE(batch835, ":", 1)
+					    			set kv3.Value = $PIECE(batch835, ":", 2)		    						    			
+					    			set stat = tpLink.customProp.Insert(kv3)
+
+				    			}
+
+				    			if ($$$ISERR(stat))
+								{
+									Do outFile.WriteLine( "Error in INSERT KeyValue" _ stat)
+									QUIT
+								}
+								// Do outFile.WriteLine( "IsModified: " _ tpLink.%IsModified() _", cnt # " _ tpLink.customProp.Count())
+								
+								
+								set stat = tpLink.%Save()
+								Do outFile.WriteLine( "IHC.ITF.ITFCOMMON.TPManage.TRADELINKS Id: " _ cm.%Id() _ " and KeyValues saved")
+								
+								if ($$$ISERR(stat))
+								{
+									Do outFile.WriteLine( "Error in UPDATE " _ stat)
+									QUIT
+								}
+								set numSave = numSave + 1
+							}
+							
+						}
+						else
+						{
+							Do outFile.WriteLine( "ERROR - Name: " _tpLnkNm _ ", ID: " _ edifecsId _ ", TT: " _ tt _ "- Invalid TPIDs: " _ $IsObject(tpId1) _", " _ $IsObject(tpId2) _", " _ $IsObject(tpId3) _", " _ $IsObject(tpId4) _", " _ $IsObject(ttObj))
+							set numErr = numErr + 1
+						}
+				  }
+					
+			 }
+			 elseif ($F(text, "category name=Interchange") > 1)
+			 {
+				 set level = "ISA-"
+				 if ( (transaction = 1) || (functionalGroup = 1))
+				 {
+					
+					 if (direction = 1)
+					 {
+					 	set getCN = 0
+					 }
+					 else
+					 {
+						 set getCN = 1
+					 }
+					 // Do outFile.WriteLine( " -- In Second set: " _ text _ ", " _ direction _", getCN: " _ getCN)
+				 }
+				 else
+				 {
+					 
+					 if (direction = 1)
+					 {
+					 	set getCN = 1
+					 }
+					 else
+					 {
+						 set getCN = 0
+					 }
+					 // Do outFile.WriteLine( " -- In First set: " _ text _ ", " _ direction _", getCN: " _ getCN)
+				 }
+				 set interchange = 1
+			 }
+			 elseif ($F(text, "category name=FunctionalGroup") > 1)
+			 {
+				 set level = "GS-"
+				 set functionalGroup = 1
+				 set interchange = 0
+			 }
+			 elseif ($F(text, "category name=Transaction") > 1)
+			 {
+				 set level = "ST-"
+				 set transaction = 1
+				 set functionalGroup = 0
+			 }
+			 
+			 elseif ( ($F(text, "InterchangeReceiverID") > 1) && ($F(text, "Interchange][1]") > 1) )
+			 {
+				 do {
+					 set text = fileObj.ReadLine(,.sc, .eol)
+					 if $$$ISERR(sc) 
+					 {
+						 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+						 QUIT
+					 } 
+					 set line = line + 1
+					 if ($F(text, "Partner.ID.X12Identifier") > 0)
+					 {
+						 set sid = $EXTRACT(text, $F(text, "sid="), $F(text, "}") - 2)
+					 	  &SQL(select ID, EdifecsID into :tpId, :isaRecvEdicId FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where EdifecsID = :sid)
+						if SQLCODE '= 0
+						{			
+								Do outFile.WriteLine( "EdifecsID: " _ sid _ "- Error in finding InterchangeReceiverID, SQLCODE: " _ SQLCODE _ ", Name: " _tpLnkNm _ text _ ", TPs: " _ sender _ "->" _ receiver)
+								QUIT							 
+						}
+						elseif (tpId = "")
+						{
+							Do outFile.WriteLine( "ID for TP is empty " _ sid)
+								 
+						}
+						set isaReceiver = tpId 
+						// Do outFile.WriteLine( "Receiver: " _ sid _" - " _ tpId
+					 }
+				 } while($F(text, "</category>") <= 0)
+			 }
+			 elseif ( ($F(text, "InterchangeSenderID") > 1) && ($F(text, "Interchange][1]") > 1) )
+			 {
+				 do {
+					 set text = fileObj.ReadLine(,.sc, .eol)
+					 if $$$ISERR(sc) 
+					 {
+						 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+						 QUIT
+					 } 
+					 set line = line + 1
+					 if ($F(text, "Partner.ID.X12Identifier") > 0)
+					 {
+						 set sid = $EXTRACT(text, $F(text, "sid="), $F(text, "}") - 2)
+					 	  &SQL(select ID, EdifecsID into :tpId, :isaSendEdicId FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where EdifecsID = :sid)
+						if SQLCODE '= 0
+						{			
+								Do outFile.WriteLine( "EdifecsID: " _ sid _ "- Error in finding InterchangeSenderID, SQLCODE: " _ SQLCODE _ ", Name: " _tpLnkNm _ text _ ", TPs: " _ sender _ "->" _ receiver)
+								QUIT							 
+						}
+						elseif (tpId = "")
+						{
+							Do outFile.WriteLine( "ID for TP is empty " _ sid)
+								 
+						}
+						set isaSender = tpId 
+						// Do outFile.WriteLine( "Sender: " _ sid _" - " _ tpId
+					 }
+				 } while($F(text, "</category>") <= 0)
+			 }
+			 elseif ( ($F(text, "GroupSenderID") > 1) && ($F(text, "Interchange][1]") > 1) )
+			 {
+				 do {
+					 set text = fileObj.ReadLine(,.sc, .eol)
+					 if $$$ISERR(sc) 
+					 {
+						 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+						 QUIT
+					 } 
+					 set line = line + 1
+					 if ($F(text, "Partner.ID.X12Identifier") > 0)
+					 {
+						 set sid = $EXTRACT(text, $F(text, "sid="), $F(text, "}") - 2)
+					 	  &SQL(select ID into :tpId FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where EdifecsID = :sid)
+						if SQLCODE '= 0
+						{			
+								Do outFile.WriteLine( "EdifecsID: " _ sid _ "- Error in finding GroupSenderID, SQLCODE: " _ SQLCODE _ ", Name: " _tpLnkNm _ text _ ", TPs: " _ sender _ "->" _ receiver)
+								QUIT							 
+						}
+						elseif (tpId = "")
+						{
+							Do outFile.WriteLine( "ID for TP is empty " _ sid)
+								 
+						}
+						set gsSender = tpId 
+					 }
+				 } while($F(text, "</category>") <= 0)
+			 }
+			 elseif (($F(text, "GroupReceiverID") > 1) && ($F(text, "Interchange][1]") > 1) )
+			 {
+				 do {
+					 set text = fileObj.ReadLine(,.sc, .eol)
+					 
+					 if $$$ISERR(sc) 
+					 {
+						 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+						 QUIT
+					 } 
+					 set line = line + 1
+					 if ($F(text, "Partner.ID.X12Identifier") > 0)
+					 {
+						 set sid = $EXTRACT(text, $F(text, "sid="), $F(text, "}") - 2)
+					 	  &SQL(select ID into :tpId FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS where EdifecsID = :sid)
+						if SQLCODE '= 0
+						{			
+								Do outFile.WriteLine( "EdifecsID: " _ sid _ "- Error in finding GroupReceiverID, SQLCODE: " _ SQLCODE _ ", Name: " _tpLnkNm _ text _ ", TPs: " _ sender _ "->" _ receiver)
+								QUIT							 
+						}
+						elseif (tpId = "")
+						{
+							Do outFile.WriteLine( "ID for TP is empty " _ sid)
+								 
+						}
+						set gsReceiver = tpId 
+					 }
+				 } while($F(text, "</category>") <= 0)
+			 }
+			 elseif ($F(text, "category name=Transaction""") > 1)
+			 {
+				 set transaction = 1
+				 set functionalGroup = 0
+			 }
+			 elseif ($F(text, "obConnection") > 1)
+			 {
+				 set edifId = ""
+				 
+				 if ($F(text, "SenderPartner") > 1)
+				 {
+					 set edifId =sender
+				 }
+				 else
+				 {
+					 set edifId = receiver
+				 }
+				 
+				 set colNm = $REPLACE($EXTRACT(text, $F(text, "Partner.cf."),  $F(text, "}") - 2), "_", "")
+				 // Do outFile.WriteLine( colNm _ " for: " _ edifId)
+				  set myquery = "SELECT " _ colNm _ " FROM IHC_ITF_ITFCOMMON_TPManage.CustomFields where EdicTpId = " _edifId
+				    set tStatement = ##class(%SQL.Statement).%New()
+					  set qStatus = tStatement.%Prepare(myquery)
+					   if qStatus'=1 {write !, myquery _ " - %Prepare failed:" do $System.Status.DisplayError(qStatus) quit}
+					  set rset = tStatement.%Execute()
+					  while rset.%Next()
+  						{
+							set route = rset.%Get(colNm)
+								if SQLCODE '= 0
+								{			
+										Do outFile.WriteLine( "EdifecsID: " _ edifId _ "- Error in finding CustomFields: " _ SQLCODE _ ", Name: " _tpLnkNm)
+										QUIT							 
+								}
+								elseif (tpId = "")
+								{
+									Do outFile.WriteLine( "ID for CustomFields is empty " _ sid)
+										 
+								}
+								// Do outFile.WriteLine( " -- Routing: " _ route
+  						}
+						
+						
+			 }
+			 elseif ($LOCATE(text, "CNIncrement|CNLastUsed|CNScope|CNType") > 0)
+			 {
+			 		
+	    			if (getCN = 1)
+	    			{
+		    			
+		    			// Do outFile.WriteLine( "Get CN values: " _ level _ text)
+		    			set fldSep = $F(text, ">")
+		    			set cnStr =  cnStr _ level _ $EXTRACT(text, $F(text, "name="),  fldSep - 2) _": "_$EXTRACT(text, fldSep, $F(text, "<", fldSep)-2) _ "; "
+	    			}
+			 }
+			 elseif ($FIND(text, "SeverityConfig") > 0)
+			 {
+				 if ($F(text, "default=") > 0)
+				 {
+				 	set severity = $EXTRACT(text, $F(text, "default=") , $F(text, "esf;"))
+				 	set severity = $EXTRACT(severity, $F(severity, "ESF/"), $F(severity, ".") -2)
+				 }
+			 }
+			 elseif ($F(text, "category name=Acknowledgement") > 1  )
+			 {
+				 do {
+					 set text = fileObj.ReadLine(,.sc, .eol)
+					 // Do outFile.WriteLine( " -- ACK: " _ direction _", " _ level _ text _ " -> " _ getCN)
+					 if $$$ISERR(sc) 
+					 {
+						 Do outFile.WriteLine( "End of File: " _sc _ ", " _ eol)
+						 QUIT
+					 } 
+					 set line = line + 1
+					 if ($F(text, "Type") > 0)
+					 {
+						 set type = $EXTRACT(text, $F(text, ">"), $F(text, "</") - 3)
+					 	 
+					 }
+					 elseif ($F(text, "Usage") > 0)
+					 {
+						 set usage = $EXTRACT(text, $F(text, ">"), $F(text, "</") - 3)
+					 	 
+					 }
+				 } while($F(text, "</category>") <= 0)
+				 if (getCN = 1)
+	    		 {
+				 	// Do outFile.WriteLine( direction _", " _ level _ "Ack: " _ type _ ", " _ usage)
+				 	
+				 	if ($F(usage, "SenderPartner") > 1)
+					 {
+						 set edifId =sender
+					 }
+					 else
+					 {
+						 set edifId = receiver
+					 }
+					 set whenAck = ""
+					 set defInd = $F(usage, "default=")
+					 if (defInd > 0)
+					 {
+					 	set whenAck = $EXTRACT(usage, defInd , $F(usage, ";", defInd)-2)
+					 }
+					 else
+					 {
+					    set cusNm = $F(usage, "Partner.cf.")
+					    if (cusNm <= 0)
+					    {
+						    set whenAck = usage
+					    }
+					    else
+					    {
+						 	set colNm = $REPLACE($EXTRACT(usage, cusNm,  $F(usage, "}") - 2), "_", "")
+			    		 
+						  // Do outFile.WriteLine( " -- Check DB for " _colNm _ " for: " _ edifId)
+						  set myquery = "SELECT " _ colNm _ " FROM IHC_ITF_ITFCOMMON_TPManage.CustomFields where EdicTpId = " _edifId
+						    set tStatement = ##class(%SQL.Statement).%New()
+							  set qStatus = tStatement.%Prepare(myquery)
+							   if qStatus'=1 {write !, myquery _ " - %Prepare failed:" do $System.Status.DisplayError(qStatus) quit}
+							  set rset = tStatement.%Execute()
+							  while rset.%Next()
+		  						{
+									set whenAck = rset.%Get(colNm)
+										if SQLCODE '= 0
+										{			
+												Do outFile.WriteLine( "EdifecsID: " _ edifId _ "- Error in finding CustomFields: " _ SQLCODE _ ", Name: " _tpLnkNm)
+												QUIT							 
+										}
+										elseif (tpId = "")
+										{
+											Do outFile.WriteLine( "ID for CustomFields is empty " _ sid)
+												 
+										}
+										
+		  						}
+					 	}
+	  						
+		    		 }
+		    		 // Do outFile.WriteLine( " --- ACK: " _ level _ type _": " _ whenAck _ "; ")
+		    		 // set ackStr = ackStr _ type _": " _ whenAck _ "; "
+		    		 set ackStr = ackStr _ $ZCONVERT(whenAck, "U") _ "; "
+		    		 
+				  }
+			 }
+			 elseif ( (getCN = 1) && ($LOCATE(text, "Separator|Delimiter") > 1 ) )
+			 {
+				 set fldSep = $F(text, ">")
+				 // Do outFile.WriteLine( " -*- Separator: "_  $EXTRACT(text, $F(text, "name="),  fldSep - 2) _": "_$EXTRACT(text, fldSep, $F(text, "<", fldSep)-2) _ "; ")
+				 if ($F(text, "Partner.cf.") > 0)
+				 {
+					 set edifId = ""
+				 
+					 if ($F(text, "SenderPartner") > 1)
+					 {
+						 set edifId =sender
+					 }
+					 else
+					 {
+						 set edifId = receiver
+					 }
+					 set colNm = $REPLACE($EXTRACT(text, $F(text, "Partner.cf."),  $F(text, "}") - 2), "_", "")
+					 // Do outFile.WriteLine( colNm _ " for: " _ edifId)
+					  set myquery = "SELECT " _ colNm _ " FROM IHC_ITF_ITFCOMMON_TPManage.CustomFields where EdicTpId = " _edifId
+					    set tStatement = ##class(%SQL.Statement).%New()
+						  set qStatus = tStatement.%Prepare(myquery)
+						   if qStatus'=1 {write !, myquery _ " - %Prepare failed:" do $System.Status.DisplayError(qStatus) quit}
+						  set rset = tStatement.%Execute()
+						  while rset.%Next()
+	  						{
+								set ele = rset.%Get(colNm)
+									if SQLCODE '= 0
+									{			
+											Do outFile.WriteLine( "EdifecsID: " _ edifId _ "- Error in finding CustomFields: " _ SQLCODE _ ", Name: " _tpLnkNm)
+											QUIT							 
+									}
+									elseif (tpId = "")
+									{
+										Do outFile.WriteLine( "ID for CustomFields is empty " _ sid)
+											 
+									}
+									set sepStr = sepStr _ colNm _": " _ ele _"; "
+	  						}
+				 }
+				 else
+				 {
+					 set sepStr = sepStr _ $EXTRACT(text, $F(text, "name="),  fldSep - 2) _": "_$EXTRACT(text, fldSep, $F(text, "<", fldSep)-2) _ "; "
+				 }
+
+			 }
+			 elseif ((trans = 835) && ($F(text, "BatchingMode835") > 1))
+			 {
+				 // Do outFile.WriteLine( " --==-- " _ text)
+				 set edifId = ""
+				 
+					 if ($F(text, "SenderPartner") > 1)
+					 {
+						 set edifId =sender
+					 }
+					 else
+					 {
+						 set edifId = receiver
+					 }
+					 set colNm = $REPLACE($EXTRACT(text, $F(text, "Partner.cf."),  $F(text, "}") - 2), "_", "")
+					 // Do outFile.WriteLine( colNm _ " for: " _ edifId
+					 set myquery = "SELECT " _ colNm _ " FROM IHC_ITF_ITFCOMMON_TPManage.CustomFields where EdicTpId = " _edifId
+					 set tStatement = ##class(%SQL.Statement).%New()
+					  set qStatus = tStatement.%Prepare(myquery)
+					   if qStatus'=1 {write !, myquery _ " - %Prepare failed:" do $System.Status.DisplayError(qStatus) quit}
+					  set rset = tStatement.%Execute()
+					  while rset.%Next()
+  						{
+							set ele = rset.%Get(colNm)
+								if SQLCODE '= 0
+								{			
+										Do outFile.WriteLine( "EdifecsID: " _ edifId _ "- Error in finding CustomFields: " _ SQLCODE _ ", Name: " _tpLnkNm)
+										QUIT							 
+								}
+								elseif (tpId = "")
+								{
+									Do outFile.WriteLine( "ID for CustomFields is empty " _ sid)
+										 
+								}
+								set batch835 = colNm _":" _ ele
+  						}
+			 	
+
+			 }
+			 // --
+		}
+	 }
+	 Do outFile.WriteLine( "Processed: " _ flNm)
+	 DO fileObj.Close()
+ } else
+ {
+	 Do outFile.WriteLine( "Can't open file: " _ flNm)
+ }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
