@@ -1,0 +1,745 @@
+import { Component } from '@angular/core';
+import { Injectable } from '@angular/core';
+import {
+  HttpClient,
+  HttpHeaders,
+  HttpParams
+  } from '@angular/common/http';
+import { forkJoin, Observable, pipe } from 'rxjs';
+import { map, catchError, tap } from 'rxjs/operators';
+import { Subject, throwError } from 'rxjs';
+import { formatDate } from '@angular/common';
+import { LOCALE_ID, NgModule } from '@angular/core';
+import { environment } from '../../environments/environment';
+
+import { Inject } from "@angular/core";
+
+
+import {EligibilityRequest} from '../transaction/EligibilityRequest'
+import {Claim} from '../transaction/Claims'
+import {ClaimStatusResp} from '../transaction/ClaimStatusResp'
+import {ClaimStatusReq} from '../transaction/ClaimStatusReq'
+import {ClaimPayment} from '../transaction/ClaimPayment'
+import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
+import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgement';
+import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
+import { transition } from '@angular/animations';
+
+import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
+
+import { Router, ActivatedRoute} from '@angular/router';
+import {User} from '../login/user';
+
+const tpUrl = `${environment.tpUrl}`;
+
+const rtTransUrl = `${environment.rtTransUrl}`;
+const batchTransUrl = `${environment.batchTransUrl}`;
+
+
+@Injectable({ providedIn: 'root' })
+
+@Component({
+  selector: 'app-rest-service',
+  templateUrl: './rest-service.component.html'
+})
+
+export class TransRestServiceComponent {
+
+  error = new Subject<string>();
+  currentUser: string = "";
+
+  constructor(private http: HttpClient, private http2: HttpClient
+    , private router: Router, @Inject(LOCALE_ID) public locale: string)
+   {
+    console.log('**** TransRestServiceComponent RestServiceComponent constructor ****');
+   }
+
+ // Transactions REST
+
+setcurrentUser(currentUser : string)
+{
+  this.currentUser = currentUser;
+}
+
+fetchEligibilityRequests(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch EligibilityRequest with Auth for: ' + searchStr );
+
+  let url = this.createRestUrl('EligibilityBenefits', searchStr, searchType, maxCnt);
+
+  console.log('ElgBen: ' + url)
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const EligibilityRequestArray: EligibilityRequest[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+             EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return TP array: ' + EligibilityRequestArray.length );
+        return EligibilityRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchEligibilityRequest catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchEligibilityBenefitResponses(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Eligibility Benefit Responses with Auth ' + searchStr);
+
+  let url = this.createRestUrl('EligibilityBenefitResponses', searchStr, searchType, maxCnt)
+
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const EligibilityRequestArray: EligibilityRequest[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + EligibilityRequestArray.length );
+        return EligibilityRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchEligibilityBenefitResponses catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchClaims(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Claim with Auth ' );
+
+  let url = this.createRestUrl('Claims', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: Claim }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimArray: Claim[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim array: ' + ClaimArray.length );
+        return ClaimArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaims catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+fetchClaimStatusReq(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = this.createRestUrl('ClaimStatusRequest', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: ClaimStatusReq }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimStatusReqArray: ClaimStatusReq[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimStatusReqArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimStatusReqArray.length );
+        return ClaimStatusReqArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimStatusResp catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchClaimStatusResp(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = this.createRestUrl('ClaimStatusResponse', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: ClaimStatusResp }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimStatusRespArray: ClaimStatusResp[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimStatusRespArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimStatusRespArray.length );
+        return ClaimStatusRespArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimStatusResp catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+
+
+fetchClaimPayment(searchStr: string, searchType: string, maxCnt : Number) {
+  console.debug('fetchClaimPayment: ' + searchStr +", " + searchType  +", " + maxCnt)
+  let url = this.createRestUrl('ClaimPayment', searchStr, searchType, maxCnt)
+
+  return this.http2
+    .get<{ [key: string]: ClaimPayment }>(
+      url
+    ).pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimPaymentArray: ClaimPayment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimPaymentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimPaymentArray.length );
+        return ClaimPaymentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimPayment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchImplementationAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = this.createRestUrl('ImplementationAcknowledgment', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: ImplementationAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ImplementationAcknowledgmentArray: ImplementationAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ImplementationAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ImplementationAcknowledgmentArray.length );
+        return ImplementationAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchImplementationAcknowledgment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchInterchangeAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Interchange Ack with Auth ' );
+
+  let url = this.createRestUrl('InterchangeAcknowledgment', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: InterchangeAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const InterchangeAcknowledgmentArray: InterchangeAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            InterchangeAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + InterchangeAcknowledgmentArray.length );
+        return InterchangeAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchInterchangeAcknowledgment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+fetchClaimAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+  console.log('Fetch Claim Status Response with Auth ' );
+
+  let url = this.createRestUrl('ClaimAcknowledgment', searchStr, searchType, maxCnt);
+
+  return this.http2
+    .get<{ [key: string]: ClaimAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ClaimAcknowledgmentArray: ClaimAcknowledgment[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            ClaimAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + ClaimAcknowledgmentArray.length );
+        return ClaimAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchClaimAcknowledgment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchTransactionFields() {
+  console.log('Fetch TransactionFields with Auth ' );
+
+  let url = rtTransUrl + 'TransactionFields';
+
+
+  return this.http2
+    .get<{ [key: string]: Claim }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        return responseData;
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+
+fetchDisplayColumns() {
+
+
+  let url = rtTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
+
+  console.log('Fetch DisplayColumns from  ' + url);
+  return this.http2
+    .get<{ [key: string]: DisplayColumns }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const dispArray: DisplayColumns[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            dispArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Display array: ' + dispArray.length );
+        return dispArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+saveDisplayColumns(dispCol: DisplayColumnsArray)
+{
+  dispCol.User =  this.currentUser;
+  console.log('saveDisplayColumns ' +  this.currentUser);
+
+  let url = rtTransUrl + 'SaveDisplayColumns';
+
+  console.info('Post to SaveDisplayColumns: ' + url +" for " + dispCol.User);
+
+  return this.http.post<any>(url, dispCol)
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('saveDisplayColumns catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+fetchParentRecord(id: string, trans: string, searchTypeString: string) {
+
+
+  let url = rtTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
+
+  if(searchTypeString.indexOf("Batch") >= 0)
+  {
+    url = batchTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
+  }
+
+  console.log('Fetch Parent X12 ' + url);
+  return this.http2.get<{ [key: string]: ImplementationAcknowledgment }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info("responseData: " + responseData);
+
+        if(responseData !== undefined && responseData[0] !== undefined)
+        {
+
+          console.info('return Parent X12 : ' + responseData[0].id );
+          return responseData[0];
+        }
+        else
+        {
+          console.info('No data from service');
+          return "No data";
+        }
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchParentRecord catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+openRelated2701Model(trans:string, cRefId: string, dRefId : string,
+  InterchangeSenderID : string,
+  InterchangeReceiverID: string,
+  InterchangeControlNumber: string, searchTypeString: string)
+  {
+
+    let url = rtTransUrl
+    if(searchTypeString.indexOf("Batch") >= 0)
+    {
+       url = batchTransUrl
+    }
+
+    url = url + "GetRelatedEligBenefit?transType="+trans+"&C1TRN1RefId="
+    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+    console.log('Fetch 27x X12 ' + url);
+    return this.http2
+      .get<{ [key: string]: any }>(
+        url
+      )
+
+      .pipe(
+        map(responseData => {
+          console.info(responseData);
+
+          return responseData[0];
+
+
+        }),
+
+        catchError(errorRes => {
+          // Send to analytics server
+          console.error('In openRelated27xModel catchError: ' + errorRes);
+          return errorRes;
+        })
+      );
+  }
+
+
+openRelated2767Model(trans:string, cRefId: string, dRefId : string,
+  InterchangeSenderID : string,
+  InterchangeReceiverID: string,
+  InterchangeControlNumber: string, searchTypeString: string)
+  {
+
+    let url = rtTransUrl
+    if(searchTypeString.indexOf("Batch") >= 0)
+    {
+       url = batchTransUrl
+    }
+
+    url = url + "GetRelatedClaimStatus?transType="+trans+"&C1TRN1RefId="
+    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+    console.log('Fetch 27x X12 ' + url);
+    return this.http2
+      .get<{ [key: string]: any }>(
+        url
+      )
+
+      .pipe(
+        map(responseData => {
+          console.info(responseData);
+
+          return responseData[0];
+
+
+        }),
+
+        catchError(errorRes => {
+          // Send to analytics server
+          console.error('In openRelated27xModel catchError: ' + errorRes);
+          return errorRes;
+        })
+      );
+  }
+
+fetchGetRelatedTransaction(trans: string, grpId: string, InterchangeSenderID : string,
+ InterchangeReceiverID : string,
+  InterchangeControlNumber : string, searchTypeString: string) {
+
+    let url = rtTransUrl
+    if(searchTypeString.indexOf("Batch") >= 0)
+    {
+       url = batchTransUrl
+    }
+
+  url = url + "GetRelatedTransaction?GroupControlNumber="
+  + grpId+"&transType="+trans+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+  +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
+
+  console.log('Fetch 999 X12 ' + url);
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        return responseData[0];
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchGetRelatedTransaction catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+openRelated83xModel(trans: string,
+  ClaimSubmittersIdentifier : string, MonetaryAmount :  string)
+  {
+
+
+     let url = batchTransUrl + "GetRelatedClaimInfo?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier
+ + "&MonetaryAmount="+MonetaryAmount;
+
+ console.log('Fetch 83x X12 ' + url);
+ return this.http2
+   .get<{ [key: string]: Claim }>(
+     url
+   )
+
+   .pipe(
+     map(responseData => {
+       console.info(responseData);
+
+       return responseData[0];
+
+
+     }),
+
+     catchError(errorRes => {
+       // Send to analytics server
+       console.error('In openRelated83xModel catchError: ' + errorRes);
+       return errorRes;
+     })
+   );
+
+
+}
+openRelatedClaimAckModel(trans: string,
+  ClaimSubmittersIdentifier : string)
+  {
+
+    let url = batchTransUrl + "GetRelatedClaimAck?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier;
+
+ console.log('Fetch 277CA X12 ' + url);
+ return this.http2
+   .get<{ [key: string]: Claim }>(
+     url
+   )
+
+   .pipe(
+     map(responseData => {
+       console.info(responseData);
+
+       return responseData[0];
+
+     }),
+
+     catchError(errorRes => {
+       // Send to analytics server
+       console.error('In openRelatedClaimAckModel catchError: ' + errorRes);
+       return errorRes;
+     })
+   );
+
+
+}
+
+createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : Number)
+{
+  let dateFormat = require('dateformat');
+  let dte = new Date();
+
+  let url = batchTransUrl
+  let dtTm = "";
+
+  if (searchType.startsWith('RT'))
+  {
+     url = rtTransUrl;
+  }
+
+  url = url + tranType ;
+
+  if(searchStr.indexOf("id=") >= 0)
+  {
+    url = url + "?searchStr=" + searchStr +"&count=1"
+  }
+  else{
+
+    if (searchType.indexOf('24 hour') > 0)
+    {
+      dte.setDate(dte.getDate() - 1);
+    }
+    else if (searchType.indexOf('7 day') > 1)
+    {
+      dte.setDate(dte.getDate() - 7);
+    }
+    else{
+      dte.setMonth(dte.getMonth() - 1 );
+
+    }
+    dtTm = formatDate(dte, 'yyyy-MM-dd hh:mm:ss',this.locale);
+
+    console.log('Fetch ' + tranType + ' with Auth ' + searchType + ", DtTm: " + dtTm + ", return: " + maxCnt);
+
+    if(searchStr.length > 0)
+    {
+      url = url + "?searchStr=" + searchStr + " and ProcessDtTm > '" + dtTm +"'&count=" + maxCnt;
+    }
+    else
+    {
+      url = url + "?searchStr= ProcessDtTm > '" + dtTm +"'&count=" + maxCnt
+    }
+  }
+  console.log('URL: ' + url);
+  return url;
+}
+
+
+  }
+
+
+
