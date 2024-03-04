@@ -82,9 +82,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='transPid' type='%Integer' instantiate='0' />
+<property name='authPid' type='%Integer' instantiate='0' />
 </context>
-<sequence xend='200' yend='1800' >
-<scope xpos='200' ypos='250' xend='200' yend='1700' >
+<sequence xend='200' yend='1900' >
+<scope xpos='200' ypos='250' xend='200' yend='1800' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -188,8 +190,41 @@ BPL Definition</Description>
   }
  }]]]]><![CDATA[>
 </code>
-<transform name='Translate Syngo Hl7 to Cerner Hl7' class='IHC.ITF.Transform.Dtl.SyngoDynamicsResultsHl7ToCernNUCMEDPDF' source='request' target='response' xpos='200' ypos='1050' />
-<code name='get a copy of the output message for EF interface' xpos='200' ypos='1150' >
+<code name='Provider id lookup' xpos='200' ypos='1050' >
+<![CDATA[ set transLn = request.GetValueAt("TXA:11.2") 
+ set transFn = request.GetValueAt("TXA:11.3")
+ $$$TRACE("Transcriptionist Name: "_transLn_"^"_transFn)
+ if (transLn="") || (transFn="") {
+   set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputeDataError(process.%ConfigName, "TXA-11 is null, skip message.")
+ }
+ else {
+   set tNm=transLn_"^"_transFn
+   set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SyngoDynamicsResultsHl7ToCernNUCMEDPDF.Lookup.prvdrIds", tNm, .retVal )	
+   if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Provider id(Trans) is not found in the lookup table, Please resend the message message.")
+   } else {
+	 set context.transPid= retVal
+	 set authLn = request.GetValueAt("TXA:22.2") 
+     set authFn = request.GetValueAt("TXA:22.3")
+     $$$TRACE("Auth Person Name: "_authLn_"^"_authFn)
+     if (authLn=transLn) && (authFn=transFn) {
+	   set context.authPid= context.transPid
+     }
+     else {
+	   set aNm=transLn_"^"_transFn
+       set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SyngoDynamicsResultsHl7ToCernNUCMEDPDF.Lookup.prvdrIds", aNm, .retVal )	
+       if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Provider id(Auth) is not found in the lookup table, Please resend the message message.")
+       } else {
+	     set context.authPid= retVal
+       }
+     }
+   }
+
+ }]]]]><![CDATA[>
+</code>
+<transform name='Translate Syngo Hl7 to Cerner Hl7' class='IHC.ITF.Transform.Dtl.SyngoDynamicsResultsHl7ToCernNUCMEDPDF' source='request' target='response' xpos='200' ypos='1150' />
+<code name='get a copy of the output message for EF interface' xpos='200' ypos='1250' >
 <![CDATA[  Set context.msg=response.%ConstructClone()
   if (context.efObxSegSeqNum > 1) {
     do context.msg.FindSegment("OBX", .obxIndx, .pStatus)
@@ -199,7 +234,7 @@ BPL Definition</Description>
     do context.msg.removeSegmentByIndex(efObxIndx)
   }]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='200' ypos='1250' >
+<code name='GetTargetConfigList' xpos='200' ypos='1350' >
 <![CDATA[ 
    SET countdown=$LENGTH(targetConfigNames,",")
    SET countup=1
@@ -212,18 +247,18 @@ BPL Definition</Description>
    }
    $$$TRACE("Final Target Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1350' xend='200' yend='350' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1450' xend='200' yend='350' >
 <call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="context.msg" action="set" />
 </request>
 </call>
 </foreach>
-<code name='Reset error count' xpos='200' ypos='1450' >
+<code name='Reset error count' xpos='200' ypos='1550' >
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='1550' xend='200' yend='350' >
+<catchall xpos='200' ypos='1650' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
