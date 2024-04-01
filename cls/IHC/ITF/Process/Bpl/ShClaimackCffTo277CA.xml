@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.ShClaimackCffTo277CA">
+<Description>
+Routes to different process</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66674,39340.18846</TimeCreated>
+
+<Property name="Sh277CATargetConfigName">
+<Description>
+SelectHealth Claims Medicare 837P and 837I process target name</Description>
+<Type>%String</Type>
+<InitialExpression>"Sh-Claims-Xml_Sh-Jdbc-STSSETMEDICARE"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>Sh277CATargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='EnsLib.EDI.XML.Document' height='2000' width='2000' >
+<context>
+<property name='Sh277CATargetConfigName' type='%String' initialexpression='"Sh-Claims-Xml_Sh-Jdbc-STSSETMEDICARE"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='recCnt' type='%Integer' instantiate='0' />
+<property name='recNum' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='recFirst' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='recOthers' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='x12Num' type='%Integer' instantiate='0' />
+<property name='cffRecs' type='%String' collection='list' instantiate='0' />
+</context>
+<sequence xend='200' yend='1200' >
+<scope xpos='200' ypos='250' xend='200' yend='1100' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[BPL ROuter]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")   	
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ 	$$$TRACE("Max Errors: " _ maxErr)  
+ ]]]]><![CDATA[>
+</code>
+<code name='initializeTargets' xpos='200' ypos='650' >
+<![CDATA[ 
+ set context.Sh277CATargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","Sh277CATargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("Sh277CATargetConfigName: " _ context.Sh277CATargetConfigName) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No Sh277CATargetConfigName found.")   	
+ } 
+ 
+ set context.recCnt =  request.Records.Count()
+ 
+ $$$TRACE("Total # of records: " _ context.recCnt)
+   set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
+</code>
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1300' >
+<assign name="Get the record" property="caRec " value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1100' >
+<true>
+<trace value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
+<code name='create list' xpos='470' ypos='600' >
+<![CDATA[ set context.cffRecs = ##class(%ListOfDataTypes).%New()
+ 
+ for i= context.recFirst :1: 
+  (context.recFirst + context.recOthers)
+  {
+   Do context.cffRecs.Insert(i)
+  }
+  
+  $$$TRACE("Length of list: " _ context.cffRecs.Size)]]]]><![CDATA[>
+</code>
+<transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='response' xpos='470' ypos='700' />
+<code name='Print X12' xpos='470' ypos='800' >
+<![CDATA[ set context.x12Num = context.x12Num + 1
+ $$$TRACE(context.x12Num _ ". X12: " _ response.OutputToString())]]]]><![CDATA[>
+</code>
+<code name='Route' xpos='470' ypos='900' >
+<![CDATA[ // Route the X12 based on TP
+ set x12Doc = response
+	 if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+	    set x12Doc.DocType="HIPAA_5010:Interchange"
+	    Set tSC =x12Doc.BuildMap()
+	    set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+            set tpInfo = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTpLinkInfo(InterchangeReceiverID , "277", "V5010X214", "Batch")
+            $$$TRACE(InterchangeReceiverID _ ": Tp Info : " _ tpInfo)
+            set snipLevel = $PIECE(tpInfo, "#", 3)
+            
+            set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(x12Doc, "SNIP", snipLevel)
+
+			if ($$$ISERR(tSC))
+			{
+				$$$LOGERROR( " -*- X12 Validation failed, " _ tpInfo _ ", RawContent length: " _ $L(x12Doc.RawContent))
+				#dim replyDoc as EnsLib.EDI.X12.Document
+				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(x12Doc, "All", "SNIP", snipLevel, "All") 
+				  if ($IsObject(replyDoc))
+				  {
+				  	 
+					  $$$TRACE("X12 Error: " _  replyDoc.RawContent)
+					  
+				  }
+
+                        }
+                        else
+                        {
+                            $$$TRACE("Validation passed. SNIP level: " _ snipLevel)
+                            $$$TRACE("Send X12 to " _ $PIECE(tpInfo, "#", 1))
+                        }
+ }
+ else
+ {
+     $$$LOGERROR(x12Doc  _ " - Not a X12 document")
+ }]]]]><![CDATA[>
+</code>
+<code name='Reset counts' xpos='470' ypos='1000' >
+<![CDATA[  set context.recFirst = context.recNum
+  set context.recOthers = 0]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
+</false>
+</if>
+<code name='UnSwizzleAt' xpos='200' ypos='1200' >
+<![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
+ 	// $$$TRACE("UnSwizzleAt stat: " _ sc)
+	set context.recNum = context.recNum + 1]]]]><![CDATA[>
+</code>
+</while>
+<trace value='"BPL complete, DTL called: " _ context.x12Num' xpos='200' ypos='850' />
+<faulthandlers>
+<catchall xpos='200' ypos='950' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ShClaimackCffTo277CADefaultData</DefaultData>
+<Data name="ShClaimackCffTo277CADefaultData">
+<Structure>listnode</Structure>
+<Subscript>"ShClaimackCffTo277CA"</Subscript>
+<Value name="1">
+<Value>Sh277CATargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
