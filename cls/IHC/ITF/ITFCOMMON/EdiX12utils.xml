@@ -744,7 +744,7 @@
 
 <Method name="GetAckDetails">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&retStr:%String,&contact:%String]]></FormalSpec>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&msgTrans:%String,&msgTransVer:%String,&retStr:%String,&contact:%String,&errList:%ListOfObjects,storeRec:%Boolean=0]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
 	try {
@@ -790,6 +790,7 @@
 				set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
 		
 		 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+		 		set errList = ##class(%ListOfObjects).%New()
 		 		while ($IsObject(k2))
 		 		{
 					
@@ -799,27 +800,70 @@
 						Set tSC =k2.PokeDocType(tDocType)
 					}
 					
-					
+					set ik3Str = "", ik4Str="", errNum = 1, segNum=0, segErrCode = 0, segErrStr ="", x12Data = ""
+					set errDet = ""
 					FOR seg=1:1:k2.SegCountGet()
 					{
 						set numRecs = numRecs + 1
 						set recType = k2.GetValueAt(seg_":0")
+						if (recType = "AK2")
+						{
+							set msgTrans = k2.GetValueAt(seg_":1")
+							set msgTransVer = k2.GetValueAt(seg_":3")
+						}
 						
 						if (recType = "IK3")
 						{
+															
 							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK304", k2.GetValueAt(seg_":4"), .retVal)
 							set segNum = k2.GetValueAt(seg_":2")
-							set ik3Str = "In Loop: " _ k2.GetValueAt(seg_":3") _ ", Segment # " _ segNum  _ ", ID: " _ k2.GetValueAt(seg_":1") _ ": " _ retVal 
+							set x12Data = ..GetFullSegment(x12Doc.OriginalDocId, segNum)
+							set segErrCode = k2.GetValueAt(seg_":4")
+							set segErrStr = retVal
+							if (errNum =1)
+							{
+									set ik3Str = errNum _".In Loop: " _ k2.GetValueAt(seg_":3") _ ", Segment # " _ segNum  _ " ->" _ origSeg _ ", ID: " _ k2.GetValueAt(seg_":1") _ ": " _ retVal 
+									
+
+							}
+							else
+							{
+									set ik3Str = ik3Str _ $CHAR(13) _$CHAR(10)_errNum _". In Loop: " _ k2.GetValueAt(seg_":3") _ ", Segment # " _ segNum  _ " ->" _ origSeg _ ", ID: " _ k2.GetValueAt(seg_":1") _ ": " _ retVal 
+
+							}
+							
 						}
-						if (recType = "IK4")
+						elseif (recType = "IK4")
 						{
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK43", k2.GetValueAt(seg_":3"), .retVal)
-							set ik4Str = "Element Position: " _ k2.GetValueAt(seg_":1") _ ", Error: " _ retVal
+							set errDet = ##class(IHC.ITF.ITFCOMMON.X12ErrorDetails).%New()
+						
+							Do errList.Insert(errDet)
+							set errDet.segNum = segNum
+							set errDet.x12Data = x12Data
+							set errDet.segErrCode = segErrCode
+							set errDet.segErrStr = segErrStr
+
+							set ik4Err = k2.GetValueAt(seg_":3")
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK43", ik4Err, .retVal)
+							set errDet.eleErrCode = k2.GetValueAt(seg_":1")
+							set errDet.eleErrStr = retVal
+							set errDet.eleNum = k2.GetValueAt(seg_":1")
+							if (errNum =1)
+							{
+								set ik4Str = errNum _". Segment Position in ST: " _ k2.GetValueAt(seg_":1") _ ", Error: " _ retVal _ " = "_ik4Err
+							}
+							else
+							{
+								set ik4Str = ik4Str  _ $CHAR(13) _$CHAR(10)_errNum _". Segment Position in ST: " _ k2.GetValueAt(seg_":1") _ ", Error: " _ retVal _ " = "_ik4Err
+							
+							}
+							set errNum = errNum + 1
 						}
-						if (recType = "AK9")
+						
+						elseif (recType = "AK9")
 						{
 							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("AK9", k2.GetValueAt(seg_":1"), .retVal)
-							set ak9Err = "Acknowledgement Response: " _ retVal
+							set ak9Err = retVal
 						}					
 					   
 					}
@@ -835,7 +879,51 @@
 		    {
 		        set origSeg = ..GetFullSegment(x12Doc.OriginalDocId, segNum)
 		    }
-		    set retStr = "Data Error: " _ $CHAR(13) _$CHAR(10) _ ak9Err _ $CHAR(13) _$CHAR(10) _ik3Str _ $CHAR(13) _$CHAR(10) _ ik4Str _ $CHAR(13) _$CHAR(10) _"Segment in inbound message: " _ origSeg
+		    // set retStr = "Data Error: " _ $CHAR(13) _$CHAR(10) _ ak9Err _ $CHAR(13) _$CHAR(10) _ik3Str _ $CHAR(13) _$CHAR(10) _ ik4Str _ $CHAR(13) _$CHAR(10) _"Segment in inbound message: " _ origSeg
+		    set retStr = ak9Err
+	    }
+	    // Store the error
+	    
+	    if (storeRec)
+	    {
+		    WRITE !, "Store error in IHC_ITF_ITFCOMMON_X12.WorkFlow"
+		    for i=1:1: errList.Count()
+			  {
+				  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  }
+			  
+			 
+			  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+			  set x12Data = x12Doc.OutputToString()
+			  set origX12id = x12Doc.OriginalDocId
+			  set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, X12Status, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, InterchangeReceiverID, InterchangeSenderID, msgTrans, msgTransVer, "New", retStr, $USERNAME, dtTm, x12Data, origX12id)
+
+			  set id = rset.%ROWID
+			  WRITE !, $NAMESPACE _ " - Inserted to  WorkFlow - " _ id 
+			  set obj = ##class(IHC.ITF.ITFCOMMON.X12.WorkFlow).%OpenId(id)
+			  
+			  WRITE !, "Insert errList #" _ errList.Count() _ " to ErrList: " _ obj.ErrList
+			  if ($IsObject(obj.ErrList))
+			  {
+				  for i=1:1: errList.Count()
+				  {
+					 if ($IsObject(errList.GetAt(i)))
+			  		 {
+					  		set stat = obj.ErrList.Insert(errList.GetAt(i))
+					  		WRITE !, "insert segNum: " _ errList.GetAt(i).segNum _": " _ stat
+			  		 }
+					  //
+				  }
+				  set stat = obj.%Save()
+				  WRITE !, " ErrList.Count: " _ obj.ErrList.Count()
+			  }
+			  
+			  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+					  
 	    }
       }
     } catch err
@@ -1146,14 +1234,14 @@
 
 <Method name="GetTpLinkInfo">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>tpId:%String,transactionSet:%String</FormalSpec>
+<FormalSpec>tpId:%String,transactionSet:%String,version:%String,mode:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	set retStr = ""
 	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME, lnk.SNIP " _
  "FROM IHC_ITF_ITFCOMMON_TPManage.TRADELINKS lnk, IHC_ITF_ITFCOMMON_TPManage.TPIDS tp, IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tt " _
  "where tp.ID = lnk.IsaReceiverId and tt.TransactionSetId = '"_ transactionSet _ "' AND tt.ID = lnk.TRANSTYPE " _
- "AND tp.TPID = '" _ tpId _ "' " )
+ " and lnk.Mode = '" _ mode _"' and tt.VERSION = '"_ version _ "' AND tp.TPID = '" _ tpId _ "' " )
 		
 	While rs.%Next() {
 		set nm = rs.%Get("NAME")
