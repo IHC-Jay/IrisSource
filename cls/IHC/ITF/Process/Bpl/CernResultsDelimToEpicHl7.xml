@@ -52,9 +52,14 @@ BPL Definition</Description>
 <property name='HddTargetConfigName' type='%String' instantiate='0' />
 <property name='IcentraDisplayContext' type='%String' initialexpression='527928691' instantiate='0' />
 <property name='EpicInboundContext' type='%String' initialexpression='530461119' instantiate='0' />
+<property name='RecordNumber' type='%Integer' instantiate='0' />
+<property name='PreviousAccessionNumber' type='%String' instantiate='0' />
+<property name='RecordsArray' type='%String' collection='array' instantiate='0' />
+<property name='ObxCnt' type='%String' instantiate='0' />
+<property name='RecordIndex' type='%Integer' instantiate='0' />
 </context>
-<sequence xend='200' yend='1200' >
-<scope xpos='200' ypos='250' xend='200' yend='1100' >
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -101,15 +106,40 @@ BPL Definition</Description>
 </code>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='200' ypos='650' />
 <transform name='transform' class='IHC.ITF.Transform.Dtl.CernResultsDelimToEpicHl7' source='request' target='response' xpos='200' ypos='750' />
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='850' xend='200' yend='350' >
-<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<code xpos='200' ypos='850' >
+<![CDATA[ set context.RecordNumber = (context.RecordNumber+1)
+ set newRecord = response.RawContentGet()
+ $$$TRACE("Raw content: "_newRecord)
+ do context.RecordsArray.SetAt(newRecord, context.RecordNumber)
+  set context.RecordNumber = 0]]]]><![CDATA[>
+</code>
+<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='950' xend='200' yend='450' >
+<foreach property='context.RecordsArray' key='context.RecordIndex' xpos='199' ypos='310' xend='200' yend='450' >
+<code xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE("Record Index"_context.RecordIndex)
+  try {
+    #Dim sc as %Status
+    // Create HL7 message object
+    set pHL7=##class(EnsLib.HL7.Message).ImportFromString(context.RecordsArray.GetAt(context.RecordIndex),.sc) $$$ThrowOnError(sc)
+    // Determine DocType from MSH
+    set tDocType=##class(EnsLib.HL7.Schema).ResolveSchemaTypeToDocType("2.5.1","ORU_R01", sc) $$$ThrowOnError(sc)      
+    // Set DocType and build map
+    set pHL7.DocType=tDocType    
+    set sc=pHL7.BuildMap() $$$ThrowOnError(sc)    
+ }catch ex {
+    set status =##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Error creating standard lab record to send, shutting down. Record: "_context.RecordsArray.GetAt(context.RecordIndex))
+ 
+ }]]]]><![CDATA[>
+</code>
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='350' >
 <request type='Ens.Request' >
-<assign property="callrequest" value="response" action="set" />
+<assign property="callrequest" value="pHL7" action="set" />
 </request>
 </call>
 </foreach>
+</foreach>
 <faulthandlers>
-<catchall xpos='200' ypos='950' xend='200' yend='350' >
+<catchall xpos='200' ypos='1050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
