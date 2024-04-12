@@ -23,6 +23,7 @@ import {ClaimPayment} from '../transaction/ClaimPayment'
 import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
 import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgement';
 import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
+import {WorkFlowEntry} from '../workflow/WorkFlowEntry';
 import { transition } from '@angular/animations';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
@@ -30,10 +31,6 @@ import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns
 import { Router, ActivatedRoute} from '@angular/router';
 import {User} from '../login/user';
 
-const tpUrl = `${environment.tpUrl}`;
-
-const rtTransUrl = `${environment.rtTransUrl}`;
-const batchTransUrl = `${environment.batchTransUrl}`;
 
 
 @Injectable({ providedIn: 'root' })
@@ -45,8 +42,12 @@ const batchTransUrl = `${environment.batchTransUrl}`;
 
 export class TransRestServiceComponent {
 
+   rtTransUrl = `${environment.rtDevTransUrl}`;
+   batchTransUrl = `${environment.batchDevTransUrl}`;
+
   error = new Subject<string>();
   currentUser: string = "";
+  env: string = "";
 
   constructor(private http: HttpClient, private http2: HttpClient
     , private router: Router, @Inject(LOCALE_ID) public locale: string)
@@ -56,13 +57,19 @@ export class TransRestServiceComponent {
 
  // Transactions REST
 
-setcurrentUser(currentUser : string)
+setcurrentUser(currentUser : string, env: string)
 {
   this.currentUser = currentUser;
+  this.env = env;
+  if(env == 'QA')
+  {
+    this.rtTransUrl = `${environment.rtQaTransUrl}`;
+    this.batchTransUrl = `${environment.batchQaTransUrl}`;
+  }
 }
 
 fetchEligibilityRequests(searchStr: string, searchType: string, maxCnt : Number) {
-  console.log('Fetch EligibilityRequest with Auth for: ' + searchStr );
+  console.log( this.env + ' - Fetch EligibilityRequest with Auth for: ' + searchStr );
 
   let url = this.createRestUrl('EligibilityBenefits', searchStr, searchType, maxCnt);
 
@@ -378,7 +385,7 @@ fetchClaimAcknowledgment(searchStr: string, searchType: string, maxCnt : Number)
 fetchTransactionFields() {
   console.log('Fetch TransactionFields with Auth ' );
 
-  let url = rtTransUrl + 'TransactionFields';
+  let url = this. batchTransUrl + 'TransactionFields';
 
 
   return this.http2
@@ -408,7 +415,7 @@ fetchTransactionFields() {
 fetchDisplayColumns() {
 
 
-  let url = rtTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
+  let url = this.batchTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
 
   console.log('Fetch DisplayColumns from  ' + url);
   return this.http2
@@ -446,7 +453,7 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
   dispCol.User =  this.currentUser;
   console.log('saveDisplayColumns ' +  this.currentUser);
 
-  let url = rtTransUrl + 'SaveDisplayColumns';
+  let url = this. batchTransUrl + 'SaveDisplayColumns';
 
   console.info('Post to SaveDisplayColumns: ' + url +" for " + dispCol.User);
 
@@ -470,11 +477,11 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
 fetchParentRecord(id: string, trans: string, searchTypeString: string) {
 
 
-  let url = rtTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
+  let url = this. rtTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
 
   if(searchTypeString.indexOf("Batch") >= 0)
   {
-    url = batchTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
+    url = this. batchTransUrl + "GetParentX12?id=" + id +"&transType=" + trans;
   }
 
   console.log('Fetch Parent X12 ' + url);
@@ -515,10 +522,10 @@ openRelated2701Model(trans:string, cRefId: string, dRefId : string,
   InterchangeControlNumber: string, searchTypeString: string)
   {
 
-    let url = rtTransUrl
+    let url = this. rtTransUrl
     if(searchTypeString.indexOf("Batch") >= 0)
     {
-       url = batchTransUrl
+       url = this. batchTransUrl
     }
 
     url = url + "GetRelatedEligBenefit?transType="+trans+"&C1TRN1RefId="
@@ -555,10 +562,10 @@ openRelated2767Model(trans:string, cRefId: string, dRefId : string,
   InterchangeControlNumber: string, searchTypeString: string)
   {
 
-    let url = rtTransUrl
+    let url = this. rtTransUrl
     if(searchTypeString.indexOf("Batch") >= 0)
     {
-       url = batchTransUrl
+       url = this. batchTransUrl
     }
 
     url = url + "GetRelatedClaimStatus?transType="+trans+"&C1TRN1RefId="
@@ -592,10 +599,10 @@ fetchGetRelatedTransaction(trans: string, grpId: string, InterchangeSenderID : s
  InterchangeReceiverID : string,
   InterchangeControlNumber : string, searchTypeString: string) {
 
-    let url = rtTransUrl
+    let url = this. rtTransUrl
     if(searchTypeString.indexOf("Batch") >= 0)
     {
-       url = batchTransUrl
+       url = this. batchTransUrl
     }
 
   url = url + "GetRelatedTransaction?GroupControlNumber="
@@ -631,7 +638,7 @@ openRelated83xModel(trans: string,
   {
 
 
-     let url = batchTransUrl + "GetRelatedClaimInfo?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier
+     let url = this. batchTransUrl + "GetRelatedClaimInfo?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier
  + "&MonetaryAmount="+MonetaryAmount;
 
  console.log('Fetch 83x X12 ' + url);
@@ -662,7 +669,7 @@ openRelatedClaimAckModel(trans: string,
   ClaimSubmittersIdentifier : string)
   {
 
-    let url = batchTransUrl + "GetRelatedClaimAck?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier;
+    let url = this. batchTransUrl + "GetRelatedClaimAck?transType="+trans+"&ClaimSubmittersIdentifier="+ClaimSubmittersIdentifier;
 
  console.log('Fetch 277CA X12 ' + url);
  return this.http2
@@ -693,12 +700,12 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   let dateFormat = require('dateformat');
   let dte = new Date();
 
-  let url = batchTransUrl
+  let url = this.batchTransUrl
   let dtTm = "";
 
   if (searchType.startsWith('RT'))
   {
-     url = rtTransUrl;
+     url = this.rtTransUrl;
   }
 
   url = url + tranType ;
@@ -725,21 +732,142 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
 
     console.log('Fetch ' + tranType + ' with Auth ' + searchType + ", DtTm: " + dtTm + ", return: " + maxCnt);
 
-    if(searchStr.length > 0)
+    if ('WorkFlowEntries' == tranType)
     {
-      url = url + "?searchStr=" + searchStr + " and ProcessDtTm > '" + dtTm +"'&count=" + maxCnt;
+      if(searchStr.length > 0)
+      {
+        url = url + "?searchStr=TransactionType='" + searchStr + "'&count=" + maxCnt;
+      }
+      else
+      {
+        url = url + "?searchStr=&count=" + maxCnt
+      }
     }
     else
     {
-      url = url + "?searchStr= ProcessDtTm > '" + dtTm +"'&count=" + maxCnt
+      if(searchStr.length > 0)
+      {
+        url = url + "?searchStr=" + searchStr + " and ProcessDtTm > '" + dtTm +"'&count=" + maxCnt;
+      }
+      else
+      {
+        url = url + "?searchStr= ProcessDtTm > '" + dtTm +"'&count=" + maxCnt
+      }
     }
   }
   console.log('URL: ' + url);
   return url;
 }
+m
+fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number) {
+  console.log('Fetch WF entries ' + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
+
+  let url = this.batchTransUrl + "WorkFlowEntries?searchStr=" + errType +"&TransType=" + searchStr + "&ErrorType=" + statType +"&userNm="+ this.currentUser+ "&count="+maxCnt;
+
+  return this.http2
+    .get<{ [key: string]: WorkFlowEntry }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return WF array: ' + WorkFlowEntriesArray.length );
+        return WorkFlowEntriesArray;
 
 
-  }
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchWorkFlowEntries catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+fetchWorkFlowEntry(searchStr: string) {
+  console.log('Fetch WF Entry with Auth for '+ this.currentUser );
+
+  let url = this.batchTransUrl + 'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
+
+  return this.http2
+    .get<{ [key: string]: WorkFlowEntry }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return WF array: ' + WorkFlowEntriesArray.length );
+        return WorkFlowEntriesArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchWorkFlowEntry catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+
+
+updateWorkFlowItem(id: string, status: string) {
+  console.log('Update WF Entry with Auth as ' + this.currentUser);
+
+  let url = this.batchTransUrl + 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser;
+
+  return this.http2
+    .get<{ [key: string]: WorkFlowEntry }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return WF array: ' + WorkFlowEntriesArray.length );
+        return WorkFlowEntriesArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In updateWorkFlowEntry catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+}
 
 
 

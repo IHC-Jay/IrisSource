@@ -22,7 +22,8 @@ export interface ClaimPayment extends CommonColumns {
  loop21001CLPMonetaryAmount : string;
 
  loop21001CLPMonetaryAmount2 : string;
-
+ loop21001NM11NameFirst	: string;
+ loop21001NM11NameLastorOrganizationName	: string;
 
   x12Data: string;
 }

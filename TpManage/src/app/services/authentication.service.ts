@@ -36,9 +36,9 @@ export class AuthenticationService {
     return this.currentUserSubject.value;
   }
 
-  login(username: string, password: string) {
+  login(username: string, password: string, env: string) {
 
-      return this.tpService.validateUser(username, password, this).pipe(map(res => {
+      return this.tpService.validateUser(username, password, env, this).pipe(map(res => {
         console.info(' AuthenticationService login validateUser: ' + res);
         let user = new User();
         user.authdata = window.btoa(username + ":" + password);
@@ -51,7 +51,7 @@ export class AuthenticationService {
         if (this.currentUserSubject.value!== null)
         {
           console.info('login currentUserValue: ' + this.currentUser );
-          this.tpTransService.setcurrentUser(username);
+          this.tpTransService.setcurrentUser(username, env);
 
         }
         return user;

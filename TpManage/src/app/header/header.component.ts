@@ -27,6 +27,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   tpId = "";
   paramsObject:any;
   currentUser: User;
+  envLbl:string;
   isLogin:boolean;
   collapsed = true;
   @Output() selectedFeature = new EventEmitter<string>();
@@ -36,7 +37,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   links = [
     {name:'Trading Partners', link:"/TradingPartners"},
     {name:'Search TPID', link:"/search"},
-    {name:'Search Transactions', link:"/transaction"}
+    {name:'Search Transactions', link:"/transaction"},
+    {name:'Work Flow', link:"/workflow"}
   ];
 
   activeLink = this.links[0].link;
@@ -59,7 +61,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
-          password: ['', Validators.required]
+          password: ['', Validators.required],
+          env: ['DEV', Validators.required]
       });
 
 
@@ -128,16 +131,18 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
       // stop here if form is invalid
       if (this.loginForm.invalid) {
+        console.error("Invalid login form");
           return;
       }
 
       this.loading = true;
-      return this.authenticationService.login(this.f.username.value, this.f.password.value)
+      return this.authenticationService.login(this.f.username.value, this.f.password.value, this.f.env.value)
       .subscribe({
         next: (res) =>
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
-          console.info('OK: ' + this.returnUrl);
+          console.info(this.f.env.value + '- OK: ' + this.returnUrl);
+          this.envLbl =this.f.env.value;
 
           if (this.firstPage.includes("transaction-details") )
           {

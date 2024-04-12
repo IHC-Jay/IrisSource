@@ -139,6 +139,12 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       matStartDate: [''],
       matEndDate:[''],
       InterchangeSenderID:[''],
+      InterchangeReceiverID:[''],
+      InterchangeDate:[''],
+      TRNRefId:[''],
+      loop1000AN11PRName:[''],
+      loop21001NM11NameFirst:[''],
+      loop21001NM11NameLastorOrganizationName:[''],
       loop23001CLMClaimSubmittersIdentifier:[''],
       loop2010AAREF1RefId:[''],
       loop2010BANM11ILIdentificationCode:[''],
@@ -267,7 +273,47 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       }
       else if(this.form.controls.transType.value === '835'){
 
-        this.TransactionService.fetchClaimPayment(this.searchString, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
+        let staticSearchStr = "";
+        if(this.form.controls.InterchangeReceiverID.value !== '')
+        {
+          staticSearchStr = " AND InterchangeReceiverID = '" + this.form.controls.InterchangeReceiverID.value + "'"
+        }
+        if(this.form.controls.TRNRefId.value !== '')
+        {
+          staticSearchStr = staticSearchStr +  " AND TRNRefId = '" + this.form.controls.TRNRefId.value + "'"
+        }
+        if(this.form.controls.loop1000AN11PRName.value !== '')
+        {
+          staticSearchStr = staticSearchStr +  " AND loop1000AN11PRName = '" + this.form.controls.loop1000AN11PRName.value + "'"
+        }
+
+
+        if(this.form.controls.loop21001NM11NameFirst.value !== '')
+        {
+          staticSearchStr = " AND loop2010AAREF1RefId = '" + this.form.controls.loop21001NM11NameFirst.value + "'"
+        }
+        if(this.form.controls.loop21001NM11NameLastorOrganizationName.value !== '')
+          {
+            staticSearchStr = " AND loop21001NM11NameLastorOrganizationName = '" + this.form.controls.loop21001NM11NameLastorOrganizationName.value + "'"
+          }
+        if(this.form.controls.InterchangeDate.value !== '')
+            {
+              staticSearchStr = " AND InterchangeDate = '" + this.form.controls.InterchangeDate.value + "'"
+            }
+
+        {
+
+        }
+        if(this.searchString.length > 0)
+        {
+          staticSearchStr = staticSearchStr + " AND " + this.searchString
+
+        }
+        staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
+
+        console.info("835 search: "+ staticSearchStr + ", " + this.searchString + ", " +  this.searchTypeString)
+
+        this.TransactionService.fetchClaimPayment(staticSearchStr, this.searchTypeString, this.form.controls.rowCnt.value).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
@@ -300,13 +346,11 @@ export class TransactionComponent implements OnInit, AfterViewInit {
               staticSearchStr = " AND loop24001DTP1DateTimePeriod = '" + this.form.controls.loop24001DTP1DateTimePeriod.value + "'"
             }
         if(this.form.controls.FileName.value !== '')
-              {
-                staticSearchStr = " AND FileName = '" + this.form.controls.FileName.value + "'"
-              }
-
         {
-
+                staticSearchStr = " AND FileName = '" + this.form.controls.FileName.value + "'"
         }
+
+
         if(this.searchString.length > 0)
         {
           staticSearchStr = staticSearchStr + " AND " + this.searchString
@@ -320,6 +364,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
          });
 
        }
+
        else if(this.form.controls.transType.value === '837I'){
         if(this.searchString.length > 0)
         {
@@ -695,17 +740,33 @@ transactionChange(evt: any)
         col.key === 'InterchangeSenderID'
         )
         {
-          console.log("In static list , Add to Display column;");
+          console.log("In 837P static list , Add to Display column;");
           tempArr.push({item_id:col.key, item_text:col.label});
           tempArr2.push({item_id:col.key, item_text:col.label});
         }
-        else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') ){
+      }
+      else if (this.form.controls.transType.value === '835')
+        {
+          if ( col.key === 'loop1000AN11PRName' || col.key === 'TRNRefId' ||
+          col.key === 'loop21001NM11NameFirst' ||
+          col.key === 'loop21001NM11NameLastorOrganizationName' ||
+          col.key === 'InterchangeReceiverID' ||
+          col.key === 'InterchangeDate'
+          )
+          {
+            console.log("In static list for 835, Add to Display column;");
+            tempArr.push({item_id:col.key, item_text:col.label});
+            tempArr2.push({item_id:col.key, item_text:col.label});
+          }
+        }
+
+      else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') ){
 
           this.searchColumns.push(col);
           tempArr2.push({item_id:col.key, item_text:col.label});
           console.log('Search dropdown PUSH: ' + this.form.controls.transType.value +" / " +  col.key);
-        }
-    }
+      }
+
       else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
       {
           // console.info(col.transactionCode + " PUSH " + col.key)

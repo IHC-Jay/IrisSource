@@ -18,7 +18,7 @@ import { MatSort, MatSortModule } from '@angular/material/sort';
 import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
 
 import { MatTabsModule } from '@angular/material/tabs';
-
+import { MatCard, MatCardModule } from '@angular/material/card';
 import { AppRoutingModule } from './app-routing.module';
 import { HeaderComponent } from './header/header.component';
 
@@ -51,11 +51,12 @@ import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion
 import { Modalx12Component } from './transaction/transaction-details/modal/modal-x12.component';
 import { ModalHelperService } from './transaction/transaction-details/modal/modal-helper.service';
 
-
 import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
 
 import { AngularSplitModule } from 'angular-split';
+import { WorkflowComponent } from './workflow/workflow.component';
+import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
 
 @NgModule({
   declarations: [
@@ -74,7 +75,9 @@ import { AngularSplitModule } from 'angular-split';
     SingleNoteComponent,
     CreateNoteComponent,
     Modalx12Component,
-    TransactionDetailComponent
+    TransactionDetailComponent,
+    WorkflowComponent,
+    WorkflowDetailsComponent
   ],
   imports: [
     BrowserModule,
@@ -102,7 +105,8 @@ import { AngularSplitModule } from 'angular-split';
     MatExpansionModule,
     MatNativeDateModule,
     MatDatepickerModule,
-    AngularSplitModule
+    AngularSplitModule,
+    MatCardModule
   ],
   exports:[
     MatTableModule,

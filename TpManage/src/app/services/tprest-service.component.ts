@@ -22,7 +22,7 @@ import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns
 import { AuthenticationService } from './authentication.service';
 import { Router, ActivatedRoute} from '@angular/router';
 
-const tpUrl = `${environment.tpUrl}`;
+
 
 @Injectable({ providedIn: 'root' })
 
@@ -34,6 +34,8 @@ const tpUrl = `${environment.tpUrl}`;
 export class TpRestServiceComponent {
 
   currentUser:string = '';
+  tpUrl = `${environment.tpDevUrl}`;
+  env:string = '';
   error = new Subject<string>();
   authenticationService: AuthenticationService;
 
@@ -64,17 +66,26 @@ export class TpRestServiceComponent {
      return this.currentUser;
    }
 
-  validateUser(usr: string, passw: String, authService: AuthenticationService)
+  validateUser(usr: string, passw: String, env:string, authService: AuthenticationService)
    {
 
     let searchParams = new HttpParams();
     this.authenticationService = authService;
     // searchParams = searchParams.append('Accept', '*/*');
     //searchParams = searchParams.append('custom', 'key');
-    console.log('Validate User: ' + usr);
-    let url = '';
 
-    url = tpUrl + 'ping';
+    let url = '';
+    this.env = env;
+
+    if( env == 'QA')
+    {
+      this.tpUrl = `${environment.tpQaUrl}` ;
+    }
+
+    url = this.tpUrl + 'ping';
+
+
+    console.log('Validate User: ' + usr + " in " + env + ", URL: " + url);
 
 
     return this.http.get<{ [key: string]: string }>(
@@ -107,11 +118,11 @@ export class TpRestServiceComponent {
 
 
     fetchTradingPartners() {
-      console.log('Fetch TradingPartners with Auth ' );
+      console.log( this.env + ' - Fetch TradingPartners with Auth ' );
 
       let url = '';
 
-      url = tpUrl + 'Tps';
+      url = this.tpUrl + 'Tps';
 
 
       return this.http
@@ -144,7 +155,7 @@ export class TpRestServiceComponent {
 
       let url = '';
 
-      url = tpUrl + 'TpIdsForTP?name='+tpName;
+      url = this.tpUrl + 'TpIdsForTP?name='+tpName;
 
 
       return this.http.get<{ [key: string]: TpId }>(
@@ -176,7 +187,7 @@ export class TpRestServiceComponent {
       console.log('fetchTPforTpId Class: ' + tpName);
       let url = '';
 
-      url = tpUrl + 'TPforTPID?tpid='+tpName;
+      url = this.tpUrl + 'TPforTPID?tpid='+tpName;
 
 
       return this.http.get<{ [key: string]: TpId }>(
@@ -202,7 +213,7 @@ export class TpRestServiceComponent {
 
       console.log('Fetch Class');
 
-      let url = tpUrl + 'GetAllTpIds';
+      let url = this.tpUrl + 'GetAllTpIds';
 
 
       return this.http
@@ -233,7 +244,7 @@ export class TpRestServiceComponent {
 
       console.log('fetchOwnerTpIds');
 
-      let url = tpUrl + 'GetOwnerTpIds';
+      let url = this.tpUrl + 'GetOwnerTpIds';
 
 
       return this.http
@@ -266,7 +277,7 @@ export class TpRestServiceComponent {
 
       let url = '';
 
-      url = tpUrl + 'GetTransactionTypes';
+      url = this.tpUrl + 'GetTransactionTypes';
 
 
       return this.http
@@ -298,7 +309,7 @@ export class TpRestServiceComponent {
 
       let url = '';
 
-      url = tpUrl + 'LinksForTPID?TPID='+ tpid;
+      url = this.tpUrl + 'LinksForTPID?TPID='+ tpid;
 
 
       return this.http
@@ -335,7 +346,7 @@ export class TpRestServiceComponent {
       console.log('Fetch TpLink Class: ' + tpLink);
       let url = '';
 
-      url = tpUrl + 'TpLink?id='+ tpLink;
+      url = this.tpUrl + 'TpLink?id='+ tpLink;
 
 
       return this.http
@@ -360,7 +371,7 @@ export class TpRestServiceComponent {
 
     console.log('deleteTpLink: ' + tpLink);
 
-    let url = tpUrl + 'DeleteTpLink';
+    let url = this.tpUrl + 'DeleteTpLink';
 
     console.info('Post to delete TPLink: ' + url);
     const body = { id: tpLink, User: this.getCurrentUser()};
@@ -377,10 +388,10 @@ export class TpRestServiceComponent {
 
     if(add)
     {
-       url = tpUrl + '' + 'NewTpLink';
+       url = this.tpUrl + '' + 'NewTpLink';
     }
     else{
-      url = tpUrl + '' + 'UpdateTpLink';
+      url = this.tpUrl + '' + 'UpdateTpLink';
     }
 
     console.info('Post to create/update TPLink: ' + url);
@@ -408,7 +419,7 @@ export class TpRestServiceComponent {
 
     let url = '';
 
-    url = tpUrl + 'TpIdsForTP?name='+ tpId;
+    url = this.tpUrl + 'TpIdsForTP?name='+ tpId;
 
     return this.http
       .get<{ [key: string]: TpId }>(
@@ -441,7 +452,7 @@ export class TpRestServiceComponent {
 
     console.log('addTradingPartner: ' + tradingPartner.Name);
 
-    let url = tpUrl + 'NewTp';
+    let url = this.tpUrl + 'NewTp';
     tradingPartner.User =  this.getCurrentUser();
 
     console.info('Post to create TP: ' + url);
@@ -454,7 +465,7 @@ export class TpRestServiceComponent {
 
     console.log('deleteTradingPartner: ' + tpName);
 
-    let url = tpUrl + 'DeleteTp';
+    let url = this.tpUrl + 'DeleteTp';
 
     console.info('Post to delete TP: ' + url);
    const body = { Name: tpName };
@@ -466,7 +477,7 @@ export class TpRestServiceComponent {
     console.log('updateTradingPartner: ' + tradingPartner.Name + ", Id: " + tradingPartner.id);
 
 
-    let url = tpUrl + 'UpdateTp';
+    let url = this.tpUrl + 'UpdateTp';
     tradingPartner.User =  this.getCurrentUser();
     return this.http.post<TradingPartner>(`${url}`, tradingPartner);
 
@@ -487,7 +498,7 @@ export class TpRestServiceComponent {
     console.log('addTradingPartner TPID: ' + newTpId.Name);
 
 
-    let url = tpUrl + 'NewTpId';
+    let url = this.tpUrl + 'NewTpId';
     newTpId.User =  this.getCurrentUser();
     console.info('Post to create TPID: ' + url);
     return this.http.post<any>(url, newTpId);
@@ -498,7 +509,7 @@ export class TpRestServiceComponent {
     console.log('updateTradingPartner TPIT: ' + tpid.Name + ", Id: " + tpid.id);
 
 
-    let url = tpUrl + 'UpdateTpId';
+    let url = this.tpUrl + 'UpdateTpId';
     tpid.User =  this.getCurrentUser();
     console.info('Post to update TP: ' + url);
     return this.http.post<TpId>(`${url}`, tpid);
@@ -508,7 +519,7 @@ export class TpRestServiceComponent {
   deleteTPID(tpId: string) : Observable<string> {
 
 
-    let url = tpUrl + 'DeleteTpId';
+    let url = this.tpUrl + 'DeleteTpId';
 
     console.info('Post to delete TPID: ' + url);
 
@@ -521,7 +532,7 @@ export class TpRestServiceComponent {
 
     console.log('add bulkTpLinks: ' + link.Link);
 
-    let url = tpUrl + '' + 'BulkTpLinks';
+    let url = this.tpUrl + '' + 'BulkTpLinks';
 
     console.info('Post to create/update TPLinks: ' + url);
     link.User =  this.getCurrentUser();

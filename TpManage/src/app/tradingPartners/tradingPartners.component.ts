@@ -41,6 +41,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
   ifSelect:boolean = false;
   ifAdd:boolean = false;
 
+
     displayedColumns: string[] = TradingPartnerColumns.map((col) => col.key);
     columnsSchema: any = TradingPartnerColumns;
     dataSource = new MatTableDataSource<TradingPartner>();
