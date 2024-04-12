@@ -52,10 +52,15 @@
 			
 					// Get Merge option for the TP
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
-					if (tpInfo [ "Batched")
+					if (tpInfo = "")
+					{
+						Do ..CreateWfEntry(id)
+					}
+					elseif (tpInfo [ "Batched")
 					{	
-						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
-						{	
+						set tSC = ..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)
+						if ( $$$ISOK(tSC))
+						{
 							DO ..GetISA(source, interchange)				
 							DO ..GetGS(source, group)					
 							Do ..GetST(source, ST)
@@ -77,14 +82,14 @@
 							{
 								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
 							}
-
+							
 							continue
 						}
 					}
-					else
+					else //Single, Not batched
 					{
-						
-						if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
+						set tSC = ..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)
+						if ( $$$ISOK(tSC))
 						{
 							DO ..GetISA(source, interchange)
 						}
@@ -105,11 +110,12 @@
 							{
 								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
 							}
+							
 						}
 				
 					}
 
-				}
+				} //Repeat TP
 				elseif (tpInfo [ "Batched")
 				{
 					if (prevX12Rec.Status = "InProcess")
@@ -119,7 +125,8 @@
 					}
 						
 					$$$TRACE( " - Repeat ReceiverId: " _ x12Rec.ReceiverId _", CKPYREFID: " _ x12Rec.CKPYREFID _", size: " _ x12Rec.X12stream.Size)
-					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
+					set tSC = ..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)
+					if ( $$$ISOK(tSC))
 					{
 						// DO ..ParseX12(x12Rec.X12stream, .source)
 						Do ..GetST(source, ST)
@@ -143,6 +150,7 @@
 						{
 								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
 						}
+						
 
 					}
 				}
@@ -155,29 +163,40 @@
 					Do interchange.Clear()
 					Do group.Clear()
 					Do ST.Clear()
+					
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId)
-					if ( $$$ISOK(..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)))
+					
+					if (tpInfo = "")
 					{
-						// DO ..ParseX12(x12Rec.X12stream, .source)
-						DO ..GetISA(source, interchange)
+						Do ..CreateWfEntry(id)
 					}
 					else
 					{
-						set x12Rec.Status = "ValidationFailed-Processed-Single"
-						if ($IsObject(reply))
+						set tSC = ..ValidateX12(x12Rec.X12stream, tpInfo, .source, .reply)
+						if ( $$$ISOK(tSC))
 						{
-							set x12Rec.X12Replystream = reply
+							// DO ..ParseX12(x12Rec.X12stream, .source)
+							DO ..GetISA(source, interchange)
 						}
 						else
 						{
-							$$$LOGERROR("X12 reply is not an object")
-						}
-						set stat = x12Rec.%Save()
-						if ($$$ISERR(stat))
-						{
-							$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
-						}
+							set x12Rec.Status = "ValidationFailed-Processed-Single"
+							if ($IsObject(reply))
+							{
+								set x12Rec.X12Replystream = reply
+							}
+							else
+							{
+								$$$LOGERROR("X12 reply is not an object")
+							}
+							set stat = x12Rec.%Save()
+							if ($$$ISERR(stat))
+							{
+								$$$LOGERROR("X12 reply save: " _ $SYSTEM.Status.GetErrorText(stat))
+							}
+							
 
+						}
 					}
 	
 				}
@@ -234,10 +253,16 @@
 					  set oStat = replyDoc.OutputToLibraryStream(reply)
 
 					  $$$TRACE("X12BatchReply stream size: " _  reply.Size _ ", OutToStream: " _ oStat)
+					  Do ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetAckDetails(replyDoc, .msgTyp, .msgVer, .retStr, "", .lst, 1)
+					  $$$TRACE("Error stored in IHC_ITF_ITFCOMMON_X12.WorkFlow")
 					  
 				  }
-				  // TBD - Store in long term storage, start SH workflow
-				
+				  else
+				  {
+					  set tSC = $$$ERROR($$$GeneralError, "X12BatchReply failed to create 999")
+					  $$$LOGERROR("X12BatchReply failed to create 999")
+				  }
+				 
 			}
 			else
 			{
@@ -559,11 +584,49 @@
 		}
 		else
 		{
-		 WRITE !, "Not an object"
+		 $$$LOGERROR( "Not an TRADELINKS object: " _ id)
 		}
 	}
 	$$$TRACE("TP Link for " _ tpId _ ": " _ ", Return: " _ retStr)
 	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="CreateWfEntry">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String</FormalSpec>
+<Implementation><![CDATA[
+	set x12Rec = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(id)
+	
+   #dim x12Doc As EnsLib.EDI.X12.Document
+	set x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(x12Rec.X12stream)
+ 	if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+ 	{
+   set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTpInformation(x12Doc, "Batch",  "Out", 999, 1, .fullErrorMsg, .tPrelationDocumentId, .parentErrorMsg ) 
+
+   if ($$$ISERR(tSC))
+   {
+	 $$$TRACE( "Error from CallEdiX12Parser: "  _ fullErrorMsg _", tPrelationDocumentId: " _ tPrelationDocumentId _", ParentMsg: " _ parentErrorMsg)
+	   set relDocObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%OpenId(tPrelationDocumentId)
+       if $IsObject(relDocObj)
+       {
+	   	  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	   	  set str = x12Doc.OutputToString()
+	            
+            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+		  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+		  " values (?,?,?,?,?,?,?,?,?,?,?)"
+		  #dim rset As %SQL.StatementResult
+		  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, relDocObj.ISARECEIVERTPID, relDocObj.ISASENDERTPID, relDocObj.TransactionCode, relDocObj.TransactionVersion, "New", "TP", fullErrorMsg , $USERNAME, dtTm, str, 0)
+		  $$$TRACE("SQL code: " _ rset.%SQLCODE)
+		  if (rset.%SQLCODE < 0)
+		  {
+			  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+		  }
+		  $$$TRACE( "Workflow Id: " _ rset.%ROWID)
+       }
+     }
+   }
 ]]></Implementation>
 </Method>
 </Class>

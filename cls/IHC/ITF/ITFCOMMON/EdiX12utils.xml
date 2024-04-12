@@ -268,7 +268,7 @@
 			    while ($IsObject(k1))
 			    {
 				    set numGS = numGS + 1
-					$$$TRACE( "k1: " _ k1 _ ", Doc: " _ k1.DocType )
+					WRITE !, "k1: " _ k1 _ ", Doc: " _ k1.DocType 
 					
 					If ""=k1.DocType {
 						Set tDocType = k1.resolveChildDocType()
@@ -278,18 +278,21 @@
 					
 			 		 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
 					 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
-					 set groupVersion = "V" _ $ZSTRIP(k1.GetValueAt("GS:VersionReleaseIndustryIdenti"), "<", "0")
+					 set x12Version = k1.GetValueAt("GS:VersionReleaseIndustryIdenti")
+					 set groupVersion = "V" _ $ZSTRIP(x12Version, "<", "0")
 					 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
 					 set grpDocType = k1.DocType
-					$$$TRACE(  "GS: " _ k1.DocType _ ", GS Sender" _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Version: " _ groupVersion )
+					WRITE !,  "GS: " _ k1.DocType _ ", GS Sender" _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Version: " _ groupVersion
 					Do ..ReadST(x12Doc, k1, .numSTs, .numRecs, .transactionCode, .parentErrorMsg)
 					Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
 			    }
 			    
 			    set errorMsg = "X12 values found"
 			
-			 
+			 WRITE !, "Create IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument" 
+			 #dim tpObj As IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument
 			 set tpObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%New()
+			 
 			 SET tpObj.x12Data = x12DocId
 			 SET tpObj.SessionId = sesId
 			 set tpObj.FileName = x12Doc.Source
@@ -298,21 +301,18 @@
 			 set tpObj.NumOfSTs = numSTs
 			 set tpObj.NumOfTrns = numRecs
 			 set tpObj.TransactionCode = transactionCode
-			 
 		     set tpObj.ISARECEIVERTPID = InterchangeReceiverID
 		     set tpObj.ISASENDERTPID = InterchangeSenderID
-		     set tpObj.INTERCHANGECONTROLNUMBER = InterchangeCtrlNum
-
-			 set tpObj.GRPRECEIVERTPID = applicationReceiversCode
+			 set tpObj.GRPRECEIVERTPID = applicationReceiversCode  
 		     set tpObj.GRPSENDERTPID = applicationSendersCode
-		     set tpObj.GROUPCONTROLNUMBER = grpCtrlNum
-
+		     set tpObj.TransactionVersion = x12Version
 
 			 if ((transactionCode '= "999") || (checkRel = 1))
 			 {
+				  
 				 set tSC = ..ItfFindInterchageLink(isaDocType, InterchangeSenderID, InterchangeReceiverID, groupVersion, mode, direction, tpObj, .errorMsg)
 				 set fullErrorMsg = errorMsg
-				 
+				 WRITE !, "From InterchageLink "_ tSC
 				 if ($$$ISERR(tSC))
 				 {
 					 Do ..ItfFindTPIDS(InterchangeSenderID, .errorMsg)
@@ -322,7 +322,7 @@
 					 set tpObj.statusDetails = fullErrorMsg
 					 set tpObj.status = "TP Relationship not found"
 					 Do tpObj.%Save()
-					 $$$TRACE("IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+					 WRITE !, "IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id()
 				 }
 				 else
 				 {
@@ -341,9 +341,9 @@
 						   set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
 						 }
 						 set tpObj.statusDetails = fullErrorMsg
-						 set tpObj.status = "TP Relationship not found"
+						 set tpObj.status = "TP GroupLink not found"
 						 Do tpObj.%Save()
-						 $$$TRACE("IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+						 WRITE !, "IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id()
 					 }
 				 }
 			 }
@@ -547,9 +547,10 @@
 <FormalSpec><![CDATA[gsDocType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	set tsc= $$$ERROR("GrpRelation Not found")
-	set errorMsg = " Group Relationship Not found " _ senderId _ "->" _ receiverId
-	$$$TRACE( "-- Find GS GrpRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version)
+	set tsc= $$$ERROR("Grp Link Not found")
+	set errorMsg = " Group Link Not found " _ senderId _ "->" _ receiverId
+	$$$TRACE( "-- Find GS Grp Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version)
+	WRITE !, "-- Find GS Interchge Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
 	
 
 	 &sql(DECLARE WPCursor CURSOR FOR 
@@ -572,11 +573,19 @@
    &sql(OPEN WPCursor)
         if (SQLCODE'=0) RETURN tsc
    FOR { &sql(FETCH WPCursor into :id, :relNm)
-        QUIT:SQLCODE 
-        set errorMsg = " FOUND relationship for GS: " _ relNm _", " _ senderId _", " _ receiverId _", " _ gsDocType _", " _ version
-        set tpObj.GrpRelationID = id
-        set tpObj.GRPRELATIONSHIPNAME = relNm
-        set tsc= $$$OK
+   WRITE !, "ItfFind Group Link :SQLCODE: " _ SQLCODE
+        if (SQLCODE = 0)
+        {
+	        set errorMsg = " FOUND TP Link for GS: " _ relNm _", " _ senderId _", " _ receiverId _", " _ gsDocType _", " _ version
+	        set tpObj.GrpRelationID = id
+	        set tpObj.GRPRELATIONSHIPNAME = relNm
+	        set tsc= $$$OK
+	        QUIT
+        }
+        else
+        {
+	        QUIT
+        }
    }
     &sql(CLOSE WPCursor)
     
@@ -589,9 +598,9 @@
 <FormalSpec><![CDATA[docType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	//set tsc= $$$ERROR("Interchange Relation Not found")
-	set errorMsg = " Interchange Relation Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
-	WRITE !, "-- Find ISA InterchgRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	set tsc= $$$ERROR("Interchange Link Not found")
+	set errorMsg = " Interchange Link Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	WRITE !, "-- Find ISA Interchge Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
 	
 	&sql(DECLARE WPCursor CURSOR FOR 
         select r.ID, r.name 
@@ -615,13 +624,21 @@
    FOR 
    { 
    		&sql(FETCH WPCursor into :id, :relNm)
-        QUIT:SQLCODE 
-        WRITE !, id _", :" _ relNm
-        set errorMsg = " FOUND relationship for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ docType _", " _ version
-        
-        set tpObj.IsaRelationID = id
-        set tpObj.ISARELATIONSHIPNAME = relNm
-        set tsc= $$$OK
+   		WRITE !, "ItfFind InterchageLink :SQLCODE: " _ SQLCODE
+        if (SQLCODE = 0)
+        {
+	        WRITE !, id _", :" _ relNm
+	        set errorMsg = " FOUND TRADELINK for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ docType _", " _ version
+	        
+	        set tpObj.IsaRelationID = id
+	        set tpObj.ISARELATIONSHIPNAME = relNm
+	        set tsc= $$$OK
+	        QUIT
+        }
+        else
+        {
+	        QUIT
+        }
    }
     &sql(CLOSE WPCursor)
     
@@ -651,6 +668,7 @@
         set tsc= $$$OK
    }
    &sql(CLOSE WPCursor)
+   WRITE !, "ItfFindTPIDS: " _ errorMsg
    return tsc
 ]]></Implementation>
 </Method>
@@ -739,6 +757,55 @@
 	{
 		set retStr = x12Id _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
 	}
+]]></Implementation>
+</Method>
+
+<Method name="GetInterchageLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,&lnkInfo:%String,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("Interchange Relation Not found")
+	set errorMsg = " Interchange Relation Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	WRITE !, "-- Find ISA InterchgRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	
+	&sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name 
+		from IHC_ITF_ITFCOMMON_TPManage.TRADELINKS r, 
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS t1,
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS t2,
+		IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tr
+		where
+		r.IsaSenderId = t1.ID
+		and r.IsaReceiverId = t2.ID
+		and r.TRANSTYPE = tr.ID
+		and t1.TPID = :senderId
+		and t2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Mode = :mode
+		and r.Direction = :direction
+		AND tr.ID = r.TRANSTYPE
+		and r.Active = 1
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) 
+        {
+	        WRITE !, "Open: " _ SQLCODE
+        	RETURN tsc
+        }
+   FOR 
+   { 
+   		&sql(FETCH WPCursor into :id, :relNm)
+        QUIT:SQLCODE 
+        WRITE !, id _", :" _ relNm
+        set errorMsg = " FOUND relationship for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ version
+        
+        set lnkInfo = id _"," _ relNm
+        set tsc= $$$OK
+   }
+    &sql(CLOSE WPCursor)
+    
+    return tsc
 ]]></Implementation>
 </Method>
 
@@ -844,7 +911,7 @@
 							set errDet.segErrStr = segErrStr
 
 							set ik4Err = k2.GetValueAt(seg_":3")
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK43", ik4Err, .retVal)
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK403", ik4Err, .retVal)
 							set errDet.eleErrCode = k2.GetValueAt(seg_":1")
 							set errDet.eleErrStr = retVal
 							set errDet.eleNum = k2.GetValueAt(seg_":1")
@@ -862,7 +929,7 @@
 						
 						elseif (recType = "AK9")
 						{
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("AK9", k2.GetValueAt(seg_":1"), .retVal)
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("AK901", k2.GetValueAt(seg_":1"), .retVal)
 							set ak9Err = retVal
 						}					
 					   
@@ -897,33 +964,40 @@
 			  set x12Data = x12Doc.OutputToString()
 			  set origX12id = x12Doc.OriginalDocId
 			  set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
-			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, X12Status, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
-			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+			  " values (?,?,?,?,?,?,?,?,?,?,?)"
 			  #dim rset As %SQL.StatementResult
-			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, InterchangeReceiverID, InterchangeSenderID, msgTrans, msgTransVer, "New", retStr, $USERNAME, dtTm, x12Data, origX12id)
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, InterchangeReceiverID, InterchangeSenderID, msgTrans, msgTransVer, "New", "Data", retStr, $USERNAME, dtTm, x12Data, origX12id)
+			  WRITE "SQL code: " _ rset.%SQLCODE
+			  if (rset.%SQLCODE < 0)
+			  {
+				  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
 
 			  set id = rset.%ROWID
 			  WRITE !, $NAMESPACE _ " - Inserted to  WorkFlow - " _ id 
 			  set obj = ##class(IHC.ITF.ITFCOMMON.X12.WorkFlow).%OpenId(id)
-			  
-			  WRITE !, "Insert errList #" _ errList.Count() _ " to ErrList: " _ obj.ErrList
-			  if ($IsObject(obj.ErrList))
+			  if ($IsObject(obj))
 			  {
-				  for i=1:1: errList.Count()
-				  {
-					 if ($IsObject(errList.GetAt(i)))
-			  		 {
-					  		set stat = obj.ErrList.Insert(errList.GetAt(i))
-					  		WRITE !, "insert segNum: " _ errList.GetAt(i).segNum _": " _ stat
-			  		 }
-					  //
-				  }
-				  set stat = obj.%Save()
-				  WRITE !, " ErrList.Count: " _ obj.ErrList.Count()
-			  }
 			  
-			  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
-					  
+				  WRITE !, "Insert errList #" _ errList.Count() _ " to ErrList: " _ obj.ErrList
+				  if ($IsObject(obj.ErrList))
+				  {
+					  for i=1:1: errList.Count()
+					  {
+						 if ($IsObject(errList.GetAt(i)))
+				  		 {
+						  		set stat = obj.ErrList.Insert(errList.GetAt(i))
+						  		WRITE !, "insert segNum: " _ errList.GetAt(i).segNum _": " _ stat
+				  		 }
+						  //
+					  }
+					  set stat = obj.%Save()
+					  WRITE !, " ErrList.Count: " _ obj.ErrList.Count()
+				  }
+				  
+				  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  }
 	    }
       }
     } catch err
@@ -1274,6 +1348,44 @@
 	}
 	$$$TRACE("TP Link for " _ tpId _ ": " _ ", Return: " _ retStr)
 	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="InsertTPerror">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tSC:%Status</FormalSpec>
+<Implementation><![CDATA[
+	If $$$ISERR(tSC)
+    {
+        
+        set msgTrans ="277"
+        set msgTransVer ="XX277"
+        set dtTm = $ZDATETIME($HOROLOG,3, 1)
+        
+        set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+	  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+	  " values (?,?,?,?,?,?,?,?,?,?,?)"
+	  #dim rset As %SQL.StatementResult
+	  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+	  WRITE "SQL code: " _ rset.%SQLCODE
+	  if (rset.%SQLCODE < 0)
+	  {
+		  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+	  }
+			  
+	 set tSC1 = ..ItfFindTPIDS(applicationSendersCode, .errorMsg)
+	 if ($$$ISERR(tSC1))
+	 {
+	    set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+	 }
+	 set tSC1 = ..ItfFindTPIDS(applicationReceiversCode, .errorMsg)
+	 if ($$$ISERR(tSC1))
+	 {
+	   set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+	 }
+	 set tpObj.statusDetails = fullErrorMsg
+	 set tpObj.status = "TP Relationship not found"
+}
 ]]></Implementation>
 </Method>
 </Class>
