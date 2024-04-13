@@ -48,48 +48,7 @@ BPL Definition</Description>
 <sequence xend='200' yend='2150' >
 <scope xpos='200' ypos='250' xend='200' yend='2050' >
 <trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
-<trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
-<annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
-</trace>
-<code name='check if message has continued pointer' xpos='200' ypos='550' >
-<![CDATA[    Set doTrans=0
-    set ContdPointer = request.GetValueAt("MSH:ContinuationPointer")
-    $$$TRACE("ContdPointer: " _ ContdPointer)
-    if (ContdPointer'="") {
-      if (ContdPointer=^SavedContdPointer) {
-         set cMsg = request.RawContent
-         set newMsg = $P(^SavedPPMessage,"DSC|",1)_$P(cMsg,ContdPointer_$Char(13),2)         
-         set ^SavedPPMessage=""
-	 set ^SavedContdPointer=""
-         $$$TRACE("NEW MSG: "_newMsg)
-         set context.MsgRequest=##class(EnsLib.HL7.Message).ImportFromString(newMsg)
-         set context.MsgRequest.DocType="PowerpathPath:ORU_R01"
-         set doTrans=1
-      }
-      else {
-         set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Message Continuation Pointer: "_ContdPointer_" does not match the saved Continuation Pointer: "_^SavedContdPointer_". Please check the messages in the queue.")   
-      }
-    }
-    else {
-       set DSCContdPointer = request.GetValueAt("DSC:ContinuationPointer")
-       $$$TRACE("DSCContdPointer: " _ DSCContdPointer)
-       if (DSCContdPointer'="") {
-           set ^SavedContdPointer=DSCContdPointer
-           set ^SavedPPMessage=request.RawContent
-           Set doTrans=0
-       }
-       else {
-          set context.MsgRequest=request
-          Set doTrans=1
-       }
-    }
-    //Set doTrans=0
-    ]]]]><![CDATA[>
-</code>
-<if name='Do transformation' condition='doTrans=1' xpos='200' ypos='650' xend='200' yend='1800' >
-<true>
-<trace name='do trans' value='"DO TRANSFORMATION"' xpos='335' ypos='800' />
-<code name='Check ReplyCodeActions' xpos='335' ypos='900' >
+<code name='Check ReplyCodeActions' xpos='200' ypos='550' >
 <annotation><![CDATA[Get ReplyCodeActions from settings]]]]><![CDATA[></annotation>
 <![CDATA[
  //ReplyCodeActions validation
@@ -100,6 +59,65 @@ BPL Definition</Description>
     $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
  }]]]]><![CDATA[>
 </code>
+<code name='check if message has continued pointer' xpos='200' ypos='650' >
+<![CDATA[    Set doTrans=0
+    set ContdPointer = request.GetValueAt("MSH:ContinuationPointer")
+    set DSCContdPointer = request.GetValueAt("DSC:ContinuationPointer")
+    set cMsg = request.RawContent
+
+    if (ContdPointer'="") {
+      set cMsg = request.RawContent
+      if (ContdPointer=^SavedContdPointer) {
+         set fmsg=$P(cMsg,ContdPointer_$Char(13),2)
+         set tStream=##class(%Stream.GlobalCharacter).%New()
+         set k1=1,tSC=1 
+         For { 
+            Quit:k1="" 
+            set msg=^PPMsgs(k1)
+            do tStream.Write(msg)
+            set ^PPMsgs(k1)=""
+            if k1=^PPMsgsCnt {
+	          set k1=""
+            }
+            else {
+	          set k1=k1+1
+            }
+         }        
+         do tStream.Write(fmsg)
+         do tStream.Rewind()   
+	     set ^SavedContdPointer=""
+	     set ^PPMsgsCnt=""
+
+         set context.MsgRequest=##class(EnsLib.HL7.Message).ImportFromLibraryStream(tStream)
+         set context.MsgRequest.DocType="PowerpathPath:ORU_R01"
+         set doTrans=1
+      }
+      else {
+	     set ^SavedContdPointer=DSCContdPointer
+	     set ^PPMsgsCnt=^PPMsgsCnt+1
+	     set ^PPMsgs(^PPMsgsCnt)=$P($P(cMsg,ContdPointer_$Char(13),2),"DSC|",1)
+         Set doTrans=0
+      }
+    }
+    else {
+       if (DSCContdPointer'="") {
+           set ^SavedContdPointer=DSCContdPointer
+           set msg1=$P(cMsg,"DSC|",1)
+           $$$TRACE("MSG1: "_msg1)
+           set ^PPMsgs(1)=msg1
+           set ^PPMsgsCnt=1
+           Set doTrans=0
+       }
+       else {
+          set context.MsgRequest=request
+          Set doTrans=1
+       }
+    }
+    ]]]]><![CDATA[>
+</code>
+<if name='Do transformation' condition='doTrans=1' xpos='200' ypos='750' xend='200' yend='1800' >
+<true>
+<trace name='do trans' value='"DO TRANSFORMATION"' xpos='335' ypos='900' />
 <code name='Check TargetConfigNames' xpos='335' ypos='1000' >
 <annotation><![CDATA[Get TargetConfigNames from settings]]]]><![CDATA[></annotation>
 <![CDATA[ 
