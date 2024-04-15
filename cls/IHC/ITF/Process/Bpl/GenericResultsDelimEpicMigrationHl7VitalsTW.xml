@@ -6,6 +6,10 @@
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>66931,37879.623734163</TimeCreated>
 
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -113,9 +117,19 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='SkipRecord' type='%String' initialexpression='0' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='Systolic' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='1600' >
-<scope name='Scope' xpos='200' ypos='250' xend='200' yend='1500' >
+<sequence xend='200' yend='1950' >
+<scope name='Scope' xpos='200' ypos='250' xend='200' yend='1850' >
 <trace name='Trace' value='"Inside BPL"' xpos='200' ypos='350' />
 <code name='check reply code actions' xpos='200' ypos='450' >
 <![CDATA[    set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
@@ -130,26 +144,72 @@ BPL Definition</Description>
 </code>
 <assign name="get name" property="context.FName" value="request.FirstName" action="set" xpos='200' ypos='650' />
 <trace name='trace' value='" Before transform"' xpos='200' ypos='750' />
-<transform name='TRANSFORM' class='IHC.ITF.Transform.Dtl.GenericResultsDelimEpicMigrationHl7VitalsTW' source='request' target='response' xpos='200' ypos='850' />
-<trace name='trace' value='"After transform  "' xpos='200' ypos='950' />
-<code name='getTargetList' xpos='200' ypos='1050' >
+<code name='Systolic/Diastolic Check ' xpos='200' ypos='850' >
+<![CDATA[   //reset flag at beginning
+   set context.SkipRecord = 0 
+   set context.Systolic = ""
+   
+   set ObsCode = request.ObservationID 
+   $$$TRACE(" observation ID is :"_ObsCode)
+   $$$TRACE(" Patient ID is :"_request.PatientID)
+   $$$TRACE(" Encounter ID is :"_request.EncounterID)
+   
+  // 8480-6 is code for SYSTOILIC BP
+  if ( ObsCode = "8480-6" ) 
+  {
+    $$$TRACE(" This is a Systolic record, Store values into GLOBALS and Skip processing ")
+    set ^IHC.EpicMigrationTouchWorksResults("PatientID") = request.PatientID
+    set ^IHC.EpicMigrationTouchWorksResults("VisitID") = request.EncounterID
+    set ^IHC.EpicMigrationTouchWorksResults("SystolicObsValue") = request.ObservationValue
+    set context.SkipRecord = 1
+   
+  }
+  
+  if ( ObsCode = "8462-4")
+  {
+  // this is a diastolic value ,check in Globals for systolic values  on this patient
+  $$$TRACE(" This is a diastolic record, find systolic values from GLOABLS" )
+  
+  set patId = $GET(^IHC.EpicMigrationTouchWorksResults("PatientID"))
+  set encounterId = $GET(^IHC.EpicMigrationTouchWorksResults("VisitID"))
+  set obsVal = $GET(^IHC.EpicMigrationTouchWorksResults("SystolicObsValue"))
+  
+  if ( (patId = request.PatientID) && (encounterId = request.EncounterID ))
+  {
+    // same patient - get the systolic value from globals 
+    $$$TRACE("Patient matched up to the one stored in GLOABLS ")
+    set context.Systolic = obsVal
+  }
+  
+   }]]]]><![CDATA[>
+</code>
+<if name='ProcessRecord' condition='context.SkipRecord = 0' xpos='200' ypos='950' xend='200' yend='1600' >
+<true>
+<transform name='TRANSFORM' class='IHC.ITF.Transform.Dtl.GenericResultsDelimEpicMigrationHl7VitalsTW' source='request' target='response' xpos='470' ypos='1100' />
+<trace name='trace' value='"After transform  "' xpos='470' ypos='1200' />
+<code name='getTargetList' xpos='470' ypos='1300' >
 <![CDATA[	set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  	$$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
 </code>
-<foreach name='ForEachTargetList' property='context.targetList' key='context.targetIndex' xpos='200' ypos='1150' xend='200' yend='350' >
+<foreach name='ForEachTargetList' property='context.targetList' key='context.targetIndex' xpos='470' ypos='1400' xend='200' yend='350' >
 <call name='CallTarget' target='@context.targetList.GetAt(context.targetIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
 </foreach>
-<code name='RESET ERROR' xpos='200' ypos='1250' >
+<code name='RESET ERROR' xpos='470' ypos='1500' >
 <![CDATA[ $$$TRACE(" In reset error")
    Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
     // reset All globals]]]]><![CDATA[>
 </code>
+</true>
+<false>
+<trace name='Skip ' value='"This is a systolic value record, Skip Processing,wait for the diastolic value to arrive"' xpos='200' ypos='1100' />
+</false>
+</if>
 <faulthandlers>
-<catchall xpos='200' ypos='1350' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code name='Process Error' xpos='200' ypos='250' >
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
 ]]]]><![CDATA[>
@@ -161,9 +221,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-</Storage>
 </Class>
 </Export>
