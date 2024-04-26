@@ -18,6 +18,19 @@ SelectHealth Claims Medicare 837P and 837I process target name</Description>
 <Default>Sh277CATargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
+<Storage name="Default">
+<Description>
+BPL Definition</Description>
+<Type>%Storage.Persistent</Type>
+<DefaultData>ShClaimackCffTo277CADefaultData</DefaultData>
+<Data name="ShClaimackCffTo277CADefaultData">
+<Subscript>"ShClaimackCffTo277CA"</Subscript>
+<Value name="1">
+<Value>Sh277CATargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -36,6 +49,7 @@ BPL Definition</Description>
 <property name='recOthers' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='x12Num' type='%Integer' instantiate='0' />
 <property name='cffRecs' type='%String' collection='list' instantiate='0' />
+<property name='x12Output' type='EnsLib.EDI.X12.Document' instantiate='0' />
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -70,9 +84,9 @@ BPL Definition</Description>
  $$$TRACE("Total # of records: " _ context.recCnt)
    set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
 </code>
-<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1300' >
-<assign name="Get the record" property="caRec " value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
-<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1100' >
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1400' >
+<assign name="Get the record" property="caRec" value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1200' >
 <true>
 <trace value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
 <code name='create list' xpos='470' ypos='600' >
@@ -86,59 +100,109 @@ BPL Definition</Description>
   
   $$$TRACE("Length of list: " _ context.cffRecs.Size)]]]]><![CDATA[>
 </code>
-<transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='response' xpos='470' ypos='700' />
+<transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Output' xpos='470' ypos='700' />
 <code name='Print X12' xpos='470' ypos='800' >
 <![CDATA[ set context.x12Num = context.x12Num + 1
- $$$TRACE(context.x12Num _ ". X12: " _ response.OutputToString())]]]]><![CDATA[>
+ 
+ $$$TRACE(context.x12Num _ ". X12 from DTL: " _ context.x12Output.OutputToString())
+]]]]><![CDATA[>
 </code>
-<code name='Route' xpos='470' ypos='900' >
+<code name='Workarond' xpos='470' ypos='900' >
+<![CDATA[ set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+  set stat = context.x12Output.OutputToFile(flNm , 1)
+  $$$TRACE("OutputToFile: " _ stat)
+  set context.x12Output =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
+  $$$TRACE("ImportFromFile: " _ flNm  _", Stat: " _ stat _", " _ context.x12Output.FullSize)
+]]]]><![CDATA[>
+</code>
+<code name='Validate and Route' xpos='470' ypos='1000' >
 <![CDATA[ // Route the X12 based on TP
- set x12Doc = response
-	 if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+
+	 if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
 	 {
-	    set x12Doc.docType ="277_X0B3:Interchange"
-	    set tSC =x12Doc.BuildMap()
-	    set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
-            set tpInfo = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTpLinkInfo(InterchangeReceiverID , "277", "V5010X214", "Batch")
-            $$$TRACE(InterchangeReceiverID _ ": Tp Info : " _ tpInfo)
-            set snipLevel = $PIECE(tpInfo, "#", 3)
+	    if (context.x12Output.DocType = "")
+	    {
+	      set context.x12Output.DocType ="277_X0B3:Interchange"
+	      set tSC =context.x12Output.BuildMap()
+	      $$$TRACE("From ImportFromString - BuildMap: " _ tSC )
+	      If $$$ISERR(tSC)
+              {
+                  Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
+              }
+	    }
+	    $$$TRACE("DocType: " _ context.x12Output.DocType)
+            set interchangeReceiverID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	    set interchangeSenderID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	    
+            set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , "V5010X214", "Batch", "Out", .lnkInfo, .errStr)
+            $$$TRACE("GetInterchageLink: " _ tSC)
+            If $$$ISERR(tSC)
+            {
+	            $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
+	            set msgTrans ="277"
+	            set msgTransVer ="XX277"
+	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	            
+	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+			  " values (?,?,?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+			  $$$TRACE(" Inert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+			  if (rset.%SQLCODE < 0)
+			  {
+				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
+					  
+	            QUIT
+            }
+            		 
+            $$$TRACE( interchangeReceiverID _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+            set lnkId = $PIECE(lnkInfo, ",", 1)
+            set lnkObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(lnkId)
+
+            $$$TRACE( "SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
             
-            set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(x12Doc, "SNIP", snipLevel)
+                       set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12Output, "SNIP", lnkObj.SNIP)
 
 			if ($$$ISERR(tSC))
 			{
-				$$$LOGERROR( " -*- X12 Validation failed, " _ tpInfo _ ", RawContent length: " _ $L(x12Doc.RawContent))
+			set str = context.x12Output.OutputToString()
+				$$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
 				#dim replyDoc as EnsLib.EDI.X12.Document
-				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(x12Doc, "All", "SNIP", snipLevel, "All") 
+				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
 				  if ($IsObject(replyDoc))
 				  {
 				  	 
-					  $$$TRACE("X12 Error: " _  replyDoc.RawContent)
-					  
+					  $$$TRACE( "X12 Reply Error: " _  replyDoc.RawContent)
+					  #dim lst As %ListOfObjects
+					  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetAckDetails(replyDoc, .msgTyp, .msgVer, .retStr, "", .lst, 1)
+					  $$$TRACE( "GetAckDetails: " _ tSC _ retStr _", " _ lst)
+					  					  
+					 
 				  }
+				  Set status = $$$ERROR($$$GeneralError, "X12 Validation failed, "  _ ", RawContent length: " _ $L(context.x12Output.RawContent) _", Str length: " _ $L(str))
 
-                        }
+             }
                         else
                         {
-                            $$$TRACE("Validation passed. SNIP level: " _ snipLevel)
-                            $$$TRACE("Send X12 to " _ $PIECE(tpInfo, "#", 1))
+                            $$$TRACE("Validation passed. SNIP level: " _ lnkObj.SNIP)
+                            $$$TRACE("Send X12 to " _ lnkObj.Routing)
                             set tRequest = ##class(Ens.StreamContainer).%New("")
                             set tStream=##Class(%Library.GlobalCharacterStream).%New()
-                            set pStatus = response.OutputToLibraryStream(tStream)
+                            set pStatus = context.x12Output.OutputToLibraryStream(tStream)
                             set tRequest.Stream = tStream  
 
-	//set reqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(tRequest.Stream)
-
-	//set reqObj.DestinationFileName = "sample277CA"
-	set tStatus = process.SendRequestAsync("Out-Uhin-277CA-Sftp-SH",tRequest)
+	                    set tStatus = process.SendRequestAsync("Out-Uhin-277CA-Sftp-SH",tRequest)
+	                    $$$TRACE("Sent to operation: " _ tStatus )
                         } 
  }
  else
  {
-     $$$LOGERROR(x12Doc  _ " - Not a X12 document")
+     $$$LOGERROR(context.x12Output  _ " - Not a X12 document")
  }]]]]><![CDATA[>
 </code>
-<code name='Reset counts' xpos='470' ypos='1000' >
+<code name='Reset counts' xpos='470' ypos='1100' >
 <![CDATA[  set context.recFirst = context.recNum
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
@@ -147,7 +211,7 @@ BPL Definition</Description>
 <assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
 </false>
 </if>
-<code name='UnSwizzleAt' xpos='200' ypos='1200' >
+<code name='UnSwizzleAt' xpos='200' ypos='1300' >
 <![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
  	// $$$TRACE("UnSwizzleAt stat: " _ sc)
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
@@ -168,17 +232,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>ShClaimackCffTo277CADefaultData</DefaultData>
-<Data name="ShClaimackCffTo277CADefaultData">
-<Structure>listnode</Structure>
-<Subscript>"ShClaimackCffTo277CA"</Subscript>
-<Value name="1">
-<Value>Sh277CATargetConfigName</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
