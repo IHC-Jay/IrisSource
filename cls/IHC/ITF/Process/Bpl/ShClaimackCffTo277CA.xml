@@ -50,6 +50,16 @@ BPL Definition</Description>
 <property name='x12Num' type='%Integer' instantiate='0' />
 <property name='cffRecs' type='%String' collection='list' instantiate='0' />
 <property name='x12Output' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='senderId' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='receiverId' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -98,7 +108,8 @@ BPL Definition</Description>
    Do context.cffRecs.Insert(i)
   }
   
-  $$$TRACE("Length of list: " _ context.cffRecs.Size)]]]]><![CDATA[>
+
+  $$$TRACE("TP: " _ request.Records.GetAt(context.recFirst).ENVSNDER _ " -> " _ request.Records.GetAt(context.recFirst).ENVRCVER _ ", from " _ context.recFirst _ "->" _ (context.recFirst + context.recOthers) _ ", # CFF records: " _ context.cffRecs.Size)]]]]><![CDATA[>
 </code>
 <transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Output' xpos='470' ypos='700' />
 <code name='Print X12' xpos='470' ypos='800' >
@@ -108,7 +119,7 @@ BPL Definition</Description>
 ]]]]><![CDATA[>
 </code>
 <code name='Workarond' xpos='470' ypos='900' >
-<![CDATA[ set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+<![CDATA[ set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
   set stat = context.x12Output.OutputToFile(flNm , 1)
   $$$TRACE("OutputToFile: " _ stat)
   set context.x12Output =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
@@ -140,34 +151,37 @@ BPL Definition</Description>
             {
 	            $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
 	            set msgTrans ="277"
-	            set msgTransVer ="XX277"
+	            set msgTransVer ="V5010X214"
 	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	            set str = $E(context.x12Output.OutputToString(), 1, 5000)
 	            
 	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
 			  " values (?,?,?,?,?,?,?,?,?,?,?)"
 			  #dim rset As %SQL.StatementResult
 			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
-			  $$$TRACE(" Inert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
 			  if (rset.%SQLCODE < 0)
 			  {
+			  $$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
 				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
 			  }
-					  
-	            QUIT
-            }
-            		 
-            $$$TRACE( interchangeReceiverID _ ": Tp Info : " _ lnkInfo _", " _ errStr)
-            set lnkId = $PIECE(lnkInfo, ",", 1)
-            set lnkObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(lnkId)
 
-            $$$TRACE( "SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
+            }
+            else
+            {
+            		 
+               $$$TRACE( interchangeReceiverID _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+               set lnkId = $PIECE(lnkInfo, ",", 1)
+               set lnkObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(lnkId)
+
+               $$$TRACE( "SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
             
                        set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12Output, "SNIP", lnkObj.SNIP)
 
 			if ($$$ISERR(tSC))
 			{
-			set str = context.x12Output.OutputToString()
+			   set str = context.x12Output.OutputToString()
 				$$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
 				#dim replyDoc as EnsLib.EDI.X12.Document
 				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
@@ -183,7 +197,7 @@ BPL Definition</Description>
 				  }
 				  Set status = $$$ERROR($$$GeneralError, "X12 Validation failed, "  _ ", RawContent length: " _ $L(context.x12Output.RawContent) _", Str length: " _ $L(str))
 
-             }
+                        }
                         else
                         {
                             $$$TRACE("Validation passed. SNIP level: " _ lnkObj.SNIP)
@@ -196,6 +210,7 @@ BPL Definition</Description>
 	                    set tStatus = process.SendRequestAsync("Out-Uhin-277CA-Sftp-SH",tRequest)
 	                    $$$TRACE("Sent to operation: " _ tStatus )
                         } 
+                }
  }
  else
  {
@@ -203,7 +218,7 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <code name='Reset counts' xpos='470' ypos='1100' >
-<![CDATA[  set context.recFirst = context.recNum
+<![CDATA[  set context.recFirst = context.recNum + 1
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
 </true>
