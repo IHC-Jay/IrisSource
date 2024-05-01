@@ -5,20 +5,1187 @@
 <Super>%RegisteredObject</Super>
 <TimeCreated>66340,50200.601606</TimeCreated>
 
+<UDLText name="T">
+<Content><![CDATA[
+// IRIS 2023 - This method will replace CallEdiX12Parser
+
+]]></Content>
+</UDLText>
+
+<Method name="CallIrisX12Validation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ConfigName:%String,pDocIn:EnsLib.EDI.X12.Document</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSc As %Status = $$$OK
+	set snipLevel = 1
+	$$$TRACE( "CallIrisX12Validation - process X12: " _ $L(pDocIn.RawContent) _ ", ID: " _ pDocIn.getId() _" in " _ $NAMESPACE)
+	try {
+		if (pDocIn.%Extends("EnsLib.EDI.X12.Document"))
+		 {
+			  set tSc = ##class(Ens.X12.FunctionSet).X12ValidateDocument(pDocIn, "SNIP", snipLevel)
+			  // Set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(pDocIn,1,,,0)
+			  
+					/** Code from EnsLib.EDI.X12.Util.Validator with TRACE
+					set pSNIPLevel  = 1, pBatchErrorAction = "Indiv", pSC = $$$OK, pCleanupTempValData  = 1
+					set pDocIn.DocType = "HIPAA_5010:Interchange:Group:270"
+					$$$TRACE("pDocIn.DocType 1: " _ pDocIn.DocType _", pDocIn.Name: " _ pDocIn.Name)	  
+					If ""=pDocIn.DocType {
+						Do pDocIn.PokeDocType(pDocIn.resolveChildDocType())
+						$$$TRACE("pDocIn.DocType 2: " _ pDocIn.DocType _", pDocIn.Name: " _ pDocIn.Name)
+						If ""=pDocIn.DocType {
+							set pDocIn.DocType = "HIPAA_5010:Interchange:Group"
+						}
+						$$$TRACE("pDocIn.DocType 3: " _ pDocIn.DocType _", pDocIn.Name: " _ pDocIn.Name)
+					}
+						  
+							If "Interchange" = pDocIn.Name {
+								set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPInterchangeVal(pDocIn, pSC, pSNIPLevel, pBatchErrorAction)
+								$$$TRACE("PerformSNIPInterchangeVal: " _ tSc)
+							} ElseIf "Group" = pDocIn.Name {
+								set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPGroupValidation(pDocIn,, pSNIPLevel, pBatchErrorAction)
+								$$$TRACE("PerformSNIPGroupValidation: " _ tSc)
+							} Else {
+								Set tGSGreater = 1
+								If pDocIn.ParentId'="" {
+									Set tGroup = ##class(EnsLib.EDI.X12.Document).%OpenId($P(pDocIn.ParentId,":"))
+									If $IsObject(tGroup) {
+										Set tReleaseID = tGroup.GetValueAt("1:"_$$$GSVersionReleaseIndustryIdenti)
+										Set tReplyType = ##class(EnsLib.EDI.X12.Document).DetermineReplyVersion(tReleaseID)
+										#; AK5 will be IK5 instead if version >= 5010 and HIPAA standard transaction
+										Set tGSGreater = (tReplyType>997)
+									}
+								}
+								set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPTSValidation(pDocIn, pSNIPLevel, tGSGreater, pBatchErrorAction)
+								$$$TRACE("PerformSNIPTSValidation:" _tSc)
+							}
+							if ($$$ISOK(tSc))
+							{
+								Set tSc = $$$X12ValInfo(pDocIn.getId(),"Status")
+							}
+						  
+						  
+					**/	  
+			  if ($$$ISERR(tSc))
+			  {
+				  $$$TRACE( " -*- Validation failed, length: " _ $L(pDocIn.RawContent))
+				  Set tSc = ##class(EnsLib.EDI.X12.Util.Validator).SplitBatch(pDocIn,.tGood,.tBad,"SNIP",snipLevel)
+				  if ($IsObject(tGood))
+				  {
+				  	$$$TRACE("Good X12: " _tGood.RawContent)
+				  }
+				  if ($IsObject(tBad))
+				  {
+				  	$$$TRACE("Bad X12: " _ tBad.RawContent)
+				  }
+				  
+
+					set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(pDocIn, "All", "SNIP", snipLevel, "All") 
+				  if ($IsObject(reply))
+				  {
+				 	 $$$TRACE( "X12BatchReply: " _ reply.OutputToString() )
+				  }
+								  
+				  
+			  }
+			  else
+			  {
+				  $$$TRACE( " ->Validation passed")
+				  set succBat = ##class(Ens.X12.FunctionSet).X12BatchSuccesses(pDocIn,"SNIP", snipLevel)
+				  if ($IsObject(succBat))
+				  {
+					  $$$TRACE( "Success X12 data: " _ succBat.RawContent) 
+				  }
+			  }
+		 }
+		 else
+		 {
+			 $$$TRACE( "CallIrisX12Validation - Invalid Data")
+			 set tSc = $$$ERROR($$$GeneralError, "Data is not an X12: " _ pDocIn)
+		 }
+	 } catch err
+			 {
+				$$$LOGERROR(" X12 exception in message: " _ pDocIn _", Exception: " _ err.Code _ "location: " _ err.Location _", error data:" _ err.Data )
+				set tSc = $$$ERROR($$$GeneralError, "X12 exception in message: " _ pDocIn.RawContent _", Exception: " _ err)
+			 }
+	  return tSc
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// New version for 2023 IRIS
+
+]]></Content>
+</UDLText>
+
+<Method name="ProcessX12Document">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,x12RecInfo:IHC.ITF.DStruc.X12RecordInfomation,reportWF:IHC.ITF.PAYER.WorkFlow.problemReport</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set origTpRelationDocId = 0
+	set ackTpRelationDocId = 0
+	set tSC = $$$OK
+			 
+			 try 
+			 {
+				
+				$$$TRACE( " Doc Id: " _ x12Doc.%Id() )
+					  					  
+				if (x12Doc.DocType = "")
+				{
+					set x12Doc.DocType = "HIPAA_5010:Interchange"
+		   			Set tSC =x12Doc.BuildMap()
+		   			$$$TRACE( "BuildMap HIPAA_5010:Interchange: " _ tSC)
+				}
+				if (x12Doc.DocType = "HIPAA_5010:Interchange")
+				{
+				     // Retain the inbound filename
+				     set x12Doc.Source = x12RecInfo.FileName 
+				         
+					 set tSC = ..GetTpInformation(x12Doc, x12RecInfo.sessionId, 0, .err, .tpRelationDocId, .parentErrorMsg)
+					 $$$TRACE( "Back from GetTpInformation, File: " _ x12RecInfo.FileName _ tSC _", " _ err _", tpRelationDocId: " _ tpRelationDocId _ ", Orig ID: " _ x12Doc.OriginalDocId)
+					
+					 set x12RecInfo.origX12Doc = x12Doc
+				     set x12RecInfo.tpRelationDocId =  tpRelationDocId
+					 set x12RecInfo.statMsg = err
+					 set reportWF.ErrorType = err
+					 
+					 set tpObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%OpenId(tpRelationDocId)
+					 if $IsObject(tpObj)
+					 {
+					 	set relObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(tpObj.GrpRelationID)
+						if $IsObject(relObj)
+						{
+							$$$TRACE("Send Ack: " _ relObj.GSAck)
+							set x12RecInfo.sendAck = relObj.GSAck
+							set reportWF.TransType = relObj.NAME
+							set x12RecInfo.TransType = relObj.NAME										
+						}
+				 	 }
+					
+					
+					 if ($$$ISOK(tSC))
+					 {	             
+						 Do x12Doc.%Save()
+						 $$$TRACE("Saved the record - EnsLib.EDI.X12.Document: " _ x12Doc.%Id())
+							 												
+					 } // $$$OK from GetTpInformation
+					 
+					else 
+					{
+					   $$$LOGERROR("Skip the error from GetTpInformation, Doc Id: " _ x12Doc.%Id())  			                          
+					}	
+							
+				}						
+				else
+				{
+					   $$$TRACE( " Skip processing: " _ x12Doc.DocType)
+				}
+
+			 } catch err
+			 {
+				$$$LOGERROR("Invalid X12 doc, exception in message: " _ x12Doc _", Exception: " _ err)
+				set tSC = $$$ERROR($$$GeneralError, "Invalid X12 doc, exception in message: " _ x12Doc _", Exception: " _ err)
+			 }					   
+			   
+	
+    $$$TRACE( "ProcessX12Document complete")
+    
+   return tSC
+]]></Implementation>
+</Method>
+
+<Method name="GetTpInformation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,mode:%String="Batch",direction:%String="In",sesId:%String,checkRel:%Integer,&fullErrorMsg:%String,&tPrelationDocumentId:%String,&parentErrorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set x12DocId = x12Doc.%Id()
+	set tPrelationDocumentId = 0
+	set parentErrorMsg = ""
+	set fullErrorMsg = "OK"
+	
+	$$$TRACE( "GetTpInformation " _ x12DocId _ ", 250 bytes: " _ $E(x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10)), 1, 250) )
+	set tSC= $$$OK
+	set InterchangeSenderID ="",  InterchangeReceiverID = ""
+	if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+		   Set tSC =x12Doc.BuildMap()
+		   	   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   set InterchangeControlVersionNum = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlVersionNum"), "<>W")
+		   set isaDocType = x12Doc.DocType
+		   
+		   if ( (InterchangeSenderID ="") ||  (InterchangeReceiverID = "") )
+		   {
+			   set fullErrorMsg = "Interchange values are empty, Invalid X12: " _ x12Doc.OutputToString()
+			   QUIT $$$ERROR($$$EnsEDIX12ErrGeneral, "Invalid X12")
+		   }
+		   $$$TRACE("GetTpInformation ISA: " _ isaDocType _", " _ InterchangeSenderID _ " -> " _InterchangeReceiverID _ " , Version: " _InterchangeControlVersionNum )
+		   
+		   try
+		   {
+		   
+			   Set k1="",tSC=1,k2=""
+			   set numGS = 0, numSTs = 0, numRecs = 0, transactionCode = 0
+			   set nxt = x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
+			   if ($$$ISERR(tSCTrans))
+			   {
+				   
+				   // Check if this is TA1
+				   set seg = x12Doc.FindSegment("TA1", .ind, .stat)
+	  				if ( ($$$ISOK(stat)) && ($IsObject(seg)))
+	  				{
+		  				set parentErrorMsg = seg.Name _ "*" _  seg.GetValueAt("4") _ "*" _ seg.GetValueAt("5")
+		  				set tpObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%New()
+						 SET tpObj.x12Data = x12DocId
+						 SET tpObj.SessionId = sesId
+						 set tpObj.FileName = x12Doc.Source
+						 set tpObj.createDtTm = $ZDATETIME($HOROLOG,3, 1)
+						 set tpObj.NumOfGSs = numGS
+						 set tpObj.NumOfSTs = numSTs
+						 set tpObj.NumOfTrns = numRecs
+						 
+						 set tpObj.INTERCHANGECONTROLNUMBER = InterchangeCtrlNum
+					     set tpObj.ISARECEIVERTPID = InterchangeReceiverID
+					     set tpObj.ISASENDERTPID = InterchangeSenderID
+
+					     set tpObj.statusDetails = fullErrorMsg
+						 set tpObj.status = "Data Error"
+					     Do tpObj.%Save()
+					     $$$TRACE("Saved IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument: " _ tpObj.%Id())
+					     set tPrelationDocumentId = tpObj.%Id()
+		  
+	  				}
+				   QUIT
+			   }
+			    Set k1=x12Doc.NextChild(k1,nxt)
+			    while ($IsObject(k1))
+			    {
+				    set numGS = numGS + 1
+					$$$TRACE( "k1: " _ k1 _ ", Doc: " _ k1.DocType )
+					
+					If ""=k1.DocType {
+						Set tDocType = k1.resolveChildDocType()
+						$$$TRACE( "resolveChildDocType k1: " _ k1 _ ", Doc: " _ tDocType)
+						Set tSC =k1.PokeDocType(tDocType)
+					}
+					
+			 		 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
+					 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
+					 set groupVersion = "V" _ $ZSTRIP(k1.GetValueAt("GS:VersionReleaseIndustryIdenti"), "<", "0")
+					 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
+					 set grpDocType = k1.DocType
+					$$$TRACE(  "GS: " _ k1.DocType _ ", GS Sender" _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Version: " _ groupVersion )
+					Do ..ReadST(x12Doc, k1, .numSTs, .numRecs, .transactionCode, .parentErrorMsg)
+					Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			    }
+			    
+			    set errorMsg = "X12 values found"
+			
+			 
+			 set tpObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%New()
+			 SET tpObj.x12Data = x12DocId
+			 SET tpObj.SessionId = sesId
+			 set tpObj.FileName = x12Doc.Source
+			 set tpObj.createDtTm = $ZDATETIME($HOROLOG,3, 1)
+			 set tpObj.NumOfGSs = numGS
+			 set tpObj.NumOfSTs = numSTs
+			 set tpObj.NumOfTrns = numRecs
+			 set tpObj.TransactionCode = transactionCode
+			 
+		     set tpObj.ISARECEIVERTPID = InterchangeReceiverID
+		     set tpObj.ISASENDERTPID = InterchangeSenderID
+		     set tpObj.INTERCHANGECONTROLNUMBER = InterchangeCtrlNum
+
+			 set tpObj.GRPRECEIVERTPID = applicationReceiversCode
+		     set tpObj.GRPSENDERTPID = applicationSendersCode
+		     set tpObj.GROUPCONTROLNUMBER = grpCtrlNum
+
+
+			 if ((transactionCode '= "999") || (checkRel = 1))
+			 {
+				 set tSC = ..ItfFindInterchageLink(isaDocType, InterchangeSenderID, InterchangeReceiverID, groupVersion, mode, direction, tpObj, .errorMsg)
+				 set fullErrorMsg = errorMsg
+				 
+				 if ($$$ISERR(tSC))
+				 {
+					 Do ..ItfFindTPIDS(InterchangeSenderID, .errorMsg)
+					 set fullErrorMsg = fullErrorMsg _ errorMsg
+					 Do ..ItfFindTPIDS(InterchangeReceiverID, .errorMsg)
+					 set fullErrorMsg = fullErrorMsg _ errorMsg
+					 set tpObj.statusDetails = fullErrorMsg
+					 set tpObj.status = "TP Relationship not found"
+					 Do tpObj.%Save()
+					 $$$TRACE("IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+				 }
+				 else
+				 {
+					 set tSC = ..ItfFindGroupLink(grpDocType, applicationSendersCode, applicationReceiversCode, groupVersion, mode, direction, tpObj, .errorMsg)
+					 set fullErrorMsg =  errorMsg _ ", " _ fullErrorMsg
+					 if ($$$ISERR(tSC))
+					 {
+						 set tSC1 = ..ItfFindTPIDS(applicationSendersCode, .errorMsg)
+						 if ($$$ISERR(tSC1))
+						 {
+						    set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+						 }
+						 set tSC1 = ..ItfFindTPIDS(applicationReceiversCode, .errorMsg)
+						 if ($$$ISERR(tSC1))
+						 {
+						   set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+						 }
+						 set tpObj.statusDetails = fullErrorMsg
+						 set tpObj.status = "TP Relationship not found"
+						 Do tpObj.%Save()
+						 $$$TRACE("IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+					 }
+				 }
+			 }
+			 if ($$$ISOK(tSC))
+			 {
+					set fullErrorMsg = "OK" _ ", " _  fullErrorMsg
+					 set tpObj.status = "OK"
+					 set tSC = tpObj.%Save()
+					 IF $$$ISOK(tSC) {  
+		                $$$TRACE( " TPrelationDocument saved: " _ tpObj.%Oid())
+		                $$$TRACE("IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+		             }
+		  			 ELSE { 
+		  			 	$$$LOGERROR("Save TPrelationDocument failed, " _ tSC)
+		  			  }
+		  
+				 
+			 }
+			 set tPrelationDocumentId = tpObj.%Id()
+		 } catch err
+		 {
+			 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Exception in GetTpInformation " _ err)
+		 }
+	 }
+	 else
+	 {
+		 $$$TRACE("Invalid doc type")
+		 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Doctype is not valid: "_ x12Doc.DocType)
+	 }
+	 $$$TRACE("GetTpInformation return: " _ tPrelationDocumentId)
+	 return tSC
+]]></Implementation>
+</Method>
+
+<Method name="IsDuplicate">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&tPrelationDocumentId:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set x12DocId = x12Doc.%Id()
+	set tPrelationDocumentId = 0
+
+	
+	$$$TRACE( "IsDuplicate " _ x12DocId _ ", 250 bytes: " _ $E(x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10)), 1, 250) )
+	set tSC= $$$OK
+	set InterchangeSenderID ="",  InterchangeReceiverID = ""
+	if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+		   Set tSC =x12Doc.BuildMap()
+		   	   
+		   set InterchangeCtrlNum = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlNumber"), "<>W")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+		   if ( (InterchangeSenderID ="") ||  (InterchangeReceiverID = "") )
+		   {
+			   set fullErrorMsg = "Interchange values are empty, Invalid X12: " _ x12Doc.OutputToString()
+			   QUIT $$$ERROR($$$EnsEDIX12ErrGeneral, "Invalid X12")
+		   }
+		   $$$TRACE("IsDuplicateISA: " _ InterchangeSenderID _ " -> " _InterchangeReceiverID _ " , Ctrl# " _InterchangeCtrlNum )
+		   
+		   try
+		   {
+		   
+			   Set k1="",tSC=1,k2=""
+			   set numGS = 0, numSTs = 0, numRecs = 0, transactionCode = 0
+			   set nxt = x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
+			   if ($$$ISERR(tSCTrans))
+			   {
+				   QUIT
+			   }
+			    Set k1=x12Doc.NextChild(k1,nxt)
+			    while ($IsObject(k1))
+			    {
+				    set numGS = numGS + 1
+					
+					If ""=k1.DocType {
+						Set tDocType = k1.resolveChildDocType()
+						$$$TRACE( "resolveChildDocType k1: " _ k1 _ ", Doc: " _ tDocType)
+						Set tSC =k1.PokeDocType(tDocType)
+					}
+					
+			 		 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
+					 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
+					 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
+					
+					$$$TRACE(  "GS Sender: " _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Ctrl: " _ grpCtrlNum _", GS #" _numGS)
+					Do ..ReadST(x12Doc, k1, .numSTs, .numRecs, .transactionCode, .parentErrorMsg)
+					Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			    }
+			    
+			 
+			 $$$TRACE(  "ST: " _ transactionCode _", ST #: " _ numSTs _", Trns # " _ numRecs)
+			 &SQL(Select ID into :relId from IHC_ITF_ITFCOMMON_TPManage.TPrelationDocument where INTERCHANGECONTROLNUMBER = :InterchangeCtrlNum AND ISARECEIVERTPID = :InterchangeReceiverID AND ISASENDERTPID = :InterchangeSenderID 
+			 AND GROUPCONTROLNUMBER = :grpCtrlNum AND  GRPRECEIVERTPID = :applicationReceiversCode AND GRPSENDERTPID = :applicationSendersCode 
+			 AND NumOfGSs = :numGS AND NumOfSTs = :numSTs AND NumOfTrns = :numRecs)
+			IF SQLCODE=0 {
+			    $$$TRACE("Doc Id = " _ relId)
+			    set tPrelationDocumentId = relId  
+			    }
+			ELSE {
+			    $$$TRACE("INTERCHANGECONTROLNUMBER = "_ InterchangeCtrlNum _" AND ISARECEIVERTPID = " _ InterchangeReceiverID _" AND ISASENDERTPID = " _ InterchangeSenderID )
+				 $$$TRACE("AND GROUPCONTROLNUMBER = " _ grpCtrlNum _" AND  GRPRECEIVERTPID = " _ applicationReceiversCode _ " AND GRPSENDERTPID = " _ applicationSendersCode) 
+				 $$$TRACE("AND NumOfGSs = " _ numGS _" AND NumOfSTs = " _ numSTs _" AND NumOfTrns = " _ numRecs)
+
+			    $$$TRACE("No records found, SQLCODE=" _ SQLCODE )		    
+			}
+
+			 
+		 } catch err
+		 {
+			 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Exception in IsDuplicate: " _ err)
+		 }
+	 }
+	 else
+	 {
+		 $$$TRACE("Invalid doc type")
+		 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Doctype is not valid: "_ x12Doc.DocType)
+	 }
+	 $$$TRACE("IsDuplicate return ID: " _ tPrelationDocumentId)
+	 return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ReadST">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,k1:EnsLib.EDI.X12.Document,&numSTs:%Integer,&numRecs:%Integer,&transactionCode:%String,&parentErrorMsg:%String]]></FormalSpec>
+<Implementation><![CDATA[
+	Set x12Doc.FunctionalGroups(k1)=k1
+	set numRecs = 0
+	set numSTs = 0
+	set stTranCode = ""
+	set k2=""
+		If ""=k1.DocType {
+			Set tDocType = k1.resolveChildDocType()
+			Set tSC =k1.PokeDocType(tDocType)
+		}
+		set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+	
+ 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+ 		while ($IsObject(k2))
+ 		{
+			$$$TRACE( "k2: " _ k2.%Id() _", # of segs: " _ k2.SegCountGet())
+			Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+			If ""=k2.DocType {
+				Set tDocType = k2.resolveChildDocType()
+				Set tSC =k2.PokeDocType(tDocType)
+			}
+			set stTranCode = x12Doc.FunctionalGroups(k1).TransactionSets(k2).GetValueAt("ST:TransactionSetIdentifierCode",,,1)
+			set numSTs = numSTs + 1
+			set transactionCode = stTranCode
+			FOR seg=1:1:k2.SegCountGet()
+			{
+				set recType = k2.GetValueAt(seg_":0")
+				
+				if ((stTranCode = "271") &&(recType = "EB"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "270") &&(recType = "EQ"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "837") &&(recType = "CLM"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "835") &&(recType = "CLP"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "999") && ((recType = "IK5")|| (recType = "AK9")))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _recType _", Stat: " _ k2.GetValueAt(seg_":1"))
+					if (k2.GetValueAt(seg_":1") '= "A")
+					{
+						$$$TRACE("Original record " _ x12Doc.OriginalDocId _ " has errors " _ k2.TopParentId)
+						set parentErrorMsg = parentErrorMsg _ " " _ recType _ "*" _ k2.GetValueAt(seg_":1") _ "*" _ k2.GetValueAt(seg_":2")
+					}
+				}
+				else
+				{
+					// $$$TRACE("Unknown codes: " _ stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+			}
+			Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+			// $$$TRACE("Next FunctionalGroups:" _ k2)
+ 		}
+ 		WRITE !, stTranCode _ " - STs: " _ numSTs _ ", " _ stTranCode _ " SUBMISSION records: " _ numRecs
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindGroupLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[gsDocType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("GrpRelation Not found")
+	set errorMsg = " Group Relationship Not found " _ senderId _ "->" _ receiverId
+	$$$TRACE( "-- Find GS GrpRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version)
+	
+
+	 &sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name
+		from IHC_ITF_ITFCOMMON_TPManage.TRADELINKS r, 
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS gs1,
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS gs2,
+		IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tr
+		where
+		r.GsSenderId = gs1.ID
+		and r.GsReceiverId = gs2.ID
+		and r.TRANSTYPE = tr.ID
+		and gs1.TPID = :senderId
+		and gs2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Mode = :mode
+		and r.Direction = :direction
+		and r.Active = 1
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) RETURN tsc
+   FOR { &sql(FETCH WPCursor into :id, :relNm)
+        QUIT:SQLCODE 
+        set errorMsg = " FOUND relationship for GS: " _ relNm _", " _ senderId _", " _ receiverId _", " _ gsDocType _", " _ version
+        set tpObj.GrpRelationID = id
+        set tpObj.GRPRELATIONSHIPNAME = relNm
+        set tsc= $$$OK
+   }
+    &sql(CLOSE WPCursor)
+    
+    return tsc
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindInterchageLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[docType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	//set tsc= $$$ERROR("Interchange Relation Not found")
+	set errorMsg = " Interchange Relation Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	WRITE !, "-- Find ISA InterchgRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	
+	&sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name 
+		from IHC_ITF_ITFCOMMON_TPManage.TRADELINKS r, 
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS t1,
+		IHC_ITF_ITFCOMMON_TPManage.TPIDS t2,
+		IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tr
+		where
+		r.IsaSenderId = t1.ID
+		and r.IsaReceiverId = t2.ID
+		and r.TRANSTYPE = tr.ID
+		and t1.TPID = :senderId
+		and t2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Mode = :mode
+		and r.Direction = :direction
+		and r.Active = 1
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) RETURN tsc
+   FOR 
+   { 
+   		&sql(FETCH WPCursor into :id, :relNm)
+        QUIT:SQLCODE 
+        WRITE !, id _", :" _ relNm
+        set errorMsg = " FOUND relationship for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ docType _", " _ version
+        
+        set tpObj.IsaRelationID = id
+        set tpObj.ISARELATIONSHIPNAME = relNm
+        set tsc= $$$OK
+   }
+    &sql(CLOSE WPCursor)
+    
+    return tsc
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindTPIDS">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tpid:%String,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("TP Not found")
+	set errorMsg = "; TP Not found: " _ tpid
+		
+	&sql(DECLARE WPCursor CURSOR FOR 
+ SELECT NAME, TPID
+ FROM IHC_ITF_ITFCOMMON_TPManage.TPIDS
+ where TPID= :tpid)
+ 
+ &sql(OPEN WPCursor)
+        QUIT:(SQLCODE'=0)
+   FOR { &sql(FETCH WPCursor into :tpNm, :TPIDSIP)
+        QUIT:SQLCODE 
+        
+        set errorMsg = "; TP found: " _ tpNm _", " _ TPIDSIP 
+        set tsc= $$$OK
+   }
+   &sql(CLOSE WPCursor)
+   return tsc
+]]></Implementation>
+</Method>
+
+<Method name="GetSessionId">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>msgBodyId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	set sessionId = ""
+	$$$TRACE( "-- GetSessionId: " _ msgBodyId)
+	
+	try {
+	&sql(DECLARE WPCursor CURSOR FOR 
+ SELECT TOP 1 SessionId
+ FROM 	Ens.MessageHeader
+ where MessageBodyId= :msgBodyId)
+ 
+ &sql(OPEN WPCursor)
+        QUIT:(SQLCODE'=0)
+   FOR { &sql(FETCH WPCursor into :sesId)
+        QUIT:SQLCODE 
+		set sessionId = sesId
+		$$$TRACE( "-- FETCH " _ msgBodyId _", " _ sesId)
+   }
+   &sql(CLOSE WPCursor)
+   
+	} catch err
+	{
+		$$$LOGERROR("SQL error: " _ err)
+	}
+   return sessionId
+]]></Implementation>
+</Method>
+
+<Method name="Resend">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,destComp:%String,sessionId:%String,msgId:%String,headQ:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+ try {
+	 set retStr = ""
+	 $$$TRACE("Resend: " _ destComp _ ", msgId: " _ msgId)
+	 set $NAMESPACE = nmSp
+	
+	 set HeadOfQueue = 0
+	 if (headQ = "true")
+	 {
+		set HeadOfQueue = 1
+	 }
+	 set Key  = "KEY"
+	 set num = 0
+	 
+	 	
+		Set tSC=##class(Ens.MessageHeader).ResendDuplicatedMessage(msgId,.tNewHeaderId,destComp,,,HeadOfQueue)
+		If ($$$ISERR(tSC)) {
+			Set errText = $System.Status.GetErrorText(tSC)
+			set retStr =  "Error: " _ errText _ ", Ens.MessageHeader.Id: " _ tMsgId			
+		}
+		
+		Else {
+			set retStr =  "RESENT: Ens.MessageHeader.Id: " _ msgId _ ", New Id: " _ tNewHeaderId 
+			Set ^CacheTemp.ResendIDs(Key,msgId,"sc") = "OK"
+			Set ^CacheTemp.ResendIDs(Key,msgId,"new") = tNewHeaderId
+		}
+	 	
+		
+   } catch err
+	    {
+		    set retStr = "Exception: " _ err.message
+	    }
+	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="GetAckDetailsForX12DocId">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Id:%String,&retStr:%String,&contact:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+	set x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(x12Id)
+	return GetAckDetails(x12Doc, retStr , contact )
+	 } catch err
+	{
+		set retStr = x12Id _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetAckDetails">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&retStr:%String,&contact:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+	
+    set ak9Err = "", ik3Str = "", ik4Str = ""
+    set retStr = "", contact= "", origSeg = ""
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set k1="",tSC=1,k2=""
+	  set numRecs = 0
+	 
+	   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	   if ($F(InterchangeSenderID, "HT000015-0") <1)
+	   {
+	   		set contact = ..GetContactInfo(	InterchangeSenderID)
+	   }
+	   if ($F(InterchangeReceiverID, "HT000015-0") <1)
+	   {
+	   		set contact = contact _ ..GetContactInfo(InterchangeReceiverID)
+	   }
+	   set seg = x12Doc.FindSegment("TA1", .ind, .stat)
+	   if ( ($$$ISOK(stat)) && ($IsObject(seg)))	  				
+	   {
+		    
+		   set ta04 = seg.GetValueAt("4") 
+		   set ta05 = seg.GetValueAt("5")
+		   Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("TA1", ta05, .retVal)
+		   set retStr = "Data Error: TA1 error" _ $CHAR(13) _$CHAR(10) _ retVal _  $CHAR(13) _$CHAR(10) _ "TA014:105:" _ ta04 _":" _ ta05
+	   }
+	   else
+	   {
+		   Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		   set segNum = ""
+		    while ($IsObject(k1))
+		    {
+			    			
+				Set x12Doc.FunctionalGroups(k1)=k1
+				If ""=k1.DocType {
+					Set tDocType = k1.resolveChildDocType()
+					Set tSC =k1.PokeDocType(tDocType)
+				}
+				set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+		
+		 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+		 		while ($IsObject(k2))
+		 		{
+					
+					Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+					If ""=k2.DocType {
+						Set tDocType = k2.resolveChildDocType()
+						Set tSC =k2.PokeDocType(tDocType)
+					}
+					
+					
+					FOR seg=1:1:k2.SegCountGet()
+					{
+						set numRecs = numRecs + 1
+						set recType = k2.GetValueAt(seg_":0")
+						
+						if (recType = "IK3")
+						{
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK304", k2.GetValueAt(seg_":4"), .retVal)
+							set segNum = k2.GetValueAt(seg_":2")
+							set ik3Str = "In Loop: " _ k2.GetValueAt(seg_":3") _ ", Segment # " _ segNum  _ ", ID: " _ k2.GetValueAt(seg_":1") _ ": " _ retVal 
+						}
+						if (recType = "IK4")
+						{
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IK43", k2.GetValueAt(seg_":3"), .retVal)
+							set ik4Str = "Element Position: " _ k2.GetValueAt(seg_":1") _ ", Error: " _ retVal
+						}
+						if (recType = "AK9")
+						{
+							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("AK9", k2.GetValueAt(seg_":1"), .retVal)
+							set ak9Err = "Acknowledgement Response: " _ retVal
+						}					
+					   
+					}
+					// $$$TRACE( "Inbound Document ID: " _ x12Doc.OriginalDocId)
+					// $$$TRACE( ak9Err _"; " _	ik3Str _"; " _ ik4Str)
+					Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))			
+
+		 		}
+	 		
+				Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		    }
+		    if (x12Doc.OriginalDocId '= "")
+		    {
+		        set origSeg = ..GetFullSegment(x12Doc.OriginalDocId, segNum)
+		    }
+		    set retStr = "Data Error: " _ $CHAR(13) _$CHAR(10) _ ak9Err _ $CHAR(13) _$CHAR(10) _ik3Str _ $CHAR(13) _$CHAR(10) _ ik4Str _ $CHAR(13) _$CHAR(10) _"Segment in inbound message: " _ origSeg
+	    }
+      }
+    } catch err
+	{
+		set retStr = x12Doc _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
+	}
+   return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetFullSegment">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Id:%String,segNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(x12Id)
+  set segRec = ""
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set k1="",tSC=1,k2=""
+	  set numRecs = 0
+	 
+		
+	   Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    while ($IsObject(k1))
+	    {
+		    			
+			Set x12Doc.FunctionalGroups(k1)=k1
+			If ""=k1.DocType {
+				Set tDocType = k1.resolveChildDocType()
+				Set tSC =k1.PokeDocType(tDocType)
+			}
+			set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+	
+	 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+	 		while ($IsObject(k2))
+	 		{
+				
+				Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+				If ""=k2.DocType {
+					Set tDocType = k2.resolveChildDocType()
+					Set tSC =k2.PokeDocType(tDocType)
+				}
+				
+				set ak9Err = "", ik3Str = "", ik4Str = ""
+				FOR seg=1:1:k2.SegCountGet()
+				{
+					set numRecs = numRecs + 1
+					if (numRecs = segNum)
+					{
+						set segRec = k2.GetValueAt(seg)
+						QUIT
+					}
+				}
+					
+				Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))			
+
+	 		}
+ 		
+			Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    }
+ }
+ return segRec
+]]></Implementation>
+</Method>
+
+<Method name="GetContactInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set tpInfo = ""
+	&SQL(Select tp.Name, ContactName,  ContactPhone,  ContactEmail  into :nm, :cont, :ph,:em  
+	FROM IHC_ITF_ITFCOMMON_TPManage.TradingPartner tp, 
+    IHC_ITF_ITFCOMMON_TPManage.TPIDS tid where tid.tpId =:tpId AND tid.TPFK = tp.ID)
+
+	if SQLCODE = 0
+	{
+		set tpInfo = "Company: " _ nm _ ", Name: " _ cont _ ", Phone #: " _ ph _", Email: " _ em  _ $CHAR(13) _$CHAR(10)
+	}
+	else
+	{
+		Set tpInfo = "GetContactInfo, TPID: " _ tpId _", error: " _ SQLCODE
+	}
+	  
+	return tpInfo
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12Documents">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>list:%ListOfObjects,x12RecInfo:IHC.ITF.DStruc.X12RecordInfomation,reportWF:IHC.ITF.PAYER.WorkFlow.problemReport</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set origTpRelationDocId = 0
+	set ackTpRelationDocId = 0
+	set tSC = $$$OK
+	
+	// set x12RecInfo = ##class(IHC.ITF.DStruc.X12RecordInfomation).%New()
+	// set reportWF = ##class(IHC.ITF.PAYER.WorkFlow.problemReport).%New()
+	
+	for i=1:1:list.Count()
+	{
+		set x12DocId = list.GetAt(i)
+		if (x12DocId  > 0)
+		{				 
+			 try 
+			 {
+				set x12Doc =  ##class(EnsLib.EDI.X12.Document).%OpenId(x12DocId)
+				
+				$$$TRACE(i _ ". Doc Id: " _ x12Doc.%Id() )
+					  					  
+				if (x12Doc.DocType = "HIPAA_5010:Interchange")
+				{
+				     // Retain the inbound filename
+				     set x12Doc.Source = x12RecInfo.FileName 
+				         
+					 set tSC = ..GetTpInformation(x12Doc, x12RecInfo.sessionId, 0, .err, .tpRelationDocId, .parentErrorMsg)
+					 $$$TRACE("Back from GetTpInformation, File: " _ x12RecInfo.FileName _ tSC _", " _ err _", tpRelationDocId: " _ tpRelationDocId _ ", Orig ID: " _ x12Doc.OriginalDocId)
+					 if (x12Doc.OriginalDocId > 1) // ACK
+					 {
+						 set ackTpRelationDocId = tpRelationDocId
+						 set x12RecInfo.parentErrorMsg = parentErrorMsg				               
+						 set x12RecInfo.replyX12Doc = x12Doc
+					 }
+					 else { // Not Ack
+						 set origTpRelationDocId = tpRelationDocId
+						 set x12RecInfo.origX12Doc = x12Doc
+					     set x12RecInfo.tpRelationDocId =  tpRelationDocId
+						 set x12RecInfo.statMsg = err
+						 set reportWF.ErrorType = err
+					}
+						
+					 if ($$$ISOK(tSC))
+					 {	             
+						 Do x12Doc.%Save()
+							 
+						 if (x12Doc.OriginalDocId > 1) // ACK
+						 {						
+							 if ( $L(parentErrorMsg) > 1)  
+							 {
+								set x12RecInfo.statMsg = parentErrorMsg
+								$$$TRACE("GetTpInformation - parentErrorMsg: " _ parentErrorMsg _", update Original rec: " _ origTpRelationDocId )
+								
+								set docObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%OpenId(origTpRelationDocId)
+								if $IsObject(docObj)
+								{
+									set docObj.status = "Data Error"
+									set docObj.statusDetails = parentErrorMsg
+									Do docObj.%Save()
+								}
+								Do ##class(IHC.ITF.ITFCOMMON.X12utils).GetAckDetails(x12Doc.%Id(), .errStr, .contact)
+								set reportWF.ErrorType = errStr
+								set reportWF.Contact = contact
+								$$$TRACE("GetAckDetails for parentErrorMsg: " _ errStr)
+							 }
+							 else
+							 {
+							        $$$TRACE("No Data validation error in the original message: " _ origTpRelationDocId)
+							 }
+							 							
+						}												
+					 } // $$$OK from GetTpInformation
+					 elseif ($F(x12RecInfo.statMsg, "OK") '= 3)
+					{
+						$$$TRACE("TP error")
+									
+						set docObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%OpenId(origTpRelationDocId)
+						if $IsObject(docObj)
+						{						       				           
+							set reportWF.TransType = docObj.TransactionCode _ "(" _ docObj.TransactionVersion _ ")"
+							set x12RecInfo.statMsg = docObj.status 
+							set reportWF.ErrorType = err _ "; sender: " _ docObj.ISASENDERTPID _ ", receiver: " _ docObj.ISARECEIVERTPID											            						        
+						}
+					}
+					else 
+					{
+					   $$$LOGERROR("Skip the error from GetTpInformation, Doc Id: " _ x12Doc.%Id())  			                          
+					}	
+							
+				}						
+				else
+				{
+					   $$$TRACE(" Skip processing: " _ x12Doc.DocType)
+				}
+
+			 } catch err
+			 {
+				$$$LOGERROR(i _ ". " _ "Invalid X12 doc, exception in message: " _ x12Doc _", Exception: " _ err)
+				set tSC = $$$ERROR($$$GeneralError, "Invalid X12 doc, exception in message: " _ x12Doc _", Exception: " _ err)
+			 }					   
+			   
+		}
+		else
+		{
+			  $$$TRACE("Doc Id not valid: " _ list.GetAt(i))
+		}
+	  	
+		
+	}
+	
+    $$$TRACE("Processed: " _ list.Count() _" documents")
+    if ( (ackTpRelationDocId > 0) && (origTpRelationDocId > 0))
+    {
+		$$$TRACE("Update Relationships: " _ origTpRelationDocId _", " _ ackTpRelationDocId )
+		&SQL(UPDATE IHC_ITF_ITFCOMMON_TPManage.TPrelationDocument set RelationshipId = :ackTpRelationDocId where ID =:origTpRelationDocId )
+		&SQL(UPDATE IHC_ITF_ITFCOMMON_TPManage.TPrelationDocument set RelationshipId = :origTpRelationDocId where ID =:ackTpRelationDocId )
+    }
+    elseif ( origTpRelationDocId > 0)
+    {
+		$$$TRACE("ACK for Doc not found: " _ origTpRelationDocId  )
+    }
+    else {
+	  set status = $$$ERROR($$$GeneralError, "OnProcessInput did not return valid X12 documents")
+	  QUIT status
+    }
+    
+     $$$TRACE("Get TRADERELATIONSHIP parameters for ACK for " _ origTpRelationDocId)
+	 set docObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TPrelationDocument).%OpenId(origTpRelationDocId)
+	 if $IsObject(docObj)
+	 {
+		set x12RecInfo.status = docObj.status
+		$$$TRACE("Status: " _  docObj.TransactionVersion _", " _ docObj.createDtTm _", " _ docObj.x12Data _", " _ docObj.status)
+		set relObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(docObj.IsaRelationID)
+		if $IsObject(relObj)
+		{
+			$$$TRACE("Send Ack: " _ relObj.Ack)
+			set x12RecInfo.sendAck = relObj.Ack	
+			set reportWF.TransType = relObj.NAME
+			set x12RecInfo.TransType = relObj.NAME										
+		}
+	 }
+							 
+   $$$TRACE(tSC _", statMsg: " _ x12RecInfo.statMsg _", ErrorType: " _ reportWF.ErrorType )
+   return tSC
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Calling Old 2021 IRIS methods
+
+]]></Content>
+</UDLText>
+
+<Method name="CallEdiX12Parser">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ConfigName:%String,request:EnsLib.EDI.X12.Document,x12RecInfo:IHC.ITF.DStruc.X12RecordInfomation,*reqList:%ListOfObjects</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	  set x12Obj = ##class(IHC.ITF.Process.Bpl.X12Parser).%New()
+      Do x12Obj.OnInit(ConfigName)
+  
+	 Set TempName = ##class(%Library.File).TempFilename("x12")
+	 set tIOStream = ##class(%IO.FileStream).%New()
+		Do tIOStream.Open(TempName, "N")		
+		if ('$IsObject(tIOStream))
+		{
+			set tSC = $$$ERROR($$$ObjectScriptError, "Could not create IOStream")
+			QUIT tSC
+		}
+		
+		Do tIOStream.Write(request.OutputToString(),1, .stat)
+		if ($$$ISERR(stat))
+		{
+			set tSC = $$$ERROR($$$ObjectScriptError, "Could not write to IOStream")
+			QUIT tSC
+		}
+		Do tIOStream.Rewind()
+		Do tIOStream.Close()
+					  
+		 $$$TRACE("Call OnProcessInput")
+			  					  
+		set tSC = x12Obj.OnProcessInput(TempName, .pOut, .list)
+		if ($$$ISERR(tSC))
+		{
+		        Do ##class(%File).Delete(TempName)
+			set tSC = $$$ERROR($$$ObjectScriptError, "OnProcessInput failed")
+			QUIT tSC
+		}
+		set reqList = list
+		set x12RecInfo.statMsg = pOut
+
+		Do ##class(%File).Delete(TempName)
+		$$$TRACE(tSC _ ", List from x12Obj.OnProcessInput has " _ list.Count() _ " docs")
+			
+		return tSC
+]]></Implementation>
+</Method>
+
 <Method name="getControlNumber">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>ConfigName:%String,sender:%String,receiver:%String</FormalSpec>
+<FormalSpec>ConfigName:%String,sender:%String,receiver:%String,transType:%String=""</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
 	set ctrlNum = 1
-	set ctlNm = $ZSTRIP(ConfigName, "<>W")_","_$ZSTRIP(sender, "<>W")_","_$ZSTRIP(receiver, "<>W")
+	set ctlNm = $ZSTRIP(ConfigName, "<>W")_","_$ZSTRIP(sender, "<>W")_","_$ZSTRIP(receiver, "<>W")_","_$ZSTRIP(transType, "<>W")
 	
 	if ($DATA(^[$NAMESPACE]X12ControlNumber(ctlNm)) '= 0)
 	{
-		SET ctrlNum = ^[$NAMESPACE]X12ControlNumber(ctlNm) + 1
+		SET ctrlNum = $INCREMENT(^[$NAMESPACE]X12ControlNumber(ctlNm))
 	}
 	set ^[$NAMESPACE]X12ControlNumber(ctlNm) = ctrlNum
 	return ctrlNum
+]]></Implementation>
+</Method>
+
+<Method name="GetTpLinkInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String,transactionSet:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set retStr = ""
+	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME, lnk.SNIP " _
+ "FROM IHC_ITF_ITFCOMMON_TPManage.TRADELINKS lnk, IHC_ITF_ITFCOMMON_TPManage.TPIDS tp, IHC_ITF_ITFCOMMON_TPManage.TRANSACTIONTYPES tt " _
+ "where tp.ID = lnk.IsaReceiverId and tt.TransactionSetId = '"_ transactionSet _ "' AND tt.ID = lnk.TRANSTYPE " _
+ "AND tp.TPID = '" _ tpId _ "' " )
+		
+	While rs.%Next() {
+		set nm = rs.%Get("NAME")
+		set id = rs.%Get("ID")
+		// $$$TRACE("TP Link: " _ nm _", Id: " _ id)	
+				
+		Set tpLink = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(id)
+		if ($IsObject(tpLink))
+		{
+		 set retStr = tpLink.Routing _ "#" _id _"#" _ rs.%Get("SNIP")
+		 
+		 
+		 Set tSet="",tId=""
+			For {
+				Set tSet = tpLink.customProp.GetNext(.tId)
+				Quit:""=tId
+				if (tSet.Key = "BatchingMode835")
+				{
+					set retStr = retStr _ "#" _tSet.Value
+					
+					QUIT
+				}
+			}
+			
+		}
+		else
+		{
+		 WRITE !, "Not an object"
+		}
+	}
+	$$$TRACE("TP Link for " _ tpId _ ": " _ ", Return: " _ retStr)
+	return retStr
 ]]></Implementation>
 </Method>
 </Class>
