@@ -60,6 +60,8 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='errRoute' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='sentRoute' type='%Integer' initialexpression='0' instantiate='0' />
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -150,6 +152,8 @@ BPL Definition</Description>
             If $$$ISERR(tSC)
             {
 	            $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
+	            set context.errRoute = context.errRoute + 1
+	            
 	            set msgTrans ="277"
 	            set msgTransVer ="V5010X214"
 	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
@@ -202,13 +206,54 @@ BPL Definition</Description>
                         {
                             $$$TRACE("Validation passed. SNIP level: " _ lnkObj.SNIP)
                             $$$TRACE("Send X12 to " _ lnkObj.Routing)
-                            set tRequest = ##class(Ens.StreamContainer).%New("")
-                            set tStream=##Class(%Library.GlobalCharacterStream).%New()
-                            set pStatus = context.x12Output.OutputToLibraryStream(tStream)
-                            set tRequest.Stream = tStream  
+                            set route = $ZCONVERT(lnkObj.Routing, "U")
+                            set target = ""
+                            if (route  [ "UHIN")
+                            {
+                                set target = "Out-Uhin-277CA-Sftp-SH"
+                            }
+                            elseif (route  [ "UMR")
+                            {
+                                set target = "Out-Umr-277CA-Sftp-SH"
+                            }
+                            elseif (route  [ "INTERMOUNTAIN")
+                            {
+                                set target = "Out-IhcRco-277CA-File-SH"
+                            }
+                            else
+                            {
+                                set errStr = "Target route " _ lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
+                                $$$LOGERROR(errStr)
+                                set context.errRoute = context.errRoute + 1
+                                set msgTrans ="277"
+	                        set msgTransVer ="V5010X214"
+	                        set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	                        set str = $E(context.x12Output.OutputToString(), 1, 5000)
+	            
+	                        set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			        " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+			        " values (?,?,?,?,?,?,?,?,?,?,?)"
+			        #dim rset As %SQL.StatementResult
+			        set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.receiverId, context.senderId, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+			        $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+			        if (rset.%SQLCODE < 0)
+			        {
+			           $$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			        }
+			  
+                            }
+                            if (target '= "")
+                            {
+                                set tRequest = ##class(Ens.StreamContainer).%New("")
+                                set tStream=##Class(%Library.GlobalCharacterStream).%New()
+                                set pStatus = context.x12Output.OutputToLibraryStream(tStream)
+                                set tRequest.Stream = tStream  
 
-	                    set tStatus = process.SendRequestAsync("Out-Uhin-277CA-Sftp-SH",tRequest)
-	                    $$$TRACE("Sent to operation: " _ tStatus )
+	                        set tStatus = process.SendRequestAsync(target ,tRequest)
+	                        $$$TRACE("X12 stream is sent to the operation: " _ target  _", Status: " _ tStatus )
+	                        set context.sentRoute = context.sentRoute + 1
+	                    }
                         } 
                 }
  }
@@ -232,7 +277,7 @@ BPL Definition</Description>
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
 </code>
 </while>
-<trace value='"BPL complete, DTL called: " _ context.x12Num' xpos='200' ypos='850' />
+<trace value='"BPL complete, X12 created: " _ context.x12Num _". Sent: " _ context.sentRoute _", TP/Route Error: " _context.errRoute' xpos='200' ypos='850' />
 <faulthandlers>
 <catchall xpos='200' ypos='950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
