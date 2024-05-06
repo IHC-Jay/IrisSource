@@ -14,8 +14,13 @@ SelectHealth Claims Medicare 837P and 837I process target name</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="GenerateX12File">
+<Type>%Boolean</Type>
+<InitialExpression>"1"</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>Sh277CATargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+<Default>Sh277CATargetConfigName:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask, GenerateX12File:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -27,6 +32,12 @@ BPL Definition</Description>
 <Subscript>"ShClaimackCffTo277CA"</Subscript>
 <Value name="1">
 <Value>Sh277CATargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>generateX12File</Value>
+</Value>
+<Value name="3">
+<Value>GenerateX12File</Value>
 </Value>
 </Data>
 </Storage>
@@ -62,6 +73,8 @@ BPL Definition</Description>
 </property>
 <property name='errRoute' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='sentRoute' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='x12FromFile' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='x12File' type='%Boolean' instantiate='0' />
 </context>
 <sequence xend='200' yend='1200' >
 <scope xpos='200' ypos='250' xend='200' yend='1100' >
@@ -91,14 +104,21 @@ BPL Definition</Description>
 	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No Sh277CATargetConfigName found.")   	
  } 
  
+  set context.x12File =##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","GenerateX12File",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("GenerateX12File: " _ context.x12File ) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, GenerateX12File not found.")   	
+ }
+ 
  set context.recCnt =  request.Records.Count()
  
  $$$TRACE("Total # of records: " _ context.recCnt)
    set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
 </code>
-<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1400' >
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1300' >
 <assign name="Get the record" property="caRec" value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
-<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1200' >
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1100' >
 <true>
 <trace value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
 <code name='create list' xpos='470' ypos='600' >
@@ -117,18 +137,17 @@ BPL Definition</Description>
 <code name='Print X12' xpos='470' ypos='800' >
 <![CDATA[ set context.x12Num = context.x12Num + 1
  
- $$$TRACE(context.x12Num _ ". X12 from DTL: " _ context.x12Output.OutputToString())
+ $$$TRACE(context.x12Num _ ". Size of X12 Doc from DTL: " _ context.x12Output.FullSize )
+ 
+  if (context.x12File)
+  {
+   set flNm = "/itf-share/itf-tmp/277CA/tmp/" _ process.%ConfigName _ "-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+                            set stat = context.x12Output.OutputToFile(flNm , 1)
+                            $$$TRACE("Generated X12 File: " _ flNm _", status: " _ stat)
+  }
 ]]]]><![CDATA[>
 </code>
-<code name='Workarond' xpos='470' ypos='900' >
-<![CDATA[ set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
-  set stat = context.x12Output.OutputToFile(flNm , 1)
-  $$$TRACE("OutputToFile: " _ stat)
-  set context.x12Output =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
-  $$$TRACE("ImportFromFile: " _ flNm  _", Stat: " _ stat _", " _ context.x12Output.FullSize)
-]]]]><![CDATA[>
-</code>
-<code name='Validate and Route' xpos='470' ypos='1000' >
+<code name='Validate and Route' xpos='470' ypos='900' >
 <![CDATA[ // Route the X12 based on TP
 
 	 if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
@@ -143,12 +162,12 @@ BPL Definition</Description>
                   Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
               }
 	    }
-	    $$$TRACE("DocType: " _ context.x12Output.DocType)
+	    $$$TRACE("X12.Document DocType: " _ context.x12Output.DocType)
             set interchangeReceiverID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
 	    set interchangeSenderID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeSenderID"), "<>W")
 	    
             set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , "V5010X214", "Batch", "Out", .lnkInfo, .errStr)
-            $$$TRACE("GetInterchageLink: " _ tSC)
+            
             If $$$ISERR(tSC)
             {
 	            $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
@@ -175,18 +194,49 @@ BPL Definition</Description>
             else
             {
             		 
-               $$$TRACE( interchangeReceiverID _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+               $$$TRACE( interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
                set lnkId = $PIECE(lnkInfo, ",", 1)
                set lnkObj = ##class(IHC.ITF.ITFCOMMON.TPManage.TRADELINKS).%OpenId(lnkId)
 
-               $$$TRACE( "SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
+               $$$TRACE( context.x12Output.Name _ " - SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
             
                        set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12Output, "SNIP", lnkObj.SNIP)
 
 			if ($$$ISERR(tSC))
 			{
-			   set str = context.x12Output.OutputToString()
-				$$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
+			    $$$TRACE(" -*- X12 Validation failed for DTL output, " _ $System.Status.GetErrorText(tSC) _", Validate from the file data")
+			    set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
+			    if ($IsObject(replyDoc))
+			    {
+				      $$$TRACE("Reply 999 to identify the issues in 277CA: " _ replyDoc.RawContent)
+			    }
+			    
+			    // Export to a file and validate X12 again. If any empty segments are copied in DTL, they will not be in the new X12 Doc from the file    
+                            set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+                            set stat = context.x12Output.OutputToFile(flNm , 1)
+                            $$$TRACE("OutputToFile: " _ stat)
+    
+                            set context.x12FromFile =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
+                            $$$TRACE("ImportFromFile: " _ flNm  _", Stat: " _ stat _", " _ context.x12FromFile.FullSize)
+				  
+			    if (context.x12FromFile.DocType = "")
+	                    {
+	                         set context.x12FromFile.DocType ="277_X0B3:Interchange"
+	                         set tSC =context.x12FromFile.BuildMap()
+	                         $$$TRACE("From ImportFromString - BuildMap: " _ tSC )
+	                         If $$$ISERR(tSC)
+                                 {
+                                         Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
+                                 }
+                            }
+                            $$$TRACE("x12FromFile: " _ context.x12FromFile.DocTypeCategory _ " / " _ context.x12FromFile.DocType)
+              
+			    set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12FromFile, "SNIP", lnkObj.SNIP)
+			}
+			if ($$$ISERR(tSC))
+			{
+			    set str = context.x12Output.OutputToString()
+			    $$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
 				#dim replyDoc as EnsLib.EDI.X12.Document
 				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
 				  if ($IsObject(replyDoc))
@@ -262,7 +312,7 @@ BPL Definition</Description>
      $$$LOGERROR(context.x12Output  _ " - Not a X12 document")
  }]]]]><![CDATA[>
 </code>
-<code name='Reset counts' xpos='470' ypos='1100' >
+<code name='Reset counts' xpos='470' ypos='1000' >
 <![CDATA[  set context.recFirst = context.recNum + 1
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
@@ -271,7 +321,7 @@ BPL Definition</Description>
 <assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
 </false>
 </if>
-<code name='UnSwizzleAt' xpos='200' ypos='1300' >
+<code name='UnSwizzleAt' xpos='200' ypos='1200' >
 <![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
  	// $$$TRACE("UnSwizzleAt stat: " _ sc)
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
