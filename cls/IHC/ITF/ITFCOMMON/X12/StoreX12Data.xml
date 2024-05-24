@@ -1782,6 +1782,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <Implementation><![CDATA[
     set insString = "Insert into IHC_X12.Data" _ transType _ "("
 	set rowId = ""
+	set twostepIns = 0
 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))     
 	      
 	set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
@@ -1792,33 +1793,50 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	    set valString = $REPLACE(valString,",", "",,1)  
 	    set colString = $REPLACE(colString,",", "",,1)
 	}
-	if ($FIND(x12Data, "1") > 1)
+	if ($L(x12Data) > 3600000)
 	{
-		set x12Data = $REPLACE(x12Data,"'", "''") 
-	}
-	
-	if (isaRowId = "")
-	{
-		set myquery = insString _ colString  _ ", x12Data, ProcessDtTm, FileName,  MonthPartition, UniqId) " _ " VALUES (" _  valString _ ",'" _ x12Data _ "','" _ $ZDATETIME($HOROLOG,3, 1) _ "', '" _ fileName _ "','"_ mmId _ "','" _uniqId _"')"
-
+		$$$TRACE("INSERT 835 without X12")
+		set twostepIns = 1
 	}
 	else
-	{		
-		set myquery = insString _ colString  _ ", x12Data, ProcessDtTm,  FileName, MonthPartition, UniqId, X12DataParentId) " _ " VALUES (" _ valString _ ",'" _ x12Data _ "','" _ $ZDATETIME($HOROLOG,3, 1)  _ "', '" _ fileName _ "','"_ mmId _ "','" _uniqId _"','" _ isaRowId_"')"
-	}
+	{
+		$$$TRACE("INSERT X12")
+	
+		if ($FIND(x12Data, "1") > 1)
+		{
+			set x12Data = $REPLACE(x12Data,"'", "''") 
+		}
+		
+		
+		if (isaRowId = "")
+		{
+			set myquery = insString _ colString  _ ", x12Data, ProcessDtTm, FileName,  MonthPartition, UniqId) " _ " VALUES (" _  valString _ ",'" _ x12Data _ "','" _ $ZDATETIME($HOROLOG,3, 1) _ "', '" _ fileName _ "','"_ mmId _ "','" _uniqId _"')"
 
-	$$$TRACE( myquery)
+		}
+		else
+		{		
+			set myquery = insString _ colString  _ ", x12Data, ProcessDtTm,  FileName, MonthPartition, UniqId, X12DataParentId) " _ " VALUES (" _ valString _ ",'" _ x12Data _ "','" _ $ZDATETIME($HOROLOG,3, 1)  _ "', '" _ fileName _ "','"_ mmId _ "','" _uniqId _"','" _ isaRowId_"')"
+		}
+
+		$$$TRACE( myquery)
+		
+		SET tStatement = ##class(%SQL.Statement).%New()
+		SET tStatus = tStatement.%Prepare(myquery)
+		SET rset = tStatement.%Execute()
 	
-	SET tStatement = ##class(%SQL.Statement).%New()
-	SET tStatus = tStatement.%Prepare(myquery)
-	SET rset = tStatement.%Execute()
 	
-	if (rset.%SQLCODE = 0)
-	{		
-		$$$TRACE( "ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data))
-		set rowId = rset.%ROWID
+		if (rset.%SQLCODE = 0)
+		{		
+			$$$TRACE( "ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data))
+			set rowId = rset.%ROWID
+		}
+		else
+		{
+			set twostepIns = 1
+			$$$TRACE( "Retry to store X12 with X12 data")
+		}
 	}
-	else
+	if (twostepIns = 1)
 	{
 		try
 		{
@@ -1829,7 +1847,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			
 			if (rset.%SQLCODE = 0)
 			{		
-				$$$TRACE( "Retry stored X12 with ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data))
+				$$$TRACE( "Retry to store X12 with ID: " _ rset.%ROWID _ ", X12 size: " _ $L(x12Data))
 				if ($L(x12Data) > 0)
 				{
 					set rowId = rset.%ROWID
@@ -1841,10 +1859,29 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 						 set obj = $classmethod(classname,"%OpenId",rowId)
 						 if ($ISOBJECT(obj))
 						 {
-							 $$$TRACE( obj.%ClassName() _ ": " _ obj.InterchangeReceiverID)
-							 set obj.x12Data = x12Data
-								set stat = obj.%Save()
-								$$$TRACE( "X12 string Save: " _ stat)
+							 if ($L(x12Data) < 3641144)
+							 {
+							   $$$TRACE("Copy to x12Data: " _ obj.%ClassName() _ ": " _ obj.InterchangeReceiverID)
+							   set obj.x12Data = x12Data
+							 }
+							 else
+							 {
+								 $$$TRACE("Copy to x12DataStream")
+								 set stat = obj.x12DataStream.Write(x12Data)
+								 $$$TRACE( "X12 stream write: " _ stat)
+							 }
+							 set stat = obj.%Save()
+							 $$$TRACE( "X12 Save: " _ stat)
+							 if ( $$$ISERR(stat) && ($L(x12Data) < 3641144))
+							 {
+								 set obj.x12DataStream = ##class(%Stream.GlobalCharacter).%New()
+								 set stat = obj.x12DataStream.Write(x12Data)
+								 $$$TRACE( "X12 stream write: " _ stat)
+								 set obj.x12Data = ""
+								 set stat = obj.%Save()
+							     $$$TRACE( "X12 Stream Save: " _ stat)
+								 
+							 }
 
 						 }
 					 }
