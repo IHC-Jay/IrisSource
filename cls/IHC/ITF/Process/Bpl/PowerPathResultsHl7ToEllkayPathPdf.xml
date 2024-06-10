@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf">
+<Description>
+BPL for PowerPath Pathology PDF Results to Ellkay.</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66918,48746.927159109</TimeCreated>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='4450' width='2000' >
+<context>
+<property name='targetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='isValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='obr25' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='obx11' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hl7Response' type='EnsLib.HL7.Message' initialexpression='""' instantiate='1' />
+<property name='MsgRequest' type='EnsLib.HL7.Message' instantiate='0' />
+</context>
+<sequence xend='200' yend='2150' >
+<scope xpos='200' ypos='250' xend='200' yend='2050' >
+<trace name='Debug' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' />
+<trace name='Incoming Message' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='450' >
+<annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
+</trace>
+<code name='check if message has continued pointer' xpos='200' ypos='550' >
+<![CDATA[    Set doTrans=0
+    set ContdPointer = request.GetValueAt("MSH:ContinuationPointer")
+    $$$TRACE("ContdPointer: " _ ContdPointer)
+    if (ContdPointer'="") {
+      if (ContdPointer=^SavedContdPointer) {
+         set cMsg = request.RawContent
+         set newMsg = $P(^SavedPPMessage,"DSC|",1)_$P(cMsg,ContdPointer_$Char(13),2)         
+         set ^SavedPPMessage=""
+	 set ^SavedContdPointer=""
+         $$$TRACE("NEW MSG: "_newMsg)
+         set context.MsgRequest=##class(EnsLib.HL7.Message).ImportFromString(newMsg)
+         set context.MsgRequest.DocType="PowerpathPath:ORU_R01"
+         set doTrans=1
+      }
+      else {
+         set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Message Continuation Pointer: "_ContdPointer_" does not match the saved Continuation Pointer: "_^SavedContdPointer_". Please check the messages in the queue.")   
+      }
+    }
+    else {
+       set DSCContdPointer = request.GetValueAt("DSC:ContinuationPointer")
+       $$$TRACE("DSCContdPointer: " _ DSCContdPointer)
+       if (DSCContdPointer'="") {
+           set ^SavedContdPointer=DSCContdPointer
+           set ^SavedPPMessage=request.RawContent
+           Set doTrans=0
+       }
+       else {
+          set context.MsgRequest=request
+          Set doTrans=1
+       }
+    }
+    //Set doTrans=0
+    ]]]]><![CDATA[>
+</code>
+<if name='Do transformation' condition='doTrans=1' xpos='200' ypos='650' xend='200' yend='1800' >
+<true>
+<trace name='do trans' value='"DO TRANSFORMATION"' xpos='335' ypos='800' />
+<code name='Check ReplyCodeActions' xpos='335' ypos='900' >
+<annotation><![CDATA[Get ReplyCodeActions from settings]]]]><![CDATA[></annotation>
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shutting down.")   
+ } else {
+    $$$TRACE("ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='Check TargetConfigNames' xpos='335' ypos='1000' >
+<annotation><![CDATA[Get TargetConfigNames from settings]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ //TargetConfigNames validation
+ set targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+ } else {
+    $$$TRACE("TargetConfigNames: " _ targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("TargetListCount: " _ context.targetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+<code name='CheckForLookupTables' xpos='335' ypos='1100' >
+<annotation><![CDATA[CheckForLookupTables]]]]><![CDATA[></annotation>
+<![CDATA[
+ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obr25Status")
+ if (retVal = 0){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obr25Status not exists")  
+ }
+ set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obx11Status")
+ if (retVal = 0){
+ 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obx11Status not exists")  
+ }]]]]><![CDATA[>
+</code>
+<code name='obr25 lookup' xpos='335' ypos='1200' >
+<![CDATA[  set obr25=context.MsgRequest.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBR:25")
+  $$$TRACE("OBR-25: "_obr25)
+  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obr25Status", obr25, .retVal )    
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {   
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Couldn't get value for OBR-25;"_obr25_" in Lookup Table")	  	  
+  } else {
+    set context.obr25 = retVal
+  }   ]]]]><![CDATA[>
+</code>
+<code name='obx11 lookup' xpos='335' ypos='1300' >
+<![CDATA[  set obx11=context.MsgRequest.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(1).OBX:11")
+  $$$TRACE("OBX-11: "_obx11)
+  set retStat= ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PowerPathResultsHl7ToEllkayPathPdf.Lookup.Obx11Status", obx11, .retVal )    
+  if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {   
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Couldn't get value for OBX-11;"_obx11_" in Lookup Table")	  	  
+  } else {
+    set context.obx11= retVal
+  }   ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.PowerPathResultsHl7ToEllkayPathPdf' source='context.MsgRequest' target='response' xpos='335' ypos='1400' />
+<trace name='Transform Output' value='"Message after Transform: " _ response.RawContent' xpos='335' ypos='1500' />
+<foreach name='Sent to target list' property='context.targetList' key='context.targetConfigIndex' xpos='335' ypos='1600' xend='200' yend='350' >
+<call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='Reset Error' xpos='335' ypos='1700' >
+<annotation><![CDATA[Reset the Error count so that we start from beginning]]]]><![CDATA[></annotation>
+<![CDATA[
+ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1900' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>

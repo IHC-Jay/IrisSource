@@ -1,0 +1,299 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.TissueAnalyticsResultsHl7ToEllkayPdf">
+<Description>
+BPL for Tissue Analytics PDF Results to Ellkay...</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>66918,46829.832784431</TimeCreated>
+
+<Property name="TargetConfigNameiCentraEdgeService">
+<Description>
+REST attending doctor search service call operation</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-CernEdge-Wsrc-ATTENDINGDOCTOR"</InitialExpression>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[-NextOperation,TargetConfigNameiCentraEdgeService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='4450' width='2000' >
+<context>
+<property name='targetList' type='%Library.String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='2000' />
+</parameters>
+</property>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='replyCodeActions' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='msh41SendFacility' type='%String' initialexpression='"IHC"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='icentraSvcRequest' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='jsonRequest' type='Ens.StringRequest' instantiate='0' />
+<property name='attPrvdrIds' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrLnms' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrFnms' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrMnms' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1900' >
+<scope xpos='200' ypos='250' xend='200' yend='1800' >
+<trace name='1. Incoming Message' value=' "1. Incoming Message: "_request.RawContent' xpos='200' ypos='350' />
+<code name='2. Check ReplyCodeActions' xpos='200' ypos='450' >
+<![CDATA[
+ //ReplyCodeActions validation
+ set replyCodeActions=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ReplyCodeActions",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (replyCodeActions= "")) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get ReplyCodeActions, shut down.")   
+ } else {
+    $$$TRACE("2. ReplyCodeActions: " _ replyCodeActions)
+ }]]]]><![CDATA[>
+</code>
+<code name='3. Max Errors Check' xpos='200' ypos='550' >
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("3. Max Errors: " _ maxErr)]]]]><![CDATA[>
+</code>
+<code name='4. Check TargetConfigNames' xpos='200' ypos='650' >
+<![CDATA[ 
+ //TargetConfigNames validation
+ set targetConfigNames=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TargetConfigNames",.pstatus)
+ if ( ($$$ISERR(pstatus)) || (targetConfigNames= "") ) {
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shut down.")   
+ } else {
+    $$$TRACE("4.1 TargetConfigNames: " _ targetConfigNames)
+    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+    $$$TRACE("4.2 TargetListCount: " _ context.targetList.Count())   
+ }]]]]><![CDATA[>
+</code>
+<code name='5. Check Lookup Tables' xpos='200' ypos='750' >
+<![CDATA[   $$$TRACE("5. Check Lookup Table. ")
+  
+  set retVal = ##class(Ens.Util.LookupTable).%ExistsTable("IHC.ITF.Process.Bpl.TissueAnalyticsResultsHl7ToCernPdf.Lookup.TissueAnalyticsPdfProps")
+  if (retVal = 0){
+	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).LookUpNotFoundError($CLASSNAME(),"Lookup table IHC.ITF.Process.Bpl.TissueAnalyticsResultsHl7ToCernPdf.Lookup.TissueAnalyticsPdfProps table not found.")  
+  }
+   
+  ]]]]><![CDATA[>
+</code>
+<code name='6. Filter for ORU^R01 Msg' xpos='200' ypos='850' >
+<![CDATA[  $$$TRACE("6. Filter for ORUR01 Message Type.")
+  
+  Set msgType91 = request.GetValueAt("MSH:9.1")
+  $$$TRACE("6.1 MSH-9.1 Message Type: " _ msgType91)  
+  
+  Set msgType92 = request.GetValueAt("MSH:9.2")
+   $$$TRACE("6.2  MSH-9.2 Message Type: " _ msgType92)
+
+ if (msgType91 '="ORU") {
+  	  $$$TRACE("6.3 MSH-9.1 message Type is NOT VALID.  ORU is expected.  Skip record.")
+	  set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Skip the non ORU record. Invalid message type: " _ msgType91)
+	  
+ }elseif( msgType92'="R01") {	  
+ 
+    $$$TRACE("6.4  MSH-9.2 Message Type is NOT VALID.  R01 is expected.  Skip record.")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Skip the the non R01 record. Invalid message type: " _ msgType92)	   
+ }]]]]><![CDATA[>
+</code>
+<code name='8. Retrieve Lookup properties' xpos='200' ypos='950' >
+<![CDATA[    $$$TRACE("8.  Get Propertities from the lookup table.")
+
+   	set retStat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.TissueAnalyticsResultsHl7ToCernPdf.Lookup.TissueAnalyticsPdfProps", "msh41SendFacility", .retVal )	
+  	if ($$$ISERR(retStat) || (retVal = "Unknown") || (retVal ="")) {       
+       $$$TRACE("8.7 Unable to get msh41SendFacility from the lookup table. Getting the default value :[" _ context.msh41SendFacility _"]")
+    } else {
+	   set context.msh41SendFacility = retVal
+	   $$$TRACE("8.8 Value of msh41SendFacility from the lookup table :[" _ context.msh41SendFacility _"]")
+    } 
+    
+    ]]]]><![CDATA[>
+</code>
+<code name='get FIN' xpos='200' ypos='1050' >
+<![CDATA[ set fin = request.GetValueAt("PID:18.1") 
+ $$$TRACE("PID-18.1: "_fin)
+ if (fin ="") {
+    $$$TRACE("Patient FIN is null...")
+    set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "Patient FIN is null...")
+ }
+ else {
+   set context.jsonRequest=##class(Ens.StringRequest).%New()
+   set context.jsonRequest.StringValue="{"_$CHAR(34)_"ATT_JSON"_$CHAR(34)_":{"_$CHAR(34)_"FIN"_$CHAR(34)_":"_$CHAR(34)_fin_$CHAR(34)_"}}"
+ }]]]]><![CDATA[>
+</code>
+<transform name='get the REST request' class='IHC.ITF.ITFCOMMON.Transform.JsonToHttp' source='context.jsonRequest' target='context.icentraSvcRequest' xpos='200' ypos='1150' />
+<code name='CalltheREST  service to get the attending doctor' xpos='200' ypos='1250' >
+<![CDATA[ $$$TRACE("Call REST Operation")
+  if (context.icentraSvcRequest'="") {
+    $$$TRACE("Call REST Service.... ")
+    set status=process.SendRequestSync("Op-CernEdge-Wsrc-ATTENDINGDOCTOR",context.icentraSvcRequest,.httpRESTResponse)
+    if ($$$ISOK(status)){
+      $$$TRACE("Call REST Operation Ok")
+      set statusLine=""
+      set statusCode=""
+      set statusDesc=""
+      set context.restHttpResponse=httpRESTResponse
+      set statusLine=context.restHttpResponse.HTTPHeaders.GetAt("StatusLine")
+      if (statusLine'=""){
+	set statusCode=$piece(statusLine," ",2)
+	set statusDesc=$piece(statusLine," ",3)
+      }
+      $$$TRACE("StatusCode "_statusCode_" statusDesc "_statusDesc)
+		  // If status code is 200 the check the reponse to see if it got processed correctly or not
+      if (statusCode'="200"){
+        set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"iCentra Attending Doctor search service response with code: "_statusCode_"  Desc: "_statusDesc) 
+      }
+      else {
+        Set tcharStream = ##class(%GlobalCharacterStream).%New()
+        Set tStatus = tcharStream.CopyFrom(context.restHttpResponse.Stream)
+        $$$TRACE("tcharStream size:"_tcharStream.Size)
+        set text=""
+        While 'tcharStream.AtEnd {
+          Set text = text_tcharStream.Read($$$MaxStringLength)
+        } 
+        $$$TRACE("REST service response: "_text)
+        If ($$$IsdefObject(tcharStream)) {
+	  Do tcharStream.Rewind()
+	  Set tConsumedJSON = ##class(%Library.DynamicAbstractObject).%FromJSON(tcharStream)
+	  $$$TRACE("Status Message: "_tConsumedJSON.%Get("message"))
+	  set iter = tConsumedJSON.%GetIterator()
+	  set statusKey=""
+	  set statusCode=""
+	  #dim statusIter As %Iterator.Object
+	  #dim detailIter As %Iterator.Array
+	  do iter.%GetNext(.key , .value )
+	  set iter = value.%GetIterator()
+	  while iter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="service-status" {
+	        set statusIter=value.%GetIterator()
+	     }
+	     elseif ((key="code") && (statusKey="service-status")) {
+	       set statusCode=value
+	     }
+	     if key="status-details" {
+	        if value="" {
+	           set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"iCentra Attending Doctor search service does not find the attending doctor.")
+	        }
+	        else {
+	           $$$TRACE("Service Found: "_value)
+                   set detailIter = value.%GetIterator()
+                }
+	     }
+	     else {
+	        continue
+	     }
+	  }
+	  while statusIter.%GetNext(.key , .value ) {
+	     $$$TRACE("key = "_key_" , value = "_value)
+	     if key="code" {
+	        set statusCode=value
+	        if statusCode="000" {
+	          while detailIter.%GetNext(.key , .value ) {
+	            $$$TRACE("key = "_key_" , value = "_value)
+	            set dtlItter=value.%GetIterator()
+	            while dtlItter.%GetNext(.key , .value ) {
+	               if key="NAME-FULL-FORMATTED" {
+	                 $$$TRACE("FULL NAME: "_value)
+	                 if value'="" {
+	                   do context.attPrvdrLnms.Insert($P(value,",",1))
+	                   do context.attPrvdrFnms.Insert($ZSTRIP($P(value,",",3),"<>W"))
+	                   do context.attPrvdrMnms.Insert($ZSTRIP($P(value,",",2),"<>W"))
+	                 }
+                         else {
+                            $$$TRACE("Full Name is null...")
+                         }
+	               }
+	               elseif key="PROVIDER-ID" {
+	                  $$$TRACE("key = "_key_" , value = "_value)
+	                  do context.attPrvdrIds.Insert(value)
+	               }
+
+	            }
+	          }
+	          if context.attPrvdrIds.Size=0 {
+	             set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"iCentra Attending Doctor search service does not find the attending doctor.")
+	             quit
+	          }
+	        }
+	        else {
+	          set status=##class(IHC.ITF.ITFCOMMON.Utility).ProcessErrorExt(process.%ConfigName,"iCentra Attending Doctor search service failed with Status: "_value)
+	          quit
+	        }
+	     }
+	  }
+        }
+	$$$TRACE("REST Service response Status Code: "_statusCode)
+      }
+    }
+    ELse {
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Post iCentra Attending Doctor search service request failed with Status Code: "_statusCode_" : Status Desc: "_statusDesc) 
+    }
+  }]]]]><![CDATA[>
+</code>
+<transform name='12. Transform' class='IHC.ITF.Transform.Dtl.TissueAnalyticsResultsHl7ToEllkayPdf' source='request' target='response' xpos='200' ypos='1350' />
+<foreach name='13. send to targets' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1450' xend='200' yend='350' >
+<call name='sendToTarget' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='14.  reset error count' xpos='200' ypos='1550' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall name='15. Call ProcessError' xpos='200' ypos='1650' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>TissueAnalyticsResultsHl7ToEllkayPdfDefaultData</DefaultData>
+<Data name="TissueAnalyticsResultsHl7ToEllkayPdfDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"TissueAnalyticsResultsHl7ToEllkayPdf"</Subscript>
+<Value name="1">
+<Value>TargetConfigNameiCentraEdgeService</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
