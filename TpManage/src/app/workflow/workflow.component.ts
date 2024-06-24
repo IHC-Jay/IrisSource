@@ -56,7 +56,7 @@ export class WorkflowComponent implements OnInit {
   canRenderDetails = false;
   rowSelected : number = 0;
   sub:any;
-  updStatus: string ='';
+  updStatus: string = 'Resolved';
 
   dataSource = new MatTableDataSource<WorkFlowEntry>();
   selection = new SelectionModel<WorkFlowEntry>(true, []);
@@ -155,6 +155,7 @@ GetWFs()
  updStatusTypeChange (evt: any)
  {
    this.updStatus = this.form.controls.updStatusType.value
+   console.log("updStatusTypeChange: " + this.updStatus)
  }
 
 
@@ -181,9 +182,28 @@ onRowClicked(row) {
 isAllSelected() {
   this.rowSelected = this.selection.selected.length;
   const numRows = this.dataSource.data.length;
+  // console.log("isAllSelected: " + this.rowSelected +"===" + numRows)
   return this.rowSelected === numRows;
 }
 
+singleToggle(row)
+{
+  console.log('# of rows checked: ' + this.selection.selected.length)
+  console.log('Row Find: ' + row.id + ": " + this.selection.isSelected(row));
+
+  if (this.selection.isSelected(row))
+  {
+    this.selection.deselect(row)
+  }
+  else
+  {
+    this.selection.select(row);
+  }
+  this.rowSelected = this.selection.selected.length;
+  // this.dataSource.data.forEach(row => this.selection.select(row));
+  console.log('Row count:' + this.selection.selected.length)
+
+}
 /** Selects all rows if they are not all selected; otherwise clear selection. */
 masterToggle() {
   if(this.isAllSelected())
@@ -199,19 +219,19 @@ masterToggle() {
 
 updateWF()
  {
-
+  console.info("Update WorkFlow: " + this.selection.selected.length + " to " + this.updStatus);
    if(this.updStatus !== '')
    {
       console.info("Update WorkFlowItem to " + this.updStatus)
       this.selection.selected.forEach(row => {
           console.info("ID: " + row.id +"-> " + this.updStatus)
-
+/*
           this.WfService.updateWorkFlowItem(row.id, this.updStatus).subscribe((res: any) => {
             this.dataSource.data = res;
             this.canRenderDetails = true;
 
           });
-
+*/
         });
 
       this.selection.clear();

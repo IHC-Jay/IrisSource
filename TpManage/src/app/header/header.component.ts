@@ -169,7 +169,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         error: (e) => {
           console.error('onLogin catchError: ' +e);
           this.router.navigate(['/']);
-          alert('Login failed: ' + e)
+          alert('Login failed for ' + this.f.username.value + ". Exception in calling the REST service: " + e)
           this.displayHelp = "Login failed";
           this.loading = false;
           return;

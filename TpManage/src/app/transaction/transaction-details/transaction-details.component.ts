@@ -72,7 +72,7 @@ export class TransactionDetailComponent {
           || Number.parseInt(item.TransactionCode) == 1)
           {
             this.displayedColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
-            // console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
+            console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
           }
 
         }
@@ -268,9 +268,17 @@ export class TransactionDetailComponent {
 
       else if (res.x12Data !== undefined && res.x12Data.length > 0 )
       {
-        let letter = res.x12Data.charAt(105);
-        val = res.x12Data.replaceAll(letter, letter + "\n" )
-        console.info("Split X12 with: " + letter);
+        if (res.x12Data.length > 105)
+        {
+           let letter = res.x12Data.charAt(105);
+
+           val = res.x12Data.replaceAll(letter, letter + "\n" )
+            console.info("Split X12 with: " + letter);
+         }
+         else
+         {
+           val = res.x12Data
+         }
       }
       else{
           val = res.x12Data.replaceAll("~", "~\n")

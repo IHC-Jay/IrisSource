@@ -34,6 +34,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       "Batch, Last 24 hours ",
       "Batch, Last 7 days ",
       "Batch, Last 30 days ",
+      "Batch, Last 90 days ",
       "RT, Last 24 hours ",
       "RT, Last 7 days ",
       "RT, Last 30 days "

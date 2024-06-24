@@ -229,12 +229,6 @@ getX12()
 
 }
 
-  setControls()
- {
-
-
-
- }
 
  updateWF()
  {

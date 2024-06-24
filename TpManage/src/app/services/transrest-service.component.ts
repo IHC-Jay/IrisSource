@@ -724,8 +724,12 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
     {
       dte.setDate(dte.getDate() - 7);
     }
-    else{
+    else if (searchType.indexOf('30') > 1){
       dte.setMonth(dte.getMonth() - 1 );
+
+    }
+    else {
+      dte.setMonth(dte.getMonth() - 3 );
 
     }
     dtTm = formatDate(dte, 'yyyy-MM-dd hh:mm:ss',this.locale);

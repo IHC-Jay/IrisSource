@@ -4,9 +4,9 @@
 
 export const environment = {
   production: true,
-  tpDevUrl: 'http://lp-itfdevvp2:26973/EdiRest/TpManage/',
-  rtDevTransUrl: 'http://lp-itfdevvp2:26973/Rest/RtTransactions/',
-  batchDevTransUrl: 'http://lp-itfdevvp2:26973/Rest/BatchTransactions/',
+  tpDevUrl: 'http://lp-itfdevvp2.co.ihc.com:26973/EdiRest/TpManage/',
+  rtDevTransUrl: 'http://lp-itfdevvp2.co.ihc.com:26973/Rest/RtTransactions/',
+  batchDevTransUrl: 'http://lp-itfdevvp2.co.ihc.com:26973/Rest/BatchTransactions/',
   tpQaUrl: 'http://lp-itfqavp2:25973/EdiRest/TpManage/',
   rtQaTransUrl: 'http://lp-itfqavp2:25973/Rest/RtTransactions/',
   batchQaTransUrl: 'http://lp-itfqavp2:25973/Rest/BatchTransactions/'
