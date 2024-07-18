@@ -3,8 +3,90 @@
 <Class name="IHC.ITF.ITFCOMMON.Process.Bpl.ValidateX12Document837">
 <Description>
 X12 parsing for 837</Description>
-<Super>Ens.BusinessProcessBPL</Super>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>67026,55809.296338321</TimeCreated>
+
+<Property name="AckTargetConfigName">
+<Description>
+Process to send the Ack, Routing information from the TP Link will be added to the name</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="Direction">
+<Description>
+Direction: In / Out </Description>
+<Type>%String</Type>
+<InitialExpression>"In"</InitialExpression>
+<Parameter name="DISPLAYLIST" value=",In,Out"/>
+<Parameter name="VALUELIST" value=",In,Out"/>
+</Property>
+
+<Property name="Mode">
+<Description>
+Mode RT / Batch </Description>
+<Type>%String</Type>
+<InitialExpression>"RT"</InitialExpression>
+<Parameter name="DISPLAYLIST" value=",RT,Batch"/>
+<Parameter name="VALUELIST" value=",RT,Batch"/>
+</Property>
+
+<Property name="Version">
+<Description>
+Version X12  ST-3</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="20"/>
+</Property>
+
+<Property name="DuplicateCheck">
+<Description>
+DuplicateCheck: Yes / No </Description>
+<Type>%String</Type>
+<InitialExpression>"Yes"</InitialExpression>
+<Parameter name="DISPLAYLIST" value=",No,Yes"/>
+<Parameter name="VALUELIST" value=",No,Yes"/>
+</Property>
+
+<Property name="CreateNewBatches">
+<Description>
+X12 - Create a new batch containing only those child documents which pass validation</Description>
+<Type>%String</Type>
+<InitialExpression>"Yes"</InitialExpression>
+<Parameter name="DISPLAYLIST" value=",Yes,No"/>
+<Parameter name="VALUELIST" value=",Yes,No"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default><![CDATA[-NEXTOPERATION,Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VersionItems?targets=1&productionName=@productionId},Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,AckTargetConfigName:Acknowledgement]]></Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ValidateX12Document837DefaultData</DefaultData>
+<Data name="ValidateX12Document837DefaultData">
+<Structure>listnode</Structure>
+<Subscript>"ValidateX12Document837"</Subscript>
+<Value name="1">
+<Value>AckTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>Direction</Value>
+</Value>
+<Value name="3">
+<Value>Mode</Value>
+</Value>
+<Value name="4">
+<Value>Version</Value>
+</Value>
+<Value name="5">
+<Value>DuplicateCheck</Value>
+</Value>
+<Value name="6">
+<Value>CreateNewBatches</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -264,7 +346,7 @@ BPL Definition</Description>
 <if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='740' ypos='1850' xend='740' yend='2400' >
 <true>
 <code name='Send NACK' xpos='1010' ypos='2000' >
-<![CDATA[  $$$TRACE( "X12 RawContent: " _ context.inXmlDoc.RawContent) 
+<![CDATA[  $$$TRACE( "X12 error. TP GS Ack config: " _ context.tpLinkObj.GSAck) 
   if ( context.tpLinkObj.GSAck [ "ERROR")
   {
 	
@@ -303,8 +385,8 @@ BPL Definition</Description>
            }
            
              set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
-             set succBat = ##class(%GlobalCharacterStream).%New()
-             set status = request.OutputToLibraryStream(succBat)
+             set x12Stream = ##class(%GlobalCharacterStream).%New()
+             set status = succBat.OutputToLibraryStream(x12Stream)
  Do transObj.x12Message.CopyFrom(x12Stream)
  set transObj.TransTrackingMsg = "837_ACCEPTED_CLAIMS"
  set transObj.FileName = context.FileName 
@@ -329,15 +411,15 @@ BPL Definition</Description>
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"CreateNewBatches",.configValue)
   if (configValue = "Yes")
   {
-         set succBat = ##class(Ens.X12.FunctionSet).X12BatchErrors(context.inXmlDoc, "SNIP", context.tpLinkObj.SNIP)
-	 $$$TRACE("Create X12BatchErrors: " _ succBat)
-	 if ($IsObject(succBat))
+         set errBat = ##class(Ens.X12.FunctionSet).X12BatchErrors(context.inXmlDoc, "SNIP", context.tpLinkObj.SNIP)
+	 $$$TRACE("Create X12BatchErrors: " _ errBat )
+	 if ($IsObject(errBat))
 	 {
-	   $$$TRACE("Success X12 data: " _ succBat.RawContent)
+	   $$$TRACE("Errored X12 data: " _ errBat.RawContent)
 	             
              set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
-             set succBat = ##class(%GlobalCharacterStream).%New()
-             set status = request.OutputToLibraryStream(succBat)
+             set x12Stream = ##class(%GlobalCharacterStream).%New()
+             set status = errBat.OutputToLibraryStream(x12Stream)
  Do transObj.x12Message.CopyFrom(x12Stream)
  set transObj.TransTrackingMsg = "837_REJECTED_CLAIMS"
  set transObj.FileName = context.FileName 
@@ -348,6 +430,10 @@ BPL Definition</Description>
   if ('tStatus) {    
   set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
  } 
+ else
+ {
+    $$$TRACE("Sent X12BatchErrors to TT process") 
+ }
  
    
 	 }
@@ -595,9 +681,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-</Storage>
 </Class>
 </Export>
