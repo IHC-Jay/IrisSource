@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.RadiantLogicJsonToSalesForceXml">
+<Description><![CDATA[
+Calls RadiantLogic REST service & Converts to SalesForce XML record]]></Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63770,48624.416482</TimeCreated>
+
+<Property name="numMsgPg">
+<Type>%Integer</Type>
+<InitialExpression>10</InitialExpression>
+</Property>
+
+<Property name="RadiantSrvcTargetConfigName">
+<Description>
+Radiant Logic service call Operation: The target name used for the Radiant Logic Service calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="InitialStartDate">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="25"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>RadiantSrvcTargetConfigName:Additional,-NextOperation,-TargetConfigMask,numMsgPg:Additional,InitialStartDate:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>RadiantLogicJsonToSalesForceXmlDefaultData</DefaultData>
+<Data name="RadiantLogicJsonToSalesForceXmlDefaultData">
+<Subscript>"RadiantLogicJsonToSalesForceXml"</Subscript>
+<Value name="1">
+<Value>numMsgPg</Value>
+</Value>
+<Value name="2">
+<Value>RadiantSrvcTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>InitialStartDate</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3550' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='opRequest' type='IHC.ITF.DStruc.Record.WorkdayHr.Record' instantiate='0' />
+<property name='stIndx' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='lastMdMs' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='nMsg' type='%Integer' initialexpression='10' instantiate='0' />
+<property name='hasNext' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='rsOpNm' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='SalesForceRec' type='EnsLib.EDI.XML.Document' instantiate='0' />
+<property name='rlRequest' type='IHC.ITF.DStruc.Request.RLRequest' instantiate='0' />
+<property name='lastModifiedDt' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
+<trace name='incomingMessage' value=' "New SearchNotification call "' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  
+  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Set MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Set MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)   
+ 
+ //Read TargetConfigNames
+ set configValue = "" 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error,  No TargetConfigNames found")	 
+ }else{
+      $$$TRACE("TargetConfigNames: " _configValue )
+ } 
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("Count: " _ context.targetList.Count())
+ set context.rsOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RadiantSrvcTargetConfigName",.pstatus)
+
+ ]]]]><![CDATA[>
+</code>
+<code name='Initial request' xpos='200' ypos='650' >
+<![CDATA[ $$$TRACE("Set Initial Request string... ") 
+    Set tSC=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"InitialStartDate",.iSDt)
+    if iSDt'="" {
+	   $$$TRACE("InitialStartDate: "_iSDt_" CS: "_$ZDATETIME($ZDATETIMEH(iSDt,3,7),-2))
+       if ^lastSearchDtSalesForce="" {
+           set ^lastSearchDtSalesForce=iSDt
+           $$$TRACE("Set StartDate: "_iSDt)
+       }
+    }
+    else {
+	   $$$TRACE("Set StartDate: "_$ZDATETIME($ZTIMESTAMP,3,7,3))
+       set ^lastSearchDtSalesForce = $ZDATETIME($ZTIMESTAMP,3,7,3)
+    }
+
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"numMsgPg",.nMsg)
+ if ($$$ISERR(pstatus)){
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"numMsgPg Setting is not found. Required for processing data.")  
+ }
+
+ $$$TRACE("Number of messages per page: "_nMsg)
+ set context.nMsg=nMsg
+ if (nMsg=0) {
+   set context.nMsg=30
+   $$$TRACE("Number of messages per page is set to 0. Use default value 30")
+ } 
+ $$$TRACE("lastSearchDtSalesForce: "_^lastSearchDtSalesForce)
+ set context.lastModifiedDt=^lastSearchDtSalesForce
+ set strLen=##class(Ens.Util.FunctionSet).Length(context.lastModifiedDt)
+ set context.lastMdMs = ##class(Ens.Util.FunctionSet).SubString(context.lastModifiedDt,strLen-4,strLen-1)
+ $$$TRACE("Start at: "_context.lastModifiedDt)
+ $$$TRACE("M seconds: "_context.lastMdMs)
+  ]]]]><![CDATA[>
+</code>
+<while name='Service call loop' condition='context.hasNext' xpos='200' ypos='750' xend='200' yend='550' >
+<trace value='"In service call loop: "_context.rlRequest.startIndex' xpos='200' ypos='250' />
+<code name='Call RadiantLogic service' xpos='200' ypos='350' >
+<![CDATA[  $$$TRACE("Call RadiantLogic REST Operation")
+  set context.rlRequest=##class(IHC.ITF.DStruc.Request.RLRequest).%New()
+ set context.rlRequest.count=context.nMsg
+ set context.rlRequest.startIndex=context.stIndx
+ set sDt=$Replace(^lastSearchDtSalesForce,"-","")
+ set sDt=$Replace(sDt,"T","")
+ set sDt=$Replace(sDt,":","")
+ set sDt=$Replace(sDt,".","")
+ set context.rlRequest.startDt=sDt
+ //set context.rlRequest.startDt=^lastSearchDtSalesForce
+ $$$TRACE("Start TIMESTAMP: "_context.rlRequest.startDt)
+ set context.rlRequest.sourceSystem="salesforce"
+  set status=process.SendRequestSync(context.rsOpNm,context.rlRequest,.restResponse)
+  if ($$$ISOK(status) && ($$$IsdefObject(restResponse))){
+     $$$TRACE("REST service response data: "_restResponse.StringValue)
+  }
+  else {
+     $$$TRACE("Radiant service call failed. "_restResponse)
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
+  }]]]]><![CDATA[>
+</code>
+<code name='Parse json string and send SalesForce record to down stream' xpos='200' ypos='450' >
+<![CDATA[ $$$TRACE("Parsing Json String...")
+ set jsonObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+ If ($$$IsdefObject(jsonObj)) {
+   $$$TRACE("Parsing Json String is done.")
+   set numRecds=jsonObj.itemsPerPage
+   set toTalNumRecds=jsonObj.totalResults
+   $$$TRACE("Total Record Count: "_toTalNumRecds_" Number Rec returned: "_numRecds)
+   set context.stIndx=numRecds+context.rlRequest.startIndex
+   if context.stIndx>toTalNumRecds {
+     set context.hasNext=0
+   }
+   set resObj=jsonObj.Resources
+   #dim resIter As %Iterator.Array
+   set resIter =  resObj.%GetIterator()
+   if (##class(Ens.Util.FunctionSet).Contains(resObj,"DynamicArray")) {
+     while resIter.%GetNext(.key,.dvalue) { 
+       $$$TRACE("KEY-: "_key)
+       $$$TRACE("VALUE-: "_dvalue)
+       set context.SalesForceRec=##class(EnsLib.EDI.XML.Document).%New()
+       set context.SalesForceRec.DocType="SalesForceRec:sObject"
+       if $isObject(dvalue) {
+         //set context.SalesForceRec.Id=dvalue.ID
+         do context.SalesForceRec.SetValueAt(dvalue.ID,"Id","set","")
+         $$$TRACE("ID: "_dvalue.id)
+         set mtObj=dvalue.meta
+         $$$TRACE("Resource Type: "_mtObj.resourceType)
+         $$$TRACE("Created: "_mtObj.created)
+         set lmDt=mtObj.lastModified
+         $$$TRACE("Last Modified: "_lmDt)
+         $$$TRACE("Latest Modified Datetime: "_context.lastModifiedDt)
+         set strLen=##class(Ens.Util.FunctionSet).Length(lmDt)
+         set ms = ##class(Ens.Util.FunctionSet).SubString(lmDt,strLen-4,strLen-1)
+         if $ZDATETIME($ZDATETIMEH(context.lastModifiedDt,3,7),-2) < $ZDATETIME($ZDATETIMEH(lmDt,3,7),-2) {
+	         set context.lastModifiedDt = lmDt 
+	         set context.lastMdMs = ms
+	         $$$TRACE("Update the search Datetime...")
+         }
+         else {
+	         if $ZDATETIME($ZDATETIMEH(context.lastModifiedDt,3,7),-2) = $ZDATETIME($ZDATETIMEH(lmDt,3,7),-2) {
+               if ms > context.lastMdMs {
+	              set context.lastModifiedDt = lmDt
+	              set context.lastMdMs = ms
+	              $$$TRACE("Update the search Datetime(MS)...")
+               } 
+	         }
+         }
+         $$$TRACE("location: "_mtObj.location)
+         set dob=dvalue.Birthdate
+         if dob'="" {
+	         set dob=$ZDATE($ZDATEH($Replace(dob,"-"," "),2),3)
+         }
+         $$$TRACE("DOB: "_dob)
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"LastName","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"FirstName","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.SocialSecurityNumberLast4,"Social_Security_Number_last_4__c","set","")
+         
+         do context.SalesForceRec.SetValueAt(dob,"Birthdate","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"Email","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Gender__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.Username,"Enterprise_Username__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Current_Intermountain_Employee__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.Unitnumber,"MSPR_ID__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Facility__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"Rotation_Start_Date_2__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Rotation_End_Date_2__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"Computer_Access_Needed__c","set","")
+         set activeSt=dvalue.Active
+         if activeSt="ACTIVE" {
+	         $$$TRACE("Active: "_activeSt)
+	         set activeSt="false"
+         }
+         else {
+	         set activeSt="true"
+         }
+         do context.SalesForceRec.SetValueAt(activeSt,"Inactive__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.EmployeeNumber,"Employee_Number__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.StudentID,"Student_ID__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"Non_US_National_Identifier__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Preferred_Name__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"Current_Intermountain_Employee__c","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"Student_Coordinator__","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.LastName,"LastName","set","")
+         do context.SalesForceRec.SetValueAt(dvalue.FirstName,"FirstName","set","")
+
+
+         $$$TRACE("Target Process: "_context.targetList.GetAt(1))
+         set process.%SuperSession="" // make each transaction a new session
+         set process.%SessionId="" // make each transaction a new session
+         set status=process.SendRequestAsync(context.targetList.GetAt(1),context.SalesForceRec,0)
+         if ($$$ISOK(status)){
+            $$$TRACE("A Workday record is sent ...")
+            //set ^lastSearchDtSalesForce=context.lastModifiedDt
+         }
+         else {
+            $$$TRACE("Send a SalesForce record failed ...")
+         }
+       }
+     }
+   }
+ }
+ else {
+	 $$$TRACE("Failed to parse the JSON string ...")
+ }
+ ]]]]><![CDATA[>
+</code>
+</while>
+<code name='reset ^lastSearchDtSalesForce' xpos='200' ypos='850' >
+<![CDATA[    
+	$$$TRACE("Update ^lastSearchDtSalesForce: "_context.lastModifiedDt)
+    set ^lastSearchDtSalesForce=context.lastModifiedDt
+  ]]]]><![CDATA[>
+</code>
+<code name='RESETERROR' xpos='200' ypos='950' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1050' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
