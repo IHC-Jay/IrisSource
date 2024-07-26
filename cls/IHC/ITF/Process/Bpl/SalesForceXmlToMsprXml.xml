@@ -75,10 +75,18 @@ Hdd Lookup Operation name</Description>
 <Parameter name="MAXLEN" value="250"/>
 </Property>
 
+<Property name="RadiantSrvcTargetConfigName">
+<Description>
+Radiant Logic service call Operation: The target name used for the Radiant Logic Service calls</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-RadiantLogic-Wscr-WORKDAYJSON"</InitialExpression>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
 <Parameter name="SETTINGS">
 <Description><![CDATA[
 Parameter SETTINGS = "-NextOperation,TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNameMsprQuery=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}";]]></Description>
-<Default><![CDATA[-NextOperation,TargetConfigNameMsprQuery:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+<Default><![CDATA[-NextOperation,TargetConfigNameMsprQuery:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameXMLProxy:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},RadiantSrvcTargetConfigName:Additional,TargetConfigNameHddWebService:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -94,6 +102,9 @@ Parameter SETTINGS = "-NextOperation,TargetConfigNameXMLProxy:Additional:selecto
 </Value>
 <Value name="3">
 <Value>TargetConfigNameHddWebService</Value>
+</Value>
+<Value name="4">
+<Value>RadiantSrvcTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -174,9 +185,15 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='rlSrvcOp' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='rlunRequest' type='IHC.ITF.DStruc.Request.RLUnitNumRequest' instantiate='0' />
 </context>
-<sequence xend='200' yend='2500' >
-<scope xpos='200' ypos='250' xend='200' yend='2400' >
+<sequence xend='200' yend='2850' >
+<scope xpos='200' ypos='250' xend='200' yend='2750' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -424,7 +441,33 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Create the master msg' xpos='200' ypos='1950' >
+<if name='check if the source data already has unit number' condition='request.MSPR_ID__c="" &amp;&amp; context.msprIdNum&apos;=""' xpos='200' ypos='1950' xend='200' yend='2200' >
+<true>
+<code name='sends new unit number back to Radiant Service' xpos='335' ypos='2100' >
+<![CDATA[ 
+ set context.rlSrvcOp=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RadiantSrvcTargetConfigName",.pstatus)
+ if ( ($$$ISERR(pstatus)))
+ {
+    Set status = $$$ERROR("Initialization error, Rariant service operation target is not set.")
+ }
+ set context.rlunRequest=##class(IHC.ITF.DStruc.Request.RLUnitNumRequest).%New()
+ set context.rlunRequest.recId=request.RecID
+ //set context.rlunRequest.positionId=request.PrimaryPosition
+ //set unum=context.msprResp.ServiceMessage.MsprInfo.dataRecord.msprRecords.Item.GetAt(1).unitNumber.content
+ $$$TRACE("MSPR Service returned unit number: "_context.msprIdNum)
+ set context.rlunRequest.Unitnumber=context.msprIdNum
+
+ set tSC=process.SendRequestSync(context.rlSrvcOp,context.rlunRequest,.restResponse)
+ if ($$$ISOK(tSC)){
+     $$$TRACE("Radiant service response data: "_restResponse)
+ }
+ else {
+     $$$TRACE("Radiant service call failed. "_restResponse)
+ }]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<code name='Create the master msg' xpos='200' ypos='2300' >
 <![CDATA[ set context.msprMasterRequest=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO).%New()
  set context.msprMasterRequest.sourceSystem="SF"
  set tmspr=##class(IHC.ITF.DStruc.Schema.MasterProviderRequest.MSPR).%New()
@@ -441,19 +484,19 @@ BPL Definition</Description>
     set status=##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName,$SYSTEM.Status.GetOneErrorText(status))
   }]]]]><![CDATA[>
 </code>
-<foreach name='Loop through the List' property='context.targetList' key='context.cntr' xpos='200' ypos='2050' xend='200' yend='350' >
+<foreach name='Loop through the List' property='context.targetList' key='context.cntr' xpos='200' ypos='2400' xend='200' yend='350' >
 <call name='Call Operation' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
 <request type='IHC.ITF.DStruc.Schema.MasterProviderRequest.PROVIDERINFO' >
 <assign property="callrequest" value="context.msprMasterRequest" action="set" />
 </request>
 </call>
 </foreach>
-<code name='reset error count' xpos='200' ypos='2150' >
+<code name='reset error count' xpos='200' ypos='2500' >
 <annotation><![CDATA[Reset error count]]]]><![CDATA[></annotation>
 <![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2250' xend='200' yend='350' >
+<catchall xpos='200' ypos='2600' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
