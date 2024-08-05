@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Service.ImmunizationCerner">
+<Super>EnsLib.REST.Service</Super>
+<TimeCreated>67009,53727.540374966</TimeCreated>
+
+<Parameter name="ADAPTER">
+</Parameter>
+
+<Parameter name="EnsServicePrefix">
+<Default>|</Default>
+</Parameter>
+
+<Property name="TargetConfigNames">
+<Type>%String</Type>
+</Property>
+
+<Property name="targetList">
+<Type>%ListOfObjects</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default><![CDATA[TargetConfigNames:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<XData name="UrlMap">
+<XMLNamespace>http://www.intersystems.com/urlmap</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/immunizationsCernerPost" Method="POST" Call="invokePostService"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="invokePostService">
+<FormalSpec>pInput:%Library.AbstractStream,*pResponse:EnsLib.HL7.Message</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 Set tSC= $$$OK
+	 $$$TRACE(" Inside InvokePostService ")
+	 
+	  try {
+	
+	 set jsonBodyData = pInput.Read(.len,.status)
+	 //DECODE bASE64
+	 set data = $SYSTEM.Encryption.Base64Decode(jsonBodyData)
+	 	// set dynObj = jsonBodyData
+	 
+	 $$$TRACE(" Immunization from Cerner Service) : "_jsonBodyData)	 
+	 set jsonStrContainer=##class(Ens.StringContainer).%New()
+  //  set jsonStrContainer.StringValue= jsonBodyData
+    set jsonStrContainer.StringValue= data
+    
+    //create Hl7 message 
+     set pHL7=##class(EnsLib.HL7.Message).ImportFromString(jsonStrContainer.StringValue,.sc) $$$ThrowOnError(sc)
+	//  set tDocType=##class(EnsLib.HL7.Schema).ResolveSchemaTypeToDocType("ImmunizationLoadCerner:VXU_V04", pHL7.Name, sc)	$$$ThrowOnError(sc)
+	//   set tDocType=##class(EnsLib.HL7.Schema).ResolveSchemaTypeToDocType("2.4:VXU_V04", pHL7.Name, sc)	$$$ThrowOnError(sc)
+	    set tDocType=##class(EnsLib.HL7.Schema).ResolveSchemaTypeToDocType("2.4", "VXU_V04", sc)	$$$ThrowOnError(sc)
+	   // Set DocType and build map
+        set pHL7.DocType=tDocType $$$ThrowOnError(sc)
+        set sc=pHL7.BuildMap()   
+	 set pResponse = pHL7
+	 
+    // set pResponse = jsonStrContainer
+    // set pResponse = dynObj.%ToJSON()
+     $$$TRACE(..TargetConfigNames)
+      
+     
+     For iTarget=1:1:$L(..TargetConfigNames, ",")        { 
+          Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")  
+          $$$TRACE("tOneTarget " _ tOneTarget)
+          do ..SendRequestAsync(tOneTarget,pResponse)
+      }
+      
+               
+	 	
+
+ }catch e
+	{
+		 $$$TRACE("  Exception: " _ e)
+		 set errTxt = $System.Status.GetErrorText(e)		 
+		 Set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,errTxt)	  
+		 set tSC = $$$OK
+		 		  		 		 
+	}
+		  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="SendRequestAsync">
+<Description>
+Use this method to dispatch an Ensemble business invocation asynchronously</Description>
+<FormalSpec>pTargetDispatchName:%String,pRequest:%Library.Persistent,pDescription:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$sysTRACE("call to "_pTargetDispatchName)
+	Set tTimeCalled=$ZH
+	Set tTargetConfigName = $G($$$DispatchNameToConfigName(pTargetDispatchName))  Quit:""=tTargetConfigName $$$EnsError($$$EnsErrBusinessDispatchNameNotRegistered,pTargetDispatchName)
+	Set tTargetBusinessClass = $$$ConfigClassName(tTargetConfigName)
+	Set tSessionId = ..%SessionId
+	Set tSuperSession = ..%SuperSession
+	Set:$IsObject(..%RequestHeader)&&(""=..%RequestHeader.TimeCreated) tRequestHeader=..%RequestHeader
+	$$$SyncCommitSet(tSyncCommit)
+	Set tSC=$classmethod(tTargetBusinessClass,"acceptRequestAsync",..%ConfigName,tTargetConfigName,.pRequest,$$$eMessagePriorityAsync,"",.tSessionId,"",.tRequestHeader,pDescription,.tSuperSession)
+	$$$SyncCommitClear(tSyncCommit)
+	If $G(tSessionId)'="" Set (..%SessionId,$$$JobSessionId)=tSessionId
+	If $G(tSuperSession)'="" Set (..%SuperSession,$$$JobSuperSession)=tSuperSession
+	If $$$ISOK(tSC) {
+		Set ..%RequestHeader=tRequestHeader, $$$JobCurrentHeaderId=tRequestHeader.%Id()
+	}
+	$$$catTRACE("timing","duration of async call: "_($ZH-tTimeCalled))
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<Description>
+Return an array of connections for drawing lines on the config diagram</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
