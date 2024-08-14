@@ -205,7 +205,7 @@
 			    set errorMsg = "X12 values found"
 			
 			 WRITE !, "Create IHC.TPManage.TPrelationDocument" 
-			 #dim tpObj As IHC.TPManage.TPrelationDocument
+			 #dim tpObj As IHC.TPManage.TPrelationDocument;
 			 set tpObj = ##class(IHC.TPManage.TPrelationDocument).%New()
 			 
 			 SET tpObj.x12Data = x12DocId
@@ -1101,6 +1101,142 @@
 	 set tpObj.statusDetails = fullErrorMsg
 	 set tpObj.status = "TP Relationship not found"
 }
+]]></Implementation>
+</Method>
+
+<Method name="GenerateIsaGs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>target:EnsLib.EDI.X12.Document,lnkNum:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ConfigName = "AutoIsaGs"
+ set ctrlVerNum = "00501"
+ set lnkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkNum)
+ // WRITE !, lnkObj.NAME
+ set transSubType = ""
+ set functionalGroupHeader = ""
+
+ if ('$IsObject(lnkObj))
+ {
+	 $$$LOGERROR("Link not found: " _ lnkNum)
+	 QUIT $$$ERROR($$$EnsErrGeneral , "Link not found: " _ lnkNum)
+ }
+ // WRITE !, lnkObj.IsaSenderId.TPID _"->" _ lnkObj.IsaReceiverId.TPID
+ //  WRITE !, lnkObj.GsSenderId.TPID _"->" _ lnkObj.GsReceiverId.TPID
+ // WRITE !, lnkObj.TRANSTYPE.NAME _": " _ lnkObj.TRANSTYPE.TransactionSetId _", " _ lnkObj.TRANSTYPE.VERSION
+ 
+ if (lnkObj.TRANSTYPE.VERSION = "V5010X222A1")
+ {
+ 	set transSubType ="P"
+ }
+  elseif (lnkObj.TRANSTYPE.VERSION = "V5010X223A2")
+  {
+ 	set transSubType ="I"
+  }
+  elseif (lnkObj.TRANSTYPE.VERSION = "V5010X224A2")
+  {
+ 	set transSubType ="D"
+  }
+  
+ if (lnkObj.TRANSTYPE.TransactionSetId = "271")
+ {
+ 	set functionalGroupHeader = "HB" //Eligibility, Coverage or Benefit Information (271)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "277")
+ {
+ 	set functionalGroupHeader = "HN" //Health Care Claim Status Notification (277)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "276")
+ {
+ 	set functionalGroupHeader = "HR" //Health Care Claim Status Request (276)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "270")
+ {
+ 	set functionalGroupHeader = "HS" //Eligibility, Coverage or Benefit Inquiry (270)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "278")
+ {
+ 	set functionalGroupHeader = "HI" //Health Care Services Review Information (278)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "837")
+ {
+ 	set functionalGroupHeader = "HC" //Health Care Claim (837)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "835")
+ {
+ 	set functionalGroupHeader = "HP" //Health Care Claim Payment/Advice (835)
+ }
+ elseif (lnkObj.TRANSTYPE.TransactionSetId = "820")
+ {
+ 	set functionalGroupHeader = "RA" //Payment Order/Remittance Advice (820)
+ }
+
+ Set curDTM=$ZDATETIME($HOROLOG,8, 1)
+ 
+ set ctrlNum = ..getControlNumber(ConfigName, lnkObj.IsaSenderId.TPID, lnkObj.IsaReceiverId.TPID, lnkObj.TRANSTYPE.TransactionSetId)
+ set isaCtrlNum =  "0" _ ctrlNum
+ FOR i=$L(isaCtrlNum )+1:1:9
+  {
+    set isaCtrlNum =  "0" _ isaCtrlNum 
+  }
+ // set target = ##class(EnsLib.EDI.X12.Document).%New()
+ set target.Separators = "|*^~"
+ set target.DocType = "HIPAA_5010:Interchange:Group:" _ lnkObj.TRANSTYPE.TransactionSetId _ transSubType
+ 
+ // Interchange Control Header (ISA) values
+ Do target.SetValueAt("00","ISA:AuthorizationInformationQual","set","")
+ Do target.SetValueAt("          ", "ISA:AuthorizationInformation","set","")
+ Do target.SetValueAt("          ", "ISA:SecurityInformation","set","")
+ Do target.SetValueAt("00","ISA:SecurityInformationQualifier","set","")
+ Do target.SetValueAt("ZZ","ISA:InterchangeIDQualifier","set","")
+ Do target.SetValueAt(lnkObj.IsaSenderId.TPID,"ISA:InterchangeSenderID","set","")
+ Do target.SetValueAt("ZZ","ISA:InterchangeIDQualifier2","set","")
+ Do target.SetValueAt(lnkObj.IsaReceiverId.TPID,"ISA:InterchangeReceiverID","set","")
+ Do target.SetValueAt($E(curDTM,3,8),"ISA:InterchangeDate","set","")
+ Do target.SetValueAt($E($REPLACE(curDTM,":",""),10,13),"ISA:InterchangeTime","set","")
+ Do target.SetValueAt(ctrlVerNum,"ISA:InterchangeControlVersionNum","set","")	
+ Do target.SetValueAt(isaCtrlNum,"ISA:InterchangeControlNumber","set","")
+ Do target.SetValueAt("0","ISA:AcknowledgmentRequested","set","")
+ Do target.SetValueAt("P","ISA:UsageIndicator","set","")
+ 
+ 
+ Do target.SetValueAt("1","IEA:NumberofIncludedFunctionalGr","set","")
+ Do target.SetValueAt(isaCtrlNum,"IEA:InterchangeControlNumber","set","")	
+ 
+ // New Functional Group
+
+ Set target.FunctionalGroups(1)=##class(Ens.X12.FunctionSet).X12NewFunctionalGroup(target,"Group")
+ Do target.FunctionalGroups(1).SetValueAt(functionalGroupHeader,"GS:FunctionalIdentifierCode", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt(lnkObj.GsSenderId.TPID,"GS:ApplicationSendersCode","set","") 
+ Do target.FunctionalGroups(1).SetValueAt(lnkObj.GsReceiverId.TPID,"GS:ApplicationReceiversCode","set","")
+ Do target.FunctionalGroups(1).SetValueAt($E(curDTM,1,8),"GS:Date","set","")
+ Do target.FunctionalGroups(1).SetValueAt($E($REPLACE(curDTM,":",""),10,13),"GS:Time","set","")
+ 
+ Do target.FunctionalGroups(1).SetValueAt(ctrlNum,"GS:GroupControlNumber", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt(ctrlNum,"GE:GroupControlNumber", "set","") 
+ 
+ Do target.FunctionalGroups(1).SetValueAt("X","GS:ResponsibleAgencyCode", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt(lnkObj.TRANSTYPE.VERSION,"GS:VersionReleaseIndustryIdenti", "set","") 
+ 
+ // New TransactionSet
+ Set target.FunctionalGroups(1).TransactionSets(1) = ##class(Ens.X12.FunctionSet).X12NewTransactionSet(target.FunctionalGroups(1), lnkObj.TRANSTYPE.TransactionSetId _ transSubType)
+
+ Do target.FunctionalGroups(1).TransactionSets(1).SetValueAt(lnkObj.TRANSTYPE.TransactionSetId,"ST:TransactionSetIdentifierCode","set","")
+ Do target.FunctionalGroups(1).TransactionSets(1).SetValueAt("0001","ST:TransactionSetControlNumber","set","")
+ QUIT $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CompleteSets">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>target:EnsLib.EDI.X12.Document</FormalSpec>
+<Implementation><![CDATA[
+ 
+
+ // Complete the Transaction Set and Functional Group Loops
+ Set tSC1=target.FunctionalGroups(1).TransactionSets(1).SetValueAt(##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1).TransactionSets(1),1),"ST","set","") 
+
+ Set target.FunctionalGroups(1)=##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1),1)
 ]]></Implementation>
 </Method>
 </Class>
