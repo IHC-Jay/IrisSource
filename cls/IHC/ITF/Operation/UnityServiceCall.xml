@@ -59,7 +59,7 @@
       Quit %objlasterror
 	}
  }
- $$$TRACE("call API:GetPatientByMRN...")
+ $$$TRACE("call API:GetPatientByMRN..." _ pRequest.PatientMrn)
  //Set ..Adapter.WebServiceClientClass = "TW.basichttp"
  Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetPatientByMRN",..usrNm,..AppName,"",^UnitySecurityToken,pRequest.PatientMrn,"","","","","","")
  if $$$ISERR(tSC) {
@@ -86,7 +86,45 @@
 	   $$$TRACE("Patient firststname(TW): "_pFirstNm)
 	   $$$TRACE("PatientId: "_pid)
 	   set pOrg=""
+	   set entryCode= ""
 	   if pid'="" {
+		   
+		 $$$TRACE("Call API:GetProvider with NPI..." _ pRequest.provider)
+		 if (pRequest.provider '= "")
+		 {
+			 set provId = $ZSTRIP(pRequest.provider, "*W")
+	         Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetProvider",..usrNm,..AppName,"",^UnitySecurityToken,"","",provId,"","","","")  Quit:$$$ISERR(tSC) tSC
+		     if $$$ISERR(tSC) {
+	            set errMsg=$System.Status.GetErrorText(%objlasterror)
+		        $$$TRACE("GetProvider api call failed. "_errMsg)
+		        Quit tSC
+         	 }
+         
+	         If $IsObject(MagicResult) {
+		        If MagicResult.Next(.sc) {
+		           set entryCode=MagicResult.GetDataByName("EntryCode")
+		           
+		           
+		           $$$TRACE("EntryCode: "_entryCode)
+		           set doc1 = ##class(EnsLib.EDI.XML.Document).ImportFromString(pRequest.doc1.content)
+		           set doc1.DocType="UnityDoc-schema:doc" 
+		           set doc2 = ##class(EnsLib.EDI.XML.Document).ImportFromString(pRequest.doc2.content)
+		           set doc2.DocType="UnityDoc-schema:doc" 
+		           
+		           $$$TRACE("Req doc1: " _ doc1.OutputToString())
+		           
+		            Set tSC2= doc2.SetValueAt(entryCode,"item(11).value","set","")
+		            Set tSC1= doc1.SetValueAt(entryCode,"item(11).value","set","")
+		           $$$TRACE("Reset: " _ tSC2 _", " _ tSC1)
+		           
+		           set pRequest.doc1.content =  doc1.OutputToString()
+	 			   set pRequest.doc2.content =  doc2.OutputToString()
+	 
+		           $$$TRACE("Updated doc1 with ownerCode "_ doc1.OutputToString())
+		        }
+	         }
+		 }  
+		   
 		 $$$TRACE("Call API:GetPatient...")
          Set tSC = ..Adapter.InvokeMethod("Magic",.MagicResult,"GetPatient",..usrNm,..AppName,pid,^UnitySecurityToken,"","","","","","","")  Quit:$$$ISERR(tSC) tSC
          If $IsObject(MagicResult) {
@@ -97,7 +135,7 @@
 	           $$$TRACE("Patient ORG(TW): "_pOrg)
 	        }
          }
-         $$$TRACE("Call API:SaveDocumentImage.upload...")
+         $$$TRACE("Call API:SaveDocumentImage.upload with ownerCode" _ entryCode)
          set doc=pRequest.doc1.content
          set doc=..GetUpdatedDoc(doc,"",pLastNm,pFirstNm)
          set doc=##class(Ens.Util.FunctionSet).SubString(doc,1,4)_##class(Ens.Util.FunctionSet).SubString(doc,57)
@@ -168,7 +206,9 @@
 	         $$$TRACE("Provider entryCode is null, Quit GetProvider api call...")
            }
            if userName'="" {
-	    	 $$$TRACE("Call API:SaveTask...")
+	    	 $$$TRACE("Call API:SaveTask... with comment" _ pRequest.comment)
+	    	 
+	    	 
 	         set param5="<taskdata><taskpriority>Routine</taskpriority><subject></subject>"_
 	            		"<activatedate>"_pRequest.activateDate_"</activatedate>"_
 		                "<overduedate>"_pRequest.dueDate_"</overduedate>"_
