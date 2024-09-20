@@ -1,0 +1,588 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ERP.Transactions.impl">
+<Description><![CDATA[
+Business logic class defined by OpenAPI in IHC.ERP.Transactions.spec<br/>
+Updated Sep 20, 2024 11:22:18]]></Description>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>%REST.Impl</Super>
+<TimeCreated>67085,38973.626904205</TimeCreated>
+
+<Parameter name="ExposeServerExceptions">
+<Description>
+If ExposeServerExceptions is true, then details of internal errors will be exposed.</Description>
+<Default>0</Default>
+</Parameter>
+
+<Method name="EDI">
+<Description><![CDATA[
+This request returns EDI Responses in response<br/>
+The method arguments hold values for:<br/>
+    searchStr, ID of EDI<br/>
+    count, number of rows to return<br/>
+    partner, Partner Name<br/>
+WARNING: This method's signature has changed.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>searchStr:%String,count:%Integer=25,partner:%String=""</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    //(Place business logic here)
+    //Do ..%SetStatusCode(<HTTP_status_code>)
+    //Do ..%SetHeader(<name>,<value>)
+    //Quit (Place response here) ; response may be a string, stream or dynamic object
+     set ^webService("ERP Start:") = "get " _ count _ ", " _ searchStr  _ ", " _ partner _ " at " _ $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    set intNm = "", tpId = ""
+    #dim rs As %SQL.StatementResult
+    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
+    if (partner '= "")
+    {
+	    &SQL(SELECT TPID into tpId FROM IHC_TPManage.TradingPartner tp,  IHC_TPManage.TpId tpId where tpId.TPFK = tp.ID AND tp.Name = :partner)
+	    if (tpId = "")
+	    {
+		    Do tArr.%Push({
+				"Operation":"ERP",
+				"id": (rs.%GetData("1")),
+				"erpData": (rs.%Get("TPID not found"))
+		    })
+		    Do ..%SetStatusCode(200)
+
+			return tArr
+	    }
+	    set ^webService("ERP search for TPID: ") = partner _": " _ tpId
+	    set searchStr = searchStr _" AND (InterchangeSenderID = '" _ tpId _"' OR InterchangeReceiverID = '" _ tpId _"')"
+    }
+    set ^webService("ERP Search:") = searchStr
+    if (searchStr '= "")
+    {
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.X12Data where " _ searchStr )
+
+    }
+    else
+    {
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.X12Data order by ProcessDtTm desc")
+    }
+	While rs.%Next() {
+			
+    		set ^webService("ERP rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", id: " _ (rs.%Get("ID"))
+
+    		set sender = ..GetTpName(rs.%Get("InterchangeSenderID"))
+    		set receiver = ..GetTpName(rs.%Get("InterchangeReceiverID"))
+			Do tArr.%Push({
+				"Operation":"ERP",
+				"id": (rs.%GetData("1")),
+				"InterchangeControlNumber": (rs.%Get("InterchangeControlNumber")),
+				"InterchangeDate": (rs.%Get("InterchangeDate")),
+				"InterchangeReceiverID": (rs.%Get("InterchangeReceiverID")),
+				"Receiver": (receiver),
+				"InterchangeSenderID": (rs.%Get("InterchangeSenderID")),
+				"Sender": (sender),
+				"InterchangeTime": (rs.%Get("InterchangeTime")),
+				"ApplicationReceiversCode": (rs.%Get("ApplicationReceiversCode")),
+				"EddOverride": (rs.%Get("EddOverride")),				
+				"FileName": (rs.%Get("FileName")),
+				"GroupControlNumber": (rs.%Get("GroupControlNumber")),	
+				"TransactionControlNumber": (rs.%Get("TransactionControlNumber")),			
+				"ProcessDtTm": (rs.%Get("ProcessDtTm")),
+				"ProcessDtTm": (rs.%Get("ProcessDtTm")),
+				"TransactionType": (rs.%Get("TransactionType")),
+				"InvoiceNumber": (rs.%Get("InvoiceNumber")),
+				"ProductTransfer": (rs.%Get("ProductTransfer")),
+				"PurchaseOrder": (rs.%Get("PurchaseOrder")),
+				"AccountNumber": (rs.%Get("AccountNumber")),
+				"erpData": (rs.%Get("x12Data"))	,
+				"ERPDataParentId": 	(rs.%Get("ParentId"))		
+			})
+		
+	}
+	
+	
+	
+	set ^webService("ERP ") = "End: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..GetXML(tArr, searchStr, count, tpId)
+	Do ..GetText(tArr, searchStr, count, tpId)
+	
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="GetXML">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tArr:%DynamicArray,searchStr:%String,count:%Integer,tpId:%String</FormalSpec>
+<Implementation><![CDATA[
+	set ^webService("ERP XML ") = "GetXML " _ searchStr _", " _ tArr.%Size()
+	
+	if (tpId '= "")
+	{
+	
+		set searchStr = searchStr _" AND (InterchangeSenderID = '" _ tpId _"' OR InterchangeReceiverID = '" _ tpId _"')"
+	}
+	if (searchStr '= "")
+    {
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.XMLData where " _ searchStr )
+
+    }
+    else
+    {
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.XMLData order by ProcessDtTm desc")
+    }
+    set ^webService("ERP XML rs") = rs
+	While rs.%Next() {
+			
+    		set ^webService("ERP XML rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", id: " _ (rs.%Get("ID"))
+    		try {
+
+    		set sender = ..GetTpName(rs.%Get("SenderID"))
+    		set receiver = ..GetTpName(rs.%Get("ReceiverID"))
+    		set ^webService("ERP XML Ids: ") = sender _", " _ receiver
+			Do tArr.%Push({
+				"Operation":"ERP",
+				"id": (rs.%GetData("1")),
+				"InterchangeControlNumber": (rs.%Get("Gtin")),
+				"InterchangeDate": "",
+				"InterchangeReceiverID": (rs.%Get("ReceiverID")),
+				"Receiver": (receiver),
+				"InterchangeSenderID": (rs.%Get("SenderID")),
+				"Sender": (sender),
+				"InterchangeTime": "",
+				"ApplicationReceiversCode": "",
+				"ApplicationSendersCode": "",				
+				"FileName": (rs.%Get("FileName")),
+				"GroupControlNumber": "",	
+				"TransactionControlNumber": "",			
+				"ProcessDtTm": (rs.%Get("ProcessDtTm")),
+				
+				"TransactionType": (rs.%Get("TransactionType")),
+				"InvoiceNumber": "",
+				"ProductTransfer": "",
+				"PurchaseOrder": "",
+				"AccountNumber": "",
+				"erpData": (rs.%Get("xmlData"))	,
+				"ERPDataParentId": 	"0"		
+			})
+    		}
+    		catch ex
+    		{
+	    		set ^webService("ERP XML Exception: ") = ex_ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+    		}
+		
+	}
+	set ^webService("ERP XML") = "End: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+]]></Implementation>
+</Method>
+
+<Method name="GetText">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tArr:%DynamicArray,searchStr:%String,count:%Integer,tpId:%String</FormalSpec>
+<Implementation><![CDATA[
+	set ^webService("ERP TEXT ") = "GetText " _ searchStr _", " _ tArr.%Size()
+	
+	if (tpId '= "")
+	{
+	
+		set searchStr = searchStr _" AND (SenderID = '" _ tpId _"' OR ReceiverID = '" _ tpId _"')"
+	}
+	if (searchStr '= "")
+    {
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.TextData  where " _ searchStr )
+
+    }
+    else
+    {
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT top "_ count _ " * FROM IHC_ERP.TextData  order by ProcessDtTm desc")
+    }
+    set ^webService("ERP TEXT rs") = rs
+	While rs.%Next() {
+			
+    		set ^webService("ERP TEXT rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", id: " _ (rs.%Get("ID"))
+    		try {
+
+    		set sender = ..GetTpName(rs.%Get("SenderID"))
+    		set receiver = ..GetTpName(rs.%Get("ReceiverID"))
+    		set ^webService("ERP TEXT Ids: ") = sender _", " _ receiver
+			Do tArr.%Push({
+				"Operation":"ERP",
+				"id": (rs.%GetData("1")),
+				"InterchangeControlNumber": "",
+				"InterchangeDate": "",
+				"InterchangeReceiverID": (rs.%Get("ReceiverID")),
+				"Receiver": (receiver),
+				"InterchangeSenderID": (rs.%Get("SenderID")),
+				"Sender": (sender),
+				"InterchangeTime": "",
+				"ApplicationReceiversCode": "",
+				"ApplicationSendersCode": "",				
+				"FileName": (rs.%Get("FileName")),
+				"GroupControlNumber": "",	
+				"TransactionControlNumber": "",			
+				"ProcessDtTm": (rs.%Get("ProcessDtTm")),
+				
+				"TransactionType": (rs.%Get("TransactionType")),
+				"InvoiceNumber": "",
+				"ProductTransfer": "",
+				"PurchaseOrder": "",
+				"AccountNumber": "",
+				"erpData": (rs.%Get("textData"))	,
+				"ERPDataParentId": 	"0"		
+			})
+    		}
+    		catch ex
+    		{
+	    		set ^webService("ERP TEXT Exception: ") = ex_ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+    		}
+		
+	}
+	set ^webService("ERP TEXT") = "End: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+]]></Implementation>
+</Method>
+
+<Method name="GetTpName">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	&SQL(select ID into id from IHC_TPManage.TpId where TPID = :tpId)
+ 	set objId = ##class(IHC.TPManage.TpId).%OpenId(id)
+ 	set ^webService("GetTpName: ") = tpId _": " _ objId
+ 	if ($IsObject(objId))
+ 	{
+ 		return objId.TPFK.Name
+ 	}
+ 	else
+ 	{
+	 	return "-"
+ 	}
+]]></Implementation>
+</Method>
+
+<Method name="GetDisplayColumns">
+<Description><![CDATA[
+This request returns DisplayColumns in response<br/>
+The method arguments hold values for:<br/>
+    userNm, User Name<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>userNm:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+ set ^webService("GetDisplayColumns Start") = userNm _ " @" _ $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    #dim rs As %SQL.StatementResult
+
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM IHC_ERP.DisplayColumns where UserName = '" _ userNm _ "' order by Order")
+	While rs.%Next() {
+			set ^webService("GetDisplayColumns TransactionCode:") = (rs.%Get("TransactionCode"))	
+			Do tArr.%Push({
+				"Operation":"GetDisplayColumns",
+				"id": (rs.%Get("ID")),
+				"key": (rs.%Get("Key")),
+				"Order": (rs.%Get("Order")),
+				"TransactionCode": (rs.%Get("TransactionCode"))
+			})
+		
+	}
+	if (tArr.%Size() = 0)
+	{
+		set ^webService("GetDisplayColumns") = "SQL for all"
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM IHC_ERP.DisplayColumns where UserName = 'all' order by Order")
+		While rs.%Next() {
+				set ^webService("GetDisplayColumns TransactionCode:") = (rs.%Get("TransactionCode"))	
+				Do tArr.%Push({
+					"Operation":"GetDisplayColumns",
+					"id": (rs.%Get("ID")),
+					"key": (rs.%Get("Key")),
+					"Order": (rs.%Get("Order")),
+					"TransactionCode": (rs.%Get("TransactionCode"))
+				})
+			
+		}
+	}
+	set ^webService("GetDisplayColumns") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="TransactionFields">
+<Description><![CDATA[
+This request returns TransactionFields in response<br/>
+The method arguments hold values for:<br/>
+    allFlds, All fields<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>allFlds:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   set ^webService("TransactionFields Start") = allFlds _ ", : " _ $ZDATETIME($HOROLOG,3, 1)
+   set internalCols=$LISTBUILD("NumSegments", "NumTransactions", "ID", "x12Data", "x12DataStream", "ParentId")
+   
+    Set tArr = []
+    #dim rs As %SQL.StatementResult
+
+ 	Set result=##class(%ResultSet).%New("%DynamicQuery:SQL")
+	Do result.Prepare("SELECT * FROM IHC_ERP.X12Data")
+	Do result.Execute()
+	set colNames=""
+	
+	// In trasaction table view data is not displayed
+	// In details view - all fields are displayed
+	
+	for j = 1:1:result.%ResultColumnCount {
+		if ( (allFlds = 1) || ( '($LISTFIND(internalCols, result.GetColumnName(j))) ))
+		{
+		
+			Do tArr.%Push({
+			"Operation":"TransactionFields",
+			"id": "1",
+			"Key": ($REPLACE(result.GetColumnName(j), "x12", "erp")),
+			"Label": ($REPLACE(result.GetColumnName(j), "x12", "erp")),
+			"TransactionCode": "All",
+			"TransactionName": "All",
+			"Type": "Text"
+			})
+		}
+				
+	}
+	
+	
+
+	set ^webService("TransactionFields") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="SaveDisplayColumns">
+<Description>
+This request saves DisplayColumns</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   Set result={}
+    set ^webService("SaveDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	set ^webService("SaveDisplayColumns JSON") = obj.%ToJSON()
+	set ^webService("SaveDisplayColumns") = "ValidateJSONForDisplayColumns: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..ValidateJSONForDisplayColumns(obj,.error) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	
+	
+	set ^webService("SaveDisplayColumns") = "CopyDisplayColumnsFromJSON " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..CopyDisplayColumnsFromJSON(.obj,.result)
+		
+	do result.%Set("Operation","SaveDisplayColumns")
+	do result.%Set("User", obj.%Get("User"))
+	
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="GetJSONFromRequest">
+<Description>
+Helper methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*obj:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set ok = 1
+	Try {
+		Set obj = ##class(%DynamicObject).%FromJSON(%request.Content)
+		set ^webService("GetJSONFromRequest ") = obj
+	} Catch ex {
+		Set ok = 0
+	}
+	Quit ok
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForDisplayColumns">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	
+	If obj.%Get("User") = "" {
+		set ^webService("ValidateJSONForDisplayColumns") = "User was blank"
+		Set error.errormessage = "User was blank"
+		Quit 0
+	}	
+	
+	set ^webService("ValidateJSONForDisplayColumns") = "ValidateJSONForDisplayColumns: " _ obj.%Get("User")
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="CopyDisplayColumnsFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[obj:%DynamicObject,&result:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+	set ^webService("CopyDisplayColumnsFromJSON User: ") = obj.User
+	set deleteRows = 1
+
+	set iter = obj.displayColumns.%GetIterator()
+
+    while iter.%GetNext(.key , .value ) {
+	    if ( (value.TransactionCode '= "") && (value.key '= "" ))
+	    {
+		  	set cm = ##class(IHC.ERP.DisplayColumns).%New()
+			Set cm.UserName=obj.User
+			set cm.TransactionCode = value.TransactionCode
+			Set cm.Key = value.key
+			set cm.Order = value.Order	
+			set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+			if (deleteRows = 1)
+			{
+					Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ERP.DisplayColumns where UserName = '" _ obj.User _ "' AND TransactionCode = '" _value.TransactionCode _ "'")
+					Set deleteRows = 0
+					set ^webService("CopyDisplayColumnsFromJSON deleted") = rs.%ROWCOUNT
+			}
+			
+			Set sc = cm.%Save()
+			do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+			if ($$$ISOK(sc)) {
+				set ^webService("CopyDisplayColumnsFromJSON Added") = value.TransactionCode _", Id: " _ cm.%Id()	
+				do result.%Set("id", cm.%Id())
+			}
+			else
+			{
+				set ^webService("CopyDisplayColumnsFromJSON Error") = sc
+				QUIT
+			}
+	    }
+		
+    }
+    set ^webService("CopyDisplayColumnsFromJSON") = "Complete"
+]]></Implementation>
+</Method>
+
+<Method name="GetParentX12">
+<Description><![CDATA[
+This request returns X12 from ISA<br/>
+The method arguments hold values for:<br/>
+    id, ID of Child ID<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	set ^webService("GetParentX12 Start") = id _ ": " _ $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    #dim rs As %SQL.StatementResult
+    set x12Stream = ""
+    
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * from IHC_ERP.X12Data where ID = '" _ id _ "'" )
+
+    set ^webService("GetParentX12 rs") = rs  _ $ZDATETIME($HOROLOG,3, 1)
+	While rs.%Next() {
+		
+		set x12Data = ""
+		set x12Str = rs.%Get("x12Data")
+		try 
+		{ 
+		   set x12Stream = rs.%Get("x12DataStream")
+		} catch (er)
+		{
+			set ^webService("GetParentX12 x12DataStream") = "NO"
+		}
+		if ( ( x12Str ="" ) &&($CLASSNAME(x12Stream) [ "GlobalCharacter"))
+		{
+			
+			set x12Data = "X12 is stored as a Stream, X12 Size: " _ ##class(%Stream.Object).%Open(x12Stream).Size
+		}
+		else
+		{
+			set x12Data = x12Str
+		}
+    	Do tArr.%Push({
+				"Operation":"GetParentX12",
+				"id": (rs.%Get("ID")),
+				
+				"erpData": (x12Data)			
+			})
+		
+	}
+	set ^webService("GetParentX12") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="GetTransactionTypes">
+<Description>
+This request returns TransactionTypes in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+   set ^webService("GetTransactionTypes Start") = $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    #dim rs As %SQL.StatementResult
+
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM IHC_TPManage.TransactionType")
+	While rs.%Next() {
+			set ^webService("GetTransactionTypes TransactionType:") = (rs.%Get("Name"))	
+			Do tArr.%Push({
+				"Operation":"GetTransactionTypes",
+				"TransactionType": (rs.%Get("Name")),
+				"Version": (rs.%Get("Version")),
+				"Type": (rs.%Get("Type"))
+			})
+		
+	}
+	set ^webService("GetTransactionTypes") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="DeleteDisplayColumns">
+<Description>
+This request deletes DisplayColumns</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+     Set result={}
+    set ^webService("DeleteDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	
+	If obj.%Get("User") = "" {
+		set ^webService("ValidateJSONForDisplayColumns") = "User was blank"
+		Set error.errormessage = "User was blank"
+		Quit 0
+	}	
+	set user = obj.%Get("User")
+	
+	
+	&SQL(Delete IHC_ERP.DisplayColumns where UserName = :user)
+
+	set ^webService("DeleteDisplayColumns") = "Delete " _ user _", " _ SQLCODE _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+
+		
+	do result.%Set("Operation","DeleteDisplayColumns")
+	do result.%Set("User", user)
+	
+	Quit result
+]]></Implementation>
+</Method>
+</Class>
+</Export>
