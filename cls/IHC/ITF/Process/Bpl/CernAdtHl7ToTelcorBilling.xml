@@ -62,9 +62,14 @@ BPL Definition</Description>
 <property name='primaryInsCoName' type='%String' instantiate='0' />
 <property name='facility' type='%String' instantiate='0' />
 <property name='Target' type='%String' instantiate='0' />
+<property name='isQARUPC' type='%String' initialexpression='"0"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='3100' >
-<scope xpos='200' ypos='250' xend='200' yend='3000' >
+<sequence xend='200' yend='3200' >
+<scope xpos='200' ypos='250' xend='200' yend='3100' >
 <trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
 <annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
 </trace>
@@ -295,22 +300,105 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorBilling' source='request' target='response' xpos='200' ypos='2450' >
+<code name='isQARUPC' xpos='200' ypos='2450' >
+<![CDATA[ //Check if Sending facility is "153"
+    set isMatchingRoomFound = 0
+    set isMatchingInsFound = 0
+ 
+ Set sendingFac=request.GetValueAt("MSH:SendingFacility.namespaceID") 
+    $$$TRACE("sendingFac: [" _sendingFac_"]")
+    
+    If (sendingFac ="153")
+    {
+    
+    // first find if Room is matching
+    set pv132= request.GetValueAt("PV1:AssignedPatientLocation.room")
+  
+   $$$TRACE("pv132 value ="_pv132)
+ 
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToArupClearingHouse.Lookup.RoomFilter",pv132,.result)
+   $$$TRACE("Result from lookup table ="_result)
+ 
+   if ($$$ISOK(pstatus)&&(result="1"))
+   {
+       set isMatchingRoomFound = 0
+       $$$TRACE("Room " _ request.GetValueAt("PV1:AssignedPatientLocation.room") _ " is not accepted. ")
+   }
+   else
+   {
+     set isMatchingRoomFound = 1
+     $$$TRACE("Room " _ request.GetValueAt("PV1:AssignedPatientLocation.room") _ " is accepted. Setting isMatchingRoomFound to 1 ")
+     
+   }
+ 
+
+    
+    
+    // Second find if insurance is matching
+    
+     set InsuranceNames=""
+   set In122= request.GetValueAt("IN1grp(1).IN1:InsurancePlanID.text")
+   set In122= $ZCONVERT(In122,"U")
+   $$$TRACE("In122 value ="_In122)
+ 
+   set isMatchingInsFound = 0
+
+ 
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.CernAdtHl7ToArupClearingHouse.Lookup.InsuranceFilter",1,.InsuranceNames)
+   $$$TRACE("Insurance names present in lookup table ="_InsuranceNames)
+ 
+   if ($$$ISOK(pstatus)&&(InsuranceNames'=""))
+   {
+      set ListIns=$LISTFROMSTRING(InsuranceNames,",")
+   
+      set ptr=0
+   
+      WHILE $LISTNEXT(ListIns,ptr,value) 
+      {
+        set value = $ZCONVERT(value,"U")
+        $$$TRACE("Insurance name from lookup Table ="_value)
+      
+        if ( In122 = value )
+        {
+       
+         set isMatchingInsFound = 1
+         $$$TRACE("Insurance name matched")
+
+        }
+      
+      }
+    
+   
+   }
+   
+   If ((isMatchingRoomFound = 1) && (isMatchingInsFound = 1))
+   {
+      $$$TRACE("This message is eligible for QARUPC")
+      set context.isQARUPC = "1"
+   }
+   else
+   {
+      $$$TRACE("This message is NOT eligible for QARUPC")
+   }
+   
+   }]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToTelcorBilling' source='request' target='response' xpos='200' ypos='2550' >
 <annotation><![CDATA[translates iCentra Adt to TelclorBilling Hl7]]]]><![CDATA[></annotation>
 </transform>
-<call name='CallTargetConfigNames' target='@context.Target' async='1' xpos='200' ypos='2550' >
+<call name='CallTargetConfigNames' target='@context.Target' async='1' xpos='200' ypos='2650' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
-<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='2650' />
-<code name='RESETERROR' xpos='200' ypos='2750' >
+<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='2750' />
+<code name='RESETERROR' xpos='200' ypos='2850' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 
 ]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='2850' xend='200' yend='350' >
+<catchall xpos='200' ypos='2950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
