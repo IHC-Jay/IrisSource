@@ -545,10 +545,22 @@ addRow() {
 
 
 onRowClicked(row) {
+
+
       console.log('Row clicked: ' + row.id + ", Search: " + this.searchString + ', searchTypeString: '+ this.searchTypeString );
+
+      const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
+      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
+       ));
+    const newTab = window.open(url, '_blank');
+    if(newTab) {
+        newTab.opener = null;
+    }
+    /*
       this.router.navigate(["/transaction/transaction-details/"],
       {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
        );
+       */
   }
 
 

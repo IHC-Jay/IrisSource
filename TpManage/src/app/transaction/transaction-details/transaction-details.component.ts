@@ -219,9 +219,9 @@ export class TransactionDetailComponent {
                   val = "Subscriber"
                   }
                 }
-                else if( question.indexOf("DMGDateTimePeriod") > 0 || question.indexOf("DateTimePeriod") > 0)
+                else if( question.indexOf("Date") > 0  && val.length ==8)
                 {
-                  val = val.substring(0,4) + "-" + val.substring(4,6) + "-" + val.substring(6,8)
+                  val = val.substring(4,6)  + "/" +  val.substring(6,8) + "/" +val.substring(0,4)
                 }
                 else if (val === '')
                 {
