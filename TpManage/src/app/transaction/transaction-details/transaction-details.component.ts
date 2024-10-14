@@ -19,7 +19,9 @@ import { DialogRef } from '@angular/cdk/dialog';
 export class TransactionDetailComponent {
 
   canRenderDetails: boolean = false;
+  prevWindow: boolean = false;
   displayedColumns = [];
+  mode:string = "RealTime";
 
   dataSource = new MatTableDataSource<any>();
 
@@ -57,7 +59,13 @@ export class TransactionDetailComponent {
       this.transaction = ''+params['transaction'] || '0';
       this.searchStr = params['search'];
       this.searchTypeString = params['searchTypeString'];
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString);
+      console.log('Query params id: ', this.id + ', trans: ' + this.transaction + ", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString);
+      if (this.searchTypeString.indexOf("Batch") > 0)
+      {
+        this.mode = "Batch"
+      }
+      this.prevWindow = (this.searchTypeString.indexOf("sameWindow::true") > 1);
+
     });
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
@@ -77,10 +85,15 @@ export class TransactionDetailComponent {
 
         }
         console.log(this.transaction + '- Display columns: ' + this.displayedColumns.length);
+        let paramsList: string[]= [];
+        paramsList.push("id::" + this.id);
+        paramsList.push("count::" + 1);
+        // paramsList.push("searchType::" + this.searchTypeString);
+
         if(this.transaction === '270')
         {
 
-          this.TransactionService.fetchEligibilityRequests("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchEligibilityRequests(this.mode, paramsList).subscribe((res: any) => {
 
             this.canRenderDetails = true;
             this.dataSource.data = res;
@@ -93,7 +106,7 @@ export class TransactionDetailComponent {
         if(this.transaction === '271')
         {
 
-          this.TransactionService.fetchEligibilityBenefitResponses("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchEligibilityBenefitResponses(this.mode, paramsList).subscribe((res: any) => {
 
             this.canRenderDetails = true;
             this.dataSource.data = res;
@@ -104,7 +117,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction.startsWith('837')){
 
-          this.TransactionService.fetchClaims("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchClaims(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -113,7 +126,7 @@ export class TransactionDetailComponent {
 
         }
         else if(this.transaction === '835'){
-          this.TransactionService.fetchClaimPayment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchClaimPayment(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -123,7 +136,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '276'){
 
-          this.TransactionService.fetchClaimStatusReq("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchClaimStatusReq(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -133,7 +146,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '277'){
 
-          this.TransactionService.fetchClaimStatusResp("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchClaimStatusResp(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -143,7 +156,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction.toString() === '277CA'){
 
-          this.TransactionService.fetchClaimAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchClaimAcknowledgment(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -153,7 +166,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === '999'){
 
-          this.TransactionService.fetchImplementationAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchImplementationAcknowledgment(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -165,7 +178,7 @@ export class TransactionDetailComponent {
         }
         else if(this.transaction === 'TA1'){
 
-          this.TransactionService.fetchInterchangeAcknowledgment("id='" + this.id+"'", this.searchTypeString, 1).subscribe((res: any) => {
+          this.TransactionService.fetchInterchangeAcknowledgment(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;

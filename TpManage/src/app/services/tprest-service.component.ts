@@ -45,23 +45,27 @@ export class TpRestServiceComponent {
     console.log('**** TpRestServiceComponent RestServiceComponent constructor ****')
    }
 
+
+setcurrentUser(currentUser : string, env: string, authService: AuthenticationService)
+{
+  this.currentUser = currentUser;
+  this.env = env;
+  this.authenticationService = authService;
+  console.debug("Set User,env,auth " + authService)
+}
+
    getCurrentUser()
    {
-     console.log('Fetch getCurrentUser: ' + this.currentUser);
+     console.log('TpRestServiceComponent getCurrentUser: ' + this.currentUser);
      if( this.currentUser === '')
      {
-      this.authenticationService.currentUser.subscribe(x => {
-        this.currentUser = x.username
-        console.log("HeaderComponent: " + this.currentUser)
-        }
-        );
-        if( this.currentUser === '')
-        {
+      this.currentUser = this.authenticationService.getUserName();
+      if (this.currentUser == '')
+      {
 
-          this.authenticationService.logout();
-          sessionStorage.clear();
-          this.router.navigate(['/']);
+        console.log('** ERROR SET MY NAME **')
       }
+
      }
      return this.currentUser;
    }

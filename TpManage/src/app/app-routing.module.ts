@@ -17,6 +17,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
 
 
 const appRoutes: Routes = [
+  {path: '/', component: HeaderComponent},
   {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard]},

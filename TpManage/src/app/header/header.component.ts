@@ -49,6 +49,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       private route: ActivatedRoute
     )
     {
+      console.log('**** HeaderComponent constructor ****');
+
       this.authenticationService.currentUser.subscribe(x => {
         this.currentUser = x
         this.isLogin = (x != null);
@@ -72,7 +74,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.route.queryParams
       .subscribe(params => {
         this.paramsObject = { ...params.keys, ...params };
-        console.log('paramsObject: ' + this.paramsObject);
 
         if(params !== undefined && params.page !== undefined)
         {
@@ -88,7 +89,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
             this.tpId = params.tpId;
           }
 
-          console.log(this.firstPage);
+          console.log("queryParams: " + this.firstPage);
           this.onLogin();
         }
       }

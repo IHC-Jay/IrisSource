@@ -25,6 +25,8 @@ import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgeme
 import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
 import {WorkFlowEntry} from '../workflow/WorkFlowEntry';
 import { transition } from '@angular/animations';
+import { AuthenticationService } from './authentication.service';
+import {TpRestServiceComponent} from './tprest-service.component';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
 
@@ -44,23 +46,27 @@ export class TransRestServiceComponent {
 
    rtTransUrl = `${environment.rtDevTransUrl}`;
    batchTransUrl = `${environment.batchDevTransUrl}`;
+   authenticationService: AuthenticationService;
 
   error = new Subject<string>();
   currentUser: string = "";
   env: string = "";
 
   constructor(private http: HttpClient, private http2: HttpClient
-    , private router: Router, @Inject(LOCALE_ID) public locale: string)
+    , private router: Router, @Inject(LOCALE_ID) public locale: string, private tpService: TpRestServiceComponent)
    {
     console.log('**** TransRestServiceComponent RestServiceComponent constructor ****');
    }
 
  // Transactions REST
 
-setcurrentUser(currentUser : string, env: string)
+setcurrentUser(currentUser : string, env: string, authService: AuthenticationService)
 {
   this.currentUser = currentUser;
   this.env = env;
+  this.authenticationService = authService;
+  console.debug("Set User,env,auth " + authService)
+
   if(env == 'QA')
   {
     this.rtTransUrl = `${environment.rtQaTransUrl}`;
@@ -68,10 +74,37 @@ setcurrentUser(currentUser : string, env: string)
   }
 }
 
-fetchEligibilityRequests(searchStr: string, searchType: string, maxCnt : Number) {
-  console.log( this.env + ' - Fetch EligibilityRequest with Auth for: ' + searchStr );
 
-  let url = this.createRestUrl('EligibilityBenefits', searchStr, searchType, maxCnt);
+getCurrentUser()
+{
+  console.log('Fetch getCurrentUser from authenticationService ' + this.authenticationService)
+
+     if( this.currentUser === '')
+     {
+      this.currentUser = this.authenticationService.getUserName()
+     }
+     if (this.currentUser == '')
+      {
+
+        console.log('** ERROR SET MY NAME **')
+      }
+     console.log('Return getCurrentUser: ' + this.currentUser);
+
+}
+
+fetchEligibilityRequests(mode: string, searchArr: string[]) {
+  if( this.currentUser === '')
+    {
+      this.getCurrentUser()
+    }
+  console.log( this.env + ' - Fetch EligibilityRequest with Auth ' + this.currentUser);
+
+  let url = this.batchTransUrl + 'EligibilityBenefits?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'EligibilityBenefits?searchStr=' + searchArr;
+  }
 
   console.log('ElgBen: ' + url)
   return this.http2
@@ -104,11 +137,16 @@ fetchEligibilityRequests(searchStr: string, searchType: string, maxCnt : Number)
 
 }
 
-fetchEligibilityBenefitResponses(searchStr: string, searchType: string, maxCnt : Number) {
-  console.log('Fetch Eligibility Benefit Responses with Auth ' + searchStr);
+fetchEligibilityBenefitResponses(mode: string, searchArr: string[]) {
 
-  let url = this.createRestUrl('EligibilityBenefitResponses', searchStr, searchType, maxCnt)
 
+  let url = this.batchTransUrl + 'EligibilityBenefitResponses?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'EligibilityBenefitResponses?searchStr=' + searchArr;
+  }
+  console.log('Fetch Eligibility Benefit Responses with Auth ' + url);
   return this.http2
     .get<{ [key: string]: EligibilityRequest }>(
       url
@@ -139,10 +177,15 @@ fetchEligibilityBenefitResponses(searchStr: string, searchType: string, maxCnt :
 
 }
 
-fetchClaims(searchStr: string, searchType: string, maxCnt : Number) {
+fetchClaims(mode: string, searchArr: string[]) {
   console.log('Fetch Claim with Auth ' );
 
-  let url = this.createRestUrl('Claims', searchStr, searchType, maxCnt);
+  let url = this.batchTransUrl + 'Claims?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'Claims?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: Claim }>(
@@ -173,10 +216,15 @@ fetchClaims(searchStr: string, searchType: string, maxCnt : Number) {
     );
 
 }
-fetchClaimStatusReq(searchStr: string, searchType: string, maxCnt : Number) {
+fetchClaimStatusReq(mode: string, searchArr: string[]) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = this.createRestUrl('ClaimStatusRequest', searchStr, searchType, maxCnt);
+  let url = this.batchTransUrl + 'ClaimStatusRequest?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ClaimStatusRequest?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: ClaimStatusReq }>(
@@ -208,11 +256,15 @@ fetchClaimStatusReq(searchStr: string, searchType: string, maxCnt : Number) {
 
 }
 
-fetchClaimStatusResp(searchStr: string, searchType: string, maxCnt : Number) {
+fetchClaimStatusResp(mode: string, searchArr: string[]) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = this.createRestUrl('ClaimStatusResponse', searchStr, searchType, maxCnt);
+  let url = this.batchTransUrl + 'ClaimStatusResponse?searchStr=' + searchArr;
 
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ClaimStatusResponse?searchStr=' + searchArr;
+  }
   return this.http2
     .get<{ [key: string]: ClaimStatusResp }>(
       url
@@ -246,9 +298,15 @@ fetchClaimStatusResp(searchStr: string, searchType: string, maxCnt : Number) {
 
 
 
-fetchClaimPayment(searchStr: string, searchType: string, maxCnt : Number) {
-  console.debug('fetchClaimPayment: ' + searchStr +", " + searchType  +", " + maxCnt)
-  let url = this.createRestUrl('ClaimPayment', searchStr, searchType, maxCnt)
+fetchClaimPayment(mode: string, searchArr: string[]) {
+  console.debug('fetchClaimPayment ')
+
+  let url = this.batchTransUrl + 'ClaimPayment?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ClaimPayment?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: ClaimPayment }>(
@@ -278,10 +336,15 @@ fetchClaimPayment(searchStr: string, searchType: string, maxCnt : Number) {
 
 }
 
-fetchImplementationAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+fetchImplementationAcknowledgment(mode: string, searchArr: string[]) {
   console.log('Fetch Claim Status Response with Auth ' );
 
-  let url = this.createRestUrl('ImplementationAcknowledgment', searchStr, searchType, maxCnt);
+  let url = this.batchTransUrl + 'ImplementationAcknowledgment?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ImplementationAcknowledgment?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: ImplementationAcknowledgment }>(
@@ -313,10 +376,15 @@ fetchImplementationAcknowledgment(searchStr: string, searchType: string, maxCnt 
 
 }
 
-fetchInterchangeAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+fetchInterchangeAcknowledgment(mode: string, searchArr: string[]) {
   console.log('Fetch Interchange Ack with Auth ' );
 
-  let url = this.createRestUrl('InterchangeAcknowledgment', searchStr, searchType, maxCnt);
+  let url = this.batchTransUrl + 'InterchangeAcknowledgment?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'InterchangeAcknowledgment?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: InterchangeAcknowledgment }>(
@@ -347,10 +415,14 @@ fetchInterchangeAcknowledgment(searchStr: string, searchType: string, maxCnt : N
     );
 
 }
-fetchClaimAcknowledgment(searchStr: string, searchType: string, maxCnt : Number) {
+fetchClaimAcknowledgment(mode: string, searchArr: string[]) {
   console.log('Fetch Claim Status Response with Auth ' );
+  let url = this.batchTransUrl + 'ClaimAcknowledgment?searchStr=' + searchArr;
 
-  let url = this.createRestUrl('ClaimAcknowledgment', searchStr, searchType, maxCnt);
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ClaimAcknowledgment?searchStr=' + searchArr;
+  }
 
   return this.http2
     .get<{ [key: string]: ClaimAcknowledgment }>(
@@ -383,7 +455,7 @@ fetchClaimAcknowledgment(searchStr: string, searchType: string, maxCnt : Number)
 }
 
 fetchTransactionFields() {
-  console.log('Fetch TransactionFields with Auth ' );
+  console.log('Fetch TransactionFields with Auth ' + this.getCurrentUser() );
 
   let url = this. batchTransUrl + 'TransactionFields';
 
@@ -414,6 +486,10 @@ fetchTransactionFields() {
 
 fetchDisplayColumns() {
 
+  if(this.currentUser === '')
+  {
+    this.getCurrentUser()
+  }
 
   let url = this.batchTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
 
@@ -865,6 +941,48 @@ updateWorkFlowItem(id: string, status: string) {
       catchError(errorRes => {
         // Send to analytics server
         console.error('In updateWorkFlowEntry catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+passArray(mode: string, searchStr: string[]) {
+  console.log( this.env + ' - passArray with Auth for: ' + searchStr );
+
+  let url = this.batchTransUrl + 'ReadArray?searchArr=' + searchStr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'ReadArray?searchArr=' + searchStr;
+  }
+
+
+  console.log('search URL: ' + url)
+  return this.http2
+    .get<{ [key: string]: EligibilityRequest }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const EligibilityRequestArray: EligibilityRequest[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+             EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return TP array: ' + EligibilityRequestArray.length );
+        return EligibilityRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchEligibilityRequest catchError: ' + errorRes);
         return errorRes;
       })
     );
