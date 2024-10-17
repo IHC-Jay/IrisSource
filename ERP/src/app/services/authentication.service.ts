@@ -26,7 +26,15 @@ export class AuthenticationService {
     console.info('In AuthenticationService constructor ' );
     this.currentUser.forEach(user =>
     {
-      console.info('AuthenticationService constructor ' + user);
+      if(user !== null)
+        {
+          console.info('Set User: ' + user.username);
+          console.info('AuthenticationService constructor ' + user);
+          this.tpTransService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
+        }
+        else{
+          console.info('User object not initialized');
+        }
     });
 
   }
@@ -36,6 +44,23 @@ export class AuthenticationService {
     return this.currentUserSubject.value;
   }
 
+  getUserName(): string
+  {
+    let usrNm = ""
+    this.currentUser.forEach(user =>
+      {
+        console.info('AuthenticationService getUserName ' + user.username);
+        usrNm = user.username
+      });
+      if (usrNm == '')
+      {
+
+        usrNm = sessionStorage.getItem("currentUser")
+        console.info('sessionStorage.getItem: ' + usrNm);
+      }
+    return usrNm
+  }
+
   login(username: string, password: string, env: string) {
 
       return this.tpService.validateUser(username, password, env, this).pipe(map(res => {
@@ -43,15 +68,16 @@ export class AuthenticationService {
         let user = new User();
         user.authdata = window.btoa(username + ":" + password);
         user.id = 1
-        user.firstName = res
+        user.environment = env
         user.username = username
         user.password = password
         sessionStorage.setItem("currentUser", JSON.stringify(user));
+
         this.currentUserSubject.next(user);
         if (this.currentUserSubject.value!== null)
         {
           console.info('login currentUserValue: ' + this.currentUser );
-          this.tpTransService.setcurrentUser(username, env);
+          this.tpTransService.setcurrentUser(username, env, this);
 
         }
         return user;
@@ -64,7 +90,7 @@ export class AuthenticationService {
 
   logout() {
     // remove user from local storage to log user out
-    console.info('logout currentUserValue: ' + (this.currentUserSubject.value.firstName));
+    console.info('logout currentUserValue: ' + (this.currentUserSubject.value.username));
     sessionStorage.removeItem("currentUser");
     this.currentUserSubject.next(null);
   }

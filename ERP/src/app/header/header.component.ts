@@ -30,7 +30,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   tpId = "";
   paramsObject:any;
   currentUser: User;
-  envLbl:string;
+
   isLogin:boolean;
   collapsed = true;
   @Output() selectedFeature = new EventEmitter<string>();
@@ -55,7 +55,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.authenticationService.currentUser.subscribe(x => {
         this.currentUser = x
         this.isLogin = (x != null);
-        console.log("HeaderComponent: " + this.currentUser)
+        if (this.currentUser != null)
+        {
+          console.log("HeaderComponent: " + this.currentUser.username)
+        }
         }
         );
     }
@@ -75,11 +78,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.route.queryParams
       .subscribe(params => {
         this.paramsObject = { ...params.keys, ...params };
-        console.log('paramsObject: ' + this.paramsObject);
 
         if(params !== undefined && params.page !== undefined)
         {
-          console.log(params);
+          console.log("params: " + params);
           this.firstPage = params.page;
           this.transaction = params.transaction;
           if (this.firstPage.includes("transaction-details") )
@@ -91,8 +93,12 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
             this.tpId = params.tpId;
           }
 
-          console.log(this.firstPage);
+          console.log("Open" + this.firstPage +" with " + this.transaction);
           this.onLogin();
+        }
+        else
+        {
+          console.log("No params for returnUrl")
         }
       }
     );
@@ -145,7 +151,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
           console.info(this.f.env.value + '- OK: ' + this.returnUrl);
-          this.envLbl =this.f.env.value;
 
           if (this.firstPage.includes("transaction-details") )
           {

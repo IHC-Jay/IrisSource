@@ -20,7 +20,7 @@ import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns
 
 import { Router, ActivatedRoute} from '@angular/router';
 import {User} from '../login/user';
-
+import { AuthenticationService } from './authentication.service';
 
 
 @Injectable({ providedIn: 'root' })
@@ -37,6 +37,7 @@ export class TransRestServiceComponent {
   error = new Subject<string>();
   currentUser: string = "";
   env: string = "";
+  authenticationService: AuthenticationService;
 
   constructor(private http: HttpClient, private http2: HttpClient
     , private router: Router, @Inject(LOCALE_ID) public locale: string)
@@ -46,15 +47,35 @@ export class TransRestServiceComponent {
 
  // Transactions REST
 
-setcurrentUser(currentUser : string, env: string)
+setcurrentUser(currentUser : string, env: string, authService: AuthenticationService)
 {
+  console.log('setcurrentUser: ' + currentUser);
   this.currentUser = currentUser;
   this.env = env;
+  this.authenticationService = authService;
   if(env == 'QA')
   {
     this.rtTransUrl = `${environment.qaTransUrl}`;
 
   }
+}
+
+
+getCurrentUser()
+{
+  console.log('Fetch getCurrentUser from authenticationService ')
+
+     if( this.currentUser === '')
+     {
+      this.currentUser = this.authenticationService.getUserName()
+     }
+     if (this.currentUser == '')
+      {
+
+        console.log('** ERROR SET MY NAME **')
+      }
+     console.log('Return getCurrentUser: ' + this.currentUser);
+
 }
 
 fetchERPtransactions(searchStr: string, searchType: string, maxCnt : Number, partnerName: string) {
@@ -190,6 +211,10 @@ fetchTransactionFields(all) {
 
 fetchDisplayColumns() {
 
+  if(this.currentUser === '')
+    {
+      this.getCurrentUser()
+    }
 
   let url = this.rtTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
 

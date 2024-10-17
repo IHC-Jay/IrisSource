@@ -34,6 +34,7 @@ export class TransactionDetailComponent {
   transaction:string;
   erpData:string;
   fileName = "TEST";
+  prevWindow: boolean = false;
 
   constructor(
     private TransactionService: TransRestServiceComponent,
@@ -59,8 +60,9 @@ export class TransactionDetailComponent {
       this.searchStr = params['search'];
       this.searchTypeString = params['searchTypeString'];
       this.transactionType = params['TransactionType'];
+      this.prevWindow = params['sameWindow'];
 
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString);
+      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString + ", Same Window: " + this.prevWindow);
     });
 
     this.TransactionService.fetchTransactionFields(1).subscribe((res: any) => {

@@ -16,6 +16,8 @@ import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
 import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
 import {MatFormFieldModule} from '@angular/material/form-field';
+import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
+
 
 @Component({
   selector: 'app-transaction',
@@ -32,6 +34,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   endDate = "";
   maxCount = ["10", "25", "50", "100", "200"];
+
+  contextMenuPosition = { x: '0px', y: '0px' };
+  @ViewChild(MatMenuTrigger)
+  contextMenu: MatMenuTrigger;
 
   transactionTypes: string[] = [] ;
 
@@ -408,12 +414,6 @@ addSearch() {
     }
 
 
-onRowClicked(row) {
-      console.log('Row clicked: ' + row.id + ", " + row.TransactionType + ", Search: " + this.searchString + ', searchTypeString: '+ this.searchTypeString );
-      this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString, 'TransactionType':row.TransactionType } }
-       );
-  }
 
 
 onItemSelect(inp: any) {
@@ -659,7 +659,63 @@ allDropdownListFind(label:string)
 }
 
 
+onRowClicked(row) {
+  console.log('Row clicked: ' + row.id + ", " + row.TransactionType + ", Search: " + this.searchString + ', searchTypeString: '+ this.searchTypeString );
+  this.router.navigate(["/transaction/transaction-details/"],
+  {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value,
+    'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
+     'TransactionType':row.TransactionType } }
+   );
+}
+
+// Handle right click
+
+onContextMenu(event: MouseEvent, row:any, ind: number) {
+  event.preventDefault();
+
+  console.log( ind +'. Row clicked: ' + row.id );
+
+  this.contextMenuPosition.x = event.clientX + 'px';
+  this.contextMenuPosition.y = event.clientY + 'px';
+  let item: Item ={id: row.id, rowType: row.TransactionType};
+  this.contextMenu.menuData = { 'item': item };
+  this.contextMenu.menu.focusFirstItem('mouse');
+  this.contextMenu.openMenu();
+}
+
+onContextMenuNew(item: Item) {
+  // alert('Click on Action 1 ' + item.id);
+
+       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
+        'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
+        'TransactionType':item.rowType, 'sameWindow':false
+         } }
+       ));
+    const newTab = window.open(url, '_blank');
+    if(newTab) {
+        newTab.opener = null;
+    }
+
+
 
 }
 
+onContextMenuSame(item: Item) {
+  // alert('Click on Action 2' + item.id);
+
+      this.router.navigate(["/transaction/transaction-details/"],
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
+        'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
+        'TransactionType':item.rowType, 'sameWindow':true } }
+       );
+
+}
+
+}
+
+export interface Item {
+  id: number;
+  rowType: string;
+}
 

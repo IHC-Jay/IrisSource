@@ -33,6 +33,8 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatIconModule } from '@angular/material/icon';
 import {MatSelectModule} from '@angular/material/select';
 import {MatTooltipModule} from '@angular/material/tooltip';
+import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
+
 
 import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
@@ -105,7 +107,8 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
         MatNativeDateModule,
         MatDatepickerModule,
         AngularSplitModule,
-        MatCardModule], providers: [
+        MatCardModule,
+        ], providers: [
         { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
         ModalHelperService,
