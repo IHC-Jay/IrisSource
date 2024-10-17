@@ -1,6 +1,6 @@
 
 import { SelectionModel } from "@angular/cdk/collections";
-import { Component, OnInit } from "@angular/core";
+import { Component, OnInit, ViewChild } from "@angular/core";
 import { MatTableDataSource } from "@angular/material/table";
 
 import { Router, ActivatedRoute } from '@angular/router';
@@ -8,8 +8,8 @@ import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms'
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
 import {WorkFlowEntry} from './WorkFlowEntry';
-
-
+import { MatPaginator } from '@angular/material/paginator';
+import { MatSort, MatSortHeader } from '@angular/material/sort';
 
 @Component({
   selector: 'app-workflow',
@@ -18,7 +18,17 @@ import {WorkFlowEntry} from './WorkFlowEntry';
 })
 export class WorkflowComponent implements OnInit {
 
+  @ViewChild(MatPaginator) paginator: MatPaginator;
+  @ViewChild(MatSort) sort: MatSort;
+
   form!: FormGroup;
+
+  nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+
+startDate = "2023-01-12";
+endDate ="13:30";
+  startTm = "13:30";
+  endTm= "2023-01-12";
 
   displayedColumns: string[] = [
     'Select',
@@ -40,6 +50,7 @@ export class WorkflowComponent implements OnInit {
     ];
 
     updStatusTypes = [
+      "Assigned",
       "Resolved",
       "Ignored"
     ];
@@ -47,7 +58,7 @@ export class WorkflowComponent implements OnInit {
     maxCount = ["10", "25", "50", "100", "200"];
 
     transactionTypes: string[] = ["All", "270", "271","276", "277", "277CA", "835", "837", "837I", "837P", "837D"];
-    errorTypes: string[] =['All','Data', 'TP']
+    errorTypes: string[] =['All','Data', 'TP','Connection','Ack','Duplicate']
 
   statusTypeString = 'New';
   transTypeStr = '835';
@@ -56,7 +67,7 @@ export class WorkflowComponent implements OnInit {
   canRenderDetails = false;
   rowSelected : number = 0;
   sub:any;
-  updStatus: string = 'Resolved';
+  updStatus: string = this.updStatusTypes[0];
 
   dataSource = new MatTableDataSource<WorkFlowEntry>();
   selection = new SelectionModel<WorkFlowEntry>(true, []);
@@ -72,13 +83,29 @@ export class WorkflowComponent implements OnInit {
 
   ngOnInit() {
 
+    this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+    let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+    let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+    this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+    let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+    tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+    this.startTm = tmVal
+    this.endTm= tmVal
+    console.info("Time: " + tmVal)
+    this.nowDt = new Date(new Date().getTime());
+    mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+    dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+    this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+
     this.form = this.formBuilder.group({
       statusType: ['', Validators.required],
       rowCnt:['', Validators.required],
       transType: ['', Validators.required],
       errorType: ['', Validators.required],
       rowSelected: [''],
-      updStatusType: ['', Validators.required]
+      updStatusType: ['', Validators.required],
+      assignee:['']
     });
 
     this.sub = this.route.queryParams.subscribe(params => {
@@ -126,6 +153,11 @@ export class WorkflowComponent implements OnInit {
 
   }
 
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.paginator;
+    this.dataSource.sort = this.sort;
+
+  }
 
 GetWFs()
 {
@@ -137,7 +169,14 @@ GetWFs()
     this.form.controls.transType.setValue(this.transTypeStr);
   }
 
-  this.WfService.fetchWorkFlowItems(this.transTypeStr, this.statusTypeString, this.errorTypeStr, this.form.controls.rowCnt.value).subscribe((res: any) => {
+  console.debug("startDtTm::" + this.startDate +" "+ this.startTm);
+
+  console.debug("endDtTm::" + this.endDate+" " +this.endTm );
+
+
+  this.WfService.fetchWorkFlowItems(this.transTypeStr, this.statusTypeString, this.errorTypeStr, this.form.controls.rowCnt.value,
+    "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'"
+  ).subscribe((res: any) => {
     this.dataSource.data = res;
     this.canRenderDetails = true;
 
@@ -225,13 +264,17 @@ updateWF()
       console.info("Update WorkFlowItem to " + this.updStatus)
       this.selection.selected.forEach(row => {
           console.info("ID: " + row.id +"-> " + this.updStatus)
-/*
+          if (this.updStatus === 'Assigned' && this.form.controls.assignee.value === '')
+          {
+            alert("Assignee is required")
+          }
+
           this.WfService.updateWorkFlowItem(row.id, this.updStatus).subscribe((res: any) => {
             this.dataSource.data = res;
             this.canRenderDetails = true;
 
           });
-*/
+
         });
 
       this.selection.clear();
@@ -240,6 +283,43 @@ updateWF()
    }
 
   }
+  onStDateChange(event: Event)
+{
+
+  // Get the new input value
+  const newValue = (event.target as HTMLInputElement).value;
+  // Perform actions based on the new value
+  this.startDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.startDate);
+}
+
+onStTimeChange(event: Event)
+{
+
+  // Get the new input value
+  const newValue = (event.target as HTMLInputElement).value;
+  // Perform actions based on the new value
+  this.startTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.startTm);
+}
+onEndDateChange(event: Event)
+{
+
+  // Get the new input value
+  const newValue = (event.target as HTMLInputElement).value;
+  // Perform actions based on the new value
+  this.endDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.endDate);
+}
+onEndTimeChange(event: Event)
+{
+
+  // Get the new input value
+  const newValue = (event.target as HTMLInputElement).value;
+  // Perform actions based on the new value
+  this.endTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.endTm);
+}
 
 }
 

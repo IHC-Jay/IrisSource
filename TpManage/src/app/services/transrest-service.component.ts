@@ -85,8 +85,10 @@ getCurrentUser()
      }
      if (this.currentUser == '')
       {
-
         console.log('** ERROR SET MY NAME **')
+        this.authenticationService.logout();
+        sessionStorage.clear();
+        this.router.navigate(['/']);
       }
      console.log('Return getCurrentUser: ' + this.currentUser);
 
@@ -839,10 +841,10 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   return url;
 }
 m
-fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number) {
-  console.log('Fetch WF entries ' + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
+fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number, dtRange: string) {
+  console.log('Fetch WF entries ' + "dateRange="+dtRange +", Search: " + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
 
-  let url = this.batchTransUrl + "WorkFlowEntries?searchStr=" + errType +"&TransType=" + searchStr + "&ErrorType=" + statType +"&userNm="+ this.currentUser+ "&count="+maxCnt;
+  let url = this.batchTransUrl + "WorkFlowEntries?searchStr=" + errType +"&TransType=" + searchStr + "&ErrorType=" + statType +"&userNm="+ this.currentUser+ "&count="+maxCnt + "&dateRange="+dtRange;
 
   return this.http2
     .get<{ [key: string]: WorkFlowEntry }>(

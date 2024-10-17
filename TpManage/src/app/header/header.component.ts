@@ -27,7 +27,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   tpId = "";
   paramsObject:any;
   currentUser: User;
-  envLbl:string;
+
   isLogin:boolean;
   collapsed = true;
   @Output() selectedFeature = new EventEmitter<string>();
@@ -143,7 +143,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
           console.info(this.f.env.value + '- OK: ' + this.returnUrl);
-          this.envLbl =this.f.env.value;
 
           if (this.firstPage.includes("transaction-details") )
           {

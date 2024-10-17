@@ -73,11 +73,10 @@ export class AuthenticationService {
         let user = new User();
         user.authdata = window.btoa(username + ":" + password);
         user.id = 1
-        user.firstName = res
+        user.environment = env
         user.username = username
         user.password = password
         sessionStorage.setItem("currentUser", JSON.stringify(user));
-        sessionStorage.setItem("env", env);
 
         this.currentUserSubject.next(user);
         if (this.currentUserSubject.value!== null)
@@ -96,7 +95,7 @@ export class AuthenticationService {
 
   logout() {
     // remove user from local storage to log user out
-    console.info('logout currentUserValue: ' + (this.currentUserSubject.value.firstName));
+    console.info('logout currentUserValue: ' + (this.currentUserSubject.value.username));
     sessionStorage.removeItem("currentUser");
     this.currentUserSubject.next(null);
   }

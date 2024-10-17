@@ -48,7 +48,7 @@ endDate ="13:30";
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected"];
 
-  transactionTypes: string[] = ["All", "270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+  transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
 
   butSaveDisplay: boolean = false;
 

@@ -122,13 +122,13 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
 
 
     fetchTradingPartners() {
-      console.log( this.env + ' - Fetch TradingPartners with Auth ' );
+
 
       let url = '';
 
       url = this.tpUrl + 'Tps';
 
-
+      console.log( this.env + ' - Fetch TradingPartners with Auth ' + url );
       return this.http
         .get<{ [key: string]: TradingPartner }>(
           url,
