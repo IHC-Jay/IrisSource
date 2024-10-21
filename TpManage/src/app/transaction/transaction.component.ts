@@ -1,6 +1,6 @@
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
-import { FormBuilder, FormGroup, FormControl, Validators, NgForm } from '@angular/forms';
+import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
 import {EligibilityRequest} from './EligibilityRequest'
 import {Claim} from './Claims';
 import {ClaimStatusResp} from './ClaimStatusResp';
@@ -19,6 +19,8 @@ import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
+import { MatSelect, MatSelectChange } from '@angular/material/select';
+import { MatFormField } from '@angular/material/form-field';
 
 @Component({
   selector: 'app-transaction',
@@ -58,6 +60,43 @@ endDate ="13:30";
       item_text: 'Not Implemented'
     }];
 
+    tab271cols: string[] = [
+      "ApplicationReceiversCode", "loop2100CNM1IdentificationCode",
+      "loop2100CNM1NameFirst", "loop2100DDMGDateTimePeriod","ApplicationSendersCode","loop2000C1TRN1RefId"
+    ];
+
+    custom271fields: string[] = [
+      "TP # ",
+      "Subscriber ID  ",
+      "Patient name ",
+      "Patient date of birth ",
+      "Provider NPI",
+      "Trace Number"
+    ];
+
+    tab837Pcols: string[] = [
+      "loop2010BANM11ILIdentificationCode", "ApplicationSendersCode", "loop23001CLMClaimSubmittersIdentifier",
+      "loop2010AAREF1RefId", "loop24001DTP1DateTimePeriod", "FileName"
+    ];
+
+    custom837Pfields: string[] = [
+      "Subscriber ID", "Interchange Sender", "Patient Control Number",
+      "Billing Provide Tax ID", "Service Begin Date","File Name"
+    ];
+
+    tab835cols: string[] = [
+      " InterchangeReceiverID ",
+      " loop1000AN11PRName ",
+      " TRNRefId ",
+      " loop21001NM11NameFirst ",
+      " loop21001NM11NameLastorOrganizationName ",
+      " InterchangeDate "
+      ];
+
+    custom835fields: string[] = [
+      "Receiver ID", "Payer Name", "TRN RefID", "Claim First Name", "Claim Last Name","Interchange Date"
+    ];
+
   panelExpand: boolean = true;
   loading:boolean = false;
   searchTransaction:boolean = false;
@@ -69,7 +108,7 @@ endDate ="13:30";
   dataTableKey: string[] = [];
   canRenderDetails = false;
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
-  searchFieldVal:string = "";
+  searchFieldVal:string = "ID";
   dataSource = new MatTableDataSource<any>();
 
   usrDisplayColumns= [
@@ -101,7 +140,7 @@ endDate ="13:30";
   @ViewChild("displayCols") displayCols: ElementRef;
 
 
-  searchString = "";
+  additionalsearchString = "";
   searchTypeString = "";
   currentTransType = '';
   sub:any;
@@ -128,6 +167,15 @@ endDate ="13:30";
 
   }
 
+
+  createinitForm(): FormGroup
+  {
+    console.info('Add new field');
+    return new FormGroup({
+      'fld':new FormControl('FLD', Validators.required),
+      'newFldValue':new FormControl('value', Validators.required),
+    })
+  }
 
   ngOnInit()
   {
@@ -169,7 +217,8 @@ endDate ="13:30";
       loop2010AAREF1RefId:[''],
       loop2010BANM11ILIdentificationCode:[''],
       loop24001DTP1DateTimePeriod:[''],
-      FileName:['']
+      FileName:[''],
+      additional:this.formBuilder.array([this.createinitForm()])
     });
 
 
@@ -190,7 +239,7 @@ endDate ="13:30";
       // Defaults to '' if no query param provided.
 
       this.currentTransType =  params['transaction'] || '';
-      this.searchString = params['search'] || '';
+      this.additionalsearchString = params['search'] || '';
       this.searchTypeString = params['searchTypeString'];
       if (this.searchTypeString !== null && this.searchTypeString.length > 0)
       {
@@ -240,10 +289,10 @@ endDate ="13:30";
       this.form.controls.rowCnt.setValue(val)
 
 
-        if (this.searchString !== '')
+        if (this.additionalsearchString !== '')
         {
           console.log('set search controls, ' + this.searchTransaction);
-          this.form.controls.searchField.setValue(this.searchString);
+          this.form.controls.searchField.setValue(this.additionalsearchString);
           this.searchTransaction = true;
         }
         else{
@@ -291,6 +340,8 @@ endDate ="13:30";
     this.dataSource.paginator = this.paginator;
     this.dataSource.sort = this.sort;
 
+
+
   }
   get f() { return this.form.controls; }
 
@@ -307,9 +358,9 @@ endDate ="13:30";
       this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
 
-      if(this.searchString !== "")
+      if(this.additionalsearchString !== "")
       {
-        this.paramsList.push("sql::" + this.searchString);
+        this.paramsList.push("sql::" + this.additionalsearchString);
       }
 
       console.info("Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
@@ -323,6 +374,60 @@ endDate ="13:30";
 
 
       this.loading = true;
+      const formArr = this.form.get('additional') as FormArray;
+      let staticSearchStr = "";
+
+      let customFlds:string[] = this.custom835fields;
+      let tabCol:string[] = this.tab835cols
+
+      if(this.form.controls.transType.value === '835'){
+        customFlds = this.custom835fields;
+        tabCol = this.tab835cols
+      }
+      else if(this.form.controls.transType.value === '837P'){
+        customFlds = this.custom837Pfields
+        tabCol = this.tab837Pcols;
+      }
+      if(this.form.controls.transType.value === '271'){
+        customFlds = this.custom271fields;
+        tabCol = this.tab271cols;
+      }
+
+      // Get values for static search
+
+      if (formArr.length >= 1) {
+        for(let i=0;i< formArr.length;i++)
+        {
+          let fGrp = formArr.at(i) as FormGroup
+          if (fGrp.controls.newFldValue.value === '')
+          {
+            continue;
+          }
+
+          for (let [ind, val] of customFlds.entries()) {
+
+            if(fGrp.controls.fld.value === val)
+              {
+                console.info(ind + ": " + val)
+                staticSearchStr += " AND " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'"
+              }
+          };
+
+
+        }
+      }
+      if(this.additionalsearchString.length > 0)
+        {
+          console.info("additionalsearchString: " + this.additionalsearchString)
+          staticSearchStr = staticSearchStr + " AND " + this.additionalsearchString
+
+        }
+      if(staticSearchStr.length > 3)
+      {
+          staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
+          this.paramsList.push("sql::" + staticSearchStr);
+      }
+
 
       if(this.form.controls.transType.value === '270')
       {
@@ -351,47 +456,12 @@ endDate ="13:30";
         });
 
       }
+
       else if(this.form.controls.transType.value === '835'){
 
-        let staticSearchStr = "";
-        if(this.form.controls.InterchangeReceiverID.value !== '')
-        {
-          staticSearchStr = " AND InterchangeReceiverID = '" + this.form.controls.InterchangeReceiverID.value + "'"
-        }
-        if(this.form.controls.TRNRefId.value !== '')
-        {
-          staticSearchStr = staticSearchStr +  " AND TRNRefId = '" + this.form.controls.TRNRefId.value + "'"
-        }
-        if(this.form.controls.loop1000AN11PRName.value !== '')
-        {
-          staticSearchStr = staticSearchStr +  " AND loop1000AN11PRName = '" + this.form.controls.loop1000AN11PRName.value + "'"
-        }
 
+        console.info("835 search: "+ staticSearchStr );
 
-        if(this.form.controls.loop21001NM11NameFirst.value !== '')
-        {
-          staticSearchStr = " AND loop2010AAREF1RefId = '" + this.form.controls.loop21001NM11NameFirst.value + "'"
-        }
-        if(this.form.controls.loop21001NM11NameLastorOrganizationName.value !== '')
-          {
-            staticSearchStr = " AND loop21001NM11NameLastorOrganizationName = '" + this.form.controls.loop21001NM11NameLastorOrganizationName.value + "'"
-          }
-        if(this.form.controls.InterchangeDate.value !== '')
-            {
-              staticSearchStr = " AND InterchangeDate = '" + this.form.controls.InterchangeDate.value + "'"
-            }
-
-        {
-
-        }
-        if(this.searchString.length > 0)
-        {
-          staticSearchStr = staticSearchStr + " AND " + this.searchString
-
-        }
-        staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
-
-        console.info("835 search: "+ staticSearchStr + ", " + this.searchString + ", " +  this.searchTypeString)
 
         this.TransactionService.fetchClaimPayment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
@@ -403,40 +473,10 @@ endDate ="13:30";
 
       }
       else if(this.form.controls.transType.value === '837P'){
-        let staticSearchStr = "";
-        if(this.form.controls.InterchangeSenderID.value !== '')
-        {
-          staticSearchStr = " AND InterchangeSenderID = '" + this.form.controls.InterchangeSenderID.value + "'"
-        }
-        if(this.form.controls.loop23001CLMClaimSubmittersIdentifier.value !== '')
-        {
-          staticSearchStr = staticSearchStr +  " AND loop23001CLMClaimSubmittersIdentifier = '" + this.form.controls.loop23001CLMClaimSubmittersIdentifier.value + "'"
-        }
 
-        if(this.form.controls.loop2010AAREF1RefId.value !== '')
-        {
-          staticSearchStr = " AND loop2010AAREF1RefId = '" + this.form.controls.loop2010AAREF1RefId.value + "'"
-        }
-        if(this.form.controls.loop2010BANM11ILIdentificationCode.value !== '')
-          {
-            staticSearchStr = " AND loop2010BANM11ILIdentificationCode = '" + this.form.controls.loop2010BANM11ILIdentificationCode.value + "'"
-          }
-        if(this.form.controls.loop24001DTP1DateTimePeriod.value !== '')
-            {
-              staticSearchStr = " AND loop24001DTP1DateTimePeriod = '" + this.form.controls.loop24001DTP1DateTimePeriod.value + "'"
-            }
-        if(this.form.controls.FileName.value !== '')
-        {
-                staticSearchStr = " AND FileName = '" + this.form.controls.FileName.value + "'"
-        }
+        console.info("837P search: "+ staticSearchStr );
 
-
-        if(this.searchString.length > 0)
-        {
-          staticSearchStr = staticSearchStr + " AND " + this.searchString
-        }
-
-          this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' " + staticSearchStr);
+          this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' ");
 
          this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
           this.dataSource.data = res;
@@ -449,9 +489,9 @@ endDate ="13:30";
        }
 
        else if(this.form.controls.transType.value === '837I'){
-        if(this.searchString.length > 0)
+        if(this.additionalsearchString.length > 0)
         {
-          this.searchString = " AND " + this.searchString
+          this.additionalsearchString = " AND " + this.additionalsearchString
         }
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ")
         this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
@@ -464,9 +504,9 @@ endDate ="13:30";
 
       }
       else if(this.form.controls.transType.value === '837D'){
-        if(this.searchString.length > 0)
+        if(this.additionalsearchString.length > 0)
         {
-          this.searchString = " AND " + this.searchString
+          this.additionalsearchString = " AND " + this.additionalsearchString
         }
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ")
         this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
@@ -566,7 +606,7 @@ clearSearch()
     {
       this.canRenderDetails = false;
       this.searchTransaction = false;
-      this.searchString = "";
+      this.additionalsearchString = "";
       this.form.controls.searchValue.setValue("");
       this.form.controls.searchField.setValue(this.dataTableLabel[0]);
       this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
@@ -592,37 +632,47 @@ addRow() {
             break;
           }
         }
+        let srchStr = this.form.controls.searchCndition.value
         if(sVal === "")
         {
-          alert("Value is NULL");
+          alert("Field is NULL");
         }
+        if(srchStr === "")
+          {
+            alert("Condition is NULL");
+          }
+          if(this.form.controls.searchValue.value === "")
+            {
+              alert("Value is NULL");
+            }
+
 
       if(this.searchFieldVal === 'Process Time')
       {
-        if(this.searchString !== "")
+        if(this.additionalsearchString !== "")
         {
-          this.searchString += " AND " + sVal +  " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
+          this.additionalsearchString += " AND " + sVal +  " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
         }
         else
         {
-          this.searchString =  sVal + " " + " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
+          this.additionalsearchString =  sVal + " " + " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
         }
       }
       else
       {
-          let srchStr = this.form.controls.searchCndition.value
+
           if (srchStr === 'Contains')
           {
             srchStr = '['
           }
 
-          if(this.searchString !== "")
+          if(this.additionalsearchString !== "")
           {
-            this.searchString += " AND " + sVal + srchStr  + " '" + this.searchValue +"'";
+            this.additionalsearchString += " AND " + sVal + srchStr  + " '" + this.form.controls.searchValue.value +"'";
           }
           else
           {
-            this.searchString =  sVal + " " + srchStr + " '" + this.searchValue +"'";
+            this.additionalsearchString =  sVal + " " + srchStr + " '" + this.form.controls.searchValue.value +"'";
           }
       }
     }
@@ -634,20 +684,16 @@ onRowClicked(row) {
     this.searchTypeString += val +";";
    });
 
-      console.log('Row clicked: ' + row.id + ", Search: " + this.searchString + ', searchTypeString: '+ this.searchTypeString );
+      console.log('Row clicked: ' + row.id + ", Search: " + this.additionalsearchString + ', searchTypeString: '+ this.searchTypeString );
 
       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
         newTab.opener = null;
     }
-    /*
-      this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
-       );
-       */
+
   }
 
 
@@ -709,42 +755,42 @@ saveDisplayColumns()
       this.TransactionService.saveDisplayColumns(dispCol).subscribe((res: any) => {
 
           console.info("TransactionService: " + res);
-          /***
-
-          this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
-            this.transactionsSearchColumns = [];
-
-              for (var item of res)
-              {
-                // console.info("Push transactionsSearchColumns: " + item.Key)
-                  this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
-              }
-              console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
-              console.info("Usr Columns: " + this.usrDisplayColumns.length);
-              this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
-                this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
-                this.usrDisplayColumns.push(...res);
-
-                if(this.currentTransType !== '')
-                {
-
-                console.info("User display columns: " + this.usrDisplayColumns.length);
-                this.transactionChange(this.currentTransType);
-
-                console.info('Transaction search with: ' + this.searchString);
-                this.onSearchTransactions();
-                }
-              });
-
-            });
-            ***/
-
 
         });
 }
 
 expandCollapse(index: boolean) {
   this.panelExpand = index;
+}
+
+private createCustomFlds(fldLbl: string): FormGroup {
+  return new FormGroup({
+    'fld': new FormControl(fldLbl),
+    'newFldValue': new FormControl('', Validators.required)
+  })
+}
+
+private clearCustomFlds() {
+
+  const formArr = this.form.get('additional') as FormArray
+
+  if (formArr.length >= 1) {
+      formArr.clear()
+  }
+}
+
+private readCustomFlds() {
+
+  const formArr = this.form.get('additional') as FormArray
+
+  if (formArr.length >= 1) {
+    for(let i=0;i< formArr.length;i++)
+    {
+      let fGrp = formArr.at(i) as FormGroup
+      console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
+    }
+  }
+
 }
 
 transactionChange(evt: any)
@@ -765,6 +811,13 @@ transactionChange(evt: any)
     this.clearSearch();
   }
   this.currentTransType = this.form.controls.transType.value;
+
+  this.readCustomFlds();
+
+  this.clearCustomFlds();
+
+
+
   for (var col of this.transactionsSearchColumns)
   {
 
@@ -875,6 +928,37 @@ transactionChange(evt: any)
   console.info("selDropdownList #: " + this.selDropdownList.length);
   console.info("searchColumns #: " + this.searchColumns.length);
 
+  if (this.form.controls.transType.value === '271')
+    {
+        console.info('Add email group')
+        const formArr = this.form.get('additional') as FormArray
+
+        this.custom271fields.forEach(element => {
+          formArr.push(this.createCustomFlds(element));
+        });
+
+    }
+    else if (this.form.controls.transType.value === '837P')
+    {
+        console.info('Add email group')
+        const formArr = this.form.get('additional') as FormArray
+
+        this.custom837Pfields.forEach(element => {
+          formArr.push(this.createCustomFlds(element));
+        });
+
+    }
+    else if (this.form.controls.transType.value === '835')
+      {
+          console.info('Add email group')
+          const formArr = this.form.get('additional') as FormArray
+
+          this.custom835fields.forEach(element => {
+            formArr.push(this.createCustomFlds(element));
+          });
+
+      }
+
   this.butSaveDisplay = false;
 }
 
@@ -960,7 +1044,7 @@ onContextMenuNew(item: Item) {
    this.searchTypeString += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -980,7 +1064,7 @@ onContextMenuSame(item: Item) {
    });
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.searchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        );
 
 }
