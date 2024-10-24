@@ -47,6 +47,7 @@ import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.compo
 import {SingleNoteComponent} from './tradingPartners/tpIds/tp-links/single-note/single-note.component';
 import {CreateNoteComponent} from './tradingPartners/tpIds/tp-links/create-note/create-note.component';
 import { TransactionDetailComponent } from './transaction/transaction-details/transaction-details.component';
+import { TransactionSettingsComponent } from './transaction/transaction-settings/transaction-settings.component';
 import { NgMultiSelectDropDownModule } from 'ng-multiselect-dropdown';
 import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion';
 import { Modalx12Component } from './transaction/transaction-details/modal/modal-x12.component';
@@ -77,6 +78,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     CreateNoteComponent,
     Modalx12Component,
     TransactionDetailComponent,
+    TransactionSettingsComponent,
     WorkflowComponent,
     WorkflowDetailsComponent
   ],

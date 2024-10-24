@@ -6,6 +6,7 @@ import {User} from '../login/user';
 
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError } from 'rxjs';
+import {TransRestServiceComponent} from '../services/transrest-service.component';
 
 @Component({
   selector: 'app-header',
@@ -46,7 +47,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   constructor(private router: Router, private authenticationService: AuthenticationService,
       private formBuilder: FormBuilder,
-      private route: ActivatedRoute
+      private route: ActivatedRoute,
+      private TransactionService: TransRestServiceComponent
     )
     {
       console.log('**** HeaderComponent constructor ****');
@@ -143,6 +145,17 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
           console.info(this.f.env.value + '- OK: ' + this.returnUrl);
+
+          this.TransactionService.deleteDisplayColumns().subscribe((res: any) => {
+
+            console.info("Delete Display: " + res);
+
+          });
+          this.TransactionService.deleteSearchColumns().subscribe((res: any) => {
+
+            console.info("Delete Search: " + res);
+
+          });
 
           if (this.firstPage.includes("transaction-details") )
           {

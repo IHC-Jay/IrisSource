@@ -29,7 +29,7 @@ import { AuthenticationService } from './authentication.service';
 import {TpRestServiceComponent} from './tprest-service.component';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
-
+import {SearchColumns, SearchColumnsArray} from '../transaction/SearchColumns';
 import { Router, ActivatedRoute} from '@angular/router';
 import {User} from '../login/user';
 
@@ -546,6 +546,130 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
     catchError(errorRes => {
       // Send to analytics server
       console.error('saveDisplayColumns catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+deleteDisplayColumns()
+{
+  let dispCol = [];
+
+  dispCol[0] = {'User': this.currentUser, 'Setting': this.currentUser};
+
+  console.log('deleteDisplayColumns ' +  this.currentUser);
+
+  let url = this. batchTransUrl + 'DeleteDisplayColumns';
+
+  console.info('Post to DeleteDisplayColumns: ' + url );
+
+  return this.http.post<any>(url,  {'User': this.currentUser, 'Setting': 'Session'})
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('deleteDisplayColumns catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+fetchSearchColumns() {
+
+  if(this.currentUser === '')
+  {
+    this.getCurrentUser()
+  }
+
+  let url = this.batchTransUrl + 'SearchColumns?userNm=' +  this.currentUser;
+
+  console.log('Fetch SearchColumns from  ' + url);
+  return this.http2
+    .get<{ [key: string]: SearchColumns }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const dispArray: SearchColumns[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            dispArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return Display array: ' + dispArray.length );
+        return dispArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+saveSearchColumns(dispCol: SearchColumnsArray)
+{
+  dispCol.User =  this.currentUser;
+  console.log('saveSearchColumns ' +  this.currentUser);
+
+  let url = this. batchTransUrl + 'SaveSearchColumns';
+
+  console.info('Post to SaveSearchColumns: ' + url +" for " + dispCol.User);
+
+  return this.http.post<any>(url, dispCol)
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('saveSearchColumns catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+deleteSearchColumns()
+{
+  let dispCol = [];
+
+  dispCol[0] = {'User': this.currentUser, 'Setting': this.currentUser};
+
+  console.log('deleteSearchColumns ' +  this.currentUser);
+
+  let url = this. batchTransUrl + 'DeleteSearchColumns';
+
+  console.info('Post to DeleteSearchColumns: ' + url );
+
+  return this.http.post<any>(url,  {'User': this.currentUser, 'Setting': 'Session'})
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('deleteSearchColumns catchError: ' + errorRes);
       return errorRes;
     })
   );

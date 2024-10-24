@@ -3,6 +3,8 @@ export interface DisplayColumns {
   TransactionCode: string;
   key: string;
   Order: number;
+  Setting: string;
+  Mode: string;
 }
 
 export interface DisplayColumnsArray {

@@ -13,7 +13,8 @@ import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { Router, ActivatedRoute } from '@angular/router';
 import {MatSelectModule,} from '@angular/material/select';
-import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
+import {DisplayColumns} from './DisplayColumns'
+import {SearchColumns} from './SearchColumns'
 
 import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
@@ -36,9 +37,6 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   @ViewChild(MatMenuTrigger)
   contextMenu: MatMenuTrigger;
 
-
-  displayLabel: string = "Display columns:";
-
   nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
 startDate = "2023-01-12";
@@ -60,42 +58,9 @@ endDate ="13:30";
       item_text: 'Not Implemented'
     }];
 
-    tab271cols: string[] = [
-      "ApplicationReceiversCode", "loop2100CNM1IdentificationCode",
-      "loop2100CNM1NameFirst", "loop2100DDMGDateTimePeriod","ApplicationSendersCode","loop2000C1TRN1RefId"
-    ];
+    transSearchFlds: string[] =[];
+    transSearchLbls: string[] =[];
 
-    custom271fields: string[] = [
-      "TP # ",
-      "Subscriber ID  ",
-      "Patient name ",
-      "Patient date of birth ",
-      "Provider NPI",
-      "Trace Number"
-    ];
-
-    tab837Pcols: string[] = [
-      "loop2010BANM11ILIdentificationCode", "ApplicationSendersCode", "loop23001CLMClaimSubmittersIdentifier",
-      "loop2010AAREF1RefId", "loop24001DTP1DateTimePeriod", "FileName"
-    ];
-
-    custom837Pfields: string[] = [
-      "Subscriber ID", "Interchange Sender", "Patient Control Number",
-      "Billing Provide Tax ID", "Service Begin Date","File Name"
-    ];
-
-    tab835cols: string[] = [
-      " InterchangeReceiverID ",
-      " loop1000AN11PRName ",
-      " TRNRefId ",
-      " loop21001NM11NameFirst ",
-      " loop21001NM11NameLastorOrganizationName ",
-      " InterchangeDate "
-      ];
-
-    custom835fields: string[] = [
-      "Receiver ID", "Payer Name", "TRN RefID", "Claim First Name", "Claim Last Name","Interchange Date"
-    ];
 
   panelExpand: boolean = true;
   loading:boolean = false;
@@ -108,16 +73,10 @@ endDate ="13:30";
   dataTableKey: string[] = [];
   canRenderDetails = false;
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
-  searchFieldVal:string = "ID";
+
   dataSource = new MatTableDataSource<any>();
 
-  usrDisplayColumns= [
 
-    {
-      key: 'usrK',
-      Order: '0',
-      TransactionCode: 'usrL'
-    }];
 
   transactionsSearchColumns= [
     {
@@ -154,12 +113,10 @@ endDate ="13:30";
   @ViewChild(MatPaginator) paginator: MatPaginator;
   @ViewChild(MatSort) sort: MatSort;
 
-
-  dropdownSettings={};
-
   selectedItems=[];
 
-
+  usrSearchColumns: SearchColumns[] = [];
+  usrDisplayColumns: DisplayColumns[] = [];
 
   constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
@@ -201,35 +158,12 @@ endDate ="13:30";
       rowCnt:['25', Validators.required],
       transType: ['270', Validators.required],
       btControl: ['Batch', Validators.required],
-      searchField: ['ID', Validators.required],
       disposition: ['Processed'],
       mode:['RealTime', Validators.required],
-      searchCndition: ['=', Validators.required],
-      searchValue: ['', Validators.required],
-      InterchangeSenderID:[''],
-      InterchangeReceiverID:[''],
-      InterchangeDate:[''],
-      TRNRefId:[''],
-      loop1000AN11PRName:[''],
-      loop21001NM11NameFirst:[''],
-      loop21001NM11NameLastorOrganizationName:[''],
-      loop23001CLMClaimSubmittersIdentifier:[''],
-      loop2010AAREF1RefId:[''],
-      loop2010BANM11ILIdentificationCode:[''],
-      loop24001DTP1DateTimePeriod:[''],
-      FileName:[''],
       additional:this.formBuilder.array([this.createinitForm()])
     });
 
 
-    this.dropdownSettings = {
-      singleSelection: false,
-      idField: "item_id",
-      textField: "item_text",
-      allowSearchFilter: true,
-      enableCheckAll: false,
-      maxHeight: 250
-    };
     this.currentTransType = '270'
 
     this.sub = this.route.queryParams.subscribe(params => {
@@ -329,6 +263,19 @@ endDate ="13:30";
         }
       });
 
+      this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+        this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
+        this.usrSearchColumns.push(...res);
+        console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
+
+        if(this.currentTransType !== '')
+        {
+
+        this.transactionChange(this.currentTransType);
+
+        }
+      });
+
     });
 
     // this.clearSearch();
@@ -377,21 +324,8 @@ endDate ="13:30";
       const formArr = this.form.get('additional') as FormArray;
       let staticSearchStr = "";
 
-      let customFlds:string[] = this.custom835fields;
-      let tabCol:string[] = this.tab835cols
-
-      if(this.form.controls.transType.value === '835'){
-        customFlds = this.custom835fields;
-        tabCol = this.tab835cols
-      }
-      else if(this.form.controls.transType.value === '837P'){
-        customFlds = this.custom837Pfields
-        tabCol = this.tab837Pcols;
-      }
-      if(this.form.controls.transType.value === '271'){
-        customFlds = this.custom271fields;
-        tabCol = this.tab271cols;
-      }
+      let customFlds:string[] = this.transSearchLbls;
+      let tabCol:string[] =this.transSearchFlds;
 
       // Get values for static search
 
@@ -401,14 +335,19 @@ endDate ="13:30";
           let fGrp = formArr.at(i) as FormGroup
           if (fGrp.controls.newFldValue.value === '')
           {
+            console.info(fGrp.controls.fld.value +" is empty")
             continue;
+          }
+          else{
+
+            console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
           }
 
           for (let [ind, val] of customFlds.entries()) {
 
             if(fGrp.controls.fld.value === val)
               {
-                console.info(ind + ": " + val)
+                console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
                 staticSearchStr += " AND " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'"
               }
           };
@@ -607,161 +546,9 @@ clearSearch()
       this.canRenderDetails = false;
       this.searchTransaction = false;
       this.additionalsearchString = "";
-      this.form.controls.searchValue.setValue("");
-      this.form.controls.searchField.setValue(this.dataTableLabel[0]);
-      this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
       console.info('clearSearch fields');
     }
 
-addRow() {
-
-    this.searchTransaction = true;
-    this.submitted = true;
-    this.setSearchField();
-
-      if(this.searchFieldVal === "")
-      {
-        alert("Search column is NULL");
-      }
-      let  sVal = ""
-      for (var item of this.searchColumns)
-        {
-          if(item.label === this.searchFieldVal)
-          {
-            sVal = item.key
-            break;
-          }
-        }
-        let srchStr = this.form.controls.searchCndition.value
-        if(sVal === "")
-        {
-          alert("Field is NULL");
-        }
-        if(srchStr === "")
-          {
-            alert("Condition is NULL");
-          }
-          if(this.form.controls.searchValue.value === "")
-            {
-              alert("Value is NULL");
-            }
-
-
-      if(this.searchFieldVal === 'Process Time')
-      {
-        if(this.additionalsearchString !== "")
-        {
-          this.additionalsearchString += " AND " + sVal +  " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
-        }
-        else
-        {
-          this.additionalsearchString =  sVal + " " + " BETWEEN '" + this.startDate +"' AND '" + this.endDate +"'";
-        }
-      }
-      else
-      {
-
-          if (srchStr === 'Contains')
-          {
-            srchStr = '['
-          }
-
-          if(this.additionalsearchString !== "")
-          {
-            this.additionalsearchString += " AND " + sVal + srchStr  + " '" + this.form.controls.searchValue.value +"'";
-          }
-          else
-          {
-            this.additionalsearchString =  sVal + " " + srchStr + " '" + this.form.controls.searchValue.value +"'";
-          }
-      }
-    }
-
-
-onRowClicked(row) {
-  this.searchTypeString = "";
-  this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
-   });
-
-      console.log('Row clicked: ' + row.id + ", Search: " + this.additionalsearchString + ', searchTypeString: '+ this.searchTypeString );
-
-      const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
-       ));
-    const newTab = window.open(url, '_blank');
-    if(newTab) {
-        newTab.opener = null;
-    }
-
-  }
-
-
-onItemSelect(inp: any) {
-    console.log('onItem Select: '  + inp +", " + inp.item_id + ", #: " + this.dataTableLabel.length);
-    if (inp.item_id === undefined)
-  {
-    this.dataTableLabel.push(inp);
-    console.log('onItem Select objIndex ' + inp)
-  }
-  else{
-    this.dataTableLabel.push(inp.item_text);
-    this.dataTableKey.push(inp.item_id);
-  }
-  this.saveDisplayColumns();
-}
-
-onItemDeSelect(inp: any)
-{
-  console.log('onItem DeSelect: ' + inp +", " + inp.item_id + ", #: " + this.dataTableLabel.length);
-  if (inp.item_id === undefined)
-  {
-    var objIndex = this.dataTableLabel.findIndex(obj => obj === inp);
-    console.log('onItem DeSelect objIndex ' + objIndex)
-  }
-  else{
-    var objIndex = this.dataTableLabel.findIndex(obj => obj === inp.item_text);
-    console.log('onItem DeSelect objIndex ' + objIndex)
-    if (objIndex > -1) {
-      this.dataTableLabel.splice(objIndex, 1);
-    }
-    objIndex = this.dataTableKey.findIndex(obj => obj === inp.item_id);
-    console.log('onItem DeSelect objIndex ' + objIndex)
-    if (objIndex > -1) {
-      this.dataTableKey.splice(objIndex, 1);
-    }
-  }
-  this.saveDisplayColumns();
-
-}
-saveDisplayColumns()
-{
-  var dispCol = <DisplayColumnsArray>{};
-  dispCol.displayColumns = [];
-  var ind = 0;
-  console.info("selDropdownList #: " + this.selDropdownList.length);
-  console.log('Save: ' + this.form.controls.transType.value);
-  for (var item of this.selDropdownList)
-  {
-       console.log('Save: ' + item.item_id);
-       dispCol.displayColumns.push({  id: '1',
-        TransactionCode: this.form.controls.transType.value,
-        key:  item.item_id,
-        Order: ind});
-        ind++;
-  }
-  console.log('Save: ' + dispCol.displayColumns.length);
-
-      this.TransactionService.saveDisplayColumns(dispCol).subscribe((res: any) => {
-
-          console.info("TransactionService: " + res);
-
-        });
-}
-
-expandCollapse(index: boolean) {
-  this.panelExpand = index;
-}
 
 private createCustomFlds(fldLbl: string): FormGroup {
   return new FormGroup({
@@ -795,7 +582,7 @@ private readCustomFlds() {
 
 transactionChange(evt: any)
 {
-  this.displayLabel = "Display columns for: "+this.form.controls.transType.value;
+
   this.dataTableLabel = [];
   this.dataTableKey = [];
   this.selectedItems = [];
@@ -805,7 +592,7 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info(this.displayLabel +", this.currentTransType: " + this.currentTransType)
+  console.info("this.currentTransType: " + this.currentTransType)
   if(this.form.controls.transType.value !== this.currentTransType)
   {
     this.clearSearch();
@@ -849,7 +636,8 @@ transactionChange(evt: any)
       for (var col of this.transactionsSearchColumns)
       {
 
-        if ( disp.TransactionCode === this.form.controls.transType.value && disp.key === col.key)
+        if ( disp.TransactionCode === this.form.controls.transType.value
+          && disp.key === col.key && disp.Mode === this.form.controls.mode.value)
         {
           var selInd = this.allDropdownListFind(col.label);
           if(selInd !== -1)
@@ -872,37 +660,8 @@ transactionChange(evt: any)
     for (var col of this.transactionsSearchColumns)
     {
 
-      if (this.form.controls.transType.value === '837P')
-      {
-        if ( col.key === 'loop23001CLMClaimSubmittersIdentifier' ||
-        col.key === 'loop2010AAREF1RefId' ||
-        col.key === 'loop2010BANM11ILIdentificationCode' ||
-        col.key === 'loop24001DTP1DateTimePeriod' ||
-        col.key === 'FileName' ||
-        col.key === 'InterchangeSenderID'
-        )
-        {
-          console.log("In 837P static list , Add to Display column;");
-          tempArr.push({item_id:col.key, item_text:col.label});
-          tempArr2.push({item_id:col.key, item_text:col.label});
-        }
-      }
-      else if (this.form.controls.transType.value === '835')
-        {
-          if ( col.key === 'loop1000AN11PRName' || col.key === 'TRNRefId' ||
-          col.key === 'loop21001NM11NameFirst' ||
-          col.key === 'loop21001NM11NameLastorOrganizationName' ||
-          col.key === 'InterchangeReceiverID' ||
-          col.key === 'InterchangeDate'
-          )
-          {
-            console.log("In static list for 835, Add to Display column;");
-            tempArr.push({item_id:col.key, item_text:col.label});
-            tempArr2.push({item_id:col.key, item_text:col.label});
-          }
-        }
 
-      else if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
+      if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
       {
           // console.info(col.transactionCode + " PUSH " + col.key)
 
@@ -928,45 +687,38 @@ transactionChange(evt: any)
   console.info("selDropdownList #: " + this.selDropdownList.length);
   console.info("searchColumns #: " + this.searchColumns.length);
 
-  if (this.form.controls.transType.value === '271')
+  console.info('Add search group')
+  const formArr = this.form.get('additional') as FormArray
+  this.transSearchFlds =[]
+  this.transSearchLbls = []
+
+
+
+
+  this.usrSearchColumns.forEach(element => {
+    if(element.TransactionCode === this.form.controls.transType.value && element.Mode === this.form.controls.mode.value)
     {
-        console.info('Add email group')
-        const formArr = this.form.get('additional') as FormArray
 
-        this.custom271fields.forEach(element => {
-          formArr.push(this.createCustomFlds(element));
-        });
+        for (let tran of this.transactionsSearchColumns){
+        {
+          if(tran.key == element.key)
+          {
+            console.info(tran.label + ": " + element.key +", " + element.TransactionCode +", " + element.Mode);
+            formArr.push(this.createCustomFlds(tran.label));
+            this.transSearchFlds.push(element.key);
+            this.transSearchLbls.push(tran.label);
+            break;
+          }
 
-    }
-    else if (this.form.controls.transType.value === '837P')
-    {
-        console.info('Add email group')
-        const formArr = this.form.get('additional') as FormArray
-
-        this.custom837Pfields.forEach(element => {
-          formArr.push(this.createCustomFlds(element));
-        });
-
-    }
-    else if (this.form.controls.transType.value === '835')
-      {
-          console.info('Add email group')
-          const formArr = this.form.get('additional') as FormArray
-
-          this.custom835fields.forEach(element => {
-            formArr.push(this.createCustomFlds(element));
-          });
+        }
 
       }
+    }
+  });
 
   this.butSaveDisplay = false;
 }
 
-setSearchField()
-{
-  console.log("In setSearchField: " +this.form.controls.searchField.value)
-  this.searchFieldVal = this.form.controls.searchField.value;
-}
 
 allDropdownListFind(label:string)
 {
@@ -1056,7 +808,6 @@ onContextMenuNew(item: Item) {
 }
 
 onContextMenuSame(item: Item) {
-  // alert('Click on Action 2' + item.id);
 
   this.searchTypeString = "";
   this.paramsList.forEach( val => {
@@ -1069,6 +820,18 @@ onContextMenuSame(item: Item) {
 
 }
 
+onContextSettings(item: Item) {
+
+  this.searchTypeString = "";
+  this.paramsList.forEach( val => {
+    this.searchTypeString += val +";";
+   });
+   this.searchTypeString += ";sameWindow::true";
+      this.router.navigate(["/transaction/transaction-settings/"],
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+       );
+
+}
 
 }
 
