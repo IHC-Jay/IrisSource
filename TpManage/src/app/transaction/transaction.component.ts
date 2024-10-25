@@ -50,7 +50,6 @@ endDate ="13:30";
 
   transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
 
-  butSaveDisplay: boolean = false;
 
    nyiColumns = [
     {
@@ -62,10 +61,9 @@ endDate ="13:30";
     transSearchLbls: string[] =[];
 
 
-  panelExpand: boolean = true;
   loading:boolean = false;
   searchTransaction:boolean = false;
-  submitted = false;
+
   public size = 5;
   public pageNumber = 0;
   form!: FormGroup;
@@ -76,42 +74,36 @@ endDate ="13:30";
 
   dataSource = new MatTableDataSource<any>();
 
+  @ViewChild(MatSort) sort: MatSort;
+  @ViewChild(MatPaginator) paginator: MatPaginator;
 
-
-  transactionsSearchColumns= [
+  transactionsFields= [
     {
       key: 'Invalid',
       type: 'text',
       label: 'Select Transaction to view the Columns',
       transactionCode: 'XXX',
-      detail: '1'
+      detail: 1
     }];
 
 
-  searchColumns= this.transactionsSearchColumns.slice();
-
-  @ViewChild("searchValue") searchValue: ElementRef;
-  @ViewChild("searchField") searchField: ElementRef;
-  @ViewChild("searchCndition") searchCndition: ElementRef;
+  searchColumns= this.transactionsFields.slice();
 
   @ViewChild("rowCnt") rowCnt: ElementRef;
   @ViewChild("transType") transType: ElementRef;
   @ViewChild("displayCols") displayCols: ElementRef;
+  @ViewChild("disposition") disposition: ElementRef;
 
 
   additionalsearchString = "";
   searchTypeString = "";
   currentTransType = '';
+  currentMode = '';
   sub:any;
-  isTableExpanded = false;
 
   selDropdownList = [];
 
   allDropdownList = [];
-
-
-  @ViewChild(MatPaginator) paginator: MatPaginator;
-  @ViewChild(MatSort) sort: MatSort;
 
   selectedItems=[];
 
@@ -127,7 +119,7 @@ endDate ="13:30";
 
   createinitForm(): FormGroup
   {
-    console.info('Add new field');
+    console.info('Add new FormGroup for additional fields');
     return new FormGroup({
       'fld':new FormControl('FLD', Validators.required),
       'newFldValue':new FormControl('value', Validators.required),
@@ -154,17 +146,15 @@ endDate ="13:30";
     this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
 
     this.form = this.formBuilder.group({
-
       rowCnt:['25', Validators.required],
       transType: ['270', Validators.required],
-      btControl: ['Batch', Validators.required],
-      disposition: ['Processed'],
+      disposition: ['Processed', Validators.required],
       mode:['RealTime', Validators.required],
       additional:this.formBuilder.array([this.createinitForm()])
     });
 
 
-    this.currentTransType = '270'
+    this.currentTransType = ''
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -173,7 +163,7 @@ endDate ="13:30";
       // Defaults to '' if no query param provided.
 
       this.currentTransType =  params['transaction'] || '';
-      this.additionalsearchString = params['search'] || '';
+      this.additionalsearchString = params['additionalSearch'] || '';
       this.searchTypeString = params['searchTypeString'];
       if (this.searchTypeString !== null && this.searchTypeString.length > 0)
       {
@@ -226,7 +216,6 @@ endDate ="13:30";
         if (this.additionalsearchString !== '')
         {
           console.log('set search controls, ' + this.searchTransaction);
-          this.form.controls.searchField.setValue(this.additionalsearchString);
           this.searchTransaction = true;
         }
         else{
@@ -234,51 +223,58 @@ endDate ="13:30";
       }
      }
     }
+    else
+    {
+      console.info('no query params')
+    }
     });
 
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
-    this.transactionsSearchColumns = [];
+    this.transactionsFields = [];
 
       for (var item of res)
       {
         // console.info("Push transactionsSearchColumns: " + item.Key)
-          this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
+          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
+          if ('x12Data' === item.Key)
+          {
+            console.info(item.Label +": " + item.Detail)
+
+          }
       }
-      console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
+      console.info("transactionsSearchColumns: " + this.transactionsFields.length);
       console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
 
       this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
+        this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+          this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
+          this.usrSearchColumns.push(...res);
+          console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-        if(this.currentTransType !== '')
-        {
+          if(this.currentTransType !== '')
+            {
 
-        this.transactionChange(this.currentTransType);
+            this.transactionChange(this.currentTransType);
 
-        console.info('Transaction search for: ' + this.currentTransType);
-        this.onSearchTransactions();
-        }
-      });
+            console.info('Transaction search for: ' + this.currentTransType);
+            this.onSearchTransactions();
+            }
+            else
+            {
+              this.transactionChange('270')
+            }
 
-      this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
-        this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
-        this.usrSearchColumns.push(...res);
-        console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-        if(this.currentTransType !== '')
-        {
+        });
 
-        this.transactionChange(this.currentTransType);
 
-        }
       });
 
     });
-
-    // this.clearSearch();
 
 
   }
@@ -286,8 +282,6 @@ endDate ="13:30";
   ngAfterViewInit() {
     this.dataSource.paginator = this.paginator;
     this.dataSource.sort = this.sort;
-
-
 
   }
   get f() { return this.form.controls; }
@@ -380,7 +374,6 @@ endDate ="13:30";
 
             this.loading = false;
 
-            this.setControls();
             });
 
       }
@@ -391,7 +384,6 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("EligibilityBenefitResponses array: " + this.dataSource.data.length);
-         this.setControls();
         });
 
       }
@@ -407,7 +399,6 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("ClaimPayment array: " + this.dataSource.data.length);
-         this.setControls();
         });
 
       }
@@ -422,7 +413,6 @@ endDate ="13:30";
           this.canRenderDetails = true;
           this.loading = false;
           console.info("Claims array: " + this.dataSource.data.length);
-          this.setControls();
          });
 
        }
@@ -438,7 +428,6 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claims array: " + this.dataSource.data.length);
-         this.setControls();
         });
 
       }
@@ -453,7 +442,7 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claims array: " + this.dataSource.data.length);
-         this.setControls();
+
         });
 
       }
@@ -464,7 +453,7 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claim Status  Req array: " + this.dataSource.data.length);
-         this.setControls();
+
         });
 
       }
@@ -475,7 +464,7 @@ endDate ="13:30";
           this.canRenderDetails = true;
           this.loading = false;
           console.info("Claim Status Resp array: " + this.dataSource.data.length);
-          this.setControls();
+
          });
 
        }
@@ -486,7 +475,7 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claim Acknowledgment array: " + this.dataSource.data.length);
-         this.setControls();
+
         });
 
       }
@@ -497,7 +486,7 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Implementation Acknowledgment array: " + this.dataSource.data.length);
-         this.setControls();
+
         });
 
       }
@@ -508,7 +497,7 @@ endDate ="13:30";
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Interchange Acknowledgment array: " + this.dataSource.data.length);
-         this.setControls();
+
         });
 
       }
@@ -523,22 +512,15 @@ endDate ="13:30";
         this.loading = false;
         console.info("NotImplementd array: " + this.dataSource.data.length);
        }
+       this.paginator.pageSize = this.form.controls.rowCnt.value;
 
       }
 
-setControls()
-{
-          // this.selectedItems.splice(0, this.selectedItems.length)
-          console.info('Populate dataTables with ' + this.selDropdownList.length);
-          console.info("Dropdown: " + this.selDropdownList.length);
-          this.form.controls.searchValue.setValue('');
-
-
-            console.info("allDropdownList.length: " + this.allDropdownList.length);
-            console.info("selDropdownList.length: " + this.selDropdownList.length);
-
-            this.panelExpand = false;
-            this.butSaveDisplay = true;
+onRowCnt()
+      {
+        console.info('Set paginator.pageSize: ' + this.form.controls.rowCnt.value)
+        this.paginator.pageSize = this.form.controls.rowCnt.value;
+        this.dataSource.paginator = this.paginator
 }
 
 clearSearch()
@@ -592,12 +574,14 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info("this.currentTransType: " + this.currentTransType)
-  if(this.form.controls.transType.value !== this.currentTransType)
+  console.info("transactionChange: this.currentTransType: " + this.currentTransType)
+  if(this.form.controls.transType.value !== this.currentTransType &&
+    this.form.controls.mode.value !== this.currentMode)
   {
     this.clearSearch();
   }
   this.currentTransType = this.form.controls.transType.value;
+  this.currentMode = this.form.controls.mode.value;
 
   this.readCustomFlds();
 
@@ -605,26 +589,19 @@ transactionChange(evt: any)
 
 
 
-  for (var col of this.transactionsSearchColumns)
+  for (var col of this.transactionsFields)
   {
 
-    if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
+    if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
+      && col.detail !== 1)
     {
       allTempArr.push({item_id:col.key, item_text:col.label});
+      this.searchColumns.push(col);
     }
   }
   this.allDropdownList = allTempArr;
   var tempArr = [];
 
-  for (var col of this.transactionsSearchColumns)
-    {
-      // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
-      if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1'))
-      {
-          this.searchColumns.push(col);
-          // console.info("searchColumns pushed: " + col.key);
-      }
-    }
 
   if(this.usrDisplayColumns.length > 0)
   {
@@ -633,7 +610,7 @@ transactionChange(evt: any)
     for (var disp of this.usrDisplayColumns)
     {
       // console.info(disp.TransactionCode + ", # " + this.transactionsSearchColumns.length +', allDropdownList #: ' + this.allDropdownList.length)
-      for (var col of this.transactionsSearchColumns)
+      for (var col of this.transactionsFields)
       {
 
         if ( disp.TransactionCode === this.form.controls.transType.value
@@ -654,14 +631,16 @@ transactionChange(evt: any)
   }
   if(tempArr.length === 0) // Nothing from User display columns
   {
+    console.info("Nothing from User display columns for: " + this.form.controls.transType.value)
     this.searchColumns = [];
     this.allDropdownList = [];
     var tempArr2 = [];
-    for (var col of this.transactionsSearchColumns)
+    for (var col of this.transactionsFields)
     {
 
 
-      if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value && col.detail != '1') )
+      if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
+            && col.detail !== 1)
       {
           // console.info(col.transactionCode + " PUSH " + col.key)
 
@@ -699,7 +678,7 @@ transactionChange(evt: any)
     if(element.TransactionCode === this.form.controls.transType.value && element.Mode === this.form.controls.mode.value)
     {
 
-        for (let tran of this.transactionsSearchColumns){
+        for (let tran of this.transactionsFields){
         {
           if(tran.key == element.key)
           {
@@ -716,7 +695,7 @@ transactionChange(evt: any)
     }
   });
 
-  this.butSaveDisplay = false;
+
 }
 
 
@@ -796,7 +775,7 @@ onContextMenuNew(item: Item) {
    this.searchTypeString += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -815,20 +794,26 @@ onContextMenuSame(item: Item) {
    });
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        );
 
 }
 
 onContextSettings(item: Item) {
 
-  this.searchTypeString = "";
-  this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
-   });
+
+    this.searchTypeString = "mode::" + this.form.controls.mode.value +";" +
+    "transaction::"+this.form.controls.transType.value +";" +
+    "transaction::"+this.form.controls.transType.value +";" +
+    "status::"+this.form.controls.disposition.value +";" +
+    "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+    "endDtTm::" + this.endDate+" " +this.endTm +";" +
+    "count::" + this.form.controls.rowCnt.value +";"  ;
+
+
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-settings/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'search': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: {'transaction': this.form.controls.transType.value, 'mode': this.form.controls.mode.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString  } }
        );
 
 }

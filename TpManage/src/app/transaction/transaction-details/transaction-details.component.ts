@@ -30,7 +30,7 @@ export class TransactionDetailComponent {
   X12DataParentId:string;
   ak1CtrlNum:string;
   ak1ver:string;
-  searchStr:string;
+  additionalSearchStr:string;
   searchTypeString:string;
   transaction:string;
   x12Data:string;
@@ -57,9 +57,9 @@ export class TransactionDetailComponent {
       // Defaults to 0 if no query param provided.
       this.id = ''+params['id'] || '0';
       this.transaction = ''+params['transaction'] || '0';
-      this.searchStr = params['search'];
+      this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction + ", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString);
+      console.log('Query params id: ', this.id + ', trans: ' + this.transaction + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
       if (this.searchTypeString.indexOf("Batch") > 0)
       {
         this.mode = "Batch"
@@ -250,12 +250,12 @@ export class TransactionDetailComponent {
   toTransactions()
   {
 
-      console.log('To Transactions: ' + this.transaction + "/" + this.searchStr);
+      console.log('To Transactions: ' + this.transaction + "/" + this.additionalSearchStr);
       this.router.navigate(["/transaction/"],
       // {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
       {
         queryParams: { transaction: this.transaction,
-          'search': this.searchStr,
+          'additionalSearch': this.additionalSearchStr,
           'searchTypeString': this.searchTypeString }
     }
 

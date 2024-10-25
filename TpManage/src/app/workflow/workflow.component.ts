@@ -39,7 +39,10 @@ endDate ="13:30";
     'ErrorType',
     'WorkStatus',
     'WorkUser',
-    'Details'];
+     'LastmodDtTM',
+    'LastmodID',
+    'Details'
+];
 
     displayLabel: string = "Display columns:";
     statusTypes = [
@@ -181,10 +184,18 @@ GetWFs()
     this.canRenderDetails = true;
 
     console.info("WorkFlowItems array: " + this.dataSource.data.length  );
+    this.paginator.pageSize = this.form.controls.rowCnt.value;
 
    });
 
  }
+
+ onRowCnt()
+      {
+        console.info('Set paginator.pageSize: ' + this.form.controls.rowCnt.value)
+        this.paginator.pageSize = this.form.controls.rowCnt.value;
+        this.dataSource.paginator = this.paginator
+}
 
  statusTypeChange(evt: any)
  {
@@ -262,14 +273,41 @@ updateWF()
    if(this.updStatus !== '')
    {
       console.info("Update WorkFlowItem to " + this.updStatus)
-      this.selection.selected.forEach(row => {
-          console.info("ID: " + row.id +"-> " + this.updStatus)
-          if (this.updStatus === 'Assigned' && this.form.controls.assignee.value === '')
-          {
-            alert("Assignee is required")
-          }
+      let assignUsr = this.form.controls.assignee.value
+      if (this.updStatus === 'Assigned' && assignUsr === '')
+        {
+          alert("Assignee is required")
+        }
+        else
+        {
+          this.selection.selected.forEach(row => {
+              console.info("ID: " + row.id +"-> " + this.updStatus)
 
-          this.WfService.updateWorkFlowItem(row.id, this.updStatus).subscribe((res: any) => {
+              this.WfService.updateWorkFlowItem(row.id, this.updStatus, (this.updStatus === 'Assigned')? assignUsr : '').subscribe((res: any) => {
+                this.dataSource.data = res;
+                this.canRenderDetails = true;
+
+              });
+
+            });
+
+          this.selection.clear();
+          this.rowSelected  = 0;
+          this.GetWFs();
+        }
+   }
+
+  }
+
+  assignWF()
+ {
+  console.info("Assign WorkFlow: " + this.selection.selected.length );
+
+      this.selection.selected.forEach(row => {
+          console.info("ID: " + row.id +"-> 'Assigned'")
+
+
+          this.WfService.updateWorkFlowItem(row.id, 'Assigned', '').subscribe((res: any) => {
             this.dataSource.data = res;
             this.canRenderDetails = true;
 
@@ -280,9 +318,10 @@ updateWF()
       this.selection.clear();
       this.rowSelected  = 0;
       this.GetWFs();
-   }
+
 
   }
+
   onStDateChange(event: Event)
 {
 

@@ -44,13 +44,16 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
 // All transaction fields from the service
 
+additionalSearchStr :string;
+searchTypeString:string;
+
   allTransactionsFields= [
     {
       key: 'Invalid',
       type: 'text',
       label: 'Select Transaction to view the Columns',
       transactionCode: 'XXX',
-      detail: '1',
+      detail: 1,
       checked: 'false'
     }];
 
@@ -69,7 +72,7 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
 
 
-  searchTypeString = "";
+  modeString = "";
   currentTransType = '';
   sub:any;
 
@@ -87,6 +90,7 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
   {
     console.info("ngOnInit");
 
+
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['270', Validators.required],
@@ -103,29 +107,16 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
       // Defaults to '' if no query param provided.
 
       this.currentTransType =  params['transaction'] || '';
+      this.modeString = params['mode'];
+      this.form.controls.transType.setValue(this.currentTransType);
+      this.form.controls.mode.setValue(this.modeString)
+
+      this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
-      if (this.searchTypeString !== null && this.searchTypeString.length > 0)
-      {
-
-      let fInd = this.searchTypeString.indexOf("mode::") + 6;
-      let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". MODE:" + val )
-      this.form.controls.mode.setValue(val)
-
-      fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
-      val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". transType:" + val )
-      this.form.controls.transType.setValue(val)
+      console.log('Query params trans: ' + this.currentTransType + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
 
 
-
-      fInd = this.searchTypeString.indexOf("count::") + "count::".length;
-      val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". rowCnt:" + val )
-      this.form.controls.rowCnt.setValue(val)
-
-     }
-    }
+      }
     });
 
 
@@ -186,8 +177,9 @@ transactionChange(evt: any)
   for (var col of this.allTransactionsFields)
     {
       // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
-      if ( (Number.parseInt(col.transactionCode) == 1) || (col.transactionCode === this.form.controls.transType.value
-         && col.detail != '1' ))
+      if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
+          && col.detail !== 1)
+
       {
           // this.searchColumns.push(col);
           this.displayCheckBoxValues.push({key: col.key, type:'', label:col.label, transactionCode:col.transactionCode,
@@ -417,6 +409,20 @@ saveSettings(setting: string)
         });
 
 }
+toTransactions()
+  {
+
+      console.log('To Transactions: ' + this.currentTransType + "= " + this.searchTypeString + "/" + this.additionalSearchStr);
+      this.router.navigate(["/transaction/"],
+      // {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
+      {
+        queryParams: { transaction: this.currentTransType,
+          'additionalSearch': this.additionalSearchStr,
+          'searchTypeString': this.searchTypeString }
+    }
+
+       );
+  }
 
 }
 

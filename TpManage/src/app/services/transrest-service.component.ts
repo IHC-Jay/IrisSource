@@ -1038,10 +1038,18 @@ fetchWorkFlowEntry(searchStr: string) {
 
 
 
-updateWorkFlowItem(id: string, status: string) {
+updateWorkFlowItem(id: string, status: string, assignUser: string) {
   console.log('Update WF Entry with Auth as ' + this.currentUser);
+  let url = this.batchTransUrl
+  if (assignUser !== '')
+  {
+    url += 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ assignUser+"&modUserNm="+ this.currentUser;
+  }
+  else
+  {
 
-  let url = this.batchTransUrl + 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser;
+    url += 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser+"&modUserNm="+ this.currentUser;
+  }
 
   return this.http2
     .get<{ [key: string]: WorkFlowEntry }>(

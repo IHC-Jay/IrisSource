@@ -237,7 +237,7 @@ getX12()
   if (this.wfStatus !== '')
   {
 
-    this.WfService.updateWorkFlowItem(this.id, this.wfStatus).subscribe((res: any) => {
+    this.WfService.updateWorkFlowItem(this.id, this.wfStatus, '').subscribe((res: any) => {
       this.dataSource.data = res;
       this.canRenderDetails = true;
 
