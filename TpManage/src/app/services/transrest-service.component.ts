@@ -973,10 +973,7 @@ fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt 
   return this.http2
     .get<{ [key: string]: WorkFlowEntry }>(
       url
-    )
-
-    .pipe(
-      map(responseData => {
+    ).pipe(map(responseData => {
         console.info(responseData);
 
         const WorkFlowEntriesArray: WorkFlowEntry[] = [];

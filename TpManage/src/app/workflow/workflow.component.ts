@@ -25,8 +25,8 @@ export class WorkflowComponent implements OnInit {
 
   nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
-startDate = "2023-01-12";
-endDate ="13:30";
+  startDate = "2023-01-12";
+  endDate ="13:30";
   startTm = "13:30";
   endTm= "2023-01-12";
 
@@ -39,7 +39,7 @@ endDate ="13:30";
     'ErrorType',
     'WorkStatus',
     'WorkUser',
-     'LastmodDtTM',
+    'LastmodDtTM',
     'LastmodID',
     'Details'
 ];
@@ -66,7 +66,7 @@ endDate ="13:30";
   statusTypeString = 'New';
   transTypeStr = '835';
   errorTypeStr = 'All';
-  submitted = false;
+
   canRenderDetails = false;
   rowSelected : number = 0;
   sub:any;
@@ -86,21 +86,6 @@ endDate ="13:30";
 
   ngOnInit() {
 
-    this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-    let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-    let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-    this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-    let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-    tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-    this.startTm = tmVal
-    this.endTm= tmVal
-    console.info("Time: " + tmVal)
-    this.nowDt = new Date(new Date().getTime());
-    mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-    dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-    this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-
     this.form = this.formBuilder.group({
       statusType: ['', Validators.required],
       rowCnt:['', Validators.required],
@@ -110,49 +95,95 @@ endDate ="13:30";
       updStatusType: ['', Validators.required],
       assignee:['']
     });
+    this.canRenderDetails = false;
 
     this.sub = this.route.queryParams.subscribe(params => {
-		  // Defaults to '' if no query param provided.
 
-		  this.transTypeStr =  params['transaction'] || '';
-		  this.errorTypeStr =  params['errorTypeString'] || '';
-		  this.statusTypeString = params['statusTypeString'];
+      if(params !== undefined && params.searchParams !== undefined)
+        {
+          let searchParams =  params['searchParams'];
 
-		  console.log('ngOnInit - Query params ' + this.statusTypeString +", transType: " + this.transTypeStr);
+          let fInd = searchParams.indexOf("transaction::") + "transaction::".length;
+          let val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+          this.transTypeStr =  val;
+          this.form.controls.transType.setValue(this.transTypeStr);
 
+          fInd = searchParams.indexOf("errorType::") + "errorType::".length;
+          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+          this.errorTypeStr =  val;
+          this.form.controls.errorType.setValue(this.errorTypeStr);
+          console.log("ngOnInit - errorType: " + this.errorTypeStr);
 
-		  if (this.transTypeStr !== '')
-		  {
-        this.form.controls.statusType.setValue(this.statusTypeString);
-        this.statusTypeChange(null);
-        this.form.controls.transType.setValue(this.transTypeStr);
-        this.form.controls.errorType.setValue(this.errorTypeStr);
-        this.form.controls.rowCnt.setValue("25");
+          fInd = searchParams.indexOf("status::") + "status::".length;
+          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+          this.statusTypeString = val;
+          this.form.controls.statusType.setValue(this.statusTypeString);
 
-			if (this.transTypeStr !== '')
-			{
-			  this.searchTransaction = true;
-			}
-			console.log('set search controls, ' + this.searchTransaction);
-		  }
+          fInd = searchParams.indexOf("count::") + "count::".length;
+          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+          this.form.controls.rowCnt.setValue(val)
+          console.log("rowCnt: " + val)
 
+          fInd = searchParams.indexOf("startDtTm::") + "startDtTm::".length;
+          let fInd2 = searchParams.indexOf(" ", fInd)
+          val = searchParams.substring( fInd, fInd2)
+          console.log(fInd + ". startDate:" + val )
+          this.startDate = val
+
+          let fInd3 = searchParams.indexOf(";", fInd2)
+          val = searchParams.substring( fInd2+1, fInd3)
+          console.log(fInd + ". startTm:" + val )
+          this.startTm = val
+
+          fInd = searchParams.indexOf("endDtTm::") + "endDtTm::".length;
+          fInd2 = searchParams.indexOf(" ", fInd)
+          val = searchParams.substring( fInd, fInd2)
+          console.log(fInd + ". endDate:" + val )
+          this.endDate = val
+
+          fInd3 = searchParams.indexOf(";", fInd2)
+          val = searchParams.substring( fInd2+1, fInd3)
+          console.log(fInd + ". endTm:" + val )
+          this.endTm = val
+
+          console.log('ngOnInit - Query params ' + this.statusTypeString +", transType: " + this.transTypeStr);
+          this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
+
+          this.onSubmit()
+
+        }
+        else
+        {
+          console.log('ngOnInit - No Query params ')
+
+          this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+          let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+          let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+          this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+          let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+          tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+          this.startTm = tmVal
+          this.endTm= tmVal
+          console.info("Time: " + tmVal)
+          this.nowDt = new Date(new Date().getTime());
+          mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+          dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+          this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+
+          this.form.controls.rowCnt.setValue(this.maxCount[1]);
+          this.form.controls.statusType.setValue(this.statusTypes[0]);
+          this.form.controls.transType.setValue(this.transactionTypes[0])
+          this.form.controls.errorType.setValue(this.errorTypes[0])
+          this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
+
+          this.statusTypeString = this.statusTypes[0];
+          this.transTypeStr = this.transactionTypes[0];
+          this.errorTypeStr = this.errorTypes[0];
+        }
 
     });
-    if (this.searchTransaction == false)
-    {
-		  this.form.controls.rowCnt.setValue(this.maxCount[1]);
-		  this.form.controls.statusType.setValue(this.statusTypes[0]);
-		  this.form.controls.transType.setValue(this.transactionTypes[0])
-		  this.form.controls.errorType.setValue(this.errorTypes[0])
-      this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
 
-		  this.statusTypeString = this.statusTypes[0];
-		  this.transTypeStr = this.transactionTypes[0];
-		  this.errorTypeStr = this.errorTypes[0];
-    }
-    else{
-      this.GetWFs()
-    }
 
   }
 
@@ -162,10 +193,10 @@ endDate ="13:30";
 
   }
 
-GetWFs()
+onSubmit()
 {
 
-  console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr)
+  console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr +", count: " + this.form.controls.rowCnt.value)
 
   if (this.form.controls.transType.value === '' && this.transTypeStr !== '')
   {
@@ -222,9 +253,18 @@ errorTypeChange(evt: any)
 }
 
 onRowClicked(row) {
-  console.log('Row clicked, id: ' + row.id + ", Transaction: " + this.transTypeStr + ', statusTypeString: '+ this.statusTypeString );
+
+  let searchParamsString = "errorType::" + this.form.controls.errorType.value +";" +
+          "transaction::"+this.form.controls.transType.value +";" +
+          "status::"+this.form.controls.statusType.value +";" +
+          "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+          "endDtTm::" + this.endDate+" " +this.endTm +";" +
+          "count::" + this.form.controls.rowCnt.value +";"  ;
+
+  console.log('Row clicked, id: ' + row.id + ", Transaction: " + searchParamsString);
+
  this.router.navigate(["/workflow/workflowDetails/"],
-  {queryParams: { id:  row.id, 'workflow': this.form.controls.transType.value, 'statusTypeString': this.statusTypeString, 'errorTypeString': this.errorTypeStr } }
+  {queryParams: { id:  row.id,  searchParams:  searchParamsString } }
    );
 
 }
@@ -293,7 +333,7 @@ updateWF()
 
           this.selection.clear();
           this.rowSelected  = 0;
-          this.GetWFs();
+          this.onSubmit();
         }
    }
 
@@ -317,7 +357,7 @@ updateWF()
 
       this.selection.clear();
       this.rowSelected  = 0;
-      this.GetWFs();
+      this.onSubmit();
 
 
   }

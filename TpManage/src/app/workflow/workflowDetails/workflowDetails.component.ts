@@ -37,16 +37,10 @@ export class WorkflowDetailsComponent implements OnInit {
 
   form!: FormGroup;
 
-  @ViewChild("searchValue") searchValue: ElementRef;
-  @ViewChild("searchField") searchField: ElementRef;
+
 
   @ViewChild("statusType") statusType: ElementRef;
-  @ViewChild("rowCnt") rowCnt: ElementRef;
-  @ViewChild("transType") transType: ElementRef;
-  @ViewChild("errorType") errorType: ElementRef;
 
-  @ViewChild("matStartDate") matStartDate: string;
-  @ViewChild("matEndDate") matEndDate: string;
 
   @ViewChild(MatPaginator) paginator: MatPaginator;
   @ViewChild(MatSort) sort: MatSort;
@@ -76,8 +70,8 @@ export class WorkflowDetailsComponent implements OnInit {
   minSelRow:number = 0
   maxSelRow:number = 0;
 
-  transaction:string;
   wfCurrentStat:string;
+  searchParams:string;
 
   x12Array: [x12err] = [{lnNum:'0', segId:'1', data:"TEST", segElem:'1/1', error:'Y'}];
 
@@ -96,10 +90,7 @@ export class WorkflowDetailsComponent implements OnInit {
     console.info("ngOnInit");
 
     this.form = this.formBuilder.group({
-      statusType: ['', Validators.required],
-      rowCnt:['', Validators.required],
-      transType: ['', Validators.required],
-      errorType: ['', Validators.required]
+      statusType: ['', Validators.required]
     });
 
     this.form.controls.statusType.setValue(this.statusTypes[0]);
@@ -107,14 +98,18 @@ export class WorkflowDetailsComponent implements OnInit {
 
     this.sub = this.route
     .queryParams
-    .subscribe(params => {
+    .subscribe(searchParams => {
       // Defaults to 0 if no query param provided.
-      this.id = ''+params['id'] || '0';
-      this.transaction = ''+params['workflow'] || '0';
+      this.id = ''+searchParams['id'] || '0';
+      this.searchParams = searchParams['searchParams'];
 
-      this.statusTypeString = params['statusTypeString'];
-      this.errorTypeStr = params['errorTypeString'];
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", statusTypeString: " + this.statusTypeString);
+      let fInd = this.searchParams.indexOf("status::") + "status::".length;
+      let val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
+      console.log(fInd + ". statusType:" + val )
+      this.form.controls.statusType.setValue(val)
+      this.wfStatus = val
+
+      console.log('Query params id: ', this.id + ', params: ' + this.searchParams );
     });
     this.getX12();
 
@@ -260,12 +255,11 @@ getX12()
  toWorkFlow()
   {
 
-      console.log('To WorkFlow: ' + this.transaction );
+      console.log('To WorkFlow: ' );
       this.router.navigate(["/workflow/"],
 
       {
-        queryParams: { transaction: this.transaction,
-          'statusTypeString': this.statusTypeString, 'errorTypeString': this.errorTypeStr }
+        queryParams: {'searchParams': this.searchParams }
     }
 
        );

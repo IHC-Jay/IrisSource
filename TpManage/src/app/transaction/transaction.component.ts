@@ -130,20 +130,6 @@ endDate ="13:30";
   {
     console.info("ngOnInit");
 
-    this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-    let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-    let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-    this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-    let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-    tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-    this.startTm = tmVal
-    this.endTm= tmVal
-    console.info("Time: " + tmVal)
-    this.nowDt = new Date(new Date().getTime());
-    mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-    dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-    this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
 
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
@@ -160,73 +146,87 @@ endDate ="13:30";
 
       if(params !== undefined && params.transaction !== undefined)
         {
-      // Defaults to '' if no query param provided.
+          // Defaults to '' if no query param provided.
 
-      this.currentTransType =  params['transaction'] || '';
-      this.additionalsearchString = params['additionalSearch'] || '';
-      this.searchTypeString = params['searchTypeString'];
-      if (this.searchTypeString !== null && this.searchTypeString.length > 0)
-      {
+          this.currentTransType =  params['transaction'] || '';
+          this.additionalsearchString = params['additionalSearch'] || '';
+          this.searchTypeString = params['searchTypeString'];
+          if (this.searchTypeString !== null && this.searchTypeString.length > 0)
+          {
 
-      let fInd = this.searchTypeString.indexOf("mode::") + 6;
-      let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". MODE:" + val )
-      this.form.controls.mode.setValue(val)
+            let fInd = this.searchTypeString.indexOf("mode::") + 6;
+            let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". MODE:" + val )
+            this.form.controls.mode.setValue(val)
 
-      fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
-      val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". transType:" + val )
-      this.form.controls.transType.setValue(val)
+            fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
+            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". transType:" + val )
+            this.form.controls.transType.setValue(val)
 
-      fInd = this.searchTypeString.indexOf("status::") + "status::".length;
-      val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". disposition:" + val )
-      this.form.controls.disposition.setValue(val)
-
-
-      fInd = this.searchTypeString.indexOf("startDtTm::") + "startDtTm::".length;
-      let fInd2 = this.searchTypeString.indexOf(" ", fInd)
-      val = this.searchTypeString.substring( fInd, fInd2)
-      console.log(fInd + ". startDate:" + val )
-      this.startDate = val
-
-      let fInd3 = this.searchTypeString.indexOf(";", fInd2)
-      val = this.searchTypeString.substring( fInd2+1, fInd3)
-      console.log(fInd + ". startTm:" + val )
-      this.startTm = val
+            fInd = this.searchTypeString.indexOf("status::") + "status::".length;
+            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". disposition:" + val )
+            this.form.controls.disposition.setValue(val)
 
 
-      fInd = this.searchTypeString.indexOf("endDtTm::") + "endDtTm::".length;
-       fInd2 = this.searchTypeString.indexOf(" ", fInd)
-      val = this.searchTypeString.substring( fInd, fInd2)
-      console.log(fInd + ". endDate:" + val )
-      this.endDate = val
+            fInd = this.searchTypeString.indexOf("startDtTm::") + "startDtTm::".length;
+            let fInd2 = this.searchTypeString.indexOf(" ", fInd)
+            val = this.searchTypeString.substring( fInd, fInd2)
+            console.log(fInd + ". startDate:" + val )
+            this.startDate = val
 
-      fInd3 = this.searchTypeString.indexOf(";", fInd2)
-      val = this.searchTypeString.substring( fInd2+1, fInd3)
-      console.log(fInd + ". endTm:" + val )
-      this.endTm = val
-
-      fInd = this.searchTypeString.indexOf("count::") + "count::".length;
-      val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-      console.log(fInd + ". rowCnt:" + val )
-      this.form.controls.rowCnt.setValue(val)
+            let fInd3 = this.searchTypeString.indexOf(";", fInd2)
+            val = this.searchTypeString.substring( fInd2+1, fInd3)
+            console.log(fInd + ". startTm:" + val )
+            this.startTm = val
 
 
-        if (this.additionalsearchString !== '')
-        {
-          console.log('set search controls, ' + this.searchTransaction);
-          this.searchTransaction = true;
+            fInd = this.searchTypeString.indexOf("endDtTm::") + "endDtTm::".length;
+            fInd2 = this.searchTypeString.indexOf(" ", fInd)
+            val = this.searchTypeString.substring( fInd, fInd2)
+            console.log(fInd + ". endDate:" + val )
+            this.endDate = val
+
+            fInd3 = this.searchTypeString.indexOf(";", fInd2)
+            val = this.searchTypeString.substring( fInd2+1, fInd3)
+            console.log(fInd + ". endTm:" + val )
+            this.endTm = val
+
+            fInd = this.searchTypeString.indexOf("count::") + "count::".length;
+            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". rowCnt:" + val )
+            this.form.controls.rowCnt.setValue(val)
+
+
+            if (this.additionalsearchString !== '')
+            {
+              console.log('set search controls, ' + this.searchTransaction);
+              this.searchTransaction = true;
+            }
+            else{
+              this.clearSearch();
+            }
+          }
         }
-        else{
-        this.clearSearch();
-      }
-     }
-    }
-    else
-    {
-      console.info('no query params')
-    }
+        else
+        {
+          console.info('no query params')
+          this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+          let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+          let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+          this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+          let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+          tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+          this.startTm = tmVal
+          this.endTm= tmVal
+          console.info("Time: " + tmVal)
+          this.nowDt = new Date(new Date().getTime());
+          mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+          dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+          this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+        }
     });
 
 

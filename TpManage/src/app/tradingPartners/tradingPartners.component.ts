@@ -66,20 +66,23 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     {
       this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
         this.dataSource.data = res;
+
+        this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
+
+        this.dataSourceFilters.filterPredicate = function (record,filter) {
+          debugger;
+          var map = new Map(JSON.parse(filter));
+          let isMatch = false;
+          for(let [key,value] of map){
+            isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
+            if(!isMatch) return false;
+          }
+          return isMatch;
+        }
+
       });
 
-      this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
 
-      this.dataSourceFilters.filterPredicate = function (record,filter) {
-        debugger;
-        var map = new Map(JSON.parse(filter));
-        let isMatch = false;
-        for(let [key,value] of map){
-          isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
-          if(!isMatch) return false;
-        }
-        return isMatch;
-      }
     }
 
     ngAfterViewInit() {
