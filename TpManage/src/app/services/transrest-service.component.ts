@@ -23,7 +23,7 @@ import {ClaimPayment} from '../transaction/ClaimPayment'
 import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
 import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgement';
 import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
-import {WorkFlowEntry} from '../workflow/WorkFlowEntry';
+import {WorkFlowEntry, IrisUsers} from '../workflow/WorkFlowEntry';
 import { transition } from '@angular/animations';
 import { AuthenticationService } from './authentication.service';
 import {TpRestServiceComponent} from './tprest-service.component';
@@ -964,7 +964,7 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   console.log('URL: ' + url);
   return url;
 }
-m
+
 fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number, dtRange: string) {
   console.log('Fetch WF entries ' + "dateRange="+dtRange +", Search: " + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
 
@@ -997,6 +997,38 @@ fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt 
 
 }
 
+
+fetchIrisUsers() {
+  console.log('Fetch Users');
+
+  let url = this.batchTransUrl + "GetIrisUsers";
+
+  return this.http2
+    .get<{ [key: string]: IrisUsers }>(
+      url
+    ).pipe(map(responseData => {
+        console.info(responseData);
+
+        const UserArray: IrisUsers[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            UserArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return User array: ' + UserArray.length );
+        return UserArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchWorkFlowEntries catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
 
 fetchWorkFlowEntry(searchStr: string) {
   console.log('Fetch WF Entry with Auth for '+ this.currentUser );
@@ -1047,13 +1079,12 @@ updateWorkFlowItem(id: string, status: string, assignUser: string) {
 
     url += 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser+"&modUserNm="+ this.currentUser;
   }
+  console.log('Update WF Entry: ' + url)
 
   return this.http2
     .get<{ [key: string]: WorkFlowEntry }>(
       url
-    )
-
-    .pipe(
+    ).pipe(
       map(responseData => {
         console.info(responseData);
 
@@ -1063,7 +1094,7 @@ updateWorkFlowItem(id: string, status: string, assignUser: string) {
             WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
           }
         }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
+        console.info('return updated WF array: ' + WorkFlowEntriesArray.length );
         return WorkFlowEntriesArray;
 
 

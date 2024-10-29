@@ -7,7 +7,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
-import {WorkFlowEntry} from './WorkFlowEntry';
+import {WorkFlowEntry, IrisUsers} from './WorkFlowEntry';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 
@@ -72,6 +72,8 @@ export class WorkflowComponent implements OnInit {
   sub:any;
   updStatus: string = this.updStatusTypes[0];
 
+  irisUsers: IrisUsers[] = [];
+
   dataSource = new MatTableDataSource<WorkFlowEntry>();
   selection = new SelectionModel<WorkFlowEntry>(true, []);
   displayType = 1;
@@ -96,6 +98,7 @@ export class WorkflowComponent implements OnInit {
       assignee:['']
     });
     this.canRenderDetails = false;
+    this.irisUsers = [];
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -274,6 +277,7 @@ isAllSelected() {
   const numRows = this.dataSource.data.length;
   // console.log("isAllSelected: " + this.rowSelected +"===" + numRows)
   return this.rowSelected === numRows;
+  this.getUsers();
 }
 
 singleToggle(row)
@@ -288,12 +292,33 @@ singleToggle(row)
   else
   {
     this.selection.select(row);
+    this.getUsers();
   }
   this.rowSelected = this.selection.selected.length;
   // this.dataSource.data.forEach(row => this.selection.select(row));
   console.log('Row count:' + this.selection.selected.length)
 
 }
+
+getUsers()
+{
+  if ( this.irisUsers.length <= 0)
+  {
+    this.WfService.fetchIrisUsers().subscribe((res: any) => {
+      this.irisUsers = res;
+
+      console.info("Users array: " + this.irisUsers.length  );
+
+
+    });
+  }
+}
+
+updUserChange(event: any)
+{
+
+}
+
 /** Selects all rows if they are not all selected; otherwise clear selection. */
 masterToggle() {
   if(this.isAllSelected())
@@ -309,11 +334,26 @@ masterToggle() {
 
 updateWF()
  {
-  console.info("Update WorkFlow: " + this.selection.selected.length + " to " + this.updStatus);
-   if(this.updStatus !== '')
+  let assignUsr = this.form.controls.assignee.value
+  let assignee = '';
+
+
+   for (let usr of this.irisUsers){
+
+    if (usr.FullName === assignUsr)
+    {
+      assignee = usr.UserName;
+      break;
+    }
+
+  };
+  console.info("Update WorkFlow: " + this.selection.selected.length + " to " + this.updStatus +", user: " + assignUsr + ", " + assignee);
+
+  if(this.updStatus !== '')
    {
       console.info("Update WorkFlowItem to " + this.updStatus)
-      let assignUsr = this.form.controls.assignee.value
+
+
       if (this.updStatus === 'Assigned' && assignUsr === '')
         {
           alert("Assignee is required")
@@ -323,41 +363,49 @@ updateWF()
           this.selection.selected.forEach(row => {
               console.info("ID: " + row.id +"-> " + this.updStatus)
 
-              this.WfService.updateWorkFlowItem(row.id, this.updStatus, (this.updStatus === 'Assigned')? assignUsr : '').subscribe((res: any) => {
-                this.dataSource.data = res;
+              this.WfService.updateWorkFlowItem(row.id, this.updStatus, (this.updStatus === 'Assigned')? assignee : '').subscribe((res:any) => {
+                console.info("updateWorkFlowItem complete")
+                this.selection.clear();
+                this.rowSelected  = 0;
+                this.onSubmit();
                 this.canRenderDetails = true;
+
 
               });
 
             });
 
-          this.selection.clear();
-          this.rowSelected  = 0;
-          this.onSubmit();
+
         }
    }
 
+
   }
 
-  assignWF()
+ assignWF()
  {
   console.info("Assign WorkFlow: " + this.selection.selected.length );
 
       this.selection.selected.forEach(row => {
           console.info("ID: " + row.id +"-> 'Assigned'")
 
-
           this.WfService.updateWorkFlowItem(row.id, 'Assigned', '').subscribe((res: any) => {
             this.dataSource.data = res;
-            this.canRenderDetails = true;
-
+            error: err => console.error("Error in updateWorkFlowItem: " + err)
+            complete: () =>
+              {
+                console.info("updateWorkFlowItem complete")
+                this.selection.clear();
+                this.rowSelected  = 0;
+                this.onSubmit();
+                this.canRenderDetails = true;
+              }
           });
+
 
         });
 
-      this.selection.clear();
-      this.rowSelected  = 0;
-      this.onSubmit();
+
 
 
   }

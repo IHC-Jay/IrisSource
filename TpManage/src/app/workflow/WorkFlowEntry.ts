@@ -12,6 +12,13 @@ export interface WorkFlowEntry {
   x12Data: string;
 }
 
+export interface IrisUsers {
+id: string;
+UserName: string;
+FullName: string;
+GrantedRoles: string;
+}
+
 
 
 
