@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Operation.RadiantLogicProviderServiceVerityClient">
+<Description>
+Pull Radiant Logic updated records by calling the service</Description>
+<Super>Ens.BusinessOperation</Super>
+<System>4</System>
+<TimeCreated>65192,33471.074536</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.HTTP.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="usrNm">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="pswrd">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="credential">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="150"/>
+</Property>
+
+<Property name="URL">
+<Type>%String</Type>
+<Required>1</Required>
+<Parameter name="MAXLEN" value="1000"/>
+</Property>
+
+<Method name="processHttpsGetRequest">
+<FormalSpec>pRequest:Ens.StringContainer,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method processHttpsGetRequest")
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	Set pid =pRequest.StringValue
+	$$$TRACE("Provider ID: "_pid)
+
+	set param="filter=providerID%20eq%20"_$CHAR(34)_pid_$CHAR(34)
+	Set httprequest.ContentType="application/json"
+	set url = ..Adapter.URL_"?"_param
+	Set httprequest.Location = url
+	Set httprequest.Authorization="Basic "_..credential
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	$$$TRACE("SSL Config: "_httprequest.SSLConfiguration)
+    
+	set tSC = httprequest.Get(url)
+
+	if $$$ISERR(tSC) {
+         do $system.OBJ.DisplayError()
+         Quit tSC
+    } else {
+	    #dim tHttpResponse As %Net.HttpResponse
+        set tHttpResponse=httprequest.HttpResponse 
+        Quit ..constructResponse(tHttpResponse, .pResponse) 
+    }            
+  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="processHttpsPostRequest">
+<Description>
+Sends back a new unit number to  Radiant Logic by calling the service PATCH api</Description>
+<FormalSpec>pRequest:Ens.StringRequest,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method processHttpsPostRequest")
+	
+	Set httprequest=##class(%Net.HttpRequest).%New()
+	set pid=$piece(pRequest.StringValue,"|",1)
+	set data=$piece(pRequest.StringValue,"|",2)
+	$$$TRACE("Json String: "_data)
+	//set param="/"_$Replace(recId," ","%20")
+	Set httprequest.ContentType="application/json"
+	set httprequest.AcceptGzip="gzip, deflate, br"
+	set httprequest.AuthenticationErrors="SELF_SIGNED_CERT_IN_CHAIN"
+	//set url = ..Adapter.URL_param
+	if pid'="0" {
+		set url = ..Adapter.URL_"/providerid="_pid_",o=verityEnterprise,o=sources"
+	}
+	else {
+		set url = ..Adapter.URL
+	}
+	$$$TRACE("URL: "_url)
+	Set httprequest.Location = url
+    Set dataStream=##class(%Stream.GlobalCharacter).%New()
+    Do dataStream.Write(data)
+    Do dataStream.Rewind()
+    Do httprequest.EntityBody.Write()
+	do httprequest.EntityBody.CopyFrom(dataStream)
+	set cl = httprequest.ContentLengthGet()
+	$$$TRACE("Content length: "_cl)
+	Set httprequest.Authorization="Basic "_..credential
+	$$$TRACE("Location: "_httprequest.Location)
+	Set httprequest.SSLConfiguration = ..Adapter.SSLConfig
+	#dim tHttpResponse As %Net.HttpResponse
+    if pid="0" {
+	   set tSC = httprequest.Post(url)
+    }
+    else {
+	   set tSC = httprequest.Patch(url)
+    }
+	if $$$ISERR(tSC) {
+         do $system.OBJ.DisplayError()
+         Quit tSC
+    } else {
+        set tHttpResponse=httprequest.HttpResponse 
+        Quit ..constructResponse(tHttpResponse, .pResponse) 
+    }            
+  quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="constructResponse">
+<Internal>1</Internal>
+<FormalSpec>pHttpResponse:%Net.HttpResponse,pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  Set tSC=$$$OK
+       	$$$TRACE("StatusLine: "_pHttpResponse.StatusLine) 
+       	set statusLine = pHttpResponse.StatusLine 
+       	set statusCode = ""
+       	set statusDesc = ""
+       	if (statusLine'=""){
+			set statusCode=$piece(statusLine," ",2)
+			set statusDesc=$piece(statusLine," ",3)			
+      	}      
+      	$$$TRACE("StatusCode: "_statusCode)  	     
+      	$$$TRACE("StatusDesc: "_statusDesc)  
+           Set tbStream=##class(%GlobalBinaryStream).%New()
+           Set tStatus = tbStream.CopyFrom(pHttpResponse.Data)
+           $$$TRACE("tcharStream size:"_tbStream.Size)
+           set text=""
+           While 'tbStream.AtEnd {
+             Set text = text_tbStream.Read($$$MaxStringLength)
+           } 	
+           $$$TRACE("Response:"_text_":"_pHttpResponse.ReasonPhrase)    
+    	  if ((statusCode'="200") && (statusCode'="201")){
+			    $$$TRACE("Service call failed .... ")
+          		set tSC=$$$ERROR( "The service call failed with code: "_statusCode_"  response: "_text) 
+          } else {
+            $$$TRACE("Radiant Logic Service call success!")
+	        Set pResponse=##class(Ens.StringContainer).%New()
+	        set pResponse.StringValue=text
+          }
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+    set ..usrNm = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Username")
+    set ..pswrd = ##class(Ens.Config.Credentials).GetValue(..Adapter.Credentials, "Password")
+    set ..credential=$SYSTEM.Encryption.Base64Encode(..usrNm_":"_..pswrd)
+
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.StringContainer">
+	<Method>processHttpsGetRequest</Method>
+	</MapItem>
+	<MapItem MessageType="Ens.StringRequest">
+	<Method>processHttpsPostRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
