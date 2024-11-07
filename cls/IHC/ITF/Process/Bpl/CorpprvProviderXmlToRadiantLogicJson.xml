@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.CorpprvProviderXmlToRadiantLogicJson">
+<Description>
+Usiis Immunization to iCentra</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63770,48624.416482</TimeCreated>
+
+<Property name="RadiantSrvcTargetConfigName">
+<Description>
+Radiant Logic service call Operation: The target name used for the Radiant Logic Service calls</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="50"/>
+</Property>
+
+<Property name="TargetConfigNameCorpprvOp">
+<Description>
+MSPR request dump operation (Make Sure this is blank in UAT and Prod)</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="FilterOutEmplmntStatusTypeIds">
+<Description>
+Filter out employment type status ids</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[RadiantSrvcTargetConfigName:Additional,TargetConfigNameCorpprvOp:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FilterOutEmplmntStatusTypeIds:Additional,-NextOperation,-TargetConfigMask]]></Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='EnsLib.HL7.Message' response='Ens.Response' height='4350' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='cntr' type='%Integer' instantiate='0' />
+<property name='retryInterval' type='%Integer' initialexpression='30' instantiate='0' />
+<property name='rsOpNm' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='zip' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='smsg' type='EnsLib.HL7.Message' instantiate='0' />
+<property name='targetIndx' type='%Integer' instantiate='0' />
+<property name='jsnStr' type='Ens.StringResponse' initialexpression='""' instantiate='0' />
+<property name='prvdrId' type='Ens.StringContainer' initialexpression='""' instantiate='1' />
+<property name='existingPrvdr' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='pid' type='%String' initialexpression='""' instantiate='0' />
+
+</context>
+<sequence xend='200' yend='1450' >
+<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Deploy code' xpos='200' ypos='450' >
+<annotation><![CDATA[check deploy code - look for reply action code settings]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RetryInterval",.retryInt)
+ $$$TRACE("Retry interval: "_retryInt)
+ if ( ('$$$ISERR(pstatus)) || (retryInt '= "")) {
+	 set retryInterval=retryInt
+ }
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilterOutEmplmntStatusTypeIds",.configValue)
+ set filteroutEmplStsTpIds=configValue
+ set context.rsOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RadiantSrvcTargetConfigName",.pstatus)
+ $$$TRACE("RadiantLogic Operation: "_context.rsOpNm)
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='check NPI' xpos='200' ypos='650' >
+<![CDATA[ if ((request.PROVIDERDEMOGRAPHIC.ADVPROVIDERNTNLPRVDRID.content '= "") && ($L(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERNTNLPRVDRID.content)'=10)) {
+   Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"NPI length is not valid, Skip the record.")
+ }]]]]><![CDATA[>
+</code>
+<code name='check employment status type id' xpos='200' ypos='750' >
+<![CDATA[ set context.pid=$zstrip(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content,"<>W")
+ $$$TRACE("Provider ID: " _ context.pid) 
+ if (context.pid'="" && ($ISVALIDNUM(context.pid)'="1")){	  
+    $$$TRACE("Provider ID # is NOT a VALID number ")
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Corpprv message has invalid provider id number: ["_context.pid_"]. Skip the record.")
+ }
+ 
+ set stringObj=##class(Ens.StringRequest).%New()
+ set stringObj.StringValue=context.pid
+ 
+ $$$TRACE("Calling corpprv Database Operation")
+ set tStatus=process.SendRequestSync(process.TargetConfigNameCorpprvOp,stringObj,.SqlResponse)
+ if ($$$ISOK(tStatus)){ 
+   set emplmntStTypeId=SqlResponse.StringValue
+   $$$TRACE("Employment Status Type Id:"_emplmntStTypeId)
+   if (##class(Ens.Util.FunctionSet).Contains(filteroutEmplStsTpIds,$CHAR(34)_emplmntStTypeId_$CHAR(34))) {
+     Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Record's employment status type id: "_emplmntStTypeId_" is in the filterout list, SKIP the record. ")
+   }
+ }
+ else {
+    Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling employment status type id query operation failed, shutdown the component. Error: "_$SYSTEM.Status.GetOneErrorText(tStatus))
+
+ }
+
+ ]]]]><![CDATA[>
+</code>
+<code name='check if the provider is already in Radiant' xpos='200' ypos='750' >
+<![CDATA[ $$$TRACE("Call RadiantLogic REST Operation")
+  set context.prvdrId.StringValue=context.pid
+  set status=process.SendRequestSync(context.rsOpNm,context.prvdrId,.restResponse)
+  if ($$$ISOK(status)){
+     $$$TRACE("REST service response data: "_restResponse.StringValue)
+  }
+  else {
+     $$$TRACE("Radiant service call failed. "_restResponse)
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
+  }
+   set jsonObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+ If ($$$IsdefObject(jsonObj)) {
+   $$$TRACE("Parsing Json String is done.")
+   if jsonObj.totalResults=1 {
+	   set context.existingPrvdr=1
+   }
+   
+ }
+  ]]]]><![CDATA[>
+</code>
+
+<transform name='COrpprv xml to RadiantLogic Json string' class='IHC.ITF.Transform.Dtl.CorpprvXmlToRadiantLogicJsonString' source='request' target='context.jsnStr' xpos='200' ypos='550' />
+<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='650' xend='200' yend='1100' >
+<true>
+<code name='Call RadiantLogic service' xpos='470' ypos='800' >
+<![CDATA[  $$$TRACE("Call RadiantLogic REST Operation")
+  $$$TRACE("Json String: "_context.jsnStr.StringValue)
+  if context.existingPrvdr=1 {
+    set context.jsnStr.StringValue=context.pid_"|"_context.jsnStr.StringValue
+  }
+  else {
+	set context.jsnStr.StringValue="0|"_context.jsnStr.StringValue
+  }
+  set status=process.SendRequestSync(context.rsOpNm,context.jsnStr,.restResponse)
+  if ($$$ISOK(status)){
+     $$$TRACE("REST service response data: "_restResponse)
+  }
+  else {
+     $$$TRACE("Radiant service call failed. "_restResponse)
+     Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
+  }]]]]><![CDATA[>
+</code>
+<code name='GetTargetConfigList' xpos='470' ypos='900' >
+<![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())
+   $$$TRACE("Send HL7 msg to the target")]]]]><![CDATA[>
+</code>
+<code name='RESET ERROR' xpos='470' ypos='1000' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='No message to send' value='"There is no Usiis Immunization record to send to iCentra."' xpos='200' ypos='800' />
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>CorpprvProviderXmlToRadiantLogicJsonDefaultData</DefaultData>
+<Data name="CorpprvProviderXmlToRadiantLogicJsonDefaultData">
+<Subscript>"CorpprvProviderXmlToRadiantLogicJson"</Subscript>
+<Value name="1">
+<Value>RadiantSrvcTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>FilterOutEmplmntStatusTypeIds</Value>
+</Value>
+<Value name="3">
+<Value>TargetConfigNameCorpprvOp</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
