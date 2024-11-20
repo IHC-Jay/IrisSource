@@ -3,7 +3,7 @@
 <Class name="IHC.ITF.TPManage.impl">
 <Description><![CDATA[
 Business logic class defined by OpenAPI in IHC.ITF.TPManage.spec<br/>
-Updated May 23, 2024 14:58:10]]></Description>
+Updated Nov 20, 2024 10:25:35]]></Description>
 <IncludeCode>Ensemble</IncludeCode>
 <ProcedureBlock>1</ProcedureBlock>
 <Super>%REST.Impl</Super>
@@ -1364,6 +1364,137 @@ This request creates links</Description>
 	set ^webService("BulkTpLinks  ") = "Complete"	
 	Set %response.Status = 200
 	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="CopyTpLinksFromTp">
+<Description>
+This request creates links from existing TP</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    
+    Set result={}
+	Try {
+		Set obj = ##class(%DynamicObject).%FromJSON(%request.Content)
+	} Catch ex {
+		set ^webService("CopyTpLinksFromTp ") = "Error from JSON"
+		Set error = {"errormessage": ( "Error from JSON")}
+		do result.%Set("Status","Error")
+		return error
+	}
+	set ^webService("CopyTpLinksFromTp Params: ") = obj.Name _ ", " _obj.TpId _ ", " _ obj.tpName
+	set sc = ..CreateNewTP(obj.User, obj.Name, obj.TpId, obj.tpName, .res)
+	set ^webService("CopyTpLinksFromTp CreateNewTP") = res _", " _ sc
+	
+	Set %response.Status = 200
+	do result.%Set("Operation","CopyTpLinksFromTp from: " _ obj.tpName)
+	do result.%Set("Details", obj.Name _ " TPLinks from " _ obj.tpName _": " _ res)
+	do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))	
+	
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="CreateNewTP">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>usr:%String,newTpName:%String,newTpID:%String,copyFromTpNm:%String,*res:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	 
+ set copyFromTpNmLike = copyFromTpNm _ "%"
+ 
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ 
+ &SQL(SELECT ID, TPID into copyTpIdId, copyTPID from IHC_TPManage.TPIDS where Name like :copyFromTpNmLike)
+ set ^webService("CopyTpLinksFromTp  TPIDS") = copyFromTpNm _", " _ copyTPID _ ". ID: " _ copyTpIdId
+ if (copyTpIdId = "")
+ {
+	 set res = "TPID not found for " _ copyFromTpNm
+	 RETURN $$$ERROR($$$GeneralError, res)
+ }
+ 
+ &SQL(INSERT INTO IHC_TPManage.TradingPartner
+(ContactEmail, ContactName, ContactPhone, CreateID, CreatedDtTM, LastmodDtTM, LastmodID, Name, Type)
+values
+('NewEmail', 'TBD', 'NewPh', :usr, :dtTm, :dtTm, :usr, :newTpName, 'Provider'))
+ 
+ if (SQLCODE '= 0)
+ {
+	 if (SQLCODE = -119)
+ 	 {
+	 	set res = "TradingPartner " _ newTpName _ " already exists"
+	 	RETURN $$$ERROR($$$GeneralError, res)
+ 	 }
+	 set res = "New TradingPartner " _ newTpName _ " not created: " _ SQLCODE
+	 RETURN $$$ERROR($$$GeneralError, res)
+ }
+ 
+ 
+ &SQL(SELECT ID into nmId from IHC_TPManage.TradingPartner where Name =:newTpName)
+ if (nmId = "")
+ {
+	 set res = "ID not found for " _ newTpName
+	 RETURN $$$ERROR($$$GeneralError, res)
+ }
+ set res = newTpName _ " created in TradingPartner, ID: " _ nmId
+ 
+ set tpidNm = newTpName _" " _ "TPID"
+ &SQL(INSERT INTO IHC_TPManage.TPIDS
+ (TPFK, CreateID, CreatedDtTM, LastmodID, LastmodDtTM,  Name, TPID, Type)
+ values
+ (:nmId,:usr, :dtTm, :usr, :dtTm, :tpidNm, :newTpID,'BOTH'))
+ 
+  if (SQLCODE '= 0)
+ {
+	 if (SQLCODE = -119)
+ 	 {
+	 	set res = "TPID " _ TPID _ " already exists"
+	 	RETURN $$$ERROR($$$GeneralError, res)
+ 	 }
+	 set res = "New TPID " _ newTpID _ " not created: " _ SQLCODE
+	 RETURN $$$ERROR($$$GeneralError, res)
+ }
+ 
+  &SQL(SELECT ID into tpIdId from IHC_TPManage.TPIDS where TPID =:newTpID)
+ if (tpIdId = "")
+ {
+	 WRITE !, "ID not found for " _ newTpID
+	 RETURN $$$ERROR($$$GeneralError, res)
+ }
+ set res = res _ ", " _ newTpID _ " created in TPIDS, ID: " _ tpIdId
+ set undTpNm = $REPLACE(copyFromTpNm, " ", "_")
+ 
+ set undNewTpNm = $REPLACE(newTpName, " ", "_")
+ 
+ set ^webService("CopyTpLinksFromTp links") = undNewTpNm _ ": Create links from: " _ undTpNm_", for TPID: " _ newTpID
+ 
+ &SQL(
+ INSERT INTO IHC_TPManage.TRADELINKS
+(Active, ControlNumber, CreateID, CreatedDtTM, Direction, GSAck, GsReceiverId, GsSenderId, ISAAck, IsaReceiverId, IsaSenderId, LastmodDtTM, LastmodID, Mode, NAME, Notes, Routing, SNIP, STAck, Separators, TRANSTYPE, UniqueId, customProp)
+SELECT DISTINCT
+Active, ControlNumber, :usr, :dtTm, Direction, GSAck, :tpIdId, GsSenderId, ISAAck, :tpIdId, IsaSenderId, :dtTm, :usr, 
+Mode,  REPLACE(REPLACE(NAME,:copyTPID,:newTpID),:undTpNm,:undNewTpNm),  REPLACE(REPLACE(Notes,:copyTPID,:newTpID),:undTpNm,:undNewTpNm), Routing, SNIP, STAck, Separators, TRANSTYPE, UniqueId, customProp
+FROM IHC_TPManage.TRADELINKS
+where GsReceiverId = :copyTpIdId OR IsaReceiverId = :copyTpIdId
+ )
+ set res = res _ ", Receiver TRADELINKS copy from " _ undTpNm _ ", SQLCODE: " _ $s((SQLCODE = 0):"OK",1:SQLCODE)
+ 
+  &SQL(
+ INSERT INTO IHC_TPManage.TRADELINKS
+(Active, ControlNumber, CreateID, CreatedDtTM, Direction, GSAck, GsReceiverId, GsSenderId, ISAAck, IsaReceiverId, IsaSenderId, LastmodDtTM, LastmodID, Mode, NAME, Notes, Routing, SNIP, STAck, Separators, TRANSTYPE, UniqueId, customProp)
+SELECT DISTINCT
+Active, ControlNumber, :usr, :dtTm, Direction, GSAck, GsReceiverId, :tpIdId,  ISAAck, IsaReceiverId, :tpIdId, :dtTm, :usr, 
+Mode,  REPLACE(REPLACE(NAME,:copyTPID,:newTpID),:undTpNm,:undNewTpNm),  REPLACE(REPLACE(Notes,:copyTPID,:newTpID),:undTpNm,:undNewTpNm), Routing, SNIP, STAck, Separators, TRANSTYPE, UniqueId, customProp
+FROM IHC_TPManage.TRADELINKS
+where GsSenderId = :copyTpIdId OR IsaSenderId = :copyTpIdId
+ )
+ set res = res _ ", Sender TRADELINKS copy from " _ undTpNm _ ", SQLCODE: " _ $s((SQLCODE = 0):"OK",1:SQLCODE)
+ 
+ &SQL(SELECt count(*) into lnkCnt from IHC_TPManage.TRADELINKS where GsSenderId = :tpIdId OR IsaSenderId = :tpIdId OR GsReceiverId = :tpIdId OR IsaReceiverId = :tpIdId)
+ 
+ set res = res _ ", # of TP Links for " _ newTpID _"(" _ tpIdId _ "): " _ lnkCnt
+ return $$$OK
 ]]></Implementation>
 </Method>
 
