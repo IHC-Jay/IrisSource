@@ -52,39 +52,58 @@ BPL Definition</Description>
 <annotation><![CDATA[Log incoming message]]]]><![CDATA[></annotation>
 </trace>
 <code name='check if message has continued pointer' xpos='200' ypos='550' >
-<![CDATA[    Set doTrans=0
+<![CDATA[ Set doTrans=0
     set ContdPointer = request.GetValueAt("MSH:ContinuationPointer")
-    $$$TRACE("ContdPointer: " _ ContdPointer)
+    set DSCContdPointer = request.GetValueAt("DSC:ContinuationPointer")
+    $$$TRACE("MSH CNPT: "_ContdPointer)
+    $$$TRACE("DSC CNPT: "_DSCContdPointer)
     if (ContdPointer'="") {
-      if (ContdPointer=^SavedContdPointer) {
-         set cMsg = request.RawContent
-         set newMsg = $P(^SavedPPMessage,"DSC|",1)_$P(cMsg,ContdPointer_$Char(13),2)         
-         set ^SavedPPMessage=""
-	 set ^SavedContdPointer=""
-         $$$TRACE("NEW MSG: "_newMsg)
-         set context.MsgRequest=##class(EnsLib.HL7.Message).ImportFromString(newMsg)
-         set context.MsgRequest.DocType="PowerpathPath:ORU_R01"
+       set tStream=##class(%Stream.TmpCharacter).%New()
+       set id =^EllkayPPMsgs
+       Set key = $Order(^EllkayPPMsgs(id,""))
+       While (key '= "") {
+          $$$TRACE("Id:"_id_". Key:"_key_". Value: "_^EllkayPPMsgs(id,key))
+          do tStream.Write(^EllkayPPMsgs(id,key))
+          Set key = $Order(^EllkayPPMsgs(id,key))
+       }
+       do tStream.Rewind()
+       set context.MsgRequest=##class(EnsLib.HL7.Message).ImportFromLibraryStream(tStream)
+       set context.MsgRequest.DocType="PowerpathPath:ORU_R01"
+       set outObxCnt = (context.MsgRequest.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(*)")+1)
+       For i = 1:1:request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp(*)") {	 
+          set obx=request.GetValueAt("PIDgrpgrp(1).ORCgrp(1).OBXgrp("_i_").OBX")
+          $$$TRACE("OBX outbound index: "_outObxCnt_". OBX:"_obx)
+          do context.MsgRequest.SetValueAt(obx, "PIDgrpgrp(1).ORCgrp(1).OBXgrp("_outObxCnt_").OBX")
+          set outObxCnt = (outObxCnt+1)
+      }
+      set message =##class(%Stream.GlobalCharacter).%New()
+      set ^EllkayPPMsgs =""
+      set message.%Location= "^EllkayPPMsgs"
+      set tSC=context.MsgRequest.OutputToLibraryStream(.message)
+      do message.%Save()
+      if (DSCContdPointer="") {
+         $$$TRACE("FINAL MSG Seg Count: "_context.MsgRequest.SegCountGet())
+         $$$TRACE("FINAL MSG: "_context.MsgRequest.RawContentGet())
          set doTrans=1
+         set ^EllkaySavedContdPointer=""
+         set ^EllkayPPMsgs =""
       }
-      else {
-         set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Message Continuation Pointer: "_ContdPointer_" does not match the saved Continuation Pointer: "_^SavedContdPointer_". Please check the messages in the queue.")   
-      }
-    }
-    else {
-       set DSCContdPointer = request.GetValueAt("DSC:ContinuationPointer")
-       $$$TRACE("DSCContdPointer: " _ DSCContdPointer)
+    }else {
        if (DSCContdPointer'="") {
-           set ^SavedContdPointer=DSCContdPointer
-           set ^SavedPPMessage=request.RawContent
+           set message =##class(%Stream.GlobalCharacter).%New()
+           set ^EllkayPPMsgs =""
+           set message.%Location= "^EllkayPPMsgs"
+           set tSC=request.OutputToLibraryStream(.message)
+           do message.%Save()
+           set ^EllkaySavedContdPointer=DSCContdPointer
            Set doTrans=0
        }
        else {
           set context.MsgRequest=request
           Set doTrans=1
        }
-    }
-    //Set doTrans=0
-    ]]]]><![CDATA[>
+ 
+    }]]]]><![CDATA[>
 </code>
 <if name='Do transformation' condition='doTrans=1' xpos='200' ypos='650' xend='200' yend='1800' >
 <true>
