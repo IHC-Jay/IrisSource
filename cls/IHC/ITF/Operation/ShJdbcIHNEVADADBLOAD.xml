@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Operation.ShJdbcIHNEVADADBLOAD">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>64511,26780.66673</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Property name="Adapter">
+<Type>EnsLib.SQL.OutboundAdapter</Type>
+</Property>
+
+<Parameter name="INVOCATION">
+<Default>Queue</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>req:IHC.ITF.DStruct.ListOfValueAndType,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Route the request for: " _ req.storedProcName)
+	#dim tSC As %Status=$$$OK
+	if (req.storedProcName = "ClaimInstTransaction")
+	{
+		set tSC = ..CallSHDBstoredProc("dbo.SHSP_IB_CLAIM_INST_TRANSACTION", req,  .pResponse, 3)
+		$$$TRACE(pResponse.StringValue)
+	}
+	elseif (req.storedProcName = "ClaimInstHeader")
+	{
+		set tSC = ..CallSHDBstoredProc("dbo.SHSP_IB_CLAIM_INST_HEADER", req,  .pResponse, 2)
+		$$$TRACE(pResponse.StringValue)
+	}
+	elseif (req.storedProcName = "ClaimInstProvider")
+	{
+		set tSC = ..CallSHDBstoredProc("dbo.SHSP_IB_CLAIM_INST_PROVIDER", req,  .pResponse, 2)
+		$$$TRACE(pResponse.StringValue)
+	}
+	else
+	{
+		$$$LOGERROR("Invalid Request Type")
+		set tSC = $$$ERROR(5001,"Invalid Request: " _ req.storedProcName)
+	}
+	return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ItfSendEmailOnError">
+<FormalSpec>sub:%String,txt:%String</FormalSpec>
+<Implementation><![CDATA[
+ set alert= ##class(IHC.ITF.ITFCOMMON.Utility).CreateSendEmailOnError(sub, txt,..%ConfigName)
+ Set status= ..SendAlert(alert)
+]]></Implementation>
+</Method>
+
+<Method name="CallSHDBstoredProc">
+<FormalSpec>procName:%String,req:IHC.ITF.DStruct.ListOfValueAndType,*pResponse:Ens.StringContainer,NumOut:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Inside Operation CallSHDBstoredProc")
+
+	#dim tSC As %Status=$$$OK
+	#dim tRTs As %ListOfObjects
+	#dim tResultSet,snap As EnsLib.SQL.Snapshot
+	set numParamsStr = ""
+	set pOI = ""
+
+	$$$TRACE("Inside "_..%ConfigName_" Call: " _ procName)
+	try{
+		set ioParms=req.value.Count()+ NumOut // NumOut - output params
+		
+			
+		FOR ind=1:1:req.value.Count()
+		{
+			set ioParms(ind)= $ZStrip(req.value.GetAt(ind),"<>W") 
+			set ioParms(ind,"SqlType")=req.type.GetAt(ind)
+			$$$TRACE("Param-" _ (ind) _": " _ ioParms(ind) _", " _ ioParms(ind,"SqlType"))
+			if (ind = 1)
+			{
+				set numParamsStr = "?"
+			}
+			else
+			{
+				set numParamsStr = numParamsStr _",?"
+			}
+			set pOI = pOI _ "i"
+		}
+		
+		set ioParms(req.value.Count() + 1,"SqlType")=4 // p_error_code
+		set ioParms(req.value.Count() + 2,"SqlType")=12 // p_error_description
+		if (NumOut = 3)
+		{
+			set ioParms(req.value.Count() + 2,"SqlType")=12 // GUID
+		}
+		FOR i=1:1:NumOut
+		{
+			set numParamsStr = numParamsStr _",?"
+			set pOI = pOI _ "o"
+		}
+		set pOI = pOI _ "#"
+		
+    	Set tQuery="{call " _ procName _"(" _ numParamsStr  _ ")}"
+    	
+ 		Set snap=##class(EnsLib.SQL.Snapshot).%New()
+		Set snap.MaxRowsToGet=-1
+		Set tRTs=##class(%Library.ListOfObjects).%New()
+		Do tRTs.Insert(snap)
+		
+		Set tSC = ..Adapter.ExecuteProcedureParmArray(.tRTs,.tOutParms,tQuery,pOI,.ioParms)
+  		$$$TRACE("Status from Stored Procedure " _ procName _ ": "_tSC) 
+  		if $$$ISOK(tSC)
+  		{
+	  		If $ISOBJECT(tOutParms) 
+	  		{
+		  		$$$TRACE("outparm cnt  :"_tOutParms.Count()_" || Returned Code: "_tOutParms.GetAt(1)_" || Desc:  "_tOutParms.GetAt(2)) 
+
+	  			Set PErrorcode = tOutParms.GetAt(1)
+	  			Set PErrorDescription = tOutParms.GetAt(2)
+	  			set pResponse=##class(Ens.StringContainer).%New()
+
+		  		// $$$TRACE("Errorcode : "_PErrorcode)
+		  		// $$$TRACE("Description : "_PErrorDescription)
+		  		Set pResponse.StringValue=PErrorcode_"|"_PErrorDescription
+		  		if (NumOut = 3)
+				{
+					$$$TRACE("p_file_trans_id: " _ tOutParms.GetAt(3))
+						set pResponse.StringValue=pResponse.StringValue _"|"_ tOutParms.GetAt(3) // GUID
+				}
+		    	Do pResponse.%Save()
+		    	set tSC = $$$OK
+		    	if (PErrorcode > 0)
+		    	{
+			    	set tSC = $$$ERROR("Error while getting the response from SP call, " _ PErrorcode_"|"_PErrorDescription)
+		    	}
+			}
+			else
+			{
+				set tSC = $$$ERROR("Error while getting the response from SP call, " _ tSC)
+			}
+		}
+		else
+		{
+			Set tSC =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(..%ConfigName,"External System is down or error in calling the SP")
+		}
+ 	}
+ 	Catch eException{
+	 	set errTxt = $System.Status.GetErrorText(%objlasterror)
+		$$$LOGERROR("Exception in insert data to  Oracle tables: " _errTxt)
+		set tSC = $$$ERROR("Unable to connect with DB, " _ eException) 
+	}
+	  	
+ 	quit tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="IHC.ITF.DStruct.ListOfValueAndType">
+	<Method>OnMessage</Method>
+	</MapItem>
+</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
