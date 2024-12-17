@@ -1,0 +1,708 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.CernResultsDelimToEpicDelimFileSeparator">
+<Description>
+</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>67180,52289.278313636</TimeCreated>
+
+<Property name="FilePathToStore">
+<Description>
+FilePathToStore  Used as the setting for the path for where to store temp file names while processing the inbound conversion files. The files are split into separate patient 
+  files so they are of a size usable by the conversion pathway.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="5000"/>
+</Property>
+
+<Property name="NewFilePath">
+<Description>
+NewFilePath Used as the setting for where to copy the files to when done processing.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="5000"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>-NextOperation,-TargetConfigMask,-TargetConfigNames,FilePathToStore:Additional,NewFilePath:Additional</Default>
+</Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>CernResultsDelimToEpicDelimFileSeparatorDefaultData</DefaultData>
+<Data name="CernResultsDelimToEpicDelimFileSeparatorDefaultData">
+<Subscript>"CernResultsDelimToEpicDelimFileSeparator"</Subscript>
+<Value name="1">
+<Value>FilePathToStore</Value>
+</Value>
+<Value name="2">
+<Value>NewFilePath</Value>
+</Value>
+</Data>
+</Storage>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2000' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='FilePath' type='%String' instantiate='0' />
+<property name='NewFilePath' type='%String' instantiate='0' />
+<property name='CopyFilesFirst' type='%Boolean' initialexpression='0' instantiate='0' />
+</context>
+<sequence xend='200' yend='1350' >
+<scope xpos='200' ypos='250' xend='200' yend='1250' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions and get filename property' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 
+ set pstatus2=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FilePathToStore",.configValue2)
+ if ( ($$$ISERR(pstatus2)) || (configValue2 = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No FilePathToStore found")
+ }else{
+	set context.FilePath=configValue2
+ }
+ 
+ set pstatus3=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"NewFilePath",.configValue3)
+ if ( ($$$ISERR(pstatus3)) || (configValue3 = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No NewFilePath found")
+ }else{
+	set context.NewFilePath=configValue3
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='200' ypos='550' />
+<code name='Check if same file as last record' xpos='200' ypos='650' >
+<![CDATA[ set originatingFile = request.%Source
+ set messageId = $GET($$$JobCurrentHeaderId)
+ //Check if global exists.
+ if ($DATA(^CurrentConversionFile) = 1)  {
+    // Variable exists, proceed with operations
+ } else {
+    set ^CurrentConversionFile=""
+ }
+ $$$TRACE("Original file: "_originatingFile_". Message ID: "_messageId)
+ /**if ((originatingFile = ^CurrentConversionFile) || (^CurrentConversionFile ="")) {
+    set continueFileProcessing =1
+ }else {
+    set continueFileProcessing =0
+ }
+ **/
+ set nextMsgId = (messageId+1)
+ Try{
+ set nextRecord = ##class(Ens.MessageHeader).%OpenId(nextMsgId)
+ $$$TRACE("Next record: "_nextRecord.MessageId())
+ }catch(err) {
+    $$$TRACE("No record")
+    set continueFileProcessing =0	 
+ }
+ if ((nextRecord '="") && (nextRecord.MessageBodyId '="")) {
+    set continueFileProcessing =1
+ }else{
+    set continueFileProcessing =0	 
+ }
+ if (originatingFile '= ^CurrentConversionFile) {
+    set context.CopyFilesFirst =1
+    set continueFileProcessing =0
+ }
+ set ^CurrentConversionFile = originatingFile]]]]><![CDATA[>
+</code>
+<if name='continue file processing?' condition='continueFileProcessing =1' xpos='200' ypos='750' xend='200' yend='1000' >
+<true>
+<code name='Split into separate files' xpos='470' ypos='900' >
+<![CDATA[ //Get patient name
+ set filename=request.PatientFirstName_request.PatientMiddleName_request.PatientLastName
+ //Setup file
+ set fileStream = ##class(%Stream.FileCharacter).%New()
+ if ($E(context.FilePath,*)="/") {
+    set fileStream.Filename=context.FilePath_filename
+ }else{
+	set fileStream.Filename=context.FilePath_"/"_filename
+ }
+ //Check if file exists
+ Set fileExists=##class(%File).Exists(fileStream.Filename)
+ //If file exists append else create
+ if (fileExists) {
+	do fileStream.MoveToEnd()
+	Set tStatus = $$$OK
+	Set tmpStream=##class(%Stream.TmpBinary).%New()
+	Do tmpStream.Write($select(1: request.PatientFirstName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientMiddleName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientLastName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DateofBirth,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.MRN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.FIN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SSN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.StartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterFinID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidUntilDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTitleText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ViewLevel,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SeriesReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AccessionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ParentEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidFromDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventNcid,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDateOS,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValue,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValueType,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AuthenticFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PublishFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SubtableBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollatingSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateCount,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ExpireDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTagSetFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NoteImportanceBitMap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderActionSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayVersionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ModifierLongTextID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CEDynamicLabelID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NomenStringFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TraitBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DeviceFreeText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.LastUTC,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctor,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctorNPI,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Comment,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Specimen,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RequiredStartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Priority,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollectionDate,1: ""))
+	Set tStatus = tmpStream.Write($CHAR(10))
+	do fileStream.CopyFrom(tmpStream)
+    do fileStream.%Save()
+    do ##class(%File).SetAttributes(fileStream.Filename,33279,.return)
+ }else{
+	do fileStream.%Save() 
+	do fileStream.Write("BeginBatch"_$CHAR(10))
+	do fileStream.MoveToEnd()
+	Set tStatus = $$$OK
+	Set tmpStream=##class(%Stream.TmpBinary).%New()
+	Do tmpStream.Write($select(1: request.PatientFirstName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientMiddleName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientLastName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DateofBirth,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.MRN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.FIN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SSN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.StartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterFinID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidUntilDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTitleText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ViewLevel,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SeriesReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AccessionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ParentEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidFromDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventNcid,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDateOS,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValue,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValueType,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AuthenticFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PublishFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SubtableBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollatingSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateCount,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ExpireDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTagSetFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NoteImportanceBitMap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderActionSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayVersionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ModifierLongTextID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CEDynamicLabelID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NomenStringFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TraitBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DeviceFreeText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.LastUTC,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctor,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctorNPI,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Comment,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Specimen,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RequiredStartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Priority,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollectionDate,1: ""))
+	Set tStatus = tmpStream.Write($CHAR(10))
+	do fileStream.CopyFrom(tmpStream)
+	do fileStream.%Save()
+	do ##class(%File).SetAttributes(fileStream.Filename,33279,.return)
+ }
+ ]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<code name='Finish up files and copy for processing by next inbound' xpos='200' ypos='900' >
+<![CDATA[ $$$TRACE("Finish up file processing")
+ if (context.CopyFilesFirst =1) {
+    // Loop through files and append endbatch
+    set rs=##class(%ResultSet).%New("%File:FileSet")
+    set sc=rs.Execute(context.FilePath,"*","",1)
+    while(rs.Next()){
+       set name=rs.Data("Name")
+       $$$TRACE("Name: "_name)
+       set type=rs.Data("Type")
+       $$$TRACE("Type: "_type)
+       if (type="F"){
+          //do file stuff
+          $$$TRACE("Handling file")
+          set fileStreamToFinish = ##class(%Stream.FileCharacter).%New()
+          set fileStreamToFinish.Filename = name
+          do fileStreamToFinish.MoveToEnd()
+          do fileStreamToFinish.Write("EndBatch")
+          do fileStreamToFinish.%Save()
+          set oldFile = ##class(%File).%New(name)
+          if ($E(context.FilePath,*)="/") {
+             set oldFileName=$P(name,context.FilePath,2)
+          }else{
+             set oldFileName=$P(name,context.FilePath_"/",2)
+          }
+          if ($E(context.NewFilePath,*)="/") {
+             set newFilePath=context.NewFilePath_oldFileName
+          }else{
+	     set newFilePath=context.NewFilePath_"/"_oldFileName
+          }
+          $$$TRACE("Old file path: "_name_". New file path: "_newFilePath_".txt")
+          do ##class(%File).CopyFile(name,newFilePath_".txt")
+          do ##class(%File).Delete(name)
+       }
+    }
+ }   
+  //Get patient name
+ set filename=request.PatientFirstName_request.PatientMiddleName_request.PatientLastName
+ //Setup file
+ set fileStream = ##class(%Stream.FileCharacter).%New()
+ if ($E(context.FilePath,*)="/") {
+    set fileStream.Filename=context.FilePath_filename
+ }else{
+	set fileStream.Filename=context.FilePath_"/"_filename
+ }
+ //Check if file exists
+ Set fileExists=##class(%File).Exists(fileStream.Filename)
+ //If file exists append else create
+ if (fileExists) {
+	do fileStream.MoveToEnd()
+	Set tStatus = $$$OK
+	Set tmpStream=##class(%Stream.TmpBinary).%New()
+	Do tmpStream.Write($select(1: request.PatientFirstName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientMiddleName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientLastName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DateofBirth,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.MRN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.FIN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SSN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.StartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterFinID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidUntilDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTitleText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ViewLevel,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SeriesReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AccessionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ParentEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidFromDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventNcid,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDateOS,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValue,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValueType,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AuthenticFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PublishFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SubtableBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollatingSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateCount,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ExpireDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTagSetFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NoteImportanceBitMap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderActionSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayVersionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ModifierLongTextID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CEDynamicLabelID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NomenStringFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TraitBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DeviceFreeText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.LastUTC,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctor,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctorNPI,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Comment,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Specimen,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RequiredStartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Priority,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollectionDate,1: ""))
+	Set tStatus = tmpStream.Write($CHAR(10))
+	do fileStream.CopyFrom(tmpStream)
+    do fileStream.%Save()
+    do ##class(%File).SetAttributes(fileStream.Filename,33279,.return)
+ }else{
+	do fileStream.%Save() 
+	do fileStream.Write("BeginBatch"_$CHAR(10))
+	do fileStream.MoveToEnd()
+	Set tStatus = $$$OK
+	Set tmpStream=##class(%Stream.TmpBinary).%New()
+	Do tmpStream.Write($select(1: request.PatientFirstName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientMiddleName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PatientLastName,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DateofBirth,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.GenderText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.MRN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.FIN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SSN,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.StartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EncounterFinID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidUntilDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTitleText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ViewLevel,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CatalogDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SeriesReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AccessionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ContributorSystemDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ReferenceNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ParentEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventRelationDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ValidFromDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventClassDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventNcid,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventEndDateOS,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValue,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultValueType,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultTimeUnitDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RecordStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResultStatusDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.AuthenticFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PublishFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.QCReviewDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalcyMethodDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.InquireSecrutyDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceGroupDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ResourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SubtableBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollatingSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.VerifiedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.PerformedBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateByID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateBy,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateCount,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NormalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalLow,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CriticalHigh,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ExpireDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EventTagSetFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NoteImportanceBitMap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderActionSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.EntryModeDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceCode,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceDescription,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ClinicalSequence,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TaskAssayVersionNumber,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.ModifierLongTextID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceEventID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.SourceClinicalSignatureUpdateDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CEDynamicLabelID,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.NomenStringFlag,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.TraitBitmap,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.DeviceFreeText,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.LastUTC,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctor,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderingDoctorNPI,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.UpdateDate2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.OrderID2,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Comment,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Specimen,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.RequiredStartDate,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.Priority,1: ""))
+	Do tmpStream.Write($char(124) _ $select(1: request.CollectionDate,1: ""))
+	Set tStatus = tmpStream.Write($CHAR(10))
+	do fileStream.CopyFrom(tmpStream)
+	do fileStream.%Save()
+	do ##class(%File).SetAttributes(fileStream.Filename,33279,.return)
+ }
+ if (context.CopyFilesFirst =0) {
+    // Loop through files and append endbatch
+    set rs=##class(%ResultSet).%New("%File:FileSet")
+    set sc=rs.Execute(context.FilePath,"*","",1)
+    while(rs.Next()){
+       set name=rs.Data("Name")
+       $$$TRACE("Name: "_name)
+       set type=rs.Data("Type")
+       $$$TRACE("Type: "_type)
+       if (type="F"){
+          //do file stuff
+          $$$TRACE("Handling file")
+          set fileStreamToFinish = ##class(%Stream.FileCharacter).%New()
+          set fileStreamToFinish.Filename = name
+          do fileStreamToFinish.MoveToEnd()
+          do fileStreamToFinish.Write("EndBatch")
+          do fileStreamToFinish.%Save()
+          set oldFile = ##class(%File).%New(name)
+          if ($E(context.FilePath,*)="/") {
+             set oldFileName=$P(name,context.FilePath,2)
+          }else{
+             set oldFileName=$P(name,context.FilePath_"/",2)
+          }
+          if ($E(context.NewFilePath,*)="/") {
+             set newFilePath=context.NewFilePath_oldFileName
+          }else{
+	     set newFilePath=context.NewFilePath_"/"_oldFileName
+          }
+          $$$TRACE("Old file path: "_name_". New file path: "_newFilePath_".txt")
+          do ##class(%File).CopyFile(name,newFilePath_".txt")
+          do ##class(%File).Delete(name)
+       }
+    }
+ }
+ do rs.Close()
+ $$$TRACE("Time After finishing file: "_##class(%Library.Utility).DateTime())]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1100' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+</Class>
+</Export>
