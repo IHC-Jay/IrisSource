@@ -2,7 +2,7 @@
 <Export generator="IRIS" version="26">
 <Class name="IHC.ITF.Process.Bpl.VerityProviderHl7ToRadiantLogicJson">
 <Description>
-Usiis Immunization to iCentra</Description>
+Verity to RadiantLogic</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63770,48624.416482</TimeCreated>
 
@@ -98,6 +98,7 @@ BPL Definition</Description>
 <property name='jsnStr' type='Ens.StringResponse' initialexpression='""' instantiate='0' />
 <property name='prvdrId' type='Ens.StringContainer' initialexpression='""' instantiate='1' />
 <property name='existingPrvdr' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='pdata' type='IHC.ITF.DStruc.Request.PrvdrRecodComb' instantiate='0' />
 </context>
 <sequence xend='200' yend='1850' >
 <scope xpos='200' ypos='250' xend='200' yend='1750' >
@@ -126,12 +127,26 @@ BPL Definition</Description>
  }]]]]><![CDATA[>
 </code>
 <code name='check provider id' xpos='200' ypos='650' >
-<![CDATA[ set context.pid=request.GetValueAt("MFEgrp(1).STF(1):1.1")
+<![CDATA[ set context.pid=$ZSTRIP(request.GetValueAt("MFEgrp(1).STF(1):1.1"),"<>W")
  $$$TRACE("Provider ID: " _ context.pid) 
- if (context.pid'="" && ($ISVALIDNUM(context.pid)'="1")){	  
-    $$$TRACE("Provider ID # is NOT a VALID number ")
-    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid provider id number: ["_context.pid_"]. Skip the record.")
- }
+ if ((context.pid="") || ($ISVALIDNUM(context.pid)'="1")){	  
+   $$$TRACE("Provider ID # is NOT a VALID number ")
+   set k1="",tSC=1 
+   For { 
+     Set k1=request.GetNextIndex("MFEgrp(1).MFE:PrimaryKeyValueMFE()",k1,.tSCTrans)  Quit:k1=""          
+   //for i=1:1:request.MFEgrp(1).MFE.PrimaryKeyValueMFE() {
+	  set ktype = request.GetValueAt("MFEgrp(1).MFE:4("_k1_").3")
+	  $$$TRACE("Key Type: " _ktype) 
+	  if (ktype="CORPROV"){
+	    set context.pid = request.GetValueAt("MFEgrp(1).MFE:4("_k1_").1")
+	    $$$TRACE("Provider ID: " _ context.pid) 
+	  }
+	} 
+	if ((context.pid="") || ($ISVALIDNUM(context.pid)'="1")){	  
+      $$$TRACE("Provider ID # is NOT a VALID number ")
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid provider id number: ["_context.pid_"]. Skip the record.")
+	}
+  }
  set context.rsOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RadiantSrvcTargetConfigName",.pstatus)
  $$$TRACE("RadiantLogic Operation: "_context.rsOpNm)
 ]]]]><![CDATA[>
@@ -171,7 +186,11 @@ BPL Definition</Description>
   }
   set status=process.SendRequestSync(context.rsOpNm,context.jsnStr,.restResponse)
   if ($$$ISOK(status)){
-     $$$TRACE("REST service response data: "_restResponse)
+     $$$TRACE("REST service response data: "_restResponse.StringValue)
+     set context.pdata=##class(IHC.ITF.DStruc.Request.PrvdrRecodComb).%New()
+     set context.pdata.sourceSystem="Verity"
+     set context.pdata.RLResponse=restResponse.StringValue
+     set context.pdata.srcMsg=request.RawContentGet()
   }
   else {
      $$$TRACE("Radiant service call failed. "_restResponse)
@@ -181,19 +200,17 @@ BPL Definition</Description>
 <code name='GetTargetConfigList' xpos='470' ypos='1200' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
-   $$$TRACE("Send HL7 msg to the target")]]]]><![CDATA[>
+   $$$TRACE("Send the combo msg to the targets")]]]]><![CDATA[>
 </code>
 <foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1300' xend='200' yend='700' >
-<if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.targetIndx)&apos;=""' xpos='200' ypos='250' xend='200' yend='600' >
+<if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='600' >
 <true>
-<call name='send cern history immus' target='@context.targetList.GetAt(context.targetIndx)' async='1' xpos='335' ypos='400' >
-<request type='EnsLib.HL7.Message' >
-<assign property="callrequest" value="context.cernImmuHl7" action="set" />
+<trace value='"Sending data to the target..."' xpos='335' ypos='400' />
+<call name='send Verity and RadiantLogic combo data' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='500' >
+<request type='IHC.ITF.DStruc.Request.PrvdrRecodComb' >
+<assign property="callrequest" value="context.pdata" action="set" />
 </request>
 </call>
-<code xpos='335' ypos='500' >
-<![CDATA[  set context.cntr=context.targetList.Count()]]]]><![CDATA[>
-</code>
 </true>
 </if>
 </foreach>
