@@ -25,6 +25,7 @@ import { HeaderComponent } from './header/header.component';
 import { TpRestServiceComponent } from './services/tprest-service.component';
 import { TransRestServiceComponent } from './services/transrest-service.component';
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
+import { copyTPComponent  } from './tradingPartners/copyTP.component';
 import { ConfirmDialogComponent } from './confirm-dialog/confirm-dialog.component';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -67,6 +68,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     TpRestServiceComponent,
     TransRestServiceComponent,
     TradingPartnersComponent,
+    copyTPComponent,
     ConfirmDialogComponent,
     TpIdComponent,
     tpLinksComponent,

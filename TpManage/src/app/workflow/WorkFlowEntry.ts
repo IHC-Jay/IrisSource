@@ -9,6 +9,7 @@ export interface WorkFlowEntry {
   WorkUser: string;
   ErrorType: string;
   Error: string;
+  Resent: string;
   x12Data: string;
 }
 

@@ -2,6 +2,7 @@ export interface TradingPartner {
   isSelected: boolean;
   id: string;
   Name: string;
+  TPID:string;
   TPtype: string;
   ContactName: string;
   ContactPhone: string;
@@ -15,6 +16,12 @@ export const TradingPartnerColumns = [
     key: 'Name',
     type: 'text',
     label: 'Trading Partner',
+    required: true,
+  },
+  {
+    key: 'TPID',
+    type: 'readonly',
+    label: 'TP ID',
     required: true,
   },
   {

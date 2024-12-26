@@ -3,6 +3,7 @@ import { Routes, RouterModule } from '@angular/router';
 import { HeaderComponent } from './header/header.component';
 import { AuthGuard } from './login/auth.guard';
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
+import { copyTPComponent } from './tradingPartners/copyTP.component';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { BrowserModule } from '@angular/platform-browser';
@@ -20,6 +21,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
 const appRoutes: Routes = [
   {path: '/', component: HeaderComponent},
   {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard]},
+  {path: 'TradingPartners/copyTP', component: copyTPComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard]},
   {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard]},

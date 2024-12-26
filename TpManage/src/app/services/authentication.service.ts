@@ -94,10 +94,15 @@ export class AuthenticationService {
   }
 
   logout() {
-    // remove user from local storage to log user out
-    console.info('logout currentUserValue: ' + (this.currentUserSubject.value.username));
+    // remove user from session storage to log user out
     sessionStorage.removeItem("currentUser");
-    this.currentUserSubject.next(null);
+
+    if (this.currentUserSubject.value!== null)
+      {
+        console.info('logout currentUserValue: ' + (this.currentUserSubject.value.username));
+
+        this.currentUserSubject.next(null);
+      }
   }
 
 }

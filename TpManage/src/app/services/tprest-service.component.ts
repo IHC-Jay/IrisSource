@@ -532,7 +532,7 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
 
   }
 
-  addBulkTpLinks(link: bulkTpLinks) {
+  addBulkTpLinks(link: any) {
 
     console.log('add bulkTpLinks: ' + link.Link);
 
@@ -549,7 +549,6 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
 
       }),
       catchError(errorRes => {
-        // Send to analytics server
         console.error('addBulkTpLinks catchError: ' + errorRes);
         return errorRes;
       })
@@ -558,6 +557,30 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
 
   }
 
+  copyTpLinksfromTP(link: any) {
+
+    console.log('add Copy TpLinks: ' + link.Name);
+
+    let url = this.tpUrl + '' + 'CopyTpLinksFromTp';
+
+    console.info('Post to create TPLinks: ' + url);
+    link.User =  this.getCurrentUser();
+
+    return this.http.post<any>(url, link)
+    .pipe(
+      map(responseData => {
+
+        return responseData;
+
+      }),
+      catchError(errorRes => {
+        console.error('CopyTpLinksFromTp catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+
+  }
 
 
   }

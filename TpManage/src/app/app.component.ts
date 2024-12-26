@@ -10,5 +10,6 @@ export class AppComponent {
 
   title = 'Trading Partner Management';
   menuFeature: string = 'tradingpartners';
+  name = 'TP manage';
 
 }

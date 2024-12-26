@@ -37,10 +37,12 @@ export class WorkflowComponent implements OnInit {
     'TransactionType',
     'CreateDtTm',
     'ErrorType',
+    'Resent',
     'WorkStatus',
     'WorkUser',
     'LastmodDtTM',
     'LastmodID',
+
     'Details'
 ];
 
@@ -55,6 +57,7 @@ export class WorkflowComponent implements OnInit {
     updStatusTypes = [
       "Assigned",
       "Resolved",
+      "Resolve and Resend",
       "Ignored"
     ];
 

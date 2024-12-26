@@ -56,7 +56,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     @ViewChild(MatSort) sort: MatSort;
     @ViewChild(MatPaginator) paginator: MatPaginator;
 
-    constructor(public dialog: MatDialog,
+    constructor(public dialog: MatDialog, private router: Router,
       private TradingPartnerService: TpRestServiceComponent)
     {
 
@@ -103,6 +103,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       const newRow: TradingPartner = {
         id: '-1',
         Name: '',
+        TPID:'',
         TPtype: 'Provider',
         ContactName: '',
         ContactPhone: '',
@@ -195,6 +196,11 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       console.error('Exception: ' + e)
     }
 
+    }
+
+    copyTP()
+    {
+      this.router.navigate(["/TradingPartners/copyTP"] );
     }
 
     inputHandler(e: any, id: string, key: string) {

@@ -168,7 +168,7 @@ public initializeData()
             }
             else if( res.Status !== undefined) {
               console.error('createUpdateTpLink status: ' + res.Status);
-              if(res.Status ='OK')
+              if(res.Status === 'OK')
               {
                  this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId ]);
               }

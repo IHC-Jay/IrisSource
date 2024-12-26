@@ -1,4 +1,4 @@
-import { Component, EventEmitter, OnInit, Output, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, EventEmitter, OnInit, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
@@ -8,14 +8,20 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError } from 'rxjs';
 import {TransRestServiceComponent} from '../services/transrest-service.component';
 
+const CHECK_INTERVAL = 5000 // in ms
+const STORE_KEY =  'lastAction';
+
 @Component({
   selector: 'app-header',
   templateUrl: './header.component.html',
   styleUrls: ['./header.component.css']
 })
 
+
 export class HeaderComponent implements AfterViewInit, OnInit   {
+
   loginForm: FormGroup;
+  val: any;
 
   loading = false;
   submitted = false;
@@ -59,6 +65,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         console.log("HeaderComponent: " + this.currentUser)
         }
         );
+
     }
 
     ngOnInit() {
@@ -66,7 +73,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
           password: ['', Validators.required],
-          env: ['DEV', Validators.required]
+          env: ['DEV', Validators.required],
+          logoutTime: ['5', Validators.required]
       });
 
 
@@ -177,12 +185,24 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
           this.isLogin = true;
           this.submitted = true;
+
+
+          // Auto logout
+
+          this.check();
+          this.initListener();
+          this.initInterval();
+          console.log('Store in sessionStorage')
+          sessionStorage.setItem(STORE_KEY,Date.now().toString());
+
+
           return;
         },
         error: (e) => {
           console.error('onLogin catchError: ' +e);
           this.router.navigate(['/']);
-          alert('Login failed for ' + this.f.username.value + ". Exception in calling the REST service: " + e)
+          this.error = 'Login failed for ' + this.f.username.value + ". Exception in calling the REST service "
+          alert(this.error)
           this.displayHelp = "Login failed";
           this.loading = false;
           return;
@@ -191,10 +211,63 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
 
    }
+
    onHome()
    {
     this.router.navigate(["/transaction"]);
    }
+
+   // Auto logout
+
+   public getLastAction() {
+    return parseInt(sessionStorage.getItem(STORE_KEY));
+  }
+
+ public setLastAction(lastAction: number) {
+  sessionStorage.setItem(STORE_KEY, lastAction.toString());
+  }
+
+   initListener() {
+    document.body.addEventListener('click', () => this.reset());
+    document.body.addEventListener('mouseover',()=> this.reset());
+    document.body.addEventListener('mouseout',() => this.reset());
+    document.body.addEventListener('keydown',() => this.reset());
+    document.body.addEventListener('keyup',() => this.reset());
+    document.body.addEventListener('keypress',() => this.reset());
+     window.addEventListener("storage",() => this.storageEvt());
+
+  }
+
+  reset() {
+
+    this.setLastAction(Date.now());
+    // console.log('store key',sessionStorage.getItem(STORE_KEY));
+
+  }
+
+  initInterval() {
+    setInterval(() => {
+      this.check();
+    }, CHECK_INTERVAL);
+  }
+
+  check() {
+    const now = Date.now();
+    var tm = this.f.logoutTime.value
+    const timeleft = this.getLastAction() + tm * 60 * 1000;
+    const diff = timeleft - now;
+    console.log('Max time:' + tm + ', difference',diff)
+    const isTimeout = diff < 0;
+
+    if (isTimeout)  {
+      this.logout();
+    }
+  }
+
+  storageEvt(){
+	console.log("storage");
+	this.val = sessionStorage.getItem(STORE_KEY);
+  }
 
 }
 

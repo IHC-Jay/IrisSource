@@ -22,6 +22,10 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
+import { catchError } from 'rxjs';
+import { Modalx12Component } from './transaction-details/modal/modal-x12.component';
+import { MatDialog } from '@angular/material/dialog';
+import { DialogRef } from '@angular/cdk/dialog';
 
 @Component({
   selector: 'app-transaction',
@@ -111,7 +115,7 @@ endDate ="13:30";
   usrDisplayColumns: DisplayColumns[] = [];
 
   constructor(private TransactionService: TransRestServiceComponent,
-    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
+    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
       tpId: new FormControl();
 
   }
@@ -374,7 +378,14 @@ endDate ="13:30";
 
             this.loading = false;
 
-            });
+            }),
+
+            catchError(errorRes => {
+              // Send to analytics server
+              alert('Error in fetching EligibilityBenefit Requests: ' + errorRes);
+              this.dataSource.data = [];
+              return errorRes;
+            })
 
       }
       else if(this.form.controls.transType.value === '271'){
@@ -748,6 +759,31 @@ onEndTimeChange(event: Event)
   // Perform actions based on the new value
   this.endTm = newValue;
   console.log('Input value changed:', newValue +", " + this.endTm);
+}
+
+exportData()
+{
+  let fileName = "DataExport-" + this.currentTransType   + "-" + this.startDate + "To" + this.endDate + ".csv"
+  let data = ""
+
+  this.dataTableLabel.forEach(element => {
+    data +=element + ",";
+  });
+  data += "\n";
+
+  this.dataSource.data.forEach(element => {
+    this.dataTableKey.forEach(col => {
+    data +=element[col] + ",";
+    });
+    data += "\n";
+  });
+
+  let param: string[] = [ data, fileName];
+  const dialogRef = this.dialog.open(Modalx12Component, {
+    width: '1700px',
+    data: param
+  });
+
 }
 
 // Handle right click
