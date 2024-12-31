@@ -31,5 +31,161 @@
    Quit tOK
 ]]></Implementation>
 </Method>
+
+<Method name="processFile">
+<Internal>1</Internal>
+<FormalSpec><![CDATA[pFilename:%String,&pModified:%String,pSize:%String,*pDone:%Boolean,pFileDir:%String,pSemaphorename:%String=""]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set (tComplete,pDone,tEverSize)=0, (tSize,tNewSize,tOldSize)=pSize, tFirst=1, tSizeTargTime="", tSC=$$$OK
+	Do {
+		Set tSaveAsFile=(""'=ADAPTER.ArchivePath||ADAPTER.BusinessHost.ArchiveIO||ADAPTER.UseFileStream)
+		Kill %objlasterror
+		Set tStream = $S("binary"=$ZCVT(ADAPTER.Charset,"L"): $S(tSaveAsFile:##class(%FileBinaryStream).%New(), 1:##class(%GlobalBinaryStream).%New())
+													, 1:$S(tSaveAsFile:##class(%FileCharacterStream).%New(), 1:##class(%GlobalCharacterStream).%New()))
+		Set tSC=$G(%objlasterror,$$$OK)
+		Set:'$IsObject(tStream)||$$$ISERR(tSC) tSC=$$$ERROR($$$EnsErrGeneral,"Failed to create archive stream due to error:"_$S($$$ISERR(tSC):$$$StatusDisplayString(tSC),1:$$$ERROR($$$EnsErrGeneral,"%New() failed with no error report")))
+		Quit:$$$ISERR(tSC)
+		If tSaveAsFile {
+			If ""=ADAPTER.ArchivePath { Set tArchiveName="" }
+			Else {
+				Set tArchiveName=ADAPTER.getArchiveFilename(pFilename)
+				Set tSC=tStream.LinkToFile(tArchiveName)
+				If $$$ISERR(tSC) { $$$LOGWARNING("Failed to create archive file '"_tArchiveName_"' due to error:"_$$$StatusDisplayString(tSC)) }
+			}
+		}
+		If (pSemaphorename'="") $$$sysTRACE("Got semaphore file "_pSemaphorename_" for "_pFilename)
+		#; Get the file
+		For { ; loop getting chunks
+			Set:ADAPTER.ConfirmComplete&&(""=tSizeTargTime) tSizeTargTime = $ZH+ADAPTER.FileAccessTimeout
+			If tFirst {
+				Set tSC=ADAPTER.retrieveFile(pFilename,tStream,pFileDir,0)
+				If $$$ISERR(tSC) {
+					#; If it was an AS/400 *FILE, quit OK but save the error - we will only return it later if no *MEM members are found.
+					#; Don't count it as a file error if it was a network error
+					Set tStyle = $ZSTRIP($ZCVT(ADAPTER.ServerListStyle,"L"),"*W","-_,;:/")
+					Set:tStyle="as400"&&("*FILE"=$E(pModified,*+1-$L("*FILE"),*))&&ADAPTER.FTP.Connected ADAPTER.%LastErr=tSC, tSC=$$$OK, ADAPTER.BusinessHost.%WaitForNextCallInterval=0
+					Quit
+				}
+			} ElseIf tNewSize>tOldSize {
+				Set tSC=ADAPTER.retrieveFile(pFilename,tStream,pFileDir,1)  Quit:$$$ISERR(tSC) ; retry
+			}
+			Set tNewFilename=pFilename, tOldMod=pModified
+			If (+tSize'=tSize||'(ADAPTER.ConfirmComplete#2)) {
+				Set tNewSize=tSize
+			} Else {
+				Set tNewSize=ADAPTER.getSize(pFilename,pFileDir,.pModified)
+				/* Need to reset tSizeTargTime since we want to ignore retrieval time
+						'Size' means keep reading more data for a file until 
+						the file size reported by the server directory listing 
+						does not increase.
+					Only reset if we did retrieve a size value.
+				*/
+				If tNewSize'="" Set tSizeTargTime = $ZH+ADAPTER.FileAccessTimeout
+			}
+			If +tSize'=tSize && (ADAPTER.ConfirmComplete#2) {
+				Set tSC=$$$ERROR($$$EnsErrGeneral,"Unable to verify ConfirmComplete=Size size because initial SizeExpression result = '"_tSize_"'")
+				Quit
+			} ElseIf tNewSize>tSize {
+				Set tNow=$ZH
+				$$$sysTRACE("Got partial "_pFilename_"("_tStream.Size_") that was listed as size "_tSize_" (modified='"_tOldMod_"') and now shows "_tNewSize_" (modified='"_pModified_"')")
+			} ElseIf tNewSize<tSize && (tNewSize'="") {
+				#; Assume we got the old file and this is a new copy of the file we should process later
+				$$$sysTRACE("Accepting "_pFilename_"("_tStream.Size_") that was listed as size "_tSize_" and now shows "_tNewSize)
+				Set tComplete=1
+				Quit
+			} Else {
+				#; tNewSize is empty or same - if ConfirmComplete keep trying for a new size until ADAPTER.FileAccessTimeout
+				Set tNow=$ZH
+				If ADAPTER.ConfirmComplete#2 {
+					If 'tEverSize {
+						If tNewSize'="" {
+							Set tEverSize=1
+							$$$sysTRACE("Got same size "_tSize_" for "_pFilename_" with ConfirmComplete=Size; waiting for new size or FileAccessTimeout("_ADAPTER.FileAccessTimeout_")")
+						} Else {
+							$$$sysTRACE("Unable to obtain ConfirmComplete=Size ; waiting for new size or FileAccessTimeout("_ADAPTER.FileAccessTimeout_")")
+						}
+					}
+				}
+				If '(ADAPTER.ConfirmComplete#2) || (tNow>=tSizeTargTime) || ((tNewSize=tSize) && 'tFirst) {
+					If ADAPTER.ConfirmComplete#2 && (tNewSize="") && (tNow>=tSizeTargTime) {
+						Set tSC=$$$ERROR($$$EnsErrGeneral,"Could not get "_$S(tEverSize:"",1:"any ")_"size for "_pFilename_" ConfirmComplete=Size verification within FileAccessTimeout("_ADAPTER.FileAccessTimeout_")")
+						Quit
+					}
+					If '(ADAPTER.ConfirmComplete\2#2) {
+						#; not trying rename
+						$$$sysTRACE("Confirmed complete "_pFilename_" with size "_tSize_" unchanged during FileAccessTimeout("_ADAPTER.FileAccessTimeout_") seconds (modified='"_pModified_"')")
+						Set tComplete=1
+						Quit
+					} Else {
+						#; try rename
+						Set tPartLen=$L($E($P(pFilename,"."),1,12))  Set:tPartLen<8 tPartLen=8
+						Set tNewFilename=$E($TR("X"_$ZH_"000000","."),1,tPartLen)_"."_$P(pFilename,".",2,999)
+						Set tOK=ADAPTER.rename(pFilename,tNewFilename,pFileDir)
+						If tOK {
+							Set tOK=ADAPTER.rename(tNewFilename,pFilename,pFileDir)
+							If tOK {
+								$$$sysTRACE("Confirmed complete "_pFilename_" via rename to "_tNewFilename_"; renaming back again")
+								Set tNewFilename=pFilename
+								Set tComplete=1
+								Quit
+							}
+						}
+						#; If 'tOK
+						Do ADAPTER.disconnectOnNetErr(,1)
+						If tNow>=tSizeTargTime || 'ADAPTER.Connected {
+							Set tSC=$$$ERROR($$$EnsErrGeneral,"Failed to confirm complete "_pFilename_"("_tStream.Size_") listed as size "_tSize_" by renaming to "_tNewFilename_" within FileAccessTimeout("_ADAPTER.FileAccessTimeout_") : FTP code "_ADAPTER.FTP.ReturnCode_" - "_ADAPTER.FTP.ReturnMessage)
+							Quit
+						} Else {
+							$$$sysTRACE("Got "_pFilename_"("_tStream.Size_") listed as size "_tSize_" but can't rename it yet : FTP code "_ADAPTER.FTP.ReturnCode_" - "_ADAPTER.FTP.ReturnMessage_"; trying for more data")
+						}
+					}
+				}
+			} ; else tSize
+			#; don't retry more often than every ADAPTER.FileAccessTimeout seconds
+			Set tWaitTime=tSizeTargTime-tNow  Set:tWaitTime<0 tWaitTime=0
+			Set tSC1=##class(Ens.Queue).DeQueue("SystemSignal:"_$Job,,tWaitTime,,0)  Quit:$$$ISERR(tSC1)
+			If ##class(Ens.Job).ShouldBeQuiescent() || ##class(Ens.Job).ShouldTerminate() {
+				$$$LOGWARNING("Abandoning partial download of "_pFilename_" because of shutdown request")
+				Quit
+			}
+			Set tWaitTime=tSizeTargTime-$ZH  Hang:tWaitTime>0 tWaitTime ; finish the delay in case DeQueue() returned early
+			Set:tNewSize>tSize||(ADAPTER.ConfirmComplete\2#2) tSizeTargTime="" ; restart the clock
+			Set:""'=tNewSize tOldSize=tSize, tSize=tNewSize ; re-base the size
+			Set tFirst=0
+		} ; end chunk loop
+
+		If tComplete {
+			#;If saving as a file, 0 size  and never been written to we need to force creation with an empty Write
+			If tSaveAsFile,(tStream.Size=0),tStream.%IsNull() {Set tSC=tStream.Write() Quit:$$$ISERR(tSC)}
+			Set tTxt="Retrieved file '"_pFilename_"' of size "_tStream.Size_" (modified='"_pModified_"')"_$S(tSaveAsFile:", archived as file '"_tStream.Filename_"'",1:"")
+			If ADAPTER.%logTransfers { $$$LOGINFO(tTxt) } Else { $$$sysTRACE(tTxt) }
+			Set tStream.Attributes("Filename")=pFilename, tStream.Attributes("FTPDir")=pFileDir
+			If tSaveAsFile { Set tSC1=tStream.SaveStream() If $$$ISERR(tSC1) $$$LOGERROR("Failed to save retrieved file '"_pFilename_"' of size "_tStream.Size_" to archive file '"_tStream.Filename_"'; Status: "_$$$StatusDisplayString(tSC1)) }
+			Set tSC = ADAPTER.BusinessHost.ProcessInput(tStream) Quit:$$$ISERR(tSC)
+			Kill tStream
+			Set pDone=1
+			If ADAPTER.DeleteFromServer {
+				#; delete the file, and remove the file from do-not-process list if it is deleted
+				If ADAPTER.delete(tNewFilename,pFileDir) {
+					Set pDone=-1
+					$$$sysTRACE("Deleted '"_pFilename_$S(pFilename=tNewFilename:"",1:"' / '"_tNewFilename)_"' from FTP server after successful processing")
+				} Else {
+					if ADAPTER.Connected set tSC=ADAPTER.Disconnect(1)
+                    Set tSC=ADAPTER.Connect(ADAPTER.ConnectTimeout,1)
+                    Set tSC=ADAPTER.setFilePath(pFileDir,.tOldDir) If $$$ISERR(tSC) { $$$LOGSTATUS(tSC) Quit }
+                    Set tOK=$S(ADAPTER.%isSFTP:ADAPTER.FTP.DeleteSSH(pFilename),1:ADAPTER.FTP.Delete(pFilename))
+					/**Do ..disconnectOnNetErr(,1)
+					If '..Connected Set tSC=$$$ERROR($$$EnsErrGeneral,"Failed to delete '"_pFilename_$S(pFilename=tNewFilename:"",1:"' / '"_tNewFilename)_"' from FTP server after successful processing - "_..FTP.ReturnCode_":"_..FTP.ReturnMessage)  Quit
+					$$$LOGWARNING("failed to delete '"_pFilename_$S(pFilename=tNewFilename:"",1:"' / '"_tNewFilename)_"' from FTP server after successful processing - "_..FTP.ReturnCode_":"_..FTP.ReturnMessage)**/
+				}
+			} Else {
+				$$$sysTRACE("Not Deleting '"_pFilename_$S(pFilename=tNewFilename:"",1:"' / '"_tNewFilename)_"' from FTP server after successful processing")
+			}
+		}
+	} While 0
+	Quit tSC
+]]></Implementation>
+</Method>
 </Class>
 </Export>
