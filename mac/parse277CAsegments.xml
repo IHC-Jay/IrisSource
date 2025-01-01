@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="parse277CAsegments" type="MAC" languagemode="0"><![CDATA[
+#dim x12Doc as EnsLib.EDI.X12.Document
+   
+  set flNm = "/home/lpjnaras/UI-testing/HT007124-001_20250101054004_HT000015-001-0005213_L13.277CA"
+  WRITE !, flNm _", " _ ##class(%File).GetFileSize(flNm)
+  set x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm)
+  set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+  if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   Set tSC =x12Doc.BuildMap()
+		   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+	  
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		  
+		  set isaGsInfo =  InterchangeSenderID _" -> " _ InterchangeReceiverID _ ", ControlNumbers: " _ InterchangeCtrlNum _", " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+		  // WRITE !, x12Doc.ElementSeparator  _", " _ x12Doc.ComponentSeparator 
+		  WRITE !, "# of STs: " _ individualGroup.ChildCount 
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  
+			  set transType = STRecord.GetValueAt("1:1",, .stat)
+			  
+			  if (STRecord.GetValueAt("1",, .stat) [ "005010X222A1")
+				{
+					set transType = transType _"P"
+				}
+				elseif (STRecord.GetValueAt("1",, .stat) [ "005010X223A2")
+				{
+					set transType = transType _"I"
+				}
+				elseif (STRecord.GetValueAt("1",, .stat) [ "005010X224A2")
+				{
+					set transType = transType _"D"
+				}
+				elseif (STRecord.GetValueAt("1",, .stat) [ "005010X214")
+				{
+					set transType = transType _"CA"
+				}
+				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set nmStr = "", clpStr = "", amtStr(1) = "", stcStr = "", qtyStr(1) = "", dtpStr = "", bhtStr = "", trnStr = "", stNum = "", refStr = ""
+			  set parentIds(1) = "", aInd = 0, qInd = 0
+			  
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	if ($FIND(segVal,"STC") = 4)
+			  	{			  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.ClaimActionCodeLookup", seg1Val, .retVal)
+				  	set stcStr = "  STC #" _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ", Action: " _ seg1Val _" (" _ retVal _ ") -> " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set stNum = "TRN Set #" _ $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	WRITE !, isaGsInfo  _", " _ stNum _", " _ bhtStr  _", " _ trnStr _", " _ nmStr _", " _ refStr _", " _ clpStr _", " _amtStr _", " _stcStr _", " _qtyStr _", " _dtpStr
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	set trnStr = "TRN #" _ $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.BhtPurposeLookup", seg1Val, .retVal)
+
+				  	set bhtStr = "  BHT: " _ segVal _" (" _retVal_ "), Id: " _$PIECE(segVal, x12Doc.ElementSeparator , 4)
+			  	}
+			  	elseif ($FIND(segVal,"QTY") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.QuantityQualLookup", seg1Val, .retVal)
+					Do $INCREMENT(qInd)
+				  	set qtyStr(qInd) = "  QTY: " _ segVal _" (" _retVal_ "), # " _$PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"AMT") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AmtQualLookup", seg1Val, .retVal)
+					Do $INCREMENT(aInd)
+				  	set amtStr(aInd) = "  AMT: " _ segVal _" (" _retVal_ "), # " _$PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"REF") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	if (seg1Val = "1K") // Claim Number
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.PayerClaimQualLookup", seg1Val, .retVal)
+
+				  		set refStr = refStr _ "  REF: " _ segVal _" (" _retVal_ "), Id: " _$PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	set dtpStr = "  DTP #    -> ** " _ seg1Val _" (" _ retVal _ ") -> " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+			  	}
+			  	
+			  	
+			  	
+			  	
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	 	  	
+
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 5) = "1")
+				  	{
+					  	set parentIds($PIECE(segVal, x12Doc.ElementSeparator , 2)) = segVal
+					  	WRITE !, isaGsInfo _", " _ stNum _", " _ bhtStr  _", " _ trnStr _", " _ nmStr _", " _ refStr _", STC: " _stcStr  _", " _dtpStr
+					  	WRITE !, "  - Parent: "_ seg3Val _" (" _ retVal _ ") -> " _ segVal
+					  	set nmStr = "", clpStr = "", amtStr = "", stcStr = "", qtyStr = "", dtpStr = "", refStr = ""
+					  	
+
+				  	}
+				  	else
+				  	{
+					  	
+					  	WRITE !, isaGsInfo  _", " _ stNum _", " _ bhtStr  _", " _ trnStr _", " _ nmStr _", " _ refStr _", STC: " _stcStr  _", " _dtpStr
+					  	WRITE !, "   -- Child: " _ seg3Val _" (" _ retVal _ ") -> " _ segVal _ ", Parent: " _ parentIds($PIECE(segVal, x12Doc.ElementSeparator , 3))
+					  	set nmStr = "", clpStr = "", amtStr = "", stcStr = "", qtyStr = "", dtpStr = "", refStr = ""
+					  	
+				  	}
+				  	For i=1:1:aInd
+					   	{
+						   	WRITE amtStr(i) 					   							   
+					   	}
+					 For i=1:1:qInd
+					   	{
+						   	WRITE qtyStr(i) 					   							   
+					   	}
+					   	set aInd = 0, qInd = 0
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	set nmStr = "    -> " _ segVal _ "  ** " _ seg1Val _" (" _ retVal _")"
+			  	}
+			  	else
+			  	{
+				  	WRITE !, "     ***** " _ segVal
+			  	}
+			  	
+			  }
+		  }
+		  
+	 }
+	 
+		  
+	 
+]]></Routine>
+</Export>

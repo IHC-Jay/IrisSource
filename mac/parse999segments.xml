@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="parse999segments" type="MAC" languagemode="0"><![CDATA[
+#dim x12Doc as EnsLib.EDI.X12.Document
+
+  set flNm = "/home/lpjnaras/UI-testing/HT002245-001_20250101081600_HT000015-001-0056344_L14.999"
+  WRITE !, flNm _", " _ ##class(%File).GetFileSize(flNm)
+  set x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm)
+  set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+  if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   Set tSC =x12Doc.BuildMap()
+		   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+	  
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		  
+		  set isaGsInfo = InterchangeCtrlNum _", " _ InterchangeSenderID _" -> " _ InterchangeReceiverID _ ", GroupControlNumber: " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+		  // WRITE !, x12Doc.ElementSeparator  _", " _ x12Doc.ComponentSeparator 
+		  set STRecord=individualGroup.getNthChild(1,2)
+		  set transType = STRecord.GetValueAt("1:1",, .stat)
+		  
+		  if (STRecord.GetValueAt("1",, .stat) [ "005010X222A1")
+			{
+				set transType = transType _"P"
+			}
+			elseif (STRecord.GetValueAt("1",, .stat) [ "005010X223A2")
+			{
+				set transType = transType _"I"
+			}
+			elseif (STRecord.GetValueAt("1",, .stat) [ "005010X224A2")
+			{
+				set transType = transType _"D"
+			}
+			
+		  set STRecord.DocType = "HIPAA_5010:" _ transType
+		  WRITE !, "ST: " _  transType_ ", CountGet: " _ STRecord.SegCountGet() 
+		  set akStr = "", ikStr = "", trnStr = ""
+		  set parentIds(1) = ""
+		  FOR ind=1:1:STRecord.SegCountGet()
+		  {
+			  
+			set segPath = STRecord.GetSegmentPath(ind, .stat)
+			  // WRITE !, ind _". " _ segPath
+		  	
+		  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+		  	if ($FIND(segVal,"AK2") = 4)
+		  	{
+  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AkTransSetlLookup", seg3Val, .retVal)
+			  	
+				  	set akStr = seg3Val _" (" _ retVal _"), Ctrl #" _ $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+		  	}
+		  	elseif ($FIND(segVal,"IK5") = 4)
+		  	{
+  			  	set seg2Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg2Val, .retVal)
+			  	set ik5Str = seg2Val _" (" _ retVal _")"
+			  	if ($PIECE(segVal, x12Doc.ElementSeparator , 3) '= "") {
+				   	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AkErrorLookup", seg3Val, .retVal)
+			  		set ik5Str = ik5Str _ ", " _ seg3Val _" (" _ retVal _")"
+			  	}	
+			  	if (ikStr '= "")
+			  	{
+			  	   set ik5Str = ik5Str _", " _ ", Details:" _ ikStr 
+			  	}		  					
+				WRITE !, isaGsInfo  _", " _ trnStr _ akStr _", " _ ik5Str  
+				  	
+				set akStr = "", ikStr = ""
+		  	}
+		  	elseif ($FIND(segVal,"IK") = 3)
+		  	{		   	
+				set ikStr = ikStr _ " " _ segVal
+		  	}
+		  	elseif ($FIND(segVal,"AK9") = 4)
+		  	{
+  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg3Val, .retVal)
+			  	
+				WRITE !, seg3Val _" (" _ retVal _"), Receiver #" _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ", Received #" _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", Accept #" _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+		  	}
+		  }
+	 }
+]]></Routine>
+</Export>
