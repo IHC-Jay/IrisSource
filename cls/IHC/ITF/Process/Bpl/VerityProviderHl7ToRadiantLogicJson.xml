@@ -93,6 +93,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='unitNum' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='smsg' type='EnsLib.HL7.Message' instantiate='0' />
 <property name='targetIndx' type='%Integer' instantiate='0' />
 <property name='jsnStr' type='Ens.StringResponse' initialexpression='""' instantiate='0' />
@@ -100,8 +105,8 @@ BPL Definition</Description>
 <property name='existingPrvdr' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='pdata' type='IHC.ITF.DStruc.Request.PrvdrRecodComb' instantiate='0' />
 </context>
-<sequence xend='200' yend='1850' >
-<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -134,7 +139,6 @@ BPL Definition</Description>
    set k1="",tSC=1 
    For { 
      Set k1=request.GetNextIndex("MFEgrp(1).MFE:PrimaryKeyValueMFE()",k1,.tSCTrans)  Quit:k1=""          
-   //for i=1:1:request.MFEgrp(1).MFE.PrimaryKeyValueMFE() {
 	  set ktype = request.GetValueAt("MFEgrp(1).MFE:4("_k1_").3")
 	  $$$TRACE("Key Type: " _ktype) 
 	  if (ktype="CORPROV"){
@@ -168,12 +172,24 @@ BPL Definition</Description>
    if jsonObj.totalResults=1 {
 	   set context.existingPrvdr=1
    }
+   else {
+    try {
+       set tStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(context.prvdrId, "MFE-4.1", "50035", "1000000000", "1309","Op-Hdd-Xml-Wssc",.process, .uNum)
+       if uNum'="" {
+	       set context.unitNum=uNum
+       }
+    }catch(exVar){
+       set exVarData = $ZSTRIP(exVar.Data,"*C")
+       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+    }
+
+   }
    
  }
   ]]]]><![CDATA[>
 </code>
 <transform name='Verity Hl7 to RadiantLogic Json string' class='IHC.ITF.Transform.Dtl.VerityHl7ToRadiantLogicJsonString' source='request' target='context.jsnStr' xpos='200' ypos='850' />
-<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='950' xend='200' yend='1500' >
+<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='950' xend='200' yend='1600' >
 <true>
 <code name='Call RadiantLogic service' xpos='470' ypos='1100' >
 <![CDATA[  $$$TRACE("Call RadiantLogic REST Operation")
@@ -187,6 +203,43 @@ BPL Definition</Description>
   set status=process.SendRequestSync(context.rsOpNm,context.jsnStr,.restResponse)
   if ($$$ISOK(status)){
      $$$TRACE("REST service response data: "_restResponse.StringValue)
+     set jsonObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+     If ($$$IsdefObject(jsonObj)) {
+        $$$TRACE("Parsing Json String is done. Check the unit number in the response")
+        set unitNumber=jsonObj.unitnumber
+        if (unitNumber'="") && ($ISVALIDNUM(unitNumber)) {
+	      $$$TRACE("Reponse has unit number...")
+        }
+        else {
+	       if context.existingPrvdr=0 {
+	           $$$TRACE("Call RadiantLogic REST Operation")
+               set context.prvdrId.StringValue=context.pid
+               set status=process.SendRequestSync(context.rsOpNm,context.prvdrId,.restResponse)
+               if ($$$ISOK(status)){
+                 $$$TRACE("REST service response data: "_restResponse.StringValue)
+               }
+               else {
+                 $$$TRACE("Radiant service call failed. "_restResponse)
+                 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
+               }
+               set jsonObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+               If ($$$IsdefObject(jsonObj)) {
+                 $$$TRACE("Parsing Json String is done.")
+                 set context.unitNum=jsonObj.unitnumber
+                 if (context.unitNum'="") && ($ISVALIDNUM(context.unitNum)) {
+	                $$$TRACE("Reponse has unit number...")
+                 }
+                 else {
+                    set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "RadiantLogic service response does not have the unit number. Skip message.")
+                 }
+               }
+          }
+          else {
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "RadiantLogic service response does not have the unit number. Skip message.")
+          }
+
+        }   
+     }
      set context.pdata=##class(IHC.ITF.DStruc.Request.PrvdrRecodComb).%New()
      set context.pdata.sourceSystem="Verity"
      set context.pdata.RLResponse=restResponse.StringValue
@@ -197,12 +250,12 @@ BPL Definition</Description>
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
   }]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='470' ypos='1200' >
+<code name='GetTargetConfigList' xpos='470' ypos='1300' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
    $$$TRACE("Send the combo msg to the targets")]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1300' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1400' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='600' >
 <true>
 <trace value='"Sending data to the target..."' xpos='335' ypos='400' />
@@ -214,7 +267,7 @@ BPL Definition</Description>
 </true>
 </if>
 </foreach>
-<code name='RESET ERROR' xpos='470' ypos='1400' >
+<code name='RESET ERROR' xpos='470' ypos='1500' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
@@ -224,7 +277,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
