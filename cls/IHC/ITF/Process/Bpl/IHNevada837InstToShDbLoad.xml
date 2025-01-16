@@ -11,9 +11,30 @@ Use this template to start your BPL</Description>
 <Parameter name="MAXLEN" value="20"/>
 </Property>
 
+<Property name="FailedFileDirec">
+<Description>
+Drectory where invlid files are dropped</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="256"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AssignedMemory:Additional</Default>
+<Default>AssignedMemory:Additional,FailedFileDirec:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>IHNevada837InstToShDbLoadDefaultData</DefaultData>
+<Data name="IHNevada837InstToShDbLoadDefaultData">
+<Subscript>"IHNevada837InstToShDbLoad"</Subscript>
+<Value name="1">
+<Value>AssignedMemory</Value>
+</Value>
+<Value name="2">
+<Value>FailedFileDirec</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -258,6 +279,8 @@ BPL Definition</Description>
   SET $ZSTORAGE=memValue  
  }
  
+ $$$TRACE("Process: " _ request)
+ 
  if (request.%Extends("EnsLib.EDI.X12.Document"))
  {
 	 set context.x12Doc = request
@@ -267,9 +290,21 @@ BPL Definition</Description>
  }
  elseif (request.%Extends("Ens.StreamContainer"))
  {
-	 set context.x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream)
+	 set context.x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .stat)
          set context.inpStream = request.Stream
          set context.FileName = request.OriginalFilename
+         if (stat '= 1)
+         {
+             set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FailedFileDirec",.configValue)
+   
+             Set filename = configValue _ ##class(%File).GetFilename(context.FileName)
+             Set stream=##class(%Stream.FileCharacter).%New()
+ 
+             set stream.Filename = filename
+             set stat = stream.CopyFromAndSave(context.inpStream)
+             $$$TRACE( filename _ ": save: " _ stat )
+             Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data ")
+         }
  }
  else
  {
@@ -298,6 +333,21 @@ BPL Definition</Description>
        set context.ISA13 = $ZSTRIP(context.x12Doc.GetValueAt("ISA:InterchangeControlNumber"),"<","0")
        set context.ISA15 = context.x12Doc.GetValueAt("ISA:UsageIndicator")
        $$$TRACE("ISA: " _ context.ISA06 _", ctrl #: " _ context.ISA13)
+       
+       if ( (context.ISA06 = "" ) || (context.ISA13 = "") )
+       {
+     
+        set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FailedFileDirec",.configValue)
+   
+        Set filename = configValue _ ##class(%File).GetFilename(context.FileName)
+        Set stream=##class(%Stream.FileCharacter).%New()
+ 
+        set stream.Filename = filename
+        set stat = stream.CopyFromAndSave(context.inpStream)
+        $$$TRACE( filename _ ": save: " _ stat )
+        Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data ")
+
+       } 
  
        /* Iterates through available number of group's and collects group level information and sets to gsDoc object */
           
@@ -322,7 +372,17 @@ BPL Definition</Description>
  } 
  else
  {
-  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid X12 file. Please verify and reprocess the message ")
+     
+        set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FailedFileDirec",.configValue)
+   
+        Set filename = configValue _ ##class(%File).GetFilename(context.FileName)
+        Set stream=##class(%Stream.FileCharacter).%New()
+ 
+        set stream.Filename = filename
+        set stat = stream.CopyFromAndSave(context.inpStream)
+        $$$TRACE( filename _ ": save: " _ stat )
+        Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data ")
+
  } 
 ]]]]><![CDATA[>
 </code>
@@ -1241,26 +1301,28 @@ BPL Definition</Description>
 <faulthandlers>
 <catchall xpos='200' ypos='1250' xend='200' yend='450' >
 <code name='Delete' xpos='200' ypos='250' >
-<![CDATA[ set delSt = ##class(IHC.ITF.DStruct.ListOfValueAndType).%New()
- FOR i=1:1:1
-  {
-    Do delSt.value.Insert("")
-    Do delSt.type.Insert(12)
-  }
-  Do delSt.value.SetAt(context.fileTransId, 1)
-  set delSt.storedProcName="SHSP_IB_CLAIM_DELETE"
-  
-    $$$TRACE("Call for Delete: " _ context.targetConfigName)
-   set tStatus=process.SendRequestSync(context.targetConfigName, delSt , .response)
-  if ('tStatus) { 
-     $$$LOGERROR(" Unexpected response returned from Delete operation." _ $SYSTEM.Status.GetOneErrorText(tStatus)) 
-  }
-  else { 
-   set context.operationResp = response.StringValue
-  }
-  
-  $$$TRACE("DELETE: " _ context.operationResp)
- ]]]]><![CDATA[>
+<![CDATA[ if (context.fileTransId '= "")
+ {
+	 set delSt = ##class(IHC.ITF.DStruct.ListOfValueAndType).%New()
+	 FOR i=1:1:1
+	  {
+		Do delSt.value.Insert("")
+		Do delSt.type.Insert(12)
+	  }
+	  Do delSt.value.SetAt(context.fileTransId, 1)
+	  set delSt.storedProcName="SHSP_IB_CLAIM_DELETE"
+	  
+		$$$TRACE("Call for Delete: " _ context.targetConfigName)
+	   set tStatus=process.SendRequestSync(context.targetConfigName, delSt , .response)
+	  if ('tStatus) { 
+		 $$$LOGERROR(" Unexpected response returned from Delete operation." _ $SYSTEM.Status.GetOneErrorText(tStatus))    
+	  }
+	  else { 
+	   set context.operationResp = response.StringValue
+	  }
+	  
+	  $$$TRACE("DELETE: " _ context.operationResp)
+  }]]]]><![CDATA[>
 </code>
 <code name='Call ProcessError' xpos='200' ypos='350' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
@@ -1274,17 +1336,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>IHNevada837InstToShDbLoadDefaultData</DefaultData>
-<Data name="IHNevada837InstToShDbLoadDefaultData">
-<Structure>listnode</Structure>
-<Subscript>"IHNevada837InstToShDbLoad"</Subscript>
-<Value name="1">
-<Value>AssignedMemory</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
