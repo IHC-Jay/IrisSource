@@ -42,7 +42,6 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='cntr' type='%Integer' instantiate='0' />
-<property name='retryInterval' type='%Integer' initialexpression='30' instantiate='0' />
 <property name='lastNm' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -100,13 +99,14 @@ BPL Definition</Description>
 </property>
 <property name='smsg' type='EnsLib.HL7.Message' instantiate='0' />
 <property name='targetIndx' type='%Integer' instantiate='0' />
+<property name='retryIntvl' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='jsnStr' type='Ens.StringResponse' initialexpression='""' instantiate='0' />
 <property name='prvdrId' type='Ens.StringContainer' initialexpression='""' instantiate='1' />
 <property name='existingPrvdr' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='pdata' type='IHC.ITF.DStruc.Request.PrvdrRecodComb' instantiate='0' />
 </context>
-<sequence xend='200' yend='1950' >
-<scope xpos='200' ypos='250' xend='200' yend='1850' >
+<sequence xend='200' yend='1850' >
+<scope xpos='200' ypos='250' xend='200' yend='1750' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -120,7 +120,7 @@ BPL Definition</Description>
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RetryInterval",.retryInt)
  $$$TRACE("Retry interval: "_retryInt)
  if ( ('$$$ISERR(pstatus)) || (retryInt '= "")) {
-	 set retryInterval=retryInt
+	 set context.retryIntvl=retryInt
  }
  	  ]]]]><![CDATA[>
 </code>
@@ -144,6 +144,12 @@ BPL Definition</Description>
 	  if (ktype="CORPROV"){
 	    set context.pid = request.GetValueAt("MFEgrp(1).MFE:4("_k1_").1")
 	    $$$TRACE("Provider ID: " _ context.pid) 
+	  }
+	  else {
+		if (ktype="UNITNUMBER"){
+		  set context.unitNum = request.GetValueAt("MFEgrp(1).MFE:4("_k1_").1")
+	      $$$TRACE("UnitNumber: " _ context.unitNum) 
+		}
 	  }
 	} 
 	if ((context.pid="") || ($ISVALIDNUM(context.pid)'="1")){	  
@@ -173,23 +179,24 @@ BPL Definition</Description>
 	   set context.existingPrvdr=1
    }
    else {
-    try {
-       set tStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(context.prvdrId, "MFE-4.1", "50035", "1000000000", "1309","Op-Hdd-Xml-Wssc",.process, .uNum)
-       if uNum'="" {
+	 if context.unitNum="" {
+       try {
+         set tStatus=##class(IHC.ITF.ITFCOMMON.HDD.Interface.TerminalogyLookupUtil).getRepByRep(context.prvdrId, "MFE-4.1", "50035", "1000000000", "1309","Op-Hdd-Xml-Wssc",.process, .uNum)
+         if uNum'="" {
 	       set context.unitNum=uNum
-       }
-    }catch(exVar){
-       set exVarData = $ZSTRIP(exVar.Data,"*C")
-       $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
-    }
-
+         }
+       }catch(exVar){
+         set exVarData = $ZSTRIP(exVar.Data,"*C")
+         $$$TRACE(" exVarData --> "_exVarData_ " exVar.Code -->"_exVar.Code)
+      }
+	 }
    }
    
  }
   ]]]]><![CDATA[>
 </code>
 <transform name='Verity Hl7 to RadiantLogic Json string' class='IHC.ITF.Transform.Dtl.VerityHl7ToRadiantLogicJsonString' source='request' target='context.jsnStr' xpos='200' ypos='850' />
-<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='950' xend='200' yend='1600' >
+<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='950' xend='200' yend='1500' >
 <true>
 <code name='Call RadiantLogic service' xpos='470' ypos='1100' >
 <![CDATA[  $$$TRACE("Call RadiantLogic REST Operation")
@@ -213,8 +220,8 @@ BPL Definition</Description>
         else {
 	       if context.existingPrvdr=0 {
 	           $$$TRACE("Call RadiantLogic REST Operation to get the unit number")
-	           $$$TRACE("Hang the interval: "_retryInterval_ " to wait Radiant grap the unit number.")
-	           hang retryInterval
+	           $$$TRACE("Hang the interval: "_context.retryIntvl_ " to wait Radiant grap the unit number.")
+	           hang context.retryIntvl
 	           
                set context.prvdrId.StringValue=context.pid
                set status=process.SendRequestSync(context.rsOpNm,context.prvdrId,.restResponse)
@@ -253,12 +260,12 @@ BPL Definition</Description>
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
   }]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='470' ypos='1300' >
+<code name='GetTargetConfigList' xpos='470' ypos='1200' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
    $$$TRACE("Send the combo msg to the targets")]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1400' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1300' xend='200' yend='700' >
 <if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='600' >
 <true>
 <trace value='"Sending data to the target..."' xpos='335' ypos='400' />
@@ -270,7 +277,7 @@ BPL Definition</Description>
 </true>
 </if>
 </foreach>
-<code name='RESET ERROR' xpos='470' ypos='1500' >
+<code name='RESET ERROR' xpos='470' ypos='1400' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
@@ -280,7 +287,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1700' xend='200' yend='350' >
+<catchall xpos='200' ypos='1600' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
