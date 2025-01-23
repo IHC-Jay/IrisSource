@@ -218,8 +218,8 @@ BPL Definition</Description>
 </property>
 <property name='clmInstClaim2400Prov' type='IHC.ITF.DStruct.StoredProcList' instantiate='1' />
 </context>
-<sequence xend='200' yend='1500' >
-<scope xpos='200' ypos='250' xend='200' yend='1400' >
+<sequence xend='200' yend='1600' >
+<scope xpos='200' ypos='250' xend='200' yend='1500' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName  _", " _ $ZDT($H, 3, 1)' xpos='200' ypos='350' >
 <annotation><![CDATA[Trace message for process beginning]]]]><![CDATA[></annotation>
 </trace>
@@ -262,7 +262,7 @@ BPL Definition</Description>
  
 ]]]]><![CDATA[>
 </code>
-<code name='Parse ISA and collect GS level' xpos='200' ypos='650' >
+<code name='Get EnsLib.EDI.X12.Document' xpos='200' ypos='650' >
 <annotation><![CDATA[Parse X12 and split at GS level]]]]><![CDATA[></annotation>
 <![CDATA[ /* Allocating assigned memory for the process */
  
@@ -290,11 +290,24 @@ BPL Definition</Description>
  }
  elseif (request.%Extends("Ens.StreamContainer"))
  {
+    try
+    {
+         $$$TRACE("Import X12: " _ request.Stream.Size)
 	 set context.x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .stat)
+	 $$$TRACE("ImportFromLibraryStream: " _ stat)
+   }
+   Catch ex 
+   {
+        $$$TRACE(" EnsLib.EDI.X12.Document exception")
+        set stat = 0
+   }
+    
          set context.inpStream = request.Stream
          set context.FileName = request.OriginalFilename
-         if (stat '= 1)
+         if ( (stat '= 1) || '$IsObject(context.x12Doc))
          {
+             
+             
              set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FailedFileDirec",.configValue)
    
              Set filename = configValue _ ##class(%File).GetFilename(context.FileName)
@@ -303,20 +316,27 @@ BPL Definition</Description>
              set stream.Filename = filename
              set stat = stream.CopyFromAndSave(context.inpStream)
              $$$TRACE( filename _ ": save: " _ stat )
-             Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data ")
+             
+             Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Invalid X12 data ")
+         }
+         else
+         {
+           $$$TRACE(" Received an invalid data " _ stat _", IsObject: " _ $IsObject(context.x12Doc)) 
          }
  }
  else
  {
-	   Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid X12 file. Please verify and reprocess the message: " _ request)
+	  Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid object: " _ request)
  }
  
- ///$$$TRACE("Memory Value Assigned : "_memValue)
+
+ ]]]]><![CDATA[>
+</code>
+<code name='Parse ISA and collect GS level' xpos='200' ypos='750' >
+<![CDATA[ /* Check if the received data is a X12 file or not and report error if it is not a X12 message. Parse the Interchange Level and extract number of Group level (GS-GE) count, SenderID (ISA06), ControlNumber (ISA13) and UsageIndicator (ISA15). Iterate through each GS level and place each group object in a collection list */
  
- /* Check if the received data is a X12 file or not and report error if it is not a X12 message. Parse the Interchange Level and extract number of Group level (GS-GE) count, SenderID (ISA06), ControlNumber (ISA13) and UsageIndicator (ISA15). Iterate through each GS level and place each group object in a collection list */
  
- 
- if (context.x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+ if (  ($IsObject(context.x12Doc)) && (context.x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
  {
  
    try
@@ -381,12 +401,13 @@ BPL Definition</Description>
         set stream.Filename = filename
         set stat = stream.CopyFromAndSave(context.inpStream)
         $$$TRACE( filename _ ": save: " _ stat )
-        Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data ")
+        
+        Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Received an invalid data, EnsLib.EDI.X12.Document not created ")
 
  } 
 ]]]]><![CDATA[>
 </code>
-<code name='Populate clmInstTranStruct' xpos='200' ypos='750' >
+<code name='Populate clmInstTranStruct' xpos='200' ypos='850' >
 <![CDATA[  Do context.clmInstTranStruct.value.Insert(##class(%File).GetFilename(context.FileName)) // @p_file_name
   Do context.clmInstTranStruct.value.Insert($ZDT($H, 3, 1)) // @p_received_date
   
@@ -423,8 +444,8 @@ BPL Definition</Description>
   
 ]]]]><![CDATA[>
 </code>
-<transform name='IHNevada837ToClaimInstTransaction' class='IHC.ITF.Transform.Dtl.IHNevada837ToClaimInstTransaction' source='context.x12Doc' target='context.clmInstTranStruct' xpos='200' ypos='850' />
-<code name='Call Operation' xpos='200' ypos='950' >
+<transform name='IHNevada837ToClaimInstTransaction' class='IHC.ITF.Transform.Dtl.IHNevada837ToClaimInstTransaction' source='context.x12Doc' target='context.clmInstTranStruct' xpos='200' ypos='950' />
+<code name='Call Operation' xpos='200' ypos='1050' >
 <![CDATA[  $$$TRACE("Call for clmInstTranStruct: " _ context.targetConfigName)
    set tStatus=process.SendRequestSync(context.targetConfigName, context.clmInstTranStruct, .response)
   if ('tStatus) { 
@@ -437,7 +458,7 @@ BPL Definition</Description>
   $$$TRACE(context.operationResp)
   set context.fileTransId = $PIECE(context.operationResp, "|", 3)]]]]><![CDATA[>
 </code>
-<foreach name='for each Group level (GS-GE)' property='context.gsDoc' key='context.GSind' xpos='200' ypos='1050' xend='200' yend='450' >
+<foreach name='for each Group level (GS-GE)' property='context.gsDoc' key='context.GSind' xpos='200' ypos='1150' xend='200' yend='450' >
 <annotation><![CDATA[Iterate through each GS level ]]]]><![CDATA[></annotation>
 <code name='Parse GS and collect ST level' xpos='200' ypos='250' >
 <annotation><![CDATA[Iterate and collect ST level details for each Group]]]]><![CDATA[></annotation>
@@ -1297,11 +1318,12 @@ BPL Definition</Description>
 </if>
 </foreach>
 </foreach>
-<trace name='End' value='"Done processing: " _ context.FileName _ "  # of 2000A: " _ (context.loopAind - 1) _ ", # of CLMs: " _ context.ClmInd' xpos='200' ypos='1150' />
+<trace name='End' value='"Done processing: " _ context.FileName _ "  # of 2000A: " _ (context.loopAind - 1) _ ", # of CLMs: " _ context.ClmInd' xpos='200' ypos='1250' />
 <faulthandlers>
-<catchall xpos='200' ypos='1250' xend='200' yend='450' >
+<catchall xpos='200' ypos='1350' xend='200' yend='450' >
 <code name='Delete' xpos='200' ypos='250' >
-<![CDATA[ if (context.fileTransId '= "")
+<![CDATA[ $$$TRACE("In Delete")
+ if (context.fileTransId '= "")
  {
 	 set delSt = ##class(IHC.ITF.DStruct.ListOfValueAndType).%New()
 	 FOR i=1:1:1
@@ -1326,7 +1348,8 @@ BPL Definition</Description>
 </code>
 <code name='Call ProcessError' xpos='200' ypos='350' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
-<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+<![CDATA[ 
+ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
 ]]]]><![CDATA[>
 </code>
 </catchall>
