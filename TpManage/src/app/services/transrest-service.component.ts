@@ -15,14 +15,9 @@ import { environment } from '../../environments/environment';
 import { Inject } from "@angular/core";
 
 
-import {EligibilityRequest} from '../transaction/EligibilityRequest'
-import {Claim} from '../transaction/Claims'
-import {ClaimStatusResp} from '../transaction/ClaimStatusResp'
-import {ClaimStatusReq} from '../transaction/ClaimStatusReq'
-import {ClaimPayment} from '../transaction/ClaimPayment'
-import {ImplementationAcknowledgment} from '../transaction/ImplementationAcknowledgment';
-import {InterchangeAcknowledgment} from '../transaction/InterchangeAcknowledgement';
-import {ClaimAcknowledgment} from '../transaction/ClaimAcknowledgment';
+import {TransactionData} from '../transaction/TransactionData'
+
+
 import {WorkFlowEntry, IrisUsers} from '../workflow/WorkFlowEntry';
 import { transition } from '@angular/animations';
 import { AuthenticationService } from './authentication.service';
@@ -110,7 +105,7 @@ fetchEligibilityRequests(mode: string, searchArr: string[]) {
 
   console.log('ElgBen: ' + url)
   return this.http2
-    .get<{ [key: string]: EligibilityRequest }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -118,10 +113,10 @@ fetchEligibilityRequests(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const EligibilityRequestArray: EligibilityRequest[] = [];
+        const EligibilityRequestArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-             EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+             EligibilityRequestArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return TP array: ' + EligibilityRequestArray.length );
@@ -150,7 +145,7 @@ fetchEligibilityBenefitResponses(mode: string, searchArr: string[]) {
   }
   console.log('Fetch Eligibility Benefit Responses with Auth ' + url);
   return this.http2
-    .get<{ [key: string]: EligibilityRequest }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -158,14 +153,14 @@ fetchEligibilityBenefitResponses(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const EligibilityRequestArray: EligibilityRequest[] = [];
+        const EligibilityResponseArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+            EligibilityResponseArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
-        console.info('return Claim Status Resp array: ' + EligibilityRequestArray.length );
-        return EligibilityRequestArray;
+        console.info('return Claim Status Resp array: ' + EligibilityResponseArray.length );
+        return EligibilityResponseArray;
 
 
       }),
@@ -190,7 +185,7 @@ fetchClaims(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: Claim }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -198,10 +193,10 @@ fetchClaims(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimArray: Claim[] = [];
+        const ClaimArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ClaimArray.push({ ...responseData[key], id: responseData[key].id });
+            ClaimArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim array: ' + ClaimArray.length );
@@ -219,7 +214,7 @@ fetchClaims(mode: string, searchArr: string[]) {
 
 }
 fetchClaimStatusReq(mode: string, searchArr: string[]) {
-  console.log('Fetch Claim Status Response with Auth ' );
+  console.log('Fetch Claim Status Req with Auth ' );
 
   let url = this.batchTransUrl + 'ClaimStatusRequest?searchStr=' + searchArr;
 
@@ -229,7 +224,7 @@ fetchClaimStatusReq(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: ClaimStatusReq }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -237,13 +232,13 @@ fetchClaimStatusReq(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimStatusReqArray: ClaimStatusReq[] = [];
+        const ClaimStatusReqArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ClaimStatusReqArray.push({ ...responseData[key], id: responseData[key].id });
+            ClaimStatusReqArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
-        console.info('return Claim Status Resp array: ' + ClaimStatusReqArray.length );
+        console.info('return Claim Status Req array: ' + ClaimStatusReqArray.length );
         return ClaimStatusReqArray;
 
 
@@ -251,7 +246,7 @@ fetchClaimStatusReq(mode: string, searchArr: string[]) {
 
       catchError(errorRes => {
         // Send to analytics server
-        console.error('In fetchClaimStatusResp catchError: ' + errorRes);
+        console.error('In fetchClaimStatusReq catchError: ' + errorRes);
         return errorRes;
       })
     );
@@ -268,7 +263,7 @@ fetchClaimStatusResp(mode: string, searchArr: string[]) {
      url = this.rtTransUrl + 'ClaimStatusResponse?searchStr=' + searchArr;
   }
   return this.http2
-    .get<{ [key: string]: ClaimStatusResp }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -276,10 +271,10 @@ fetchClaimStatusResp(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimStatusRespArray: ClaimStatusResp[] = [];
+        const ClaimStatusRespArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ClaimStatusRespArray.push({ ...responseData[key], id: responseData[key].id });
+            ClaimStatusRespArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim Status Resp array: ' + ClaimStatusRespArray.length );
@@ -311,16 +306,16 @@ fetchClaimPayment(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: ClaimPayment }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     ).pipe(
       map(responseData => {
         console.info(responseData);
 
-        const ClaimPaymentArray: ClaimPayment[] = [];
+        const ClaimPaymentArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ClaimPaymentArray.push({ ...responseData[key], id: responseData[key].id });
+            ClaimPaymentArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim Status Resp array: ' + ClaimPaymentArray.length );
@@ -339,7 +334,7 @@ fetchClaimPayment(mode: string, searchArr: string[]) {
 }
 
 fetchImplementationAcknowledgment(mode: string, searchArr: string[]) {
-  console.log('Fetch Claim Status Response with Auth ' );
+  console.log('Fetch Implementation Acknowledgment with Auth ' );
 
   let url = this.batchTransUrl + 'ImplementationAcknowledgment?searchStr=' + searchArr;
 
@@ -349,7 +344,7 @@ fetchImplementationAcknowledgment(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: ImplementationAcknowledgment }>(
+    .get<{ [key: string]: TransactionData}>(
       url
     )
 
@@ -357,14 +352,54 @@ fetchImplementationAcknowledgment(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ImplementationAcknowledgmentArray: ImplementationAcknowledgment[] = [];
+        const ImplementationAcknowledgmentArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ImplementationAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+            ImplementationAcknowledgmentArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim Status Resp array: ' + ImplementationAcknowledgmentArray.length );
         return ImplementationAcknowledgmentArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchImplementationAcknowledgment catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+fetchTA1 (mode: string, searchArr: string[]) {
+  console.log('Fetch TA1 with Auth ' );
+
+  let url = this.batchTransUrl + 'GetTA1?searchStr=' + searchArr;
+
+  if (mode === 'RealTime')
+  {
+     url = this.rtTransUrl + 'GetTA1?searchStr=' + searchArr;
+  }
+
+  return this.http2
+    .get<{ [key: string]: TransactionData}>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const TA1Array: TransactionData[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            TA1Array.push({ ...responseData[key], value: responseData[key].value });
+          }
+        }
+        console.info('return Claim Status Resp array: ' + TA1Array.length );
+        return TA1Array;
 
 
       }),
@@ -389,7 +424,7 @@ fetchInterchangeAcknowledgment(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: InterchangeAcknowledgment }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -397,10 +432,10 @@ fetchInterchangeAcknowledgment(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const InterchangeAcknowledgmentArray: InterchangeAcknowledgment[] = [];
+        const InterchangeAcknowledgmentArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            InterchangeAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+            InterchangeAcknowledgmentArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim Status Resp array: ' + InterchangeAcknowledgmentArray.length );
@@ -418,7 +453,7 @@ fetchInterchangeAcknowledgment(mode: string, searchArr: string[]) {
 
 }
 fetchClaimAcknowledgment(mode: string, searchArr: string[]) {
-  console.log('Fetch Claim Status Response with Auth ' );
+  console.log('Fetch Claim Ack with Auth ' );
   let url = this.batchTransUrl + 'ClaimAcknowledgment?searchStr=' + searchArr;
 
   if (mode === 'RealTime')
@@ -427,7 +462,7 @@ fetchClaimAcknowledgment(mode: string, searchArr: string[]) {
   }
 
   return this.http2
-    .get<{ [key: string]: ClaimAcknowledgment }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -435,10 +470,10 @@ fetchClaimAcknowledgment(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimAcknowledgmentArray: ClaimAcknowledgment[] = [];
+        const ClaimAcknowledgmentArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            ClaimAcknowledgmentArray.push({ ...responseData[key], id: responseData[key].id });
+            ClaimAcknowledgmentArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return Claim Status Resp array: ' + ClaimAcknowledgmentArray.length );
@@ -463,7 +498,7 @@ fetchTransactionFields() {
 
 
   return this.http2
-    .get<{ [key: string]: Claim }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -687,7 +722,7 @@ fetchParentRecord(id: string, trans: string, searchTypeString: string) {
   }
 
   console.log('Fetch Parent X12 ' + url);
-  return this.http2.get<{ [key: string]: ImplementationAcknowledgment }>(
+  return this.http2.get<{ [key: string]: TransactionData}>(
       url
     )
 
@@ -698,7 +733,7 @@ fetchParentRecord(id: string, trans: string, searchTypeString: string) {
         if(responseData !== undefined && responseData[0] !== undefined)
         {
 
-          console.info('return Parent X12 : ' + responseData[0].id );
+          console.info('return Parent X12 : ' + responseData[0].value );
           return responseData[0];
         }
         else
@@ -718,7 +753,7 @@ fetchParentRecord(id: string, trans: string, searchTypeString: string) {
 
 }
 
-openRelated2701Model(trans:string, cRefId: string, dRefId : string,
+openRelated2701Model(trans:string, TrnRefId: string, SubscriberId : string,
   InterchangeSenderID : string,
   InterchangeReceiverID: string,
   InterchangeControlNumber: string, searchTypeString: string)
@@ -730,8 +765,8 @@ openRelated2701Model(trans:string, cRefId: string, dRefId : string,
        url = this. batchTransUrl
     }
 
-    url = url + "GetRelatedEligBenefit?transType="+trans+"&C1TRN1RefId="
-    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    url = url + "GetRelatedEligBenefit?transType="+trans+"&SubscriberId="
+    + SubscriberId +"&TrnRefId="+TrnRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
     +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
 
     console.log('Fetch 27x X12 ' + url);
@@ -758,7 +793,7 @@ openRelated2701Model(trans:string, cRefId: string, dRefId : string,
   }
 
 
-openRelated2767Model(trans:string, cRefId: string, dRefId : string,
+openRelated2767Model(trans:string, SubscriberId: string, BhtId : string, TrnRefId: string,
   InterchangeSenderID : string,
   InterchangeReceiverID: string,
   InterchangeControlNumber: string, searchTypeString: string)
@@ -770,8 +805,8 @@ openRelated2767Model(trans:string, cRefId: string, dRefId : string,
        url = this. batchTransUrl
     }
 
-    url = url + "GetRelatedClaimStatus?transType="+trans+"&C1TRN1RefId="
-    + cRefId+"&D1TRN1RefId="+dRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
+    url = url + "GetRelatedClaimStatus?transType="+trans+"&SubscriberId="
+    + SubscriberId+"&BhtId="+BhtId+"&TrnRefId="+TrnRefId+"&InterchangeSenderID="+InterchangeSenderID+"&InterchangeReceiverID="
     +InterchangeReceiverID+"&InterchangeControlNumber="+InterchangeControlNumber;
 
     console.log('Fetch 27x X12 ' + url);
@@ -813,7 +848,7 @@ fetchGetRelatedTransaction(trans: string, grpId: string, InterchangeSenderID : s
 
   console.log('Fetch 999 X12 ' + url);
   return this.http2
-    .get<{ [key: string]: EligibilityRequest }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -845,7 +880,7 @@ openRelated83xModel(trans: string,
 
  console.log('Fetch 83x X12 ' + url);
  return this.http2
-   .get<{ [key: string]: Claim }>(
+   .get<{ [key: string]: TransactionData }>(
      url
    )
 
@@ -875,7 +910,7 @@ openRelatedClaimAckModel(trans: string,
 
  console.log('Fetch 277CA X12 ' + url);
  return this.http2
-   .get<{ [key: string]: Claim }>(
+   .get<{ [key: string]: TransactionData }>(
      url
    )
 
@@ -979,7 +1014,7 @@ fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt 
         const WorkFlowEntriesArray: WorkFlowEntry[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
+            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id});
           }
         }
         console.info('return WF array: ' + WorkFlowEntriesArray.length );
@@ -1122,7 +1157,7 @@ passArray(mode: string, searchStr: string[]) {
 
   console.log('search URL: ' + url)
   return this.http2
-    .get<{ [key: string]: EligibilityRequest }>(
+    .get<{ [key: string]: TransactionData }>(
       url
     )
 
@@ -1130,10 +1165,10 @@ passArray(mode: string, searchStr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const EligibilityRequestArray: EligibilityRequest[] = [];
+        const EligibilityRequestArray: TransactionData[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
-             EligibilityRequestArray.push({ ...responseData[key], id: responseData[key].id });
+             EligibilityRequestArray.push({ ...responseData[key], value: responseData[key].value });
           }
         }
         console.info('return TP array: ' + EligibilityRequestArray.length );

@@ -1,10 +1,8 @@
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
-import {EligibilityRequest} from '../EligibilityRequest'
-import {Claim} from '../Claims';
-import {ClaimStatusResp} from '../ClaimStatusResp';
-import {ClaimStatusReq} from '../ClaimStatusReq';
+
+
 import {TransRestServiceComponent} from '../../services/transrest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
@@ -94,7 +92,7 @@ searchTypeString:string;
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['270', Validators.required],
-      mode:['RealTime', Validators.required]
+      mode:['Batch', Validators.required]
     });
 
 

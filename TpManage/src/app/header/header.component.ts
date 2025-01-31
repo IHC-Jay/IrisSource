@@ -74,7 +74,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           username: ['', Validators.required],
           password: ['', Validators.required],
           env: ['DEV', Validators.required],
-          logoutTime: ['5', Validators.required]
+          logoutTime: ['60', Validators.required]
       });
 
 
@@ -251,12 +251,21 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
     }, CHECK_INTERVAL);
   }
 
+  onContextSettings()
+  {
+
+
+    this.router.navigate(["/transaction/transaction-settings/"],
+
+     );
+  }
+
   check() {
     const now = Date.now();
     var tm = this.f.logoutTime.value
     const timeleft = this.getLastAction() + tm * 60 * 1000;
     const diff = timeleft - now;
-    console.log('Max time:' + tm + ', difference',diff)
+    // console.log('Max time:' + tm + ', difference',diff)
     const isTimeout = diff < 0;
 
     if (isTimeout)  {

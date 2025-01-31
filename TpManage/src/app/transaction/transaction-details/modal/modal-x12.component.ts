@@ -15,6 +15,7 @@ export class Modalx12Component {
 
 
   x12Data = "";
+  title = ""
   fileName = 'X12-File'+'.txt';
 
   selection = new SelectionModel(true, []);
@@ -32,6 +33,7 @@ export class Modalx12Component {
     console.log('Modalx12Component constructor: ' + data[1]);
     this.x12Data = data[0];
     this.fileName = data[1];
+    this.title =  data[2];
 
   }
 

@@ -1,7 +1,6 @@
 import { Component, OnInit,Input } from '@angular/core';
 import { CommonModule } from "@angular/common";
-import { CommonColumns, CommonColumnsDisplayColumns} from '../CommonColumns';
-import { EligibilityRequest } from '../EligibilityRequest';
+
 import { transition } from '@angular/animations';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
@@ -26,7 +25,7 @@ export class TransactionDetailComponent {
   dataSource = new MatTableDataSource<any>();
 
   sub:any;
-  id:string;
+  ID:string;
   X12DataParentId:string;
   ak1CtrlNum:string;
   ak1ver:string;
@@ -45,8 +44,6 @@ export class TransactionDetailComponent {
   )
   {
 
-    this.displayedColumns.push(...CommonColumnsDisplayColumns);
-
   }
 
   ngOnInit() {
@@ -55,11 +52,11 @@ export class TransactionDetailComponent {
     .queryParams
     .subscribe(params => {
       // Defaults to 0 if no query param provided.
-      this.id = ''+params['id'] || '0';
+      this.ID = ''+params['ID'] || '0';
       this.transaction = ''+params['transaction'] || '0';
       this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
-      console.log('Query params id: ', this.id + ', trans: ' + this.transaction + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
+      console.log('Query params ID: ', this.ID + ', trans: ' + this.transaction + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
       if (this.searchTypeString.indexOf("Batch") > 0)
       {
         this.mode = "Batch"
@@ -86,7 +83,7 @@ export class TransactionDetailComponent {
         }
         console.log(this.transaction + '- Display columns: ' + this.displayedColumns.length);
         let paramsList: string[]= [];
-        paramsList.push("id::" + this.id);
+        paramsList.push("ID::" + this.ID);
         paramsList.push("count::" + 1);
         // paramsList.push("searchType::" + this.searchTypeString);
 
@@ -170,15 +167,15 @@ export class TransactionDetailComponent {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
-            this.ak1CtrlNum = this.dataSource.data[0].AK1GroupControlNumber	;
-            this.ak1ver= this.dataSource.data[0].AK1VersionReleaseIndustryIdenti;
+            this.ak1CtrlNum = this.dataSource.data[0].GroupControlNumber	;
+            this.ak1ver= this.dataSource.data[0].GroupVersion;
             this.fileName = this.dataSource.data[0].FileName.replace(/^.*[\\\/]/, '');
           });
 
         }
         else if(this.transaction === 'TA1'){
 
-          this.TransactionService.fetchInterchangeAcknowledgment(this.mode, paramsList).subscribe((res: any) => {
+          this.TransactionService.fetchTA1(this.mode, paramsList).subscribe((res: any) => {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
@@ -220,22 +217,15 @@ export class TransactionDetailComponent {
                   }
                   this.x12Data = val;
                 }
-                else if(question === "loopCHLHierarchicalChildCode")
-                {
-                  // console.info(question + ": " + val)
-                  if(val === 1)
-                  {
-                  val ="Dependent"
-                  }
-                  else
-                  {
-                  val = "Subscriber"
-                  }
-                }
+
                 else if( question.indexOf("Date") > 0  && val.length ==8)
                 {
-                  val = val.substring(4,6)  + "/" +  val.substring(6,8) + "/" +val.substring(0,4)
+                  val = val.substring(0,4) +"-"+ val.substring(4,6)  + "-" +  val.substring(6,8)
                 }
+                else if( question.indexOf("Date") > 0  && val.length >=17)
+                  {
+                    val = val.substring(0,4) +"-"+ val.substring(4,6)  + "-" +  val.substring(6,8) + " -> " + val.substring(9,13) +"-"+ val.substring(13,15)  + "-" +  val.substring(15,17)
+                  }
                 else if (val === '')
                 {
                   val = '-';
@@ -385,6 +375,7 @@ export class TransactionDetailComponent {
     console.log(" openRelated27xModel: " + this.transaction +", " + this.dataSource.data[0].GroupControlNumber)
 
     let tranType = this.transaction;
+    let title = ""
     let grpNum = this.dataSource.data[0].GroupControlNumber;
 
     console.log(" openRelated27xModel: " + this.dataSource.data[0].InterchangeControlNumber +"," +
@@ -393,7 +384,7 @@ export class TransactionDetailComponent {
     if (tranType == '270' || tranType == '271')
     {
         this.TransactionService.openRelated2701Model(this.transaction,
-          this.dataSource.data[0].loop2000C1TRN1RefId, this.dataSource.data[0].loop2000D1TRN1RefId,
+          this.dataSource.data[0].TrnRefId, this.dataSource.data[0].SubscriberId,
           this.dataSource.data[0].InterchangeSenderID,
           this.dataSource.data[0].InterchangeReceiverID,
           this.dataSource.data[0].InterchangeControlNumber, this.searchTypeString
@@ -409,6 +400,9 @@ export class TransactionDetailComponent {
               let letter = "~";
               fileName = res.ReqFileName.replace(/^.*[\\\/]/, '')
               val = res.ReqX12.replaceAll(letter, letter + "\n" )
+
+              title = "270 for TRN # " + this.dataSource.data[0].TrnRefId +", Subscriber: " + this.dataSource.data[0].SubscriberId
+
               console.info("Split ReqX12 with: " + letter);
 
               }
@@ -424,6 +418,7 @@ export class TransactionDetailComponent {
                 fileName = res.ResFileName.replace(/^.*[\\\/]/, '')
                 val = res.ResX12.replaceAll(letter, letter + "\n" )
                 console.info("Split X12 with: " + letter);
+                title = "271 for TRN # " + this.dataSource.data[0].TrnRefId +", Subscriber: " + this.dataSource.data[0].SubscriberId
 
                 }
                 else{
@@ -431,7 +426,7 @@ export class TransactionDetailComponent {
                 }
           }
 
-            let param: string[] = [ val, fileName];
+            let param: string[] = [ val, fileName, title ];
         const dialogRef = this.dialog.open(Modalx12Component, {
           width: '1700px',
           data: param
@@ -446,8 +441,8 @@ export class TransactionDetailComponent {
     }
     else
     {
-      this.TransactionService.openRelated2767Model(this.transaction, this.dataSource.data[0].loop2200D1TRNRefId,
-        this.dataSource.data[0].loop2200E1TRNRefId,
+      this.TransactionService.openRelated2767Model(this.transaction, this.dataSource.data[0].SubscriberId,
+        this.dataSource.data[0].BhtId,  this.dataSource.data[0].TrnRefId,
         this.dataSource.data[0].InterchangeSenderID,
         this.dataSource.data[0].InterchangeReceiverID,
         this.dataSource.data[0].InterchangeControlNumber, this.searchTypeString
@@ -455,6 +450,7 @@ export class TransactionDetailComponent {
         this.canRenderDetails = true;
         let val = ""
         let fileName = ""
+        let title = ""
         if(this.transaction === '277')
         {
           if (res !== undefined && res && res.ReqX12 !== undefined && res.ReqX12.length > 0 )
@@ -462,6 +458,8 @@ export class TransactionDetailComponent {
             let letter = "~";
             val = res.ReqX12.replaceAll(letter, letter + "\n" )
             fileName = res.ReqFileName.replace(/^.*[\\\/]/, '')
+            title = "276 for Batch # " + this.dataSource.data[0].BhtId + ", TRN # " + this.dataSource.data[0].TrnRefId +", Subscriber: " + this.dataSource.data[0].SubscriberId
+
             console.info(res.ReqFileName + ", Split ReqX12 with: " + letter);
 
             }
@@ -476,6 +474,8 @@ export class TransactionDetailComponent {
               let letter = "~";
               fileName = res.ResFileName.replace(/^.*[\\\/]/, '')
               val = res.ResX12.replaceAll(letter, letter + "\n" )
+              title = "277 for Batch # " + this.dataSource.data[0].BhtId + ", TRN # " + this.dataSource.data[0].TrnRefId +", Subscriber: " + this.dataSource.data[0].SubscriberId
+
               console.info(res.ResFileName + ", Split X12 with: " + letter);
 
               }
@@ -485,7 +485,7 @@ export class TransactionDetailComponent {
               }
         }
 
-        let param: string[] = [ val,  fileName];
+        let param: string[] = [ val,  fileName, title];
         const dialogRef = this.dialog.open(Modalx12Component, {
             width: '1700px',
             data: param
@@ -507,13 +507,14 @@ export class TransactionDetailComponent {
     var clmId = ""
     if(this.transaction === '835' )
     {
-      clmId = this.dataSource.data[0].loop21001CLPClaimSubmittersIdentifier
-     amt = this.dataSource.data[0].loop21001CLPMonetaryAmount
+      clmId = this.dataSource.data[0].ClaimSubmitterId
+      amt = this.dataSource.data[0].TotalClaimCharge
+
     }
     else{
+      clmId = this.dataSource.data[0].ClaimId
+      amt = this.dataSource.data[0].ClaimAmount
 
-      clmId = this.dataSource.data[0].loop23001CLMClaimSubmittersIdentifier
-      amt = this.dataSource.data[0].loop23001CLMMonetaryAmount
     }
 
 
@@ -568,17 +569,19 @@ export class TransactionDetailComponent {
   }
   openRelated277CAModel()
   {
-    console.log('openRelated83xModel');
+    console.log('openRelated83xModel: ' + this.dataSource.data[0].ClaimId);
 
     var clmId = ""
+    var title = ""
     if(this.transaction === '277CA' )
     {
-      clmId = this.dataSource.data[0].loop2200D1TRNRefId
-
+      clmId = this.dataSource.data[0].ClaimStatusId
+      title = "837 for Claim: " + clmId
     }
     else{
 
-      clmId = this.dataSource.data[0].loop23001CLMClaimSubmittersIdentifier
+      clmId = this.dataSource.data[0].ClaimId
+      title = "277CA for Claim: " + clmId
 
     }
 
@@ -616,7 +619,7 @@ export class TransactionDetailComponent {
           }
       }
 
-        let param: string[] = [ val, fileName];
+        let param: string[] = [ val, fileName, title];
     const dialogRef = this.dialog.open(Modalx12Component, {
       width: '1700px',
       data: param

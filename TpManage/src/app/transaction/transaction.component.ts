@@ -1,10 +1,8 @@
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
-import {EligibilityRequest} from './EligibilityRequest'
-import {Claim} from './Claims';
-import {ClaimStatusResp} from './ClaimStatusResp';
-import {ClaimStatusReq} from './ClaimStatusReq';
+
+
 import {TransRestServiceComponent} from '../services/transrest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
@@ -87,7 +85,6 @@ endDate ="13:30";
       type: 'text',
       label: 'Select Transaction to view the Columns',
       transactionCode: 'XXX',
-      detail: 1
     }];
 
 
@@ -240,14 +237,12 @@ endDate ="13:30";
       for (var item of res)
       {
         // console.info("Push transactionsSearchColumns: " + item.Key)
-          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
-          if ('x12Data' === item.Key)
-          {
-            console.info(item.Label +": " + item.Detail)
+          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
 
-          }
+           // console.info(item.Key +": " + item.Label)
+
       }
-      console.info("transactionsSearchColumns: " + this.transactionsFields.length);
+      console.info("transactions Fields: " + this.transactionsFields.length);
       console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
 
       this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
@@ -307,11 +302,11 @@ endDate ="13:30";
       {
         this.paramsList.push("sql::" + this.additionalsearchString);
       }
-
-      console.info("Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
-      console.info("Start# " +  this.startDate + ", " + this.startTm );
-      console.info("End# " +  this.endDate  + ", " + this.endTm );
       console.info("onSearchTransactions count: " +this.form.controls.rowCnt.value)
+      console.info("SearchTransactions Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
+      console.info("SearchTransactions Start# " +  this.startDate + ", " + this.startTm );
+      console.info("SearchTransactions End# " +  this.endDate  + ", " + this.endTm );
+
       if (this.form.controls.transType.value === '' && this.currentTransType !== '')
       {
         this.form.controls.transType.setValue(this.currentTransType);
@@ -503,11 +498,11 @@ endDate ="13:30";
       }
       else if(this.form.controls.transType.value === 'TA1'){
 
-        this.TransactionService.fetchInterchangeAcknowledgment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
+        this.TransactionService.fetchTA1(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
          this.canRenderDetails = true;
          this.loading = false;
-         console.info("Interchange Acknowledgment array: " + this.dataSource.data.length);
+         console.info("Interchange TA1 array: " + this.dataSource.data.length);
 
         });
 
@@ -516,16 +511,14 @@ endDate ="13:30";
        {
         this.searchColumns = [];
         this.selDropdownList = this.nyiColumns;
-        var elig:EligibilityRequest = <EligibilityRequest>{};
 
-        this.dataSource.data.push(elig);
         this.canRenderDetails = true;
         this.loading = false;
         console.info("NotImplementd array: " + this.dataSource.data.length);
        }
        this.paginator.pageSize = this.form.controls.rowCnt.value;
 
-      }
+    }
 
 onRowCnt()
       {
@@ -567,9 +560,10 @@ private readCustomFlds() {
     for(let i=0;i< formArr.length;i++)
     {
       let fGrp = formArr.at(i) as FormGroup
-      console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
+      // console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
     }
   }
+  console.info("Added to Additional search: " + formArr.length)
 
 }
 
@@ -585,7 +579,7 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info("transactionChange: this.currentTransType: " + this.currentTransType)
+  console.info("In transactionChange: currentTransType: " + this.currentTransType)
   if(this.form.controls.transType.value !== this.currentTransType &&
     this.form.controls.mode.value !== this.currentMode)
   {
@@ -598,18 +592,25 @@ transactionChange(evt: any)
 
   this.clearCustomFlds();
 
+  var tranType:string = this.form.controls.transType.value
+  console.info("Search " + tranType + " in transactionsFields " + this.transactionsFields.length)
+  if (tranType.startsWith("83") || tranType === "277CA")
+  {
+    console.info("Change Mode to Batch for 83x, 277CA")
+    this.form.controls.mode.setValue("Batch")
 
-
+  }
   for (var col of this.transactionsFields)
   {
 
-    if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
-      && col.detail !== 1)
+    if ( col.transactionCode === this.form.controls.transType.value)
     {
       allTempArr.push({item_id:col.key, item_text:col.label});
       this.searchColumns.push(col);
     }
   }
+  console.info("searchColumns.count: " + this.searchColumns.length)
+
   this.allDropdownList = allTempArr;
   var tempArr = [];
 
@@ -617,10 +618,11 @@ transactionChange(evt: any)
   if(this.usrDisplayColumns.length > 0)
   {
     console.info("Check usrDisplayColumns: " + this.usrDisplayColumns.length +', allDropdownList #: ' + this.allDropdownList.length);
+    console.info("Get Lables for transType: " + this.form.controls.transType.value + ', Mode: ' + this.form.controls.mode.value)
 
     for (var disp of this.usrDisplayColumns)
     {
-      // console.info(disp.TransactionCode + ", # " + this.transactionsSearchColumns.length +', allDropdownList #: ' + this.allDropdownList.length)
+
       for (var col of this.transactionsFields)
       {
 
@@ -628,9 +630,10 @@ transactionChange(evt: any)
           && disp.key === col.key && disp.Mode === this.form.controls.mode.value)
         {
           var selInd = this.allDropdownListFind(col.label);
+          console.info("Find: " + col.label + 'in allDropdownList #: ' + this.allDropdownList.length)
           if(selInd !== -1)
           {
-            // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
+            console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
             tempArr.push({item_id:selInd, item_text:col.label});
 
             break;
@@ -650,8 +653,7 @@ transactionChange(evt: any)
     {
 
 
-      if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
-            && col.detail !== 1)
+      if ( col.transactionCode === this.form.controls.transType.value)
       {
           // console.info(col.transactionCode + " PUSH " + col.key)
 
@@ -674,8 +676,9 @@ transactionChange(evt: any)
 
 
   console.info("allDropdownList #: " + this.allDropdownList.length);
-  console.info("selDropdownList #: " + this.selDropdownList.length);
-  console.info("searchColumns #: " + this.searchColumns.length);
+  console.info("Display columns #: " + this.selDropdownList.length);
+  console.info("All search Columns #: " + this.searchColumns.length);
+  console.info("User search Columns #: " + this.usrSearchColumns.length);
 
   console.info('Add search group')
   const formArr = this.form.get('additional') as FormArray
@@ -705,6 +708,7 @@ transactionChange(evt: any)
       }
     }
   });
+  this.onSearchTransactions();
 
 
 }
@@ -791,18 +795,18 @@ exportData()
 onContextMenu(event: MouseEvent, row:any, ind: number) {
   event.preventDefault();
 
-  console.log( ind +'. Row clicked: ' + row.id );
+  console.log( ind +'. Row clicked: ' + row.ID );
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={id: row.id, rowId: ind};
+  let item: Item ={ID: row.ID, rowId: ind};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
 }
 
 onContextMenuNew(item: Item) {
-  // alert('Click on Action 1 ' + item.id);
+  // alert('Click on Action 1 ' + item.ID);
 
     this.searchTypeString = "";
   this.paramsList.forEach( val => {
@@ -811,7 +815,7 @@ onContextMenuNew(item: Item) {
    this.searchTypeString += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -830,14 +834,14 @@ onContextMenuSame(item: Item) {
    });
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
        );
 
 }
 
 onContextSettings(item: Item) {
 
-
+    console.log("call onContextSettings")
     this.searchTypeString = "mode::" + this.form.controls.mode.value +";" +
     "transaction::"+this.form.controls.transType.value +";" +
     "transaction::"+this.form.controls.transType.value +";" +
@@ -857,7 +861,7 @@ onContextSettings(item: Item) {
 }
 
 export interface Item {
-  id: number;
+  ID: number;
   rowId: number;
 }
 
