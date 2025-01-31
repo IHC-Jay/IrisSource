@@ -1,0 +1,1954 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data">
+<Description>
+Main class to store X12 data in Tables: IHC_X12.Data*</Description>
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>66582,33367.780905</TimeCreated>
+
+<Method name="ProcessFilesInDir">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pSourceDir:%String,pWildCard:%String="*"</FormalSpec>
+<Implementation><![CDATA[
+    $$$TRACE( "**** Process X12 files in: " _ pSourceDir)
+    set numFile = 0
+	if ( ##class(%File).DirectoryExists(pSourceDir))
+	{
+	
+		Set tSC = ##class(%File).FileSetExecute(.tHandle, pSourceDir, pWildCard)
+
+		If $$$ISOK(tSC) {
+			
+			Set tAtEnd = 0
+			For {
+				Set tSC = ##class(%File).FileSetFetch(.tHandle, .tRow, .tAtEnd)
+				If '$$$ISOK(tSC)!($ListLength(tRow)<6) Quit
+				
+				set messages = ##class(%File).%New($List(tRow, 1))
+				
+				set attr = ##class(%File).Attributes($List(tRow, 1))
+				// $$$TRACE( $List(tRow, 1) _": " _ $BIT($FACTOR(attr),15) _": " _ $BIT($FACTOR(attr),16)
+				// FOR i=1:1:16 {WRITE $BIT($FACTOR(attr),i) }
+				// the returned value represents the mode map
+				// 16384: 0x4000 - directory
+				// 32768: 0x8000 - regular file
+				if ( $BIT($FACTOR(attr),16) = 1) // Regular file
+				{
+					
+					$$$TRACE( "**** Process X12 file: " _ $List(tRow, 1) _", " _ $List(tRow, 3)) 
+										 
+					Do ..ProcessFile($List(tRow, 1))
+					
+					set numFile = numFile + 1
+					
+					If tAtEnd Quit
+				}
+			}	
+			Set tSC = ##class(%File).FileSetClose(.tHandle)
+		}
+		
+	}
+	$$$TRACE( "Processed " _ numFile _ " files in: " _ pSourceDir)
+]]></Implementation>
+</Method>
+
+<Method name="ProcessFile">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileName:%String,stat:%String="Processed",receiptDtTm:%DateTime=""</FormalSpec>
+<Implementation><![CDATA[
+	
+	set source = ##class(EnsLib.EDI.X12.Document).ImportFromFile(fileName,, .x12Stat)
+ 	
+ 	if ( (x12Stat = 1) && ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 Do ..ProcessX12Doc(source, fileName, stat, receiptDtTm )
+	 }
+	 else
+	 {
+		 WRITE !, "ImportFromFile failed " _stat _ ", filesize: " _ ##class(%File).GetFileSize(fileName)
+	 }
+
+	$$$TRACE( "Processed " _ fileName)
+]]></Implementation>
+</Method>
+
+<Method name="ProcessStreamContainer">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>streamContainer:Ens.StreamContainer,stat:%String="Processed",receiptDtTm:%DateTime=""</FormalSpec>
+<Implementation><![CDATA[
+	
+	#dim source As EnsLib.EDI.X12.Document
+	$$$TRACE("ProcessStreamContainer " _ streamContainer.OriginalFilename _" - Stream size: " _ streamContainer.Stream.Size)
+	if (receiptDtTm = "")
+	{
+		set mId = streamContainer.%Id()
+	  	&SQL(select ID into hId from Ens.MessageHeader where MessageBodyId = :mId)
+	  	set hm = ##class(Ens.MessageHeader).%OpenId(hId)
+	  	set receiptDtTm = hm.TimeCreated
+	}
+	
+	set source = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(streamContainer.Stream)
+ 	
+ 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		 Do ..ProcessX12Doc(source, streamContainer.OriginalFilename, stat, receiptDtTm )
+	}
+]]></Implementation>
+</Method>
+
+<Method name="ProcessStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileStream:%Library.FileCharacterStream,fileName:%String="",stat:%String="Processed",receiptDtTm:%DateTime=""</FormalSpec>
+<Implementation><![CDATA[
+	
+	#dim source As EnsLib.EDI.X12.Document
+
+	 set source = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(fileStream, .stat)
+ 	
+ 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 Do ..ProcessX12Doc(source, fileName, stat, receiptDtTm )
+	 }
+	 else
+	 {
+		 WRITE !, "ImportFromLibraryStream failed " _stat _ ", filesize: " _ fileStream.Size
+	 }
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12String">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Data:%String,fileName:%String=""</FormalSpec>
+<Implementation><![CDATA[
+	#dim source As EnsLib.EDI.X12.Document
+
+	 set source = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
+	 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 Do ..ProcessX12Doc(source, fileName)
+	 }
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12Doc">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,fileName:%String="",stat:%String="Processed",receiptDtTm:%DateTime=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+		  Set tSC =x12Doc.BuildMap()
+		  if ($$$ISERR( tSC ))
+		  {
+			  $$$TRACE("Invalid DocType")
+			  QUIT
+		  }
+		  WRITE !, "Child count:" _ x12Doc.ChildCount
+		  if (x12Doc.ChildCount = 0)
+		  {
+			  //TA1
+			  Do ..ProcessTA1(x12Doc, "TA1", fileName, stat, receiptDtTm)
+			  QUIT
+		  }
+		  
+		  #dim individualGroup As EnsLib.EDI.X12.Document 
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		 
+		  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+		  set STRecord=individualGroup.getNthChild(1,2)
+			  
+		  set transType = ..GetTransType(STRecord)	
+		  
+		  WRITE !, transType _": " _ fileName
+		  
+		  if (transType = "835")
+		  {	   	  
+		  		Do ..Process835(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType [ "837")
+		  {	   	  
+		  		Do ..Process837(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "270")
+		  {	   	  
+		  		Do ..Process270(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "271")
+		  {	   	  
+		  		Do ..Process271(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "276")
+		  {	   	  
+		  		Do ..Process276(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "277")
+		  {	   	  
+		  		Do ..Process277(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "277CA")
+		  {	   	  
+		  		Do ..Process277CA(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+		  elseif (transType = "999")
+		  {	   	  
+		  		Do ..Process999(x12Doc, transType, fileName, stat, receiptDtTm)
+		  }
+]]></Implementation>
+</Method>
+
+<Method name="ProcessTA1">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.TA1).%New()
+			  
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm )
+	if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+	{
+			WRITE !, "Create global: X12Data" _ transType
+		 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+	}
+	set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  
+	for seg=1:1:x12Doc.SegCount{
+		if (x12Doc.GetSegmentAt(seg).Name = "TA1")
+		{
+		 	set elObj.ControlNumber = x12Doc.GetSegmentAt(seg).GetValueAt(1) 
+		 	set elObj.AcknowledgeCode = x12Doc.GetSegmentAt(seg).GetValueAt(4) 
+		 	set elObj.NoteCode = x12Doc.GetSegmentAt(seg).GetValueAt(5)
+		 	set elObj.Status = "Processed"
+		 	set stat = elObj.%Save()
+		 	$$$TRACE("TA1 ID: " _ elObj.%Id() _ ", stat:" _ stat)
+		 }
+	}
+]]></Implementation>
+</Method>
+
+<Method name="Process835">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	 set parentId = "", objCnt =0
+	 set elObj = ##class(IHC.ITF.ITFCOMMON.X12.ClaimPayment).%New()
+	 Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	 
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+		WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  set elClmObj = $$$NULLOREF // 2100
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  	
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  
+			  if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+		 		 {
+					WRITE !, "Create global: X12Data" _ transType
+				 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+		 		 }
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  
+	  		  set newClp = 0
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"CLP") = 4)
+			  	{
+				  	
+				  	WRITE !, "-- CLP --"
+				  	if (newClp = 1)
+				  	{
+					  	if ($IsObject(elClmObj))
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elClmObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elClmObj.X12DataParentId = parentId
+						  	set elClmObj.x12Data = segX12Data
+						  	set elClmObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  	
+					  		Do elClmObj.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		
+					  		WRITE !, "CLP IHC.ITF.ITFCOMMON.X12.ClaimPayment ID: " _ elClmObj.%Id()
+					  					  		
+					  	}
+				  	}
+				  	
+				  	set elClmObj.ClaimSubmitterId = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	set elClmObj.ClaimPaymentAmount = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+			  		set elClmObj.TotalClaimCharge = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+
+					set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					
+					Do $INCREMENT(subCnt)
+					set elClmObj.SeqNum = subCnt
+					set newClp = 1
+				  				  	
+			  	}
+			  	elseif ($FIND(segVal,"BPR") = 4)
+			  	{
+				  
+				  	set elObj.PaymentMethod = $PIECE(segVal, x12Doc.ElementSeparator , 5) 
+				  	set elObj.PaymentAmount = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"DTM") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elClmObj.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+				  	
+			  	}
+			  	
+			  	
+			  	elseif (($FIND(segVal,"REF") = 4))
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) = "TJ")
+				  	{
+					  	set elObj.PayeeTaxID = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
+					  	
+				  	}
+			  	}
+			  	elseif ( ($FIND(segVal,"NM1") = 4) || ($FIND(segVal,"N1") = 3) )
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "PE")
+				  	{
+					  	set elObj.Payee = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+					  	set elObj.PayeeID = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+				  	}
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+				  	
+				  	
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elClmObj.Insured = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elClmObj.InsuredId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	
+				  	}
+				  	
+				  	if (seg1Val = "QC")
+				  	{
+					  	set elClmObj.PatientName = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	//set elClmObj.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	
+				 	set elObj.TrnId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+					   	
+			  	}
+			  
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elClmObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elClmObj.X12DataParentId = parentId
+					set elClmObj.x12Data = segX12Data
+					set elClmObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	set stat = elClmObj.%Save()
+				  	Do $INCREMENT(objCnt)
+				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elClmObj.%Id()
+				  	
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"LX") = 3)
+			  	{
+				  	WRITE !, " -- LX -- " _ segVal
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	if (seg3Val '= 1)
+				  	{
+					  	
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elClmObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elClmObj.X12DataParentId = parentId
+						  	set elClmObj.x12Data = segX12Data
+						  	set elClmObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  		Do elClmObj.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		WRITE !, "SUB IHC.ITF.ITFCOMMON.X12.ClaimPayment ID: " _ elClmObj.%Id()
+					  	
+					  	set elClmObj = elObj.%ConstructClone()
+					  	set newClp = 0
+					  	set elClmObj.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  					  		
+				  	}
+				  	
+				  	elseif (parentId = "")
+				  	{
+				  		  Do elObj.%Save()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()
+						  WRITE !, " Parent IHC.ITF.ITFCOMMON.X12.ClaimPayment ID: " _ elObj.%Id()					   				  
+						  
+
+						  set elClmObj = $$$NULLOREF
+						  
+						  set elClmObj = elObj.%ConstructClone()
+						  set newClp = 0
+						  set elClmObj.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+			  		else
+			  		{
+				  		set elClmObj = $$$NULLOREF
+				  		set elClmObj = elObj.%ConstructClone()
+					  	set newClp = 0
+					  	set elClmObj.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"CLP") '= 4)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }
+	WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.ClaimPayment, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process837">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.Claim).%New()
+	set elObjProv = $$$NULLOREF // 20, 2000A		   
+	set elObjSub = $$$NULLOREF // 22, 2000B
+		  
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+		WRITE !, "GS: " _ gsInt _", # of STs: " _ individualGroup.ChildCount
+	
+		  
+		  set parentId = ""
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)		  
+				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+		 		 {
+					WRITE !, "Create global: X12Data" _ transType
+				 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+		 		 }
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set entityType = ""
+	  		  set newClm = 0, newSub = 0
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"CLM") = 4)
+			  	{
+				  	
+				  	// WRITE !, "-- CLM --"
+				  	if (newClm = 1)
+				  	{
+					  	if ($IsObject(elObjSub))
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elObjSub.X12DataParentId = parentId
+						  	set elObjSub.x12Data = segX12Data
+						  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  	
+					  		Do elObjSub.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		WRITE !, "CLM IHC.ITF.ITFCOMMON.X12.Claim ID: " _ elObjSub.%Id()
+					  					  		
+					  	}
+				  	}
+				  	
+				  	set elObjSub.ClaimId = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	set elObjSub.ClaimAmount = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  		
+
+					set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					
+					Do $INCREMENT(subCnt)
+					set elObjSub.SeqNum = subCnt
+					set newClm = 1
+				  				  	
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif (($FIND(segVal,"REF") = 4))
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) = "D9")
+				  	{
+					  	set elObjSub.ClearinghouseTraceNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
+					  	
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "434") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (entityType = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (entityType = "Dependent")
+				  	{
+				  	set elObjSub.DependentDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.DependentGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "40")
+				  	{
+					  	set elObj.Receiver = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "41")
+				  	{
+					  	set elObj.Submitter = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "85")
+				  	{
+					  	set elObjProv.BillingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	// set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObjSub.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Subscriber"
+				  	}
+				  	if (seg1Val = "03")
+				  	{
+					  	set elObjSub.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Dependent"
+				  	}
+				  	if (seg1Val = "82")
+				  	{
+					  	set elObjSub.RenderingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.RenderingProviderId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"HI") = 3)
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) [ "ABK")
+				  	{
+					 	set elObjSub.DiagnosisCode = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	}
+					   	
+			  	}
+			  
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	set stat = elObjSub.%Save()
+				  	set newSub = 0, newClm = 0
+				  	Do $INCREMENT(objCnt)
+				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elObjSub.%Id()
+				  	
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+				  	// WRITE !, " -- HL -- " _ segVal _", Id: " _ elObj.%Id() _", HL-1: " _ $PIECE(segVal, x12Doc.ElementSeparator , 2) 
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if (seg3Val = 22)
+				  	{
+					  	
+					  	if (newSub = 1)
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elObjSub.X12DataParentId = parentId
+						  	set elObjSub.x12Data = segX12Data
+						  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  		Do elObjSub.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		WRITE !, "SUB IHC.ITF.ITFCOMMON.X12.Claim ID: " _ elObjSub.%Id()
+					  	}
+					  	set elObjSub = elObjProv.%ConstructClone()
+					  	set newSub = 1, newClm = 0
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  					  		
+				  	}
+				  	
+				  	elseif ( (elObj.%Id() = "") &&($PIECE(segVal, x12Doc.ElementSeparator , 2) = 1) ) // First HL, parent
+				  	{
+				  		  Do elObj.%Save()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()
+						  WRITE !, " Parent IHC.ITF.ITFCOMMON.X12.Claim ID: " _ elObj.%Id()					   				  
+						  
+
+						  set elObjSub = $$$NULLOREF
+						  set elObjProv = $$$NULLOREF
+						  set elObjProv = elObj.%ConstructClone()
+						  set newSub = 0, newClm = 0
+						  set elObjProv.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"CLM") '= 4)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+		  
+     }
+	 WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.Claim, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process270">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.EligibilityRequest).%New()
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+
+		  WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  set parentId = "", objCnt =0, elClmObj = $$$NULLOREF // 2100
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  			  				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set elObjSub = $$$NULLOREF, hlVal = ""
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	
+				  	set elObjSub.TrnRefId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "291") // 291: (Plan,Range of dates for which the plan is in effect)
+				  	{
+				  		set elObjSub.PlanDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (hlVal = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (hlVal = "Dependent")
+				  	{
+				  	set elObjSub.DependentDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.DependentGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Provider = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "1P")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if (seg1Val = "03")
+				  	{
+					  	set elObjSub.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if ($IsObject(elObjSub))
+				  	{
+					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					  	set elObjSub.X12DataParentId = parentId
+					  	set elObjSub.x12Data = segX12Data
+					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+				  		Do elObjSub.%Save()
+				  		Do $INCREMENT(objCnt)
+				  		WRITE !, "IHC.ITF.ITFCOMMON.X12.EligibilityRequest ID: " _ elObjSub.%Id()
+				  					  		
+				  	}
+				  	elseif( (elObj.Payer '= "") && (elObj.Provider '= ""))
+				  	{
+				  		  Do elObj.%Save()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()					   				  
+						  set elObjSub = elObj.%ConstructClone()
+						  set elObjSub.x12Data = ""
+						  Do elObjSub.x12DataStream.Clear()
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+				  				  		  	
+
+				  	
+				  	set hlVal = retVal // HL level code
+				  	
+				  	if (hlVal = "Subscriber")
+				  	{
+					  	set elObjSub = elObj.%ConstructClone()
+					  	Do elObjSub.x12DataStream.Clear()
+					  	set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  	Do $INCREMENT(subCnt)
+				  	}
+				  	else
+				  	{
+					  	set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append Dependent HL data
+				  	}
+			  	} //HL
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	Do elObjSub.%Save()
+				  	Do $INCREMENT(objCnt)
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"HL") '= 3)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }
+	WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.EligibilityRequest, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process271">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.EligibilityResponse).%New()
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+	  WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  set parentId = "", objCnt =0, elClmObj = $$$NULLOREF 
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set elObjSub = $$$NULLOREF, hlVal = ""
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	
+				  	set elObjSub.TrnRefId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "346") 
+				  	{
+				  		set elObjSub.PlanBeginDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "347") 
+				  	{
+				  		set elObjSub.PlanEndDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (hlVal = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (hlVal = "Dependent")
+				  	{
+				  	set elObjSub.DependentDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.DependentGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Provider = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "1P")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if (seg1Val = "03")
+				  	{
+					  	set elObjSub.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if ($IsObject(elObjSub))
+				  	{
+					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					  	set elObjSub.X12DataParentId = parentId
+					  	set elObjSub.x12Data = segX12Data
+					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+				  		Do elObjSub.%Save()
+				  		Do $INCREMENT(objCnt)
+				  		WRITE !, "IHC.ITF.ITFCOMMON.X12.EligibilityResponse ID: " _ elObjSub.%Id()
+				  					  		
+				  	}
+				  	elseif( (elObj.Payer '= "") && (elObj.Provider '= ""))
+				  	{
+				  		  Do elObj.%Save()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()					   				  
+						  set elObjSub = elObj.%ConstructClone()
+						  set elObjSub.x12Data = ""
+						  Do elObjSub.x12DataStream.Clear()
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+				  				  		  	
+
+				  	
+				  	set hlVal = retVal // HL level code
+				  	
+				  	if (hlVal = "Subscriber")
+				  	{
+					  	set elObjSub = elObj.%ConstructClone()
+					  	Do elObjSub.x12DataStream.Clear()
+					  	set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  	Do $INCREMENT(subCnt)
+				  	}
+				  	else
+				  	{
+					  	set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append Dependent HL data
+				  	}
+			  	} //HL
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	Do elObjSub.%Save()
+				  	Do $INCREMENT(objCnt)
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"HL") '= 3)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }
+	WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.EligibilityResponse, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process276">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.ClaimStatusRequest).%New()
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+  
+		  set parentId = "", objCnt =0, newHL = 0, subCnt = 0
+		  WRITE !, "# of STs: " _ individualGroup.ChildCount 
+		  
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = ""
+			  			  
+	  		  set elObjSub = $$$NULLOREF, hlVal = ""
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	
+				  	set elObjSub.TrnRefId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"AMT") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	
+				  	if (seg1Val = "T3") 
+				  	{
+				  		set elObjSub.SubmittedCharges = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (hlVal = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (hlVal = "Dependent")
+				  	{
+				  	set elObjSub.DependentDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.DependentGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	if ($IsObject(elObjSub))
+					  	{
+						  	set elObjSub.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	}
+				  	}
+				  	if (seg1Val = "1P")
+				  	{
+					  	set elObjSub.Provider = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if ( (seg1Val = "03") || (seg1Val = "QC"))
+				  	{
+					  	set elObjSub.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	set hlVal = retVal // HL level code
+				  	
+				  	if ((newHL = 1) && ($PIECE(segVal, x12Doc.ElementSeparator , 2) = 1)) // Multiple HL in same ST
+				  	{
+					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					  	set elObjSub.X12DataParentId = parentId
+					  	set elObjSub.x12Data = segX12Data
+					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+				  		Do elObjSub.%Save()
+				  		Do $INCREMENT(objCnt)
+				  		WRITE !, "IHC.ITF.ITFCOMMON.X12.ClaimStatusRequest HL ID: " _ elObjSub.%Id()
+				  					  		
+				  	}
+				  	elseif( (elObj.%Id() = "")) // First HL, save full X12, this is parent for the set
+				  	{
+				  		  Do elObj.%Save()
+				  		  WRITE !, "IHC.ITF.ITFCOMMON.X12.ClaimStatusRequest Full X12 ID: " _ elObj.%Id()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()					   				  
+						  set elObjSub = elObj.%ConstructClone()
+						  set elObjSub.x12Data = ""
+						  Do elObjSub.x12DataStream.Clear()
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+				  					  	
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) = 1)
+				  	{
+					  	set elObjSub = elObj.%ConstructClone()
+					  	Do elObjSub.x12DataStream.Clear()
+					  	set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  	Do $INCREMENT(subCnt)
+					  	set newHL = 1
+				  	}
+				  	else
+				  	{
+					  	set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append Dependent HL data
+				  	}
+			  	} //HL
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	Do elObjSub.%Save()
+				  	WRITE !, "IHC.ITF.ITFCOMMON.X12.ClaimStatusRequest SE ID: " _ elObjSub.%Id()
+				  	Do $INCREMENT(objCnt)
+				  	
+				  	set elObjSub = elObj.%ConstructClone()
+					set elObjSub.x12Data = ""
+					Do elObjSub.x12DataStream.Clear()
+					set newHL = 0
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"HL") '= 3)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }	  
+	WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.ClaimStatusRequest, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process277">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.ClaimStatusResponse).%New()
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	 
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+		  WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  set parentId = "", objCnt =0
+		   
+		  
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set elObjSub = $$$NULLOREF, hlVal = ""
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"TRN") = 4)
+			  	{
+				  	
+				  	set elObjSub.TrnRefId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"STC") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	if (elObjSub.TotalClaimCharge = "")
+				  	{
+				  
+					  	
+					  	set elObjSub.ClaimStatus = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  	set elObjSub.ClaimDate = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+					  	set elObjSub.TotalClaimCharge= $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.ClaimPaymentAmount= $PIECE(segVal, x12Doc.ElementSeparator , 6)
+				  		WRITE !, "-- " _ segVal _" -- " _ elObjSub.TotalClaimCharge _",  " _ elObjSub.Subscriber
+				  	}
+				  	
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (hlVal = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (hlVal = "Dependent")
+				  	{
+				  	set elObjSub.DependentDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.DependentGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Provider = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "1P")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if (seg1Val = "03")
+				  	{
+					  	set elObjSub.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjSub.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if ($IsObject(elObjSub))
+				  	{
+					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					  	set elObjSub.X12DataParentId = parentId
+					  	set elObjSub.x12Data = segX12Data
+					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+				  		Do elObjSub.%Save()
+				  		Do $INCREMENT(objCnt)
+				  		WRITE !, "IHC.ITF.ITFCOMMON.X12.ClaimStatusResponse ID: " _ elObjSub.%Id()
+				  					  		
+				  	}
+				  	elseif( (elObj.Payer '= "") && (elObj.Provider '= ""))
+				  	{
+				  		  Do elObj.%Save()
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()					   				  
+						  set elObjSub = elObj.%ConstructClone()
+						  set elObjSub.x12Data = ""
+						  Do elObjSub.x12DataStream.Clear()
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+				  				  		  	
+
+				  	
+				  	set hlVal = retVal // HL level code
+				  	
+				  	if (hlVal = "Subscriber")
+				  	{
+					  	set elObjSub = elObj.%ConstructClone()
+					  	Do elObjSub.x12DataStream.Clear()
+					  	set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  	Do $INCREMENT(subCnt)
+				  	}
+				  	else
+				  	{
+					  	set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append Dependent HL data
+				  	}
+			  	} //HL
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	Do elObjSub.%Save()
+				  	Do $INCREMENT(objCnt)
+				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elObjSub.%Id()
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"HL") '= 3)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }
+	 WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.ClaimStatusResponse, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process277CA">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+	set elObj = ##class(IHC.ITF.ITFCOMMON.X12.ClaimAcknowledgement).%New()
+		  set elObjProv = $$$NULLOREF // 20, 2000A		   
+		  set elObjServiceProv = $$$NULLOREF // 22, 2000B
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm ) 
+	 
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+		  WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  set parentId = "", objCnt =0
+			  
+		  
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)
+			  
+			  					
+			  set STRecord.DocType = "HIPAA_5010:277CA"
+			
+			  if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+		 		 {
+					WRITE !, "Create global: X12Data" _ transType
+				 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+		 		 }
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set entityType = ""
+	  		  
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	
+			  	if ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"REF") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	if (seg1Val = "1K") 
+				  	{
+				  		set elObjServiceProv.ClaimControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+				  	if (seg1Val = "D9") 
+				  	{
+				  		set elObjServiceProv.ClearinghouseTraceNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	}
+			  	
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elObjServiceProv.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "434") 
+				  	{
+				  		set elObjServiceProv.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	
+			  	
+			  	elseif ( ($FIND(segVal,"TRN") = 4) && $IsObject(elObjServiceProv) )
+			  	{
+				  	set elObjServiceProv.ClaimStatusId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	
+				  	
+			  	}
+			  	elseif ( ($FIND(segVal,"STC") = 4) && $IsObject(elObjServiceProv) )
+			  	{
+				  	
+				  	set elObjServiceProv.ClaimAmount = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "40")
+				  	{
+					  	set elObj.Receiver = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "41")
+				  	{
+					  	set elObj.Submitter = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "85")
+				  	{
+					  	set elObj.BillingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObj.BillingProviderId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObj.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjServiceProv.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjServiceProv.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Subscriber"
+				  	}
+				  	if (seg1Val = "03")
+				  	{
+					  	set elObjServiceProv.Dependent = $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ", " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+					  	set elObjServiceProv.DependentId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Dependent"
+				  	}
+				  	
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"HI") = 3)
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) [ "ABK")
+				  	{
+					 	set elObjServiceProv.DiagnosisCode = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	}
+					   	
+			  	}
+			  
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjServiceProv.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjServiceProv.X12DataParentId = parentId
+					set elObjServiceProv.x12Data = segX12Data
+					set elObjServiceProv.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
+				  	set stat = elObjServiceProv.%Save()
+				  	Do $INCREMENT(objCnt)
+				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elObjServiceProv.%Id()
+				  	
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+				  	WRITE !, " -- HL -- " _ segVal
+				  	set newTrn = 0
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if (seg3Val = "PT")
+				  	{
+					  	
+					  	
+					  	if (elObj.%Id() = "" ) // First 2000C, parent
+					  	{
+					  		  Do elObj.%Save()
+					  		  Do $INCREMENT(objCnt)
+							  set parentId = elObj.%Id()
+							  WRITE !, " Parent IHC.ITF.ITFCOMMON.X12.ClaimAcknowledgement ID: " _ elObj.%Id()					   				  
+							  
+
+							  set elObjServiceProv = $$$NULLOREF
+							  set elObjProv = $$$NULLOREF
+							  set elObjProv = elObj.%ConstructClone()
+							  set elObjServiceProv = elObj.%ConstructClone()
+							  
+							  set elObjServiceProv.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							  set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+				  		}
+				  		else
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elObjServiceProv.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elObjServiceProv.X12DataParentId = parentId
+						  	set elObjServiceProv.x12Data = segX12Data
+						  	set elObjServiceProv.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  		set stat = elObjServiceProv.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		WRITE !, "SUB IHC.ITF.ITFCOMMON.X12.ClaimAcknowledgement ID: " _ stat _", " _ elObjServiceProv.%Id()
+					  		set elObjServiceProv = elObjProv.%ConstructClone()
+					  		set elObjServiceProv.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+					  		set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					  	}
+					  	
+					  	
+				  					  		
+				  	}
+				  	
+				  	
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"HL") '= 3)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = subCnt
+		  Do elObj.%Save()
+    }
+	WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.ClaimAcknowledgment, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="Process999">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,flNm:%String,stat:%String,receiptDtTm:%DateTime</FormalSpec>
+<Implementation><![CDATA[
+  set GSnum = 1, parentId = "", objCnt =0
+  
+  
+  if ($GET(^ItfGlobalX12IdKey("X12Data999" )) = "")
+ {
+		WRITE !, "Create global: X12Data999" 
+	 	set ^ItfGlobalX12IdKey("X12Data999") = 1
+ }
+  
+  if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+  {
+		 if (x12Doc.DocType = "")
+		 {
+
+	    		set x12Doc.DocType =  "HIPAA_5010:Interchange"  
+	    
+				Set tSC =x12Doc.BuildMap()
+		 }
+	    
+	    set interchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	    set interchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	    set ISA13 = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlNumber"),"<","0")
+	    
+	   // WRITE !, interchangeSenderID _" -> " _ interchangeReceiverID _", Ctrl #" _ISA13 
+	   
+	   set x12Doc.DocType = "HIPAA_5010:Interchange:Group" 
+       set GSCounter = x12Doc.ChildCount
+       set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+       
+  		WRITE !,  " GS ChildCount " _ GSCounter
+       /* Iterates through available number of group's and collects group level information and sets to gsDoc object */
+          set segX12Data = ""
+          while ( GSnum <= GSCounter)
+          { 
+            set individualGroup = x12Doc.getNthChild(GSnum,2)
+            set individualGroup.DocType = "HIPAA_5010:Group"
+	        
+	        set GS02 = individualGroup.GetValueAt("GS:ApplicationSendersCode")        
+	        set GS03 = individualGroup.GetValueAt("GS:ApplicationReceiversCode")
+	        
+	        set GS06 = individualGroup.GetValueAt("GS:GroupControlNumber")
+
+	        // WRITE !, "GS: " _ GS02 _" / " _ GS06
+	        set STCounter = individualGroup.ChildCount 
+	        WRITE !,  " ST ChildCount " _ STCounter
+	        #dim individualST As EnsLib.EDI.X12.Document
+	        set STnum = 1
+	        while ( STnum <= STCounter)
+	        { 
+	          set individualST = individualGroup.getNthChild(STnum)
+	          set individualST.DocType="HIPAA_5010:999" 
+	          set loopNum = 1
+	          // WRITE !, "ST= " _ individualST.GetValueAt("ST:1") _ " / " _ individualST.GetValueAt("ST:2")
+	          set GroupControlNumber = individualST.GetValueAt("AK1:2")
+	          set GroupAckCode = individualST.GetValueAt("AK9:1")
+	                    
+	          set cur2000status = 1 
+	          
+	          while (cur2000status = 1)
+	          {
+	           set cur2000path="loop2000("_loopNum_").AK2"
+			   set cur2000ind=individualST.GetSegmentIndex(cur2000path,.cur2000status)
+			   if (cur2000status = 1)
+			   {
+			   	  // WRITE !, "SenderID: " _ interchangeReceiverID _ ", GroupControlNumber: " _ GroupControlNumber // _ ", " _ individualST.OutputToString()
+			   	  set cur2000pathIK="loop2000("_loopNum_").IK5"
+			      set cur2000ind=individualST.GetSegmentIndex(cur2000pathIK,.cur2000status)
+				  
+				  set ackObj = ##class(IHC.ITF.ITFCOMMON.X12.ImplementationAcknowledgment).%New()
+				  set ackObj.InterchangeReceiverID = interchangeReceiverID
+				  set ackObj.InterchangeSenderID = interchangeSenderID
+				  set ackObj.ApplicationReceiversCode = GS03
+				  set ackObj.ApplicationSendersCode = GS02
+				  set ackObj.GroupControlNumber = GroupControlNumber
+				  set ackObj.GroupIdentifierCode = individualST.GetValueAt("AK1:1")
+				  set ackObj.GroupVersion = individualST.GetValueAt("AK1:3")
+				  set ackObj.GroupRespFunctionalGroupAcknowledge = GroupAckCode
+				  set ackObj.GroupRespNumberofTransactionSets = individualST.GetValueAt("AK9:2")
+				  set ackObj.GroupRespAcceptedTransactions = individualST.GetValueAt("AK9:4")
+				  set ackObj.TransIdentifierCode = individualST.GetValueAt(cur2000path_":1")
+				  set ackObj.TransControlNumber = individualST.GetValueAt(cur2000path_":2")
+				  set ackObj.TransVersion = individualST.GetValueAt(cur2000path_":3") 
+				  set ackObj.UniqId = ^ItfGlobalX12IdKey("X12Data999")
+				  
+				  set ackObj.InterchangeControlNumber = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+				  set ackObj.InterchangeDateTime= $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeDate"), "<>W") _ $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeTime"), "<>W")
+				  set ackObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+				  set ackObj.ReceiptDtTm = receiptDtTm
+				  set ackObj.Status = "Processed"
+				  
+				  set ackObj.FileName = ##class(%File).GetFilename(flNm)
+		  			set ackObj.MonthPartition = mmId
+		  
+				  
+				  
+				  if ( (GSnum = 1) && (STnum = 1) && (loopNum = 1))
+				  {
+					  set fileSz = ##class(%File).GetFileSize(flNm)
+					  if (fileSz  > 3641143) // Property x12Data As %String(MAXLEN = 3641144);
+					  {
+						  
+						  Set stream=##class(%FileCharacterStream).%New()
+			    		  Set stream.Filename=flNm
+			    		  set ackObj.x12DataStream = stream
+						   
+					  }
+					  else
+					  {
+					      set ackObj.x12Data = x12Doc.OutputToString(,.stat,)
+					      if (stat '= 1)
+					      {
+						      WRITE !, " --- The length of the document is greater than the maximum string length ---"
+					      }
+					  }  
+					  set stat = ackObj.%Save()
+					  Do $INCREMENT(objCnt)
+					  set parentId = ackObj.%Id()
+					  set ak2Obj = ackObj.%ConstructClone()
+					  set ak2Obj.x12Data = individualST.OutputToString()
+				   	  set ak2Obj.X12DataParentId = parentId
+				   	  set stat = ak2Obj.%Save()
+				   	  Do $INCREMENT(objCnt)
+			   	  }
+			   	  else
+			   	  {
+				   	  set ackObj.x12Data = individualST.OutputToString()
+				   	  set ackObj.X12DataParentId = parentId
+				   	  set stat = ackObj.%Save()
+				   	  Do $INCREMENT(objCnt)
+			   	  }
+				  
+				  Do $INCREMENT(^ItfGlobalX12IdKey("X12Data999"))
+				  WRITE !, "GS-" _ GSnum _", ST: " _ STnum _ ", Ak2: " _ loopNum _  ", TransSetAckCode= " _ individualST.GetValueAt(cur2000pathIK_":1") _", GroupAckCode: " _ GroupAckCode _  ", Id: " _ ackObj.%Id() _", stat: " _ stat
+
+			      
+			   }
+			   Do $INCREMENT(loopNum)
+	          }
+
+             Do $INCREMENT(STnum)
+          } 
+          Do $INCREMENT(GSnum) 
+          
+     }
+  }
+  WRITE !, " --- Processing complete: IHC.ITF.ITFCOMMON.X12.ImplementationAcknowledgment, # rows:" _ objCnt
+]]></Implementation>
+</Method>
+
+<Method name="GetTransType">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>STRecord:EnsLib.EDI.X12.Document</FormalSpec>
+<Implementation><![CDATA[
+	set transType = STRecord.GetValueAt("1:1",, .stat)
+			  
+		  		  		  
+	  if (STRecord.GetValueAt("1",, .stat) [ "005010X222A1")
+		{
+			set transType = transType _"P"
+		}
+		elseif (STRecord.GetValueAt("1",, .stat) [ "005010X223A2")
+		{
+			set transType = transType _"I"
+		}
+		elseif (STRecord.GetValueAt("1",, .stat) [ "005010X224A2")
+		{
+			set transType = transType _"D"
+		}
+		elseif (STRecord.GetValueAt("1",, .stat) [ "005010X214")
+		{
+			set transType = transType _"CA"
+		}
+	return transType
+]]></Implementation>
+</Method>
+
+<Method name="InitFirstObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>elObj:IHC.ITF.ITFCOMMON.X12.SharedData,x12Doc:EnsLib.EDI.X12.Document,fileName:%String="",stat,receiptDtTm</FormalSpec>
+<Implementation><![CDATA[
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+
+		  set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+		   
+		   set elObj.FileName = ##class(%File).GetFilename(fileName)
+		  set elObj.MonthPartition = mmId
+		  
+		  set elObj.InterchangeControlNumber = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		  set elObj.InterchangeDateTime = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeDate"), "<>W") _ $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeTime"), "<>W")
+		  set elObj.InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		  set elObj.InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		  if (x12Doc.ChildCount > 0)
+		  {
+
+			  #dim individualGroup As EnsLib.EDI.X12.Document 
+			  set individualGroup = x12Doc.getNthChild(1,2)
+
+			  set isaGsInfo =  InterchangeSenderID _" -> " _ InterchangeReceiverID _ ", ControlNumbers: " _ InterchangeCtrlNum _", " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+		      WRITE !, "# of STs: " _ individualGroup.ChildCount 
+	  		  
+			  set elObj.GroupControlNumber = individualGroup.GetValueAt("GS:GroupControlNumber")
+			  set elObj.ApplicationReceiversCode = individualGroup.GetValueAt("GS:ApplicationReceiversCode")
+			  set elObj.ApplicationSendersCode = individualGroup.GetValueAt("GS:ApplicationSendersCode")
+			  set elObj.VersionReleaseIndustryIdenti =  individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti")
+		  }
+		  set elObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+		  set elObj.ReceiptDtTm = receiptDtTm
+		  set elObj.Status = stat
+		  
+		  
+		  if (##class(%File).GetFileSize(fileName)  > 3641143) // Property x12Data As %String(MAXLEN = 3641144);
+		  {
+			  
+			  Set stream=##class(%FileCharacterStream).%New()
+    		  // Set stream.Filename=flNm
+    		  set elObj.x12DataStream = stream
+			   
+		  }
+		  else
+		  {
+		      set elObj.x12Data = x12Doc.OutputToString(,.stat,)
+		      if (stat '= 1)
+		      {
+			      WRITE !, " --- The length of the document is greater than the maximum string length ---"
+		      }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
