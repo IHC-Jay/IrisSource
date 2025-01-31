@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.HL7.Service.VerityFileService">
+<Copyright>/* Copyright (c) 2024 by InterSystems Corporation.
+   Cambridge, Massachusetts, U.S.A.  All rights reserved.
+   Confidential property of InterSystems Corporation. */</Copyright>
+<ClassType/>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>EnsLib.HL7.Service.FileService</Super>
+<System>4</System>
+<TimeCreated>59449,55308.277931</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Default>EnsLib.File.InboundAdapter</Default>
+</Parameter>
+
+<Method name="OnInit">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set tSC=##super()  Quit:$$$ISERR(tSC) tSC
+	set ^verityMsg=""
+	$$$TRACE("In OnInit() Reset ^verityMsg.")
+
+	Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnProcessInput">
+<FormalSpec>pFileStream:%CharacterStream,*pOutput:%RegisteredObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	Set endMsgStr="MSH|^~\&|VERITY||CAN_IRIS||20250129103648||MFN^M02|20250129103648|P|2.5.1"_$CHAR(13)
+               _"MFI|PRA|UPD|AL|PHYSICIAN||"_$CHAR(13)
+               _"MFE|MUP|111111||000000^^CORPROV"_$CHAR(13)
+               _"STF|1||LASTNM^FIRSTNM^^^^||X|20000101|||||||||||||||"
+	Set tInputFilename=$tr(pFileStream.Filename,"/","\"), tInputFilename=$P(tInputFilename,"\",$L(tInputFilename,"\")) 
+	$$$sysTRACE("Got File "_tInputFilename)
+	set ^verityMsg=""
+	$$$TRACE("Reset ^verityMsg.")
+	Set tIOStream=##class(%IO.FileStream).%New()  $$$ASSERT($IsObject(tIOStream))
+	Do tIOStream.Open(pFileStream.Filename,,..#OpenTimeout,,.tSC)  Quit:$$$ISERR(tSC) tSC
+	/*	Need to change the default in case multi Byte character set.
+		There is no need to maintain charposmap PRIVATE array and when many
+		HL7 messages in a single file, leaving BuildCharPosMap=1 can consume significant local memory.
+	*/
+	Set tIOStream.BuildCharPosMap=0
+
+	Do ..%Parser.Reset()
+	While 'tIOStream.AtEnd { ; Loop over docs in the file
+		Set tIOStreamPos = tIOStream.Position
+		Set tSC1=..%Parser.ParseFramedIOStream(tIOStream,,1)
+		If $$$ISERR(tSC1) {
+			Set tSC=$$$ADDSC(tSC,tSC1)
+			If ($$$StatusText(tSC1)["<TRANSLATE>") {
+				Set tSC2 = $$$ERROR($$$EnsErrGeneral,"Incorrect Character Encoding/Translation Table used for file.("_tIOStream.CharEncoding_"/"_tIOStream.TranslationTable_")")
+				// !!! quit on fatal errors only
+				Set tSC=$$$ADDSC(tSC2,tSC)
+				Quit
+			}
+			// !!! quit on fatal errors only and prevent looping
+			Quit:($$$StatusEquals(tSC1,$$$EnsErrGeneral)||(tIOStreamPos=tIOStream.Position))
+		}
+	}
+	Do ..%Parser.Reset() ; release the file
+	$$$TRACE("TargetConfigNames: "_..TargetConfigNames )
+	//set endMsg=##class(EnsLib.HL7.Message).%New()
+	set endMsg=##class(EnsLib.HL7.Message).ImportFromString(endMsgStr)
+    set endMsg.DocType="VerityMfn251:MFN_M02"
+    do endMsg.PokeTypeCategory("VerityMfn251")
+    Set (..%SessionId,$$$JobSessionId)=(..%SessionId+1)
+	For iTarget=1:1:$L(..TargetConfigNames, ",") { Set tOneTarget=$ZStrip($P(..TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+	  $$$TRACE("Send the Ending HL7 Message  to "_tOneTarget)
+	  Set tSC1=..SendRequestAsync(tOneTarget,endMsg)  Set:$$$ISERR(tSC1) tSC=$$$ADDSC(tSC,tSC1)
+	}
+
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="OnGetConnections">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*pArray:%String,pItem:Ens.Config.Item</FormalSpec>
+<Implementation><![CDATA[
+	Do ##super(.pArray,pItem)
+	If pItem.GetModifiedSetting("TargetConfigNames",.tValue) {
+		For i=1:1:$L(tValue,",") { Set tOne=$ZStrip($P(tValue,",",i),"<>W")  Continue:""=tOne  Set pArray(tOne)="" }
+	}
+]]></Implementation>
+</Method>
+</Class>
+</Export>
