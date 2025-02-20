@@ -46,6 +46,7 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='cntr' type='%Integer' instantiate='0' />
+<property name='retryIntvl' type='%Integer' instantiate='0' />
 <property name='retryInterval' type='%Integer' initialexpression='30' instantiate='0' />
 <property name='rsOpNm' type='%String' initialexpression='""' instantiate='0' >
 <parameters>
@@ -87,6 +88,11 @@ BPL Definition</Description>
  set filteroutEmplStsTpIds=configValue
  set context.rsOpNm=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","RadiantSrvcTargetConfigName",.pstatus)
  $$$TRACE("RadiantLogic Operation: "_context.rsOpNm)
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RetryInterval",.retryInt)
+ $$$TRACE("Retry interval: "_retryInt)
+ if ( ('$$$ISERR(pstatus)) || (retryInt '= "")) {
+	 set context.retryIntvl=retryInt
+ }
  	  ]]]]><![CDATA[>
 </code>
 <code name='check NPI' xpos='200' ypos='650' >
@@ -158,6 +164,61 @@ BPL Definition</Description>
   set status=process.SendRequestSync(context.rsOpNm,context.jsnStr,.restResponse)
   if ($$$ISOK(status)){
      $$$TRACE("REST service response data: "_restResponse.StringValue)
+     set jObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+     If ($$$IsdefObject(jObj)) {
+        $$$TRACE("Parsing Json String is done. Check the unit number in the response")
+        set context.unitNum=jObj.unitnumber
+        if (context.unitNum'="") && ($ISVALIDNUM(context.unitNum)) {
+	      $$$TRACE("Reponse has unit number...")
+        }
+        else {
+	       if context.existingPrvdr=0 {
+		     set retryCnt=1
+		     while (retryCnt < 5) && (context.unitNum="") {
+	           $$$TRACE("Call RadiantLogic REST Operation to get the unit number")
+	           $$$TRACE("Hang for "_context.retryIntvl_ " seconds to wait Radiant grap the unit number.")
+	           hang context.retryIntvl
+	           
+               set context.prvdrId.StringValue=context.pid
+               set status=process.SendRequestSync(context.rsOpNm,context.prvdrId,.restResponse)
+               if ($$$ISOK(status)){
+                 $$$TRACE("REST service response data: "_restResponse.StringValue)
+               }
+               else {
+                 $$$TRACE("Radiant service call failed. "_restResponse)
+                 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
+               }
+               set jsObj=##class(%DynamicAbstractObject).%FromJSON(restResponse.StringValue)
+               set rsObj=jsObj.Resources
+               #dim resIter As %Iterator.Array
+               set resIter =  rsObj.%GetIterator()
+               if (##class(Ens.Util.FunctionSet).Contains(rsObj,"DynamicArray")) {
+                 while resIter.%GetNext(.key,.dvalue) { 
+                   $$$TRACE("KEY-: "_key)
+                   $$$TRACE("VALUE-: "_dvalue)
+                   if $isObject(dvalue) {
+                     $$$TRACE("Parsing Json String is done.")
+                     set context.unitNum=dvalue.unitnumber
+                     $$$TRACE("Unit Number from Radiant: "_context.unitNum)
+
+                     if (context.unitNum'="") && ($ISVALIDNUM(context.unitNum)) {
+	                   $$$TRACE("Reponse has unit number...")
+                     }
+                   }
+                 }
+                 set retryCnt=retryCnt+1
+               }
+		     }
+             if (context.unitNum="") {
+                 set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "RadiantLogic service response does not have the unit number. Skip message.")
+             }
+          }
+          else {
+             set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "RadiantLogic service response does not have the unit number. Skip message.")
+          }
+
+        }   
+     }
      set context.pdata=##class(IHC.ITF.DStruc.Request.PrvdrRecodComb).%New()
      set context.pdata.sourceSystem="Corpprv"
      set context.pdata.RLResponse=restResponse.StringValue
