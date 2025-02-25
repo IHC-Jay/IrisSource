@@ -1,0 +1,484 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.ErpUtil">
+<Description>
+Initial Author: Jay Narasipura</Description>
+<IncludeCode>Ensemble</IncludeCode>
+<Super>Ens.Rule.FunctionSet</Super>
+<TimeCreated>67255,32139.35253953</TimeCreated>
+
+<Method name="GetTpLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[interchangeSenderID:%String,interchangeReceiverID:%String,transType:%String,direc:%String,&retVal:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("GetTpLink: S= " _ interchangeSenderID _", R= " _ interchangeReceiverID _", T= " _ transType _", D= " _ direc)
+	&SQL(select r.ID, r.name, r.Ack, r.Folder, tp.Folder, tp.CommunicationProtocol,   r.Separators, tp.InterchangeIdQualifier
+		into :lId, :lNm, :ack, :lFld, :tpFld, :protocol, :separators, :interchangeIdQualifier
+		from IHC_ERP_TPManage.TRADELINK r, 
+		IHC_ERP_TPManage.TPID t1,
+		IHC_ERP_TPManage.TPID t2,
+		IHC_ERP_TPManage.TRANSACTIONTYPE tr,
+		IHC_ERP_TPManage.TradingPartner tp
+		where
+		r.IsaSenderId = t1.ID
+		and t1.TPID = :interchangeSenderID
+		and r.IsaReceiverId = t2.ID
+		and t2.TPID = :interchangeReceiverID
+		and r.TRANSACTIONTYPE = tr.ID
+		and tr.Name = :transType
+		and r.Direction = :direc							
+		AND tp.ID = t1.TPFK)
+		// $$$TRACE(transType _", " _  lId _", " _ lNm _"," _ ack _", " _ lFld _", " _ tpFld _", " _ protocol)
+		set retVal = lId _"," _ lNm _"," _ ack _"," _ lFld _"," _ tpFld _"," _ protocol _"," _ separators _"," _ interchangeIdQualifier
+		return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="StoreErpData">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>inpStream:%Library.FileCharacterStream,flNm:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set procDtTm = $ZDATETIME($HOROLOG,3, 1)
+	Do inpStream.Rewind()
+	$$$TRACE("In StoreErpData: " _ flNm _", " _ inpStream.Size)
+	set x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(inpStream, .sc)
+	if ( ($$$ISOK(sc)) && ($IsObject(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+			 
+			 // WRITE !, x12Doc.DocType _", " _ sc _", " _ x12Doc.OutputToString()
+			 set x12Doc.DocType = "HIPAA_4010:Interchange:Group"
+			 
+			 set isaInterchangeSenderID = x12Doc.GetValueAt("ISA:InterchangeSenderID")
+			 set isaInterchangeReceiverID = x12Doc.GetValueAt("ISA:InterchangeReceiverID")
+			 set isaControlNumber = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+			 set isaDT = x12Doc.GetValueAt("ISA:InterchangeDate")
+			 set isaTM = x12Doc.GetValueAt("ISA:InterchangeTime")
+			 
+			 Set k1="",tSC=1,k2=""
+			 set nxt = x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
+			 Set k1=x12Doc.NextChild(k1,nxt)
+			 set parentId = 0
+			while ($IsObject(k1))
+			{
+			    
+				If ""=k1.DocType {
+					Set tDocType = k1.resolveChildDocType()
+					
+					Set tSC =k1.PokeDocType(tDocType)
+				}
+				
+				 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
+				 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
+				 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
+				 set numTransactions = $ZSTRIP(k1.GetValueAt("GE:1"), "<>W")
+				 set grpDocType = k1.DocType
+				 $$$TRACE(  "GS Sender: " _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Ctrl # " _ grpCtrlNum)
+
+				Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			}
+		 
+		  	Set k1="",tSC=1,k2=""
+		  				 
+			
+		   	Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		   	set stCnt = 0, processSt = 1, accNum = 0, eddOverride = ""
+		    while ( ($IsObject(k1)) && (processSt = 1))
+		    {
+			    			
+				Set x12Doc.FunctionalGroups(k1)=k1
+			
+		 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+		 		while ( ($IsObject(k2)) && (processSt = 1))
+		 		{
+			 		Do $INCREMENT( stCnt )
+					// WRITE !, "--ST: " _ stCnt _"= " _ k2.SegCountGet() 
+					
+					Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+					If ""=k2.DocType {
+						Set tDocType = k2.resolveChildDocType()
+						Set tSC =k2.PokeDocType(tDocType)
+					}
+					
+					set documentType = "", invoiceNumber = "", purchaseOrder = "", productTransfer = ""
+					set stCtrlNum = "", numSegs = 0
+					FOR seg=1:1:k2.SegCountGet()
+					{
+						
+						Do $INCREMENT(numSegs)
+						set segRec = k2.GetValueAt(seg)
+						set recType = k2.GetValueAt(seg_":0")
+						if (recType = "ST")
+						{
+							set documentType = k2.GetValueAt(seg_":1")
+							set stCtrlNum = k2.GetValueAt(seg_":2")
+						}
+						if (recType = "SE")
+						{
+							set seCtrlNum = $ZSTRIP(k2.GetValueAt(seg_":2"), "<>W")
+							set seNumSegs = $ZSTRIP(k2.GetValueAt(seg_":1"), "<>W")
+							if ( (numSegs '= seNumSegs) || (stCtrlNum '= seCtrlNum))
+							{
+								$$$LOGERROR( "ST segment CTRL NUM / counts did not match: " _ numSegs _ " '= " _ seNumSegs _", CTRl # " _ stCtrlNum _ " '= " _ seCtrlNum)
+								QUIT 
+							}
+						}
+						if (documentType = "810")
+						{
+							if (recType = "BIG")
+							{
+								set invoiceNumber = k2.GetValueAt(seg_":2") 
+								set purchaseOrder = k2.GetValueAt(seg_":4")
+							}
+							if ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "ST"))
+							{
+								set accNum = k2.GetValueAt(seg_":4")
+							}
+							elseif ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "SE"))
+							{
+								set eddOverride = k2.GetValueAt(seg_":4")
+							}
+						}
+						elseif (documentType = "850")
+						{
+							if (recType = "BEG")
+							{
+								set purchaseOrder = k2.GetValueAt(seg_":3")
+							}
+							if ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "ST"))
+							{
+								set accNum = k2.GetValueAt(seg_":4")
+							}
+							elseif ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "SE"))
+							{
+								set eddOverride = k2.GetValueAt(seg_":4")
+							}
+						}
+						elseif (documentType = "855")
+						{
+							if (recType = "BAK")
+							{
+								set purchaseOrder = k2.GetValueAt(seg_":3")
+								// WRITE !, "-- PurchaseOrder: " _ stCtrlNum _". " _ purchaseOrder
+							}
+							if ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "ST"))
+							{
+								set accNum = k2.GetValueAt(seg_":4")
+							}
+							elseif ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "SE"))
+							{
+								set eddOverride = k2.GetValueAt(seg_":4")
+							}
+						}
+						elseif (documentType = "856")
+						{
+							if (recType = "PRF")
+							{
+								set purchaseOrder = k2.GetValueAt(seg_":1")
+							}
+							if ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "ST"))
+							{
+								set accNum = k2.GetValueAt(seg_":4")
+							}
+							elseif ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "SE"))
+							{
+								set eddOverride = k2.GetValueAt(seg_":4")
+							}
+						}
+						elseif (documentType = "861")
+						{
+							if (recType = "PRF")
+							{
+								set purchaseOrder = k2.GetValueAt(seg_":1")
+							}
+							if ( (recType = "N1") && (k2.GetValueAt(seg_":1") = "ST"))
+							{
+								set accNum = k2.GetValueAt(seg_":4")
+							}
+						}
+						elseif (documentType = "867")
+						{
+							if (recType = "BPT")
+							{
+								set productTransfer = k2.GetValueAt(seg_":2")
+							}
+						}
+						else
+						{
+							$$$LOGERROR( documentType _" not processed")
+							set processSt = 0
+							QUIT
+						}
+					}
+					
+					if (stCnt = 1)
+					{
+						// Store Full X12
+						$$$TRACE( "Store Full X12 string")
+						if (numTransactions > 1)
+						{
+							set numSegs = ""
+						}
+			
+					    if (inpStream.Size < 3641144)
+					    {
+						    set x12DocStr = x12Doc.OutputToString()
+						    &SQL(INSERT INTO IHC_ERP.X12Data
+						    (ProcessDtTm, ApplicationReceiversCode, ApplicationSendersCode, FileName, GroupControlNumber, 
+						    InterchangeControlNumber, InterchangeDate, InterchangeTime, InterchangeReceiverID, InterchangeSenderID, 
+						     TransactionType,InvoiceNumber, ProductTransfer, PurchaseOrder, 
+						     x12Data, NumTransactions, TransactionControlNumber, NumSegments, ParentId, AccountNumber, EddOverride)
+						    values 
+						    (:procDtTm, :applicationReceiversCode, :applicationSendersCode, :flNm, :grpCtrlNum, 
+						    :isaControlNumber,:isaDT, :isaTM, :isaInterchangeReceiverID,:isaInterchangeSenderID,
+						    :documentType, :invoiceNumber, :productTransfer, :purchaseOrder, :x12DocStr,
+						    :numTransactions, :stCtrlNum, :numSegs, 0, :accNum, :eddOverride ))
+						    
+					    }
+					    else
+					    {
+						     
+							set myquery = "INSERT INTO IHC_ERP.X12Data"
+						    _"(ProcessDtTm, ApplicationReceiversCode, ApplicationSendersCode, FileName, GroupControlNumber, "
+						    _"InterchangeControlNumber, InterchangeDate, InterchangeTime, InterchangeReceiverID, InterchangeSenderID, "
+						     _"TransactionType,InvoiceNumber, ProductTransfer, PurchaseOrder,"
+						     _" NumTransactions, TransactionControlNumber, NumSegments, ParentId, AccountNumber, EddOverride )"
+						    _"values "
+						    _"(:procDtTm, :applicationReceiversCode, :applicationSendersCode, :flNm, :grpCtrlNum, "
+						    _":isaControlNumber,:isaDT, :isaTM, :isaInterchangeReceiverID,:isaInterchangeSenderID,"
+						    _":documentType, :invoiceNumber, :productTransfer, :purchaseOrder,"
+						    _":numTransactions, :stCtrlNum, :numSegs, 0, :accNum, :eddOverride )"
+						    SET tStatement = ##class(%SQL.Statement).%New()
+							SET tStatus = tStatement.%Prepare(myquery)
+							SET rset = tStatement.%Execute()
+							
+							if (rset.%SQLCODE = 0)
+							{		
+								set rowId = rset.%ROWID
+								
+									 set obj = ##class(IHC.ERP.X12Data).%OpenId(rowId)
+									 if ($ISOBJECT(obj))
+									 {
+								     	 
+										 set obj.x12DataStream = inpStream
+										
+										 set obj.x12Data = ""
+										 set stat = obj.%Save()
+										 $$$TRACE( "Save stream with IHC_ERP.X12Data: " _ obj.%Id())
+									 }
+									 else
+									 {
+										 $$$LOGERROR( "Row ID not found: " _ rowId)
+									 }
+								
+									 
+					    	}
+					    	else
+					    	{
+						    	$$$LOGERROR( "Execute SQLCODE error " _ rset.%SQLCODE)
+						    	QUIT
+					    	}
+					    }
+					    IF rset.%SQLCODE<0 {
+						  $$$LOGERROR( "SQLCODE error " _ rset.%SQLCODE _ " " _ %msg)  
+						  if (rset.%SQLCODE = -119)
+						  {
+							  $$$TRACE( " - Duplicate Row")
+						  }
+						  else
+						  {
+							$$$LOGERROR(  procDtTm_", "_applicationReceiversCode_", "_applicationSendersCode_", "_flNm_", "_grpCtrlNum)
+					    	$$$LOGERROR(  isaControlNumber_", "_isaDT_", "_isaTM_", "_isaInterchangeReceiverID_", "_isaInterchangeSenderID)
+					    	$$$LOGERROR(  documentType_", "_invoiceNumber_", "_productTransfer_", "_purchaseOrder_", "_x12DocStr)
+						  	QUIT
+						  }
+					    }
+					    else
+					    {
+						    $$$TRACE( "INSERT INTO IHC_ERP.X12Data Count: " _", " _ rset.%ROWCOUNT _ "; ROWID: " _ rset.%ROWID)
+						    set parentId = rset.%ROWID
+					    }
+					}
+					
+					if ((processSt = 1) &&(numTransactions > 1))
+					{
+						// Store ST-SE
+						// WRITE !, "Store ST-SE"
+						set stX12 = k2.OutputToString()
+					    &SQL(INSERT INTO IHC_ERP.X12Data
+					    (ProcessDtTm, ApplicationReceiversCode, ApplicationSendersCode, FileName, GroupControlNumber, 
+					    InterchangeControlNumber, InterchangeDate, InterchangeTime, InterchangeReceiverID, InterchangeSenderID, 
+					     TransactionType,InvoiceNumber, ProductTransfer, PurchaseOrder, 
+					     x12Data, NumTransactions, TransactionControlNumber, NumSegments, ParentId, AccountNumber, EddOverride)
+					    values 
+					    (:procDtTm, :applicationReceiversCode, :applicationSendersCode, :flNm, :grpCtrlNum, 
+					    :isaControlNumber,:isaDT, :isaTM, :isaInterchangeReceiverID,:isaInterchangeSenderID,
+					    :documentType, :invoiceNumber, :productTransfer, :purchaseOrder, :stX12,
+					    :numTransactions, :stCtrlNum, :numSegs, :parentId, :accNum, :eddOverride ))
+					    if (SQLCODE<0)
+				    	{
+					    	$$$LOGERROR( "ST x12 store SQLCODE error " _ rset.%SQLCODE)
+					    	QUIT
+				    	}
+					}
+					
+		    		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))			
+
+		 		}
+		  		Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+		  } 
+	 } // X12
+	 else
+	 {
+		  #dim tDocument As %XML.XPATH.Document;
+		  Set tSC=##class(%XML.XPATH.Document).CreateFromStream(inpStream,.tDocument)
+
+		  if ( ($$$ISOK(tSC)) && ($IsObject( tDocument)))
+		  {
+			  $$$TRACE( "**** XML file " _ flNm)
+			  set sender = ""
+			  set gtin = "", tran = ""
+			  set receiver = ""
+			  set catPathStr(1) = "/catalogue_item_notification:catalogueItemNotificationMessage/sh:StandardBusinessDocumentHeader/sh:Sender/sh:Identifier"					  
+  			  set catPathStr(2) = "/catalogue_item_notification:catalogueItemNotificationMessage/sh:StandardBusinessDocumentHeader/sh:Receiver/sh:Identifier"					  		
+			  set catPathStr(3) = "//catalogue_item_notification:catalogueItemNotificationMessage/transaction/documentCommand/catalogue_item_notification:catalogueItemNotification/catalogueItem/tradeItem/gtin"
+			  
+			  set ordPathStr(1) = "//cXML/Header/From/Credential/Identity"
+			  set ordPathStr(2) = "//cXML/Header/To/Credential/Identity"
+			  set expr = "text()"
+			  
+
+			        Set tSC=tDocument.EvaluateExpression(catPathStr(1), expr, .xPathDoc)
+			        
+			        If $$$ISOK(tSC) { 
+			        
+			        	// WRITE !, "catalogue_item_notification - Xpath count: " _ xPathDoc.Count()
+			        	set tran = "CatalogueItemNotification"
+			        	Set tSC=tDocument.EvaluateExpression(catPathStr(2), expr, .xPathDoc2)
+			        	if (xPathDoc2.Count() > 0)
+					 	{
+						 	set receiver = xPathDoc2.GetAt(1).Value
+						 
+					 	}
+					 	Set tSC=tDocument.EvaluateExpression(catPathStr(3), expr, .xPathDoc3)
+			        	if (xPathDoc3.Count() > 0)
+					 	{
+						 	set gtin = xPathDoc3.GetAt(1).Value
+						 
+					 	}
+			        }
+			        else
+			        {
+				        Do $System.Status.DisplayError(tSC) 
+				        Set tSC=tDocument.EvaluateExpression(ordPathStr(1), expr, .xPathDoc)
+				        If $$$ISERR(tSC) { Do $System.Status.DisplayError(tSC) Quit}
+				        
+				        // WRITE !, "orderrequest - Xpath count: " _ xPathDoc.Count()
+				        set tran = "OrderRequest"
+				        Set tSC=tDocument.EvaluateExpression(ordPathStr(2), expr, .xPathDoc2)
+				        if (xPathDoc2.Count() > 0)
+					 	{
+						 	set receiver = xPathDoc2.GetAt(1).Value
+						 
+					 	}
+			        }
+			        if (xPathDoc.Count() > 0)
+					 {
+						 set sender = xPathDoc.GetAt(1).Value
+						 
+					 }
+					 
+					 
+					  set xmlStr = ""
+					  
+					  $$$TRACE( "Stream length: " _ inpStream.Size)
+					 
+
+					 set len = 32000
+					 Do inpStream.Rewind()
+					 while (len = 32000)
+					 {
+						 set len = 32000
+					 	 set xmlStr = xmlStr _ inpStream.Read(.len, .st)
+					 	
+					 }
+
+					
+					 $$$TRACE( "Stream Read to String" _ st _", length: " _ $L(xmlStr) _", " _ len)
+					 
+					  &SQL(INSERT INTO IHC_ERP.XMLData
+						    (ProcessDtTm,  FileName, xmlData, SenderID, ReceiverID, Gtin, TransactionType)
+						    values 
+						    (:procDtTm, :flNm, :xmlStr, :sender, :receiver,:gtin, :tran  ))
+					  IF SQLCODE<0 {
+						  $$$LOGERROR( "SQLCODE error " _ SQLCODE _ " " _ %msg)  
+					  		if (SQLCODE = -119)
+						  {
+							  $$$TRACE( " - Duplicate Row")
+						  }
+						  else
+						  {
+							$$$LOGERROR(  procDtTm_", "_receiver_", "_sender_", "_flNm)
+					   	  	QUIT
+						  }
+					  }
+					  else
+					  {
+					     $$$TRACE( "INSERT INTO IHC_ERP.XMLData Count: " _", " _ rset.%ROWCOUNT _ "; ROWID: " _ rset.%ROWID)
+						    
+					  }
+
+
+	 
+		 } //XML
+
+		 else
+		 {
+			 $$$TRACE( "  -- CFF file " _ flNm)
+			 if (flNm [ "payp") || (flNm [ "PAYP")
+			 {
+			 	set tran = "PAYP"
+			 }
+			 elseif (flNm [ "nacha") || (flNm [ "NACHA")
+			 {
+			 	set tran = "NACHA"
+			 }
+			 elseif (flNm [ "psbd") || (flNm [ "PSBD")
+			 {
+			 	set tran = "PSBD1"
+			 }
+			 elseif (flNm [ "bai2") || (flNm [ "BAI2")
+			 {
+			 	set tran = "BAI2"
+			 }
+			 else
+			 {
+				 QUIT
+			 }
+			 
+			 
+			  $$$TRACE( "Stream length: " _ inpStream.Size)
+			  set dataStr = ""
+
+			 set len = 32000
+			 Do inpStream.Rewind()
+			 while (len = 32000)
+			 {
+				 set len = 32000
+			 	 set dataStr = dataStr _ inpStream.Read(.len, .st)
+			 	
+			 }
+					 
+			 &SQL(INSERT INTO IHC_ERP.TextData
+				    (ProcessDtTm,  FileName, textData, SenderID, ReceiverID, TransactionType)
+				    values 
+				    (:procDtTm, :flNm, :dataStr, '-', '-', :tran  ))
+				    $$$TRACE( "Insert: " _ tran _": " _ SQLCODE)
+		 } // CFF
+		 
+	 }
+]]></Implementation>
+</Method>
+</Class>
+</Export>
