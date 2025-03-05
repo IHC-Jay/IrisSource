@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="ImportTps" type="MAC" languagemode="0"><![CDATA[
+#include Ensemble
+ set usrNm = $USERNAME
+ WRITE !, $SYSTEM _" / " _  $NAMESPACE _", " _ usrNm
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ 
+ // csv file fields:
+ // Partner,Protocol,Van,AS2 ID,Interchange Id Qualifier,Interchange ID,Group ID,
+ // Partner Interchange ID Qualifier,Partner Interchange ID, Partner Group ID,
+ // 820 Out,820A Out,828 Out,831 Out,BAI2 In,NACHA Out,PAYP Out,PSBD1 In,810 In,822 In,832 In,846 In,850 Out,852 Out,
+ // 855 In,856 In,861 In,867 Out,997 In/Out,cxml Out,CatalogItem* In,folder,
+
+ &SQL(DELETE IHC_ERP_TPManage.TradeLink)
+ &SQL(DELETE IHC_ERP_TPManage.TpId)
+ // &SQL(DELETE IHC_ERP_TPManage.TradingPartner)
+ // &SQL(DELETE IHC_ERP_TPManage.TransactionType)
+ 
+ 
+ set transTypes(1) = "820,	Out, X12"
+ set transTypes(2) = "820A,	Out, X12"
+ set transTypes(3) = "828,	Out, Text"
+ set transTypes(4) = "831,	Out, X12"
+ set transTypes(5) = "BAI2,	In, Text"
+ set transTypes(6) = "NACHA,	Out, Text"
+ set transTypes(7) = "PAYP,	Out, Text"
+ set transTypes(8) = "PSBD1,	In, Text"
+ set transTypes(9) = "810,	In, X12"
+ set transTypes(10) = "822,	In, X12"
+ set transTypes(11) = "832,	In, X12"
+ set transTypes(12) = "846,	In, X12"
+ set transTypes(13) = "850,	Out, X12"
+ set transTypes(14) = "852,	Out, X12"
+ set transTypes(15) = "855,	In, X12"
+ set transTypes(16) = "856,	In, X12"
+ set transTypes(17) = "861,	In, X12"
+ set transTypes(18) = "867,	Out, X12"
+ set transTypes(19) = "997,	IO, X12"
+ set transTypes(20) = "cxml, Out, cxml"
+ set transTypes(21) = "CatalogItem,	In,XML"
+ 
+ FOR ind=1:1:21
+ {
+	 set ttNm = $ZSTRIP($PIECE(transTypes(ind), "," , 1), "*W")
+	 set direc = $ZSTRIP($PIECE(transTypes(ind), "," , 2), "*W")
+	 set type = $ZSTRIP($PIECE(transTypes(ind), "," , 3), "*W")
+	 
+	 &SQL(INSERT INTO IHC_ERP_TPManage.TransactionType(Name, CreateID, CreatedDtTM, LastmodID, LastmodDtTM, Direction, Type, Version) 
+	 values(:ttNm, :usrNm, :dtTm, :usrNm, :dtTm,:direc,:type,'4010'))
+ 	
+ 	IF SQLCODE<0 {
+					  WRITE !, "TransactionType SQLCODE error ",SQLCODE," ",%msg  
+					  if (SQLCODE = -119)
+					  {
+						  WRITE " - Duplicate"
+					  }
+					  else
+					  {
+					  	QUIT
+					  }
+				  } 
+				  &SQL(SELECT ID, Version INTO :ttId, :ttVersion FROM IHC_ERP_TPManage.TransactionType where Name =:ttNm)
+				  
+				  if (ttId > 0){
+					  set transTypes(ind) = transTypes(ind) _"," _ ttId _"," _ ttVersion
+				  }
+				  WRITE !, "Insert TransactionType: " _ transTypes(ind)
+ }
+
+ // OWNER:
+	 set ownerNm = "Intermountain"
+	 &SQL(
+		 INSERT INTO IHC_ERP_TPManage.TradingPartner
+		( Name, BusinessContact, CommunicationContact,
+		CreateID, CreatedDtTM, LastmodID, LastmodDtTM,
+		Folder, InterchangeIdQualifier,   PartnerInterchangeIdQualifier, Type)
+		values
+		( :ownerNm, 'Cory Uhrich', 'Bryan Brotherson',
+		:usrNm, :dtTm, :usrNm, :dtTm, '', '', '', 'Owner')
+	)
+	IF SQLCODE<0 {
+		if (-119 = SQLCODE)
+		{
+			WRITE !, "Duplicate" 
+		}
+		else
+		{
+					  WRITE !, "TradingPartner SQLCODE error ",SQLCODE," ",%msg  
+					  QUIT
+		}
+	}
+	&SQL(SELECT ID INTO :ownerId FROM IHC_ERP_TPManage.TradingPartner where Name =:ownerNm)
+	WRITE !, ownerNm _ " Id: " _ ownerId
+	if (ownerId <= 0)
+	{
+		WRITE !, "OWNER not in table"
+		QUIT
+	}
+	set oTpId(1) = "8014426699"
+	set oTpId(2) = "072955503"
+	set oTpId(3) = "AS28014426699"
+	
+	FOR oInd=1:1:3 	
+	{	 
+		set oTpId = oTpId(oInd) 
+		&SQL(INSERT INTO IHC_ERP_TPManage.TpId
+		( CreateID, CreatedDtTM, LastmodID, LastmodDtTM, TPFK, TPID, Type)
+		values
+		(
+		:usrNm, :dtTm, :usrNm, :dtTm,
+		 :ownerId, :oTpId, 'BOTH'))	 
+		 IF SQLCODE<0 {
+					  WRITE !, "TpId SQLCODE error ",SQLCODE," ",%msg  
+					  QUIT
+	}
+	 }
+
+
+  set direc = "/home/lpjnaras/SuplyChain-B2B/" // "/home/cacheusr/TpManage/" // "/home/lpjnaras/TpManage/"
+  set flNm = direc _  "B2B_Partner_List.csv" 
+  set insertTbl = "TradingPartners"
+ 
+ WRITE !, "Process: " _ flNm
+ if (##class(%File).Exists(flNm))
+ {
+     set line = 1
+	 set fileObj = ##class(%File).%New(flNm)
+	 
+	 set status = fileObj.Open("R")
+	 set numRecs = 0, numLinks = 0, numTps = 0
+	 while 'fileObj.AtEnd {
+		 set text = fileObj.ReadLine(,.sc, .eol)
+		 if $$$ISERR(sc) 
+		 {
+			 WRITE !, "End of File: " _sc _ ", " _ eol
+			 QUIT
+		 }
+		 else
+		 {
+			 set folder = ""
+			 if ($L(text) <= 0)
+			 {
+			   continue
+			 } 
+			 set numRecs = numRecs + 1
+			 
+			 if (insertTbl [ "TradingPartners" ) 
+			{ //Trading Partner
+				set protocol = $ZSTRIP($PIECE(text, "," , 2) , "*W")
+			
+				set folder = $ZSTRIP($PIECE(text, "," , 32), "*W")
+				set cc = $PIECE(text, "," , 33)
+				set bc = $PIECE(text, "," , 34)
+				set notes = $PIECE(text, "," , 35)
+			
+			  set pNm = $PIECE(text, "," , 1) 
+			  set iiq = $SELECT($L($PIECE(text, "," , 5))=2:$PIECE(text, "," , 5),1:"ZZ")  
+			  set piiq = $SELECT($L($PIECE(text, "," , 8))=2:$PIECE(text, "," , 8),1:"ZZ")
+			  WRITE !, pNm _", IQ:" _iiq _", PQ" _ piiq _ ",  ISA: " _ $PIECE(text, "," , 6) _", " _ $PIECE(text, "," , 9) _ ";  GS: " _$PIECE(text, "," , 7) _", " _ $PIECE(text, "," , 10)
+			  if (numRecs > 1)
+			  {
+				  &SQL(INSERT INTO IHC_ERP_TPManage.TradingPartner(Name, CreateID, CreatedDtTM, 
+				  LastmodID,LastmodDtTM,Folder, InterchangeIdQualifier,  PartnerInterchangeIdQualifier,  Type,
+				  CommunicationContact,BusinessContact,Notes)
+				  values (:pNm, :usrNm, :dtTm, :usrNm, :dtTm, :folder, :iiq, :piiq, 'Partner',
+				  :cc, :bc, :notes))
+				  IF SQLCODE<0 {
+					  WRITE !, "TradingPartner SQLCODE error ",SQLCODE," ",%msg  
+					  if (SQLCODE = -119)
+					  {
+						  WRITE " - Duplicate"
+					  }
+					  else
+					  {
+					  	QUIT
+					  }
+				  }
+				  else
+				  {
+				  	WRITE !,  %ROWCOUNT
+				  }
+				  &SQL(SELECT ID INTO :tradingPartnerId FROM IHC_ERP_TPManage.TradingPartner where Name =:pNm)
+				  WRITE !, pNm _ " Id: " _ tradingPartnerId
+				  if (tradingPartnerId > 0)
+				  {
+					  set isaId = $PIECE(text, "," , 9) 
+					  set gsId = $PIECE(text, "," , 10)
+					  if (isaId = "")
+					  {
+						  WRITE !, "ID not provider"
+					  }
+					  elseif (isaId = gsId)
+					  {
+						  &SQL(INSERT INTO IHC_ERP_TPManage.TpId (TPFK, CreateID,	CreatedDtTM, LastmodID,	LastmodDtTM, TPID,Type	) 
+						  values(:tradingPartnerId, :usrNm, :dtTm, :usrNm, :dtTm, :isaId, 'BOTH'))
+						  IF SQLCODE<0 {
+						  	WRITE !, "TpId SQLCODE error ",SQLCODE," ",%msg  
+							  if (SQLCODE = -119)
+							  {
+								  WRITE " - Duplicate"
+							  }
+							  else
+							  {
+							  	QUIT
+							  }
+						  }
+					  }
+					  else
+					  {
+						  &SQL(INSERT INTO IHC_ERP_TPManage.TpId (TPFK, CreateID,	CreatedDtTM, LastmodID,	LastmodDtTM, TPID,Type	) 
+						  values(:tradingPartnerId, :usrNm, :dtTm, :usrNm, :dtTm, :isaId, 'ISA'))
+						  &SQL(INSERT INTO IHC_ERP_TPManage.TpId (TPFK, CreateID,	CreatedDtTM, LastmodID,	LastmodDtTM, TPID,Type	) 
+						  values(:tradingPartnerId, :usrNm, :dtTm, :usrNm, :dtTm, :gsId, 'GS'))
+					  }
+					  
+					  
+					  set oIsaId = $PIECE(text, "," , 6)
+					  set oGsId = $PIECE(text, "," , 7)
+						  
+					  &SQL( SELECT tpid.ID, tpid.TPID INTO :oIsaTpidId, :oIsaTpidNum from IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid
+								WHERE tp.ID = tpid.TPFK AND tp.Name = 'Intermountain' and tpid.TPID =:oIsaId )
+					  &SQL( SELECT tpid.ID, tpid.TPID INTO :oGsTpidId, :oGsTpidNum from IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid
+								WHERE tp.ID = tpid.TPFK AND tp.Name = 'Intermountain' and tpid.TPID =:oGsId )
+						
+					  WRITE !, oIsaTpidId _", " _ oIsaTpidNum_", " _oGsTpidId _", " _oGsTpidNum
+					  if (oIsaTpidId = "" || oGsTpidId = "")
+				  	{
+					  	WRITE !, "Owner TPID not found"
+					  	QUIT
+				  	}
+
+					  &SQL( SELECT tpid.ID, tpid.TPID INTO :pIsaTpidId, :pIsaTpidNum from IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid
+								WHERE tp.ID = tpid.TPFK AND  tpid.TPID =:isaId )
+					  &SQL( SELECT tpid.ID, tpid.TPID INTO :pGsTpidId, :pGsTpidNum from IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid
+								WHERE tp.ID = tpid.TPFK  AND tpid.TPID =:gsId )
+						
+					  WRITE !, pIsaTpidId _", " _ pIsaTpidNum_", " _pGsTpidId _", " _pGsTpidNum
+
+				  	if (pIsaTpidId = "" || pGsTpidId = "")
+				  	{
+					  	WRITE !, "Partner TPID not found"
+					  	QUIT
+				  	}
+				  	FOR ind=1:1:21
+ 					{
+						  set linkNm = $PIECE(text, "," , 10 + ind)
+						  if (linkNm '= "")
+						  {
+							  WRITE !, "Insert " _ transTypes(ind)
+							  
+							  set direc = $ZSTRIP($PIECE(transTypes(ind), "," , 2), "*W")
+							  set ttId = $ZSTRIP($PIECE(transTypes(ind), "," , 4), "*W")
+							  set ttVersion = $ZSTRIP($PIECE(transTypes(ind), "," , 5), "*W")
+							  set numLinks = numLinks + 1
+							  set lnkNm = pNm _ "-" _ttVersion _ "-" _ $ZSTRIP($PIECE(transTypes(ind), "," , 1), "*W")
+							  
+							  if ( direc = "Out")
+							  {
+								  set lnkNm = lnkNm _ "-" _ direc
+								  &SQL(INSERT INTO IHC_ERP_TPManage.TradeLink
+								  (Name, CreateID, CreatedDtTM,  LastmodID, LastmodDtTM,
+								  Ack,  Direction, GsReceiverId, GsSenderId, IsaReceiverId, IsaSenderId,  TransactionType)
+								  values(:lnkNm, :usrNm, :dtTm, :usrNm, :dtTm,
+								  '0', :direc, :pGsTpidId, :oGsTpidId, :pIsaTpidId, :oIsaTpidId, :ttId) )
+							  }
+							  elseif ( direc = "In")
+							  {
+								  set lnkNm = lnkNm _ "-" _ direc
+								  &SQL(INSERT INTO IHC_ERP_TPManage.TradeLink
+								  (Name, CreateID, CreatedDtTM,  LastmodID, LastmodDtTM,
+								  Ack,  Direction, GsReceiverId, GsSenderId, IsaReceiverId, IsaSenderId,  TransactionType)
+								  values(:lnkNm, :usrNm, :dtTm, :usrNm, :dtTm,
+								  '0', :direc,  :oGsTpidId, :pGsTpidId,  :oIsaTpidId, :pIsaTpidId, :ttId) )
+
+							  }
+							  else
+							  {
+								  
+								  set lnkNmIn = lnkNm _ "-In"
+								  &SQL(INSERT INTO IHC_ERP_TPManage.TradeLink
+								  (Name, CreateID, CreatedDtTM,  LastmodID, LastmodDtTM,
+								  Ack,  Direction, GsReceiverId, GsSenderId, IsaReceiverId, IsaSenderId,  TransactionType)
+								  values(:lnkNmIn, :usrNm, :dtTm, :usrNm, :dtTm,
+								  '0', 'In', :oGsTpidId, :pGsTpidId,  :oIsaTpidId, :pIsaTpidId, :ttId))
+								  
+								  
+								  set lnkNmOut = lnkNm _ "-Out"
+								  &SQL(INSERT INTO IHC_ERP_TPManage.TradeLink
+								  (Name, CreateID, CreatedDtTM,  LastmodID, LastmodDtTM,
+								  Ack,  Direction, GsReceiverId, GsSenderId, IsaReceiverId, IsaSenderId,  TransactionType)
+								  values(:lnkNmOut, :usrNm, :dtTm, :usrNm, :dtTm,
+								  '0', 'Out', :pGsTpidId, :oGsTpidId, :pIsaTpidId, :oIsaTpidId, :ttId) 
+								    )
+								  
+							  }
+							  IF SQLCODE<0 {
+						  			WRITE !, "TradeLink: SQLCODE error ",SQLCODE," ",%msg 
+						  			QUIT 
+							  }
+						  }
+ 					}
+			  	}
+ 				
+				  
+			  }
+ 
+
+			}
+		 }
+	 }
+ }
+ else
+ {
+	 WRITE !, "Can't read: " _ flNm
+ }
+ WRITE !, "TPs: " _ numRecs _ ", Links: " _ numLinks _ " -=-=-"
+]]></Routine>
+</Export>
