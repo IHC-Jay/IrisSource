@@ -24,6 +24,8 @@ import { HeaderComponent } from './header/header.component';
 
 import { TpRestServiceComponent } from './services/tprest-service.component';
 import { TransRestServiceComponent } from './services/transrest-service.component';
+import {UtilService} from './services/utilService';
+
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
 import { copyTPComponent  } from './tradingPartners/copyTP.component';
 import { ConfirmDialogComponent } from './confirm-dialog/confirm-dialog.component';
@@ -58,6 +60,9 @@ import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
 
 import { AngularSplitModule } from 'angular-split';
+
+import {SummaryComponent} from './summary/summary.component'
+
 import { WorkflowComponent } from './workflow/workflow.component';
 import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
 
@@ -81,6 +86,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     Modalx12Component,
     TransactionDetailComponent,
     TransactionSettingsComponent,
+    SummaryComponent,
     WorkflowComponent,
     WorkflowDetailsComponent
   ],

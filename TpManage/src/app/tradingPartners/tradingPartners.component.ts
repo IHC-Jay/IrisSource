@@ -13,6 +13,8 @@ import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.compone
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
 
+import {UtilService} from '../services/utilService';
+
 export interface TpFilter {
   name:string;
   options:string[];
@@ -64,6 +66,9 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
 
     ngOnInit()
     {
+
+
+
       this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
         this.dataSource.data = res;
 
@@ -79,6 +84,19 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
           }
           return isMatch;
         }
+
+        const collection = document.getElementsByTagName("BUTTON");
+      for (let i = 0; i < collection.length; i++)
+      {
+
+        console.info( collection[i].nodeName +", " + collection[i].textContent  );
+        if (collection[i].textContent.trim() === 'Trading Partners')
+          {
+          console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent  );
+          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
+          break;
+          }
+      }
 
       });
 

@@ -4,6 +4,7 @@ export interface DisplayColumns {
   key: string;
   Order: number;
   Setting: string;
+  DispType: string;
   Mode: string;
 }
 

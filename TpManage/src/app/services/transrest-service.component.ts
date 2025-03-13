@@ -521,14 +521,14 @@ fetchTransactionFields() {
 
 
 
-fetchDisplayColumns() {
+fetchDisplayColumns(setting: string, dispType: string) {
 
   if(this.currentUser === '')
   {
     this.getCurrentUser()
   }
 
-  let url = this.batchTransUrl + 'DisplayColumns?userNm=' +  this.currentUser;
+  let url = this.batchTransUrl + 'DisplayColumns?userNm=' +  this.currentUser +"&setting=" + setting +"&dispType=" + dispType;
 
   console.log('Fetch DisplayColumns from  ' + url);
   return this.http2
@@ -587,7 +587,7 @@ saveDisplayColumns(dispCol: DisplayColumnsArray)
 
 }
 
-deleteDisplayColumns()
+deleteDisplayColumns(setting: string, mode: string, transaction:string)
 {
   let dispCol = [];
 
@@ -599,7 +599,7 @@ deleteDisplayColumns()
 
   console.info('Post to DeleteDisplayColumns: ' + url );
 
-  return this.http.post<any>(url,  {'User': this.currentUser, 'Setting': 'Session'})
+  return this.http.post<any>(url,  {'User': this.currentUser, 'Setting': setting, 'Mode':mode, 'Transaction':transaction})
   .pipe(
     map(responseData => {
       console.info(responseData);
@@ -641,7 +641,7 @@ fetchSearchColumns() {
             dispArray.push({ ...responseData[key], id: responseData[key].id });
           }
         }
-        console.info('return Display array: ' + dispArray.length );
+        console.info('return Search array: ' + dispArray.length );
         return dispArray;
 
 
@@ -649,7 +649,7 @@ fetchSearchColumns() {
 
       catchError(errorRes => {
         // Send to analytics server
-        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        console.error('In fetchSearchColumns catchError: ' + errorRes);
         return errorRes;
       })
     );

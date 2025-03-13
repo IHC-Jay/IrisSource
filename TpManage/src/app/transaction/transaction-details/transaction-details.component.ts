@@ -167,8 +167,8 @@ export class TransactionDetailComponent {
             this.canRenderDetails = true;
             this.dataSource.data = res;
             this.X12DataParentId = this.dataSource.data[0].X12DataParentId;
-            this.ak1CtrlNum = this.dataSource.data[0].GroupControlNumber	;
-            this.ak1ver= this.dataSource.data[0].GroupVersion;
+            this.ak1CtrlNum = this.dataSource.data[0].GroupRespControlNumber	;
+            this.ak1ver= this.dataSource.data[0].GroupRespVersion;
             this.fileName = this.dataSource.data[0].FileName.replace(/^.*[\\\/]/, '');
           });
 

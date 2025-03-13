@@ -8,7 +8,7 @@ import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
 import {MatRadioModule, MatRadioGroup} from '@angular/material/radio';
 import { MatPaginator } from '@angular/material/paginator';
-import { MatSort, MatSortHeader } from '@angular/material/sort';
+import { MatSort, MatSortModule } from '@angular/material/sort';
 import { Router, ActivatedRoute } from '@angular/router';
 import {MatSelectModule,} from '@angular/material/select';
 import {DisplayColumns} from './DisplayColumns'
@@ -72,12 +72,21 @@ endDate ="13:30";
   dataTableLabel: string[] = [];
   dataTableKey: string[] = [];
   canRenderDetails = false;
+  showDirection = false;
+  showMode = false;
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
 
-  dataSource = new MatTableDataSource<any>();
+  dataSource = new MatTableDataSource<any>;
 
   @ViewChild(MatSort) sort: MatSort;
   @ViewChild(MatPaginator) paginator: MatPaginator;
+
+  @ViewChild(MatSort) set matSort(sort: MatSort) {
+    if (!this.dataSource.sort) {
+      console.debug("Set sort in ViewChild")
+      this.dataSource.sort = sort;
+    }
+  }
 
   transactionsFields= [
     {
@@ -96,7 +105,8 @@ endDate ="13:30";
   @ViewChild("disposition") disposition: ElementRef;
 
 
-  additionalsearchString = "";
+  staticSearchStr = "";
+  additionalSearchStr = "";
   searchTypeString = "";
   currentTransType = '';
   currentMode = '';
@@ -130,6 +140,19 @@ endDate ="13:30";
   ngOnInit()
   {
     console.info("ngOnInit");
+    const collection = document.getElementsByTagName("BUTTON");
+      for (let i = 0; i < collection.length; i++)
+      {
+
+        console.info( collection[i].nodeName +", " + collection[i].textContent  );
+        if (collection[i].textContent.trim() === 'Transactions')
+          {
+          console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent  );
+          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
+          break;
+          }
+      }
+    sessionStorage.setItem("Screen", "Transactions")
 
 
     this.form = this.formBuilder.group({
@@ -137,6 +160,7 @@ endDate ="13:30";
       transType: ['270', Validators.required],
       disposition: ['Processed', Validators.required],
       mode:['RealTime', Validators.required],
+      direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
     });
 
@@ -150,8 +174,34 @@ endDate ="13:30";
           // Defaults to '' if no query param provided.
 
           this.currentTransType =  params['transaction'] || '';
-          this.additionalsearchString = params['additionalSearch'] || '';
+          this.additionalSearchStr = params['additionalSearch'] || '';
           this.searchTypeString = params['searchTypeString'];
+        }
+        else
+        {
+
+          this.searchTypeString =  sessionStorage.getItem("searchTypeString");
+          console.info('no query params, session: ' + this.searchTypeString);
+          if (this.searchTypeString === null || this.searchTypeString.length == 0)
+            {
+
+              this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+              let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+              let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+              this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+              let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+              tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+              this.startTm = tmVal
+              this.endTm= tmVal
+              console.info("Time: " + tmVal)
+              this.nowDt = new Date(new Date().getTime());
+              mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+              dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+              this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+            }
+        }
+
           if (this.searchTypeString !== null && this.searchTypeString.length > 0)
           {
 
@@ -200,34 +250,23 @@ endDate ="13:30";
             this.form.controls.rowCnt.setValue(val)
 
 
-            if (this.additionalsearchString !== '')
-            {
-              console.log('set search controls, ' + this.searchTransaction);
-              this.searchTransaction = true;
-            }
-            else{
-              this.clearSearch();
-            }
-          }
-        }
-        else
-        {
-          console.info('no query params')
-          this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-          let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-          let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-          this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-          let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+            let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+            tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+            this.endTm= tmVal
 
-          tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-          this.startTm = tmVal
-          this.endTm= tmVal
-          console.info("Time: " + tmVal)
-          this.nowDt = new Date(new Date().getTime());
-          mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-          dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-          this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-        }
+            if (this.staticSearchStr !== '')
+            {
+              console.info('Set custom search:' + this.staticSearchStr);
+            }
+
+              this.searchTransaction = true;
+          }
+          else{
+              this.clearSearch();
+          }
+
+
+
     });
 
 
@@ -245,7 +284,7 @@ endDate ="13:30";
       console.info("transactions Fields: " + this.transactionsFields.length);
       console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
 
-      this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
+      this.TransactionService.fetchDisplayColumns("Default", "Transactions").subscribe((res: any) => {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
@@ -274,13 +313,17 @@ endDate ="13:30";
       });
 
     });
+    if (!this.dataSource.sort) {
+      console.debug("Set sort in ngInit")
+      this.dataSource.sort = this.sort;
+    }
 
 
   }
 
   ngAfterViewInit() {
     this.dataSource.paginator = this.paginator;
-    this.dataSource.sort = this.sort;
+    // this.dataSource.sort = this.sort;
 
   }
   get f() { return this.form.controls; }
@@ -298,10 +341,7 @@ endDate ="13:30";
       this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
 
-      if(this.additionalsearchString !== "")
-      {
-        this.paramsList.push("sql::" + this.additionalsearchString);
-      }
+
       console.info("onSearchTransactions count: " +this.form.controls.rowCnt.value)
       console.info("SearchTransactions Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
       console.info("SearchTransactions Start# " +  this.startDate + ", " + this.startTm );
@@ -315,50 +355,78 @@ endDate ="13:30";
 
       this.loading = true;
       const formArr = this.form.get('additional') as FormArray;
-      let staticSearchStr = "";
-
+      //
       let customFlds:string[] = this.transSearchLbls;
       let tabCol:string[] =this.transSearchFlds;
 
-      // Get values for static search
 
-      if (formArr.length >= 1) {
-        for(let i=0;i< formArr.length;i++)
-        {
-          let fGrp = formArr.at(i) as FormGroup
-          if (fGrp.controls.newFldValue.value === '')
-          {
-            console.info(fGrp.controls.fld.value +" is empty")
-            continue;
-          }
-          else{
-
-            console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
-          }
-
-          for (let [ind, val] of customFlds.entries()) {
-
-            if(fGrp.controls.fld.value === val)
-              {
-                console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
-                staticSearchStr += " AND " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'"
-              }
-          };
-
-
-        }
-      }
-      if(this.additionalsearchString.length > 0)
-        {
-          console.info("additionalsearchString: " + this.additionalsearchString)
-          staticSearchStr = staticSearchStr + " AND " + this.additionalsearchString
-
-        }
-      if(staticSearchStr.length > 3)
+      if (this.additionalSearchStr === '')
       {
-          staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
-          this.paramsList.push("sql::" + staticSearchStr);
+        this.staticSearchStr = ""
+
+        // Get values for static search
+
+        if (formArr.length >= 1) {
+          for(let i=0;i< formArr.length;i++)
+          {
+            let fGrp = formArr.at(i) as FormGroup
+            if (fGrp.controls.newFldValue.value === '')
+            {
+              console.info(fGrp.controls.fld.value +" is empty")
+              continue;
+            }
+            else{
+
+              console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
+            }
+
+            for (let [ind, val] of customFlds.entries()) {
+
+              if(fGrp.controls.fld.value === val)
+                {
+                  console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
+                  this.staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                }
+            };
+
+
+          }
+        }
       }
+      else
+      {
+        console.info("Set controls with values from " + this.additionalSearchStr);
+        this.staticSearchStr = this.additionalSearchStr
+        for(let i=0;i< formArr.length;i++)
+          {
+            let fGrp = formArr.at(i) as FormGroup
+
+             for (let [ind, val] of customFlds.entries()) {
+
+              if (this.additionalSearchStr.indexOf(tabCol[ind]) >= 0 && val ===  fGrp.controls.fld.value )
+              {
+                let usrVal =  this.staticSearchStr.substring(this.staticSearchStr.indexOf("=") + 1)
+                console.info('Set: ' + tabCol[ind] + " = '" + usrVal + "', " + val);
+
+                fGrp.controls.newFldValue.setValue(usrVal.replaceAll("'",""));
+                break;
+              }
+             }
+          }
+      }
+
+      if(this.staticSearchStr.length > 3)
+      {
+        this.staticSearchStr = this.staticSearchStr.replace('AND','') // Remove first AND
+          this.paramsList.push("sql::" + this.staticSearchStr);
+      }
+
+      this.searchTypeString = "";
+      this.paramsList.forEach( val => {
+        this.searchTypeString += val +";";
+       });
+
+      sessionStorage.setItem("searchTypeString", this.searchTypeString)
 
 
       if(this.form.controls.transType.value === '270')
@@ -367,9 +435,11 @@ endDate ="13:30";
             this.TransactionService.fetchEligibilityRequests(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
 
             this.dataSource.data = res;
+            this.dataSource.sort = this.sort;
             this.canRenderDetails = true;
 
             console.info("Data rows array: " + this.dataSource.data.length);
+
 
             this.loading = false;
 
@@ -387,6 +457,7 @@ endDate ="13:30";
 
         this.TransactionService.fetchEligibilityBenefitResponses(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("EligibilityBenefitResponses array: " + this.dataSource.data.length);
@@ -397,11 +468,12 @@ endDate ="13:30";
       else if(this.form.controls.transType.value === '835'){
 
 
-        console.info("835 search: "+ staticSearchStr );
+        console.info("835 search: "+ this.staticSearchStr );
 
 
         this.TransactionService.fetchClaimPayment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("ClaimPayment array: " + this.dataSource.data.length);
@@ -410,27 +482,27 @@ endDate ="13:30";
       }
       else if(this.form.controls.transType.value === '837P'){
 
-        console.info("837P search: "+ staticSearchStr );
+        console.info("837P search: "+ this.staticSearchStr );
 
           this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' ");
 
          this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
           this.dataSource.data = res;
+          this.dataSource.sort = this.sort;
           this.canRenderDetails = true;
           this.loading = false;
           console.info("Claims array: " + this.dataSource.data.length);
+
          });
 
        }
 
        else if(this.form.controls.transType.value === '837I'){
-        if(this.additionalsearchString.length > 0)
-        {
-          this.additionalsearchString = " AND " + this.additionalsearchString
-        }
+
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ")
         this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claims array: " + this.dataSource.data.length);
@@ -438,13 +510,11 @@ endDate ="13:30";
 
       }
       else if(this.form.controls.transType.value === '837D'){
-        if(this.additionalsearchString.length > 0)
-        {
-          this.additionalsearchString = " AND " + this.additionalsearchString
-        }
+
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ")
         this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claims array: " + this.dataSource.data.length);
@@ -456,6 +526,7 @@ endDate ="13:30";
 
         this.TransactionService.fetchClaimStatusReq(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claim Status  Req array: " + this.dataSource.data.length);
@@ -467,6 +538,7 @@ endDate ="13:30";
 
          this.TransactionService.fetchClaimStatusResp(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
           this.dataSource.data = res;
+          this.dataSource.sort = this.sort;
           this.canRenderDetails = true;
           this.loading = false;
           console.info("Claim Status Resp array: " + this.dataSource.data.length);
@@ -478,10 +550,12 @@ endDate ="13:30";
 
         this.TransactionService.fetchClaimAcknowledgment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claim Acknowledgment array: " + this.dataSource.data.length);
-
+         this.dataSource.sort = this.sort;
+         console.debug("Set sort after populating table")
         });
 
       }
@@ -489,6 +563,7 @@ endDate ="13:30";
 
         this.TransactionService.fetchImplementationAcknowledgment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Implementation Acknowledgment array: " + this.dataSource.data.length);
@@ -500,6 +575,7 @@ endDate ="13:30";
 
         this.TransactionService.fetchTA1(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
+         this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Interchange TA1 array: " + this.dataSource.data.length);
@@ -516,6 +592,7 @@ endDate ="13:30";
         this.loading = false;
         console.info("NotImplementd array: " + this.dataSource.data.length);
        }
+
        this.paginator.pageSize = this.form.controls.rowCnt.value;
 
     }
@@ -531,7 +608,7 @@ clearSearch()
     {
       this.canRenderDetails = false;
       this.searchTransaction = false;
-      this.additionalsearchString = "";
+
       console.info('clearSearch fields');
     }
 
@@ -580,6 +657,7 @@ transactionChange(evt: any)
   var allTempArr= [];
   this.dataSource.data = [];
   console.info("In transactionChange: currentTransType: " + this.currentTransType)
+  this.additionalSearchStr = ''
   if(this.form.controls.transType.value !== this.currentTransType &&
     this.form.controls.mode.value !== this.currentMode)
   {
@@ -598,8 +676,25 @@ transactionChange(evt: any)
   {
     console.info("Change Mode to Batch for 83x, 277CA")
     this.form.controls.mode.setValue("Batch")
+    this.showMode = false;
 
   }
+  else
+  {
+     this.showMode = true;
+  }
+  if (tranType.startsWith("999") || tranType === "TA1")
+    {
+      console.info("Change Mode to Batch for 83x, 277CA")
+      this.form.controls.direction.enable();
+      this.showDirection = true;
+    }
+    else
+    {
+      this.form.controls.direction.disable();
+      this.showDirection = false;
+    }
+
   for (var col of this.transactionsFields)
   {
 
@@ -620,6 +715,8 @@ transactionChange(evt: any)
     console.info("Check usrDisplayColumns: " + this.usrDisplayColumns.length +', allDropdownList #: ' + this.allDropdownList.length);
     console.info("Get Lables for transType: " + this.form.controls.transType.value + ', Mode: ' + this.form.controls.mode.value)
 
+    this.usrDisplayColumns.sort((a,b) => a.Order > b.Order ? 1:-1)
+
     for (var disp of this.usrDisplayColumns)
     {
 
@@ -630,10 +727,10 @@ transactionChange(evt: any)
           && disp.key === col.key && disp.Mode === this.form.controls.mode.value)
         {
           var selInd = this.allDropdownListFind(col.label);
-          console.info("Find: " + col.label + 'in allDropdownList #: ' + this.allDropdownList.length)
+          // console.info("Find: " + col.label + 'in allDropdownList #: ' + this.allDropdownList.length)
           if(selInd !== -1)
           {
-            console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
+            console.info(disp.TransactionCode + " PUSH User selected column: " + disp.Order + " key: " + disp.key + "===" + col.key +", selInd: " + selInd )
             tempArr.push({item_id:selInd, item_text:col.label});
 
             break;
@@ -815,7 +912,7 @@ onContextMenuNew(item: Item) {
    this.searchTypeString += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -834,7 +931,7 @@ onContextMenuSame(item: Item) {
    });
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString } }
        );
 
 }
@@ -853,9 +950,18 @@ onContextSettings(item: Item) {
 
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-settings/"],
-      {queryParams: {'transaction': this.form.controls.transType.value, 'mode': this.form.controls.mode.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString  } }
+      {queryParams: {'transaction': this.form.controls.transType.value, 'mode': this.form.controls.mode.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString  } }
        );
 
+}
+
+applyFilter(event: Event) {
+  const filterValue = (event.target as HTMLInputElement).value;
+  this.dataSource.filter = filterValue.trim().toLowerCase();
+
+  if (this.dataSource.paginator) {
+    this.dataSource.paginator.firstPage();
+  }
 }
 
 }

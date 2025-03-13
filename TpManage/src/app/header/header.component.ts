@@ -44,7 +44,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   links = [
     {name:'Trading Partners', link:"/TradingPartners"},
     {name:'Search TPID', link:"/search"},
-    {name:'Search Transactions', link:"/transaction"},
+    {name:'Summary', link:"/summary"},
+    {name:'Transactions', link:"/transaction"},
     {name:'Work Flow', link:"/workflow"}
   ];
 
@@ -117,13 +118,29 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
      get f() { return this.loginForm.controls; }
 
 
-  routeLnk(lnk: string): void{
-    console.info('route: ' + lnk);
+  routeLnk(event: Event, lnk: string): void{
+    console.info('route: ' + lnk +", " + (event.target as HTMLButtonElement).getAttribute('style'));
+
+    const collection = document.getElementsByTagName("BUTTON");
+
+  for (let i = 0; i < collection.length; i++) {
+
+      this.links.forEach(element => {
+        // console.info( i + ". " + collection[i].nodeName +", " + collection[i].tagName +", " + element.name );
+        if  ( (collection[i].nodeName === 'BUTTON') && (collection[i].textContent.trim() === element.name.trim()) )
+          {
+          // console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent +", " + element.name );
+          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: azure');
+
+          }
+      });
+
+  }
+
+
+    (event.target as HTMLButtonElement).setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
 
     this.router.navigate([lnk] );
-    this.background = (this.background =='white') ? 'beige' : 'white';
-    this.activeLink = lnk
-    console.info(lnk +": " + this.background);
   }
 
   logout() {
@@ -154,7 +171,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           console.info('from  authenticationService.login : ' + this.firstPage);
           console.info(this.f.env.value + '- OK: ' + this.returnUrl);
 
-          this.TransactionService.deleteDisplayColumns().subscribe((res: any) => {
+          this.TransactionService.deleteDisplayColumns('Session','','').subscribe((res: any) => {
 
             console.info("Delete Display: " + res);
 

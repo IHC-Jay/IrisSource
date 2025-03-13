@@ -51,7 +51,7 @@ searchTypeString:string;
       type: 'text',
       label: 'Select Transaction to view the Columns',
       transactionCode: 'XXX',
-      detail: 1,
+      order: 1,
       checked: 'false'
     }];
 
@@ -73,6 +73,7 @@ searchTypeString:string;
   modeString = "";
   currentTransType = '';
   sub:any;
+  value = 'Clear me';
 
   usrSelectedDisplayFields = [];
 
@@ -86,7 +87,7 @@ searchTypeString:string;
 
   ngOnInit()
   {
-    console.info("ngOnInit");
+    this.searchTypeString =  sessionStorage.getItem("searchTypeString");
 
 
     this.form = this.formBuilder.group({
@@ -96,7 +97,18 @@ searchTypeString:string;
     });
 
 
-    this.currentTransType = '270'
+
+
+    let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
+            let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". transType:" + val )
+            this.form.controls.transType.setValue(val)
+            this.currentTransType = val;
+
+             fInd = this.searchTypeString.indexOf("mode::") + 6;
+             val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". MODE:" + val )
+            this.form.controls.mode.setValue(val)
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -125,13 +137,13 @@ searchTypeString:string;
       {
         // console.info("Push transactionsSearchColumns: " + item.Key)
           this.allTransactionsFields.push({key: item.Key,
-            type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail,
+            type: item.Type, label: item.Label, transactionCode: item.TransactionCode, order: item.Order,
           checked:'false'});
       }
       console.info("transactionsSearchColumns: " + this.allTransactionsFields.length);
       console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
 
-      this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
+      this.TransactionService.fetchDisplayColumns("Default" , "Transactions").subscribe((res: any) => {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
@@ -171,20 +183,27 @@ transactionChange(evt: any)
 
   this.currentTransType = this.form.controls.transType.value;
 
+  if (this.currentTransType === "837P")
+  {
+      this.modeString = "Batch";
+
+      this.form.controls.mode.setValue(this.modeString)
+  }
+
 
   for (var col of this.allTransactionsFields)
     {
       // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
       if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
-          && col.detail !== 1)
+          )
 
       {
           // this.searchColumns.push(col);
           this.displayCheckBoxValues.push({key: col.key, type:'', label:col.label, transactionCode:col.transactionCode,
-            detail:col.detail,checked:'false'
+            order:col.order,checked:'false'
           });
           this.searchCheckBoxValues.push({key: col.key, type:'', label:col.label, transactionCode:col.transactionCode,
-           detail:col.detail,checked:'false'
+           order:col.order,checked:'false'
           });
           // console.info("searchColumns pushed: " + col.key);
       }
@@ -207,7 +226,7 @@ transactionChange(evt: any)
           if(selInd !== -1)
           {
             // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
-            this.usrSelectedDisplayFields.push({item_id:selInd, item_text:col.label});
+            this.usrSelectedDisplayFields.push({item_id:selInd, item_text:col.label, item_order:disp.Order});
             break;
           }
         }
@@ -224,13 +243,37 @@ transactionChange(evt: any)
       {
         if (srcCol.label === item.item_text)
         {
-          console.info(item.item_text + " - Display fld checked")
-          srcCol.checked = 'true';
 
+          srcCol.checked = 'true';
+          srcCol.order = item.item_order
+          console.info(item.item_text + " - Display fld checked, order: " + srcCol.order);
+          break;
         }
+
       }
 
+
+
   }
+  for (var srcCol of this.displayCheckBoxValues)
+    {
+        if (srcCol.checked !== 'true')
+        {
+          srcCol.order = 99
+          console.info(item.item_text +" not selected")
+        }
+    }
+
+  this.displayCheckBoxValues.sort((a,b) => a.order > b.order ? 1:-1)
+
+  for (var srcCol of this.displayCheckBoxValues)
+    {
+        if (srcCol.checked !== 'true')
+        {
+          srcCol.order = 0
+
+        }
+    }
 
   if(this.usrSearchColumns.length > 0)
     {
@@ -337,19 +380,28 @@ checkOrNotDisplay(event: any)
 {
   let val = (event.target as HTMLInputElement).value;
   console.info("checkOrNot Display: " + val)
-  for (var srcCol of this.displayCheckBoxValues)
+  for (var index in this.displayCheckBoxValues)
     {
+      var srcCol = this.displayCheckBoxValues[index]
       if (srcCol.label === val)
       {
 
         srcCol.checked = (srcCol.checked==='true')?'false':'true';
-        console.info(val + " changed to: " + srcCol.checked )
+        srcCol.key
+        console.info(val + " changed to: " + srcCol.checked  + 'OrdId' + index +': ' +  (<HTMLInputElement>document.getElementById('OrdId'+index)).value )
         break;
       }
     }
 }
 
+resetSettings()
+{
+  this.TransactionService.deleteDisplayColumns('Default',  this.form.controls.mode.value,  this.form.controls.transType.value).subscribe((res: any) => {
 
+    console.info("Delete Display: " + res);
+
+  });
+}
 saveSettings(setting: string)
 {
 
@@ -368,15 +420,18 @@ saveSettings(setting: string)
   {
     if (item.checked === 'true')
     {
-       console.log('Save: ' + item.label);
+       var dispOrd = Number((<HTMLInputElement>document.getElementById('OrdId'+ind)).value)
+       console.log('Save: ' + item.label +", order: " + dispOrd);
        dispCol.displayColumns.push({  id: '1',
         TransactionCode: this.form.controls.transType.value,
         key:  item.key,
-        Order: ind,
+        Order: dispOrd,
         Setting: setting,
+        DispType: 'Transactions',
         Mode:this.form.controls.mode.value});
-        ind++;
+
     }
+    ind++;
   }
   console.log('Save Display: ' + dispCol.displayColumns.length);
 
@@ -390,10 +445,11 @@ saveSettings(setting: string)
         key:  item.key,
         Setting: setting,
         Mode:this.form.controls.mode.value});
-        ind++;
+
     }
   }
   console.log('Save Search: ' + srchCol.SearchColumns.length);
+
 
       this.TransactionService.saveDisplayColumns(dispCol).subscribe((res: any) => {
 
@@ -405,6 +461,8 @@ saveSettings(setting: string)
           console.info("Search TransactionService: " + res);
 
         });
+
+
 
 }
 toTransactions()
