@@ -756,7 +756,7 @@
 		    
 		   set ta04 = seg.GetValueAt("4") 
 		   set ta05 = seg.GetValueAt("5")
-		   Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.ITFCOMMON.TA1", ta05, .retVal)
+		   Do ..ItfLookup("IHC.ITF.ITFCOMMON.TA1", ta05, .retVal)
 		   set retStr = "Data Error: TA1 error" _ $CHAR(13) _$CHAR(10) _ retVal _  $CHAR(13) _$CHAR(10) _ "TA014:105:" _ ta04 _":" _ ta05
 	   }
 	   else
@@ -799,7 +799,7 @@
 						if (recType = "IK3")
 						{
 															
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.ITFCOMMON.IK304", k2.GetValueAt(seg_":4"), .retVal)
+							Do ..ItfLookup("IHC.ITF.ITFCOMMON.IK304", k2.GetValueAt(seg_":4"), .retVal)
 							set segNum = k2.GetValueAt(seg_":2")
 							set x12Data = ..GetFullSegment(x12Doc.OriginalDocId, segNum)
 							set segErrCode = k2.GetValueAt(seg_":4")
@@ -828,7 +828,7 @@
 							set errDet.segErrStr = segErrStr
 
 							set ik4Err = k2.GetValueAt(seg_":3")
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.ITFCOMMON.IK403", ik4Err, .retVal)
+							Do ..ItfLookup("IHC.ITF.ITFCOMMON.IK403", ik4Err, .retVal)
 							set errDet.eleErrCode = k2.GetValueAt(seg_":1")
 							set errDet.eleErrStr = retVal
 							set errDet.eleNum = k2.GetValueAt(seg_":1")
@@ -846,7 +846,7 @@
 						
 						elseif (recType = "AK9")
 						{
-							Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.ITFCOMMON.AK901", k2.GetValueAt(seg_":1"), .retVal)
+							Do ..ItfLookup("IHC.ITF.ITFCOMMON.AK901", k2.GetValueAt(seg_":1"), .retVal)
 							set ak9Err = retVal
 						}					
 					   
@@ -1266,6 +1266,165 @@
  Set tSC1=target.FunctionalGroups(1).TransactionSets(1).SetValueAt(##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1).TransactionSets(1),1),"ST","set","") 
 
  Set target.FunctionalGroups(1)=##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1),1)
+]]></Implementation>
+</Method>
+
+<Method name="Parse999">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,origMsg:EnsLib.EDI.X12.Document</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+   //	set $NAMESPACE = "PAYER"
+   set errStr = ""
+   if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   Set tSC =x12Doc.BuildMap()
+		   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+	      /// $$$TRACE( "Parse999::: 999 for: "  _ ISA SenderID _" -> " _ ReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum)
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		  
+		  set isaGsInfo = "ACK for ISA: "  _ InterchangeSenderID _" -> " _ InterchangeReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum _ ": Group CtrlNum: " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+		  // WRITE !, x12Doc.ElementSeparator  _", " _ x12Doc.ComponentSeparator 
+		  set STRecord=individualGroup.getNthChild(1,2)
+		  set transType = STRecord.GetValueAt("1:1",, .stat)
+		  			
+		  set STRecord.DocType = "HIPAA_5010:" _ transType
+		  // $$$TRACE( "Parse999::: ST: " _  transType_ ", CountGet: " _ STRecord.SegCountGet() )
+		  set akStr = "", ikStr = "", stNum = 0, firstAK2 = 1
+		  set refTransType = ""
+		  FOR ind=1:1:STRecord.SegCountGet()
+		  {
+			  
+			set segPath = STRecord.GetSegmentPath(ind, .stat)	
+		  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+		  	// WRITE !, ind _". " _ segPath _"= " _ segVal
+		  	
+		  	if ($FIND(segVal,"AK2") = 4)
+		  	{
+  			  	set refTransType = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+  			  	
+			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkTransSetlLookup", refTransType, .retVal)
+			  	set stNum = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	
+				set akStr = refTransType _" (" _ retVal _"): TransactionSet CtrlNum: " _ stNum
+				  	
+		  	}
+		  	elseif ($FIND(segVal,"IK5") = 4)
+		  	{
+  			  	set seg2Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg2Val, .retVal)
+			  	set ik5Str = $CHAR(13) _  " => " _ retVal _  " (" _ seg2Val _")"
+			  	if ($PIECE(segVal, x12Doc.ElementSeparator , 3) '= "") {
+				   	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  		Do ..ItfLookup("IHC.ITF.Process.Bpl.AkErrorLookup", seg3Val, .retVal)
+			  		set ik5Str = ik5Str _ ": Error: "  _ retVal _" ("  _  seg3Val  _")"
+			  	}	
+			  	if (ikStr '= "")
+			  	{
+			  	   set ik5Str = ik5Str _ ": Details:" _ ikStr 
+			  	}
+			  	if (firstAK2 = 1)
+			  	{
+			  		set errStr = errStr _ isaGsInfo  _ $CHAR(13) _ akStr _" " _ ik5Str _" # "
+			  		set firstAK2 = 0
+			  	}
+			  	else
+			  	{
+				  	set errStr = errStr _ $CHAR(13) _ akStr _" " _ ik5Str _" # "
+			  	}		  					
+				/// $$$TRACE( errStr  )
+				  	
+				set akStr = "", ikStr = ""
+		  	}
+		  	elseif ($FIND(segVal,"IK3") = 4)
+		  	{		   
+		  	    set segNum = 	$PIECE(segVal, x12Doc.ElementSeparator , 3)
+				set ikStr = ikStr _ $CHAR(13) _ " Loop: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": Segment Num: " _ segNum _": " _ $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				Do ..ItfLookup("IHC.ITF.Process.Bpl.IK3Values", $PIECE(segVal, x12Doc.ElementSeparator , 5), .retVal)
+			  	
+			  	
+			  	set segVal = ..GetSegment(origMsg, segNum, stNum)
+			  	
+			  	set ikStr = ikStr _ ": " _ retVal _". Inbound " _ refTransType _ " Segment Data: " _ segVal
+				
+		  	}
+		  	elseif ($FIND(segVal,"IK4") = 4)
+		  	{		   	
+				 
+				Do ..ItfLookup("IHC.ITF.Process.Bpl.IK4Values", $PIECE(segVal, x12Doc.ElementSeparator , 4), .retVal)
+				set eleData = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+			  	set ikStr = ikStr _ ": Element Position: " _ $PIECE(segVal, x12Doc.ElementSeparator , 2) _ ": Error: " _ retVal _ ": Element Data: " _ $SELECT(0=$L(eleData):"<NULL>", 1: eleData)
+
+		  	}
+		  	elseif ($FIND(segVal,"AK9") = 4)
+		  	{
+  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+  			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg3Val, .retVal)
+			  	set ak9Str = "Functional Group Response: " _ seg3Val _" (" _ retVal _"): # Transaction Sets: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ": # Received: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": # Accept: " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+				
+		  	}
+		  }
+	 }
+	 return errStr _"; " _ ak9Str
+]]></Implementation>
+</Method>
+
+<Method name="GetSegment">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,segInd:%Integer,stCtrlNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set GSnum = 1, STnum = 1, retStr = "Segment: " _ segInd _" not found"
+	
+  if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+  {
+  	  	
+ 	set GSCounter = x12Doc.ChildCount
+       set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+        		
+          set segX12Data = ""
+          if ( GSnum <= GSCounter)
+          { 
+            set individualGroup = x12Doc.getNthChild(GSnum,2)
+            set individualGroup.DocType = "HIPAA_5010:Group"
+	        
+	        
+	        set STCounter = individualGroup.ChildCount 
+	       
+	        #dim individualST As EnsLib.EDI.X12.Document
+	         
+	        while ( STnum <= STCounter)
+	        { 
+	        	set individualST = individualGroup.getNthChild(STnum)
+	        	set x12StCtrlNum = $PIECE(individualST.OutputToString(), individualST.ElementSeparator, 3)
+	        	// $$$TRACE( "ST. " _ STnum _ ", Transaction: " _ $PIECE(individualST.OutputToString(), individualST.ElementSeparator, 2) _", Ctrl# " _ x12StCtrlNum)
+	        	if ( (stCtrlNum = x12StCtrlNum ) && (segInd <= individualST.SegCount))
+	        	{
+		        	return individualST.GetValueAt(segInd)
+	        	}
+	        	Do $INCREMENT(STnum)
+	        }
+          }
+  }
+  return retStr
+]]></Implementation>
+</Method>
+
+<Method name="ItfLookup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tableNm:%String,key:%String,&retVal:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set $NAMESPACE = "PAYER"
+	set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(tableNm, key, .retVal)
+			  	
+	set $NAMESPACE = "EDIPAYER"
+	return stat
 ]]></Implementation>
 </Method>
 </Class>
