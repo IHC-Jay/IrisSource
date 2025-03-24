@@ -171,7 +171,7 @@ This request updates Trading Partner</Description>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
-	set ^webService("UpdateTp") = "UpdateTp " 
+	set ^webService("UpdateTp") = "UpdateTp " _ $ZDATETIME($HOROLOG,3, 1)
    If '..GetJSONFromRequest(.obj) {
 		Set %response.Status = 400 // ..#HTTP400BADREQUEST
 		Set error = {"errormessage": "JSON not found"}
@@ -347,25 +347,28 @@ This request creates Trading Partner X12 ID</Description>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
+	set ^webService("NewTpId") = "Start "_ $ZDATETIME($HOROLOG,3, 1)	
+	
    	If '..GetJSONFromRequest(.obj) {
-		Set %response.Status = 200 // ..#HTTP400BADREQUEST
+		Set %response.Status = 200 
 		Set error = {"errormessage": "JSON not found"}
 		Write error.%ToJSON()
 		Quit error
 	}
 	
 	If '..ValidateJSONForTpId(obj,.error) {
-		Set %response.Status = 200 // ..#HTTP400BADREQUEST
+		Set %response.Status = 200 
 		Set error = {"errormessage": "Requird fields not found"}
 		Write error.%ToJSON()
 		Quit error
 	}
 	
 	Set cm = ##class(IHC.ERP.TPManage.TpId).%New()
-	IF (..CopyToTpIdFromJSON(.cm,obj) '= $$$OK)
+	set stat = ..CopyToTpIdFromJSON(.cm,obj) 
+	if ($$$ISERR(stat))
 	{
-		Set %response.Status = 200 // ..#HTTP400BADREQUEST
-		Set error = {"errormessage": "resolving fields not found"}
+		Set %response.Status = 200 
+		Set error = {"errormessage": ("Validating fields error: " _ stat)}
 		Quit error
 	}
 	
@@ -649,8 +652,9 @@ Helper methods</Description>
 <Implementation><![CDATA[
 		
 	Set tpNm =obj.Name
+	set tpId = obj.TPID
 	set tradingPartnerId = ""
-	set ^webService("TpIdsForTP Parent ") = tpNm
+	set ^webService("TpIdsForTP Parent ") = tpNm _", " _ tpId
 	&SQL(select ID into :tradingPartnerId FROM IHC_ERP_TPManage.TradingPartner where Name = :tpNm)
 	if SQLCODE '= 0
 	{			
@@ -664,8 +668,16 @@ Helper methods</Description>
 
 	}
 	
-	set ^webService("TpIdsForTP Parent ") = tradingPartnerId
-	Set cm.TPID = obj.TPID
+	&SQL(select ID into :id FROM IHC_ERP_TPManage.TpId where TPID = :tpId)
+	if id '= ""
+	{			
+			set ^webService("TpIdsForTP ") = "TPID exists: " _ tpId
+			set tSC = $$$ERROR($$$EnsErrGeneral, "Error :TPID already exists: " _ SQLCODE)
+			return tSC
+	}
+	
+	set ^webService("TpIdsForTP Parent ") = "Add new TPID: " _ tradingPartnerId
+	Set cm.TPID = tpId
 	
 	#dim tp As IHC.ERP.TPManage.TradingPartner
 	set tp = ##class(IHC.ERP.TPManage.TradingPartner).%OpenId(tradingPartnerId)
