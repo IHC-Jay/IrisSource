@@ -3,7 +3,8 @@
 <Class name="IHC.ITF.ITFCOMMON.X12.TransactionsRest.impl">
 <Description><![CDATA[
 Business logic class defined by OpenAPI in IHC.ITF.ITFCOMMON.X12.TransactionsRest.spec<br/>
-Updated Jan 29, 2025 14:57:22]]></Description>
+Updated Mar 21, 2025 11:21:05]]></Description>
+<IncludeCode>Ensemble</IncludeCode>
 <ProcedureBlock>1</ProcedureBlock>
 <Super>%REST.Impl</Super>
 <TimeCreated>66596,49971.425923</TimeCreated>
@@ -27,6 +28,65 @@ This request returns a reply message in response to a /ping request.</Descriptio
 ]]></Implementation>
 </Method>
 
+<Method name="Dashboard">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set tArr = []
+	set ^webService("Dashboard Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	set tabNms = ["Claim", "ClaimPayment", "ClaimAcknowledgement", "EligibilityRequest", "EligibilityResponse", "ImplementationAcknowledgment"]
+	set dtRange= [1,7,30,90]
+	for ind=0:1:tabNms.%Size()-1
+	{
+		set tbNm = tabNms.%Get(ind)
+		set ^webService("Dashboard TBL: "  ) = tbNm
+		for dtInd=0:1:dtRange.%Size()-1
+		{
+			set tMin = dtRange.%Get(dtInd)
+			
+			SET dateval=$PIECE($HOROLOG,",",1)
+   			SET timeval=$PIECE($HOROLOG,",",2)
+   			
+   			if (tMin > 1)
+   			{
+   
+				set dt = $ZDATE( ($PIECE($HOROLOG,",",1)-tMin), 3)
+   			}
+			else
+			{
+				set dt = $ZDATETime( ("" _ (dateval - tMin) _"," _ timeval), 3, 1)
+			}
+			
+			set ^webService("Dashboard from") = dt
+			set sqlStr = "Select count(*) as rowCount from IHC_ITF_ITFCOMMON_X12." _ tbNm _ " where X12DataParentId is not null and ProcessDtTm >= '" _ dt _ "'"
+			Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+			set ^webService("Dashboard " _ tbNm) = sqlStr _", " _rs.%SQLCODE 
+			While rs.%Next() {
+			
+			    	if ( rs.%SQLCODE = 0)
+			    	{
+					    set cnt =  rs.%Get("rowCount")
+					    set fromStr = $SELECT(tMin = 1:"24 hours",1: tMin _ " days")
+					    set ^webService("Dashboard " _ tbNm _ " SQL") = rs.%SQLCODE _", " _ cnt _", " _rs.%ROWCOUNT
+				    	Do tArr.%Push({
+								"Operation":("Dashboard"),
+								"ID": (ind),
+								"Transaction": (tbNm),
+								"Count": (cnt),
+								"Days": ("From: " _ dt _" (" _fromStr _ ")")
+								})
+			    	}
+			}
+		}
+				
+	}
+	set ^webService("Dashboard size: ") = tArr.%Size()
+	Do ..%SetStatusCode(200)
+	return tArr
+]]></Implementation>
+</Method>
+
 <Method name="EligibilityBenefits">
 <Description><![CDATA[
 This request returns EligibilityBenefits in response<br/>
@@ -36,16 +96,24 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    
-    set ^webService("EligibilityBenefits Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    set propertyList = ##class(%Library.ListOfDataTypes).%New()
-    	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.EligibilityRequest"
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
+]]></Implementation>
+</Method>
+
+<Method name="GetRows">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tableName:%String,searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    
+    Set tArr = [], summary = 0
+    set propertyList = ##class(%Library.ListOfDataTypes).%New()
+    		
+	Do ..getColumnNames(tableName, .summary, propertyList, searchStr)
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
+    set sqlStr = ..CreateSql(searchStr, tableName, summary)
     
     #dim rs As %SQL.StatementResult
     
@@ -53,12 +121,11 @@ The method arguments hold values for:<br/>
     if (sqlStr '= "")
     {
 	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityBenefits ExecDirect: ") = rs.%SQLCODE
+	    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
 		Do ..populateArray(tableName, rs , tArr, propertyList)
     }
     
-
-	set ^webService("EligibilityBenefits") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+	set ^webService(tableName _ " End") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
 	Do ..%SetStatusCode(200)
 
 	return tArr
@@ -67,20 +134,63 @@ The method arguments hold values for:<br/>
 
 <Method name="getColumnNames">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>tableName:%String,propertyList:%Library.ListOfDataTypes</FormalSpec>
+<FormalSpec><![CDATA[tableName:%String,&summary:%Integer,propertyList:%Library.ListOfDataTypes,searchArr:%ListOfDataTypes(ELEMENTTYPE="%String")]]></FormalSpec>
 <Implementation><![CDATA[
-	// Column names
-
- 	Set result=##class(%ResultSet).%New("%DynamicQuery:SQL")
-	Do result.Prepare("SELECT top 1 * FROM " _ tableName)
-	Do result.Execute()
-	set colNames=""
+	// All Column names
+	set summary = 0
 	
-	for j = 1:1:result.%ResultColumnCount {
-		Do propertyList.Insert(result.GetColumnName(j)) 		
-	}
-	set ^webService(tableName _ " # columns ") = propertyList.Count()
-	Do result.Close()
+	for ind=1:1:searchArr.Count()
+    {
+	   set param = searchArr.GetAt(ind) 
+	   if ( param [ "summary")
+	   {
+		   set summary = 1
+		   quit
+	   }
+    }
+    if (summary = 0)
+    {
+	    
+		Set prop=""
+		Do propertyList.Insert("ID")
+		set clsNm = $REPLACE(tableName,"_",".")
+		For {
+			Set prop=$$$comMemberNext(clsNm,$$$cCLASSproperty,prop) Quit:prop=""
+			If (' ((prop [ "OID") || (prop [ "%") ) )
+			{							
+				Do propertyList.Insert(prop) 
+			}
+		}
+		/*
+		
+	 	Set result=##class(%ResultSet).%New("%DynamicQuery:SQL")
+		Do result.Prepare("SELECT top 1 * FROM " _ tableName)
+		Do result.Execute()
+		set colNames=""
+		
+		for j = 1:1:result.%ResultColumnCount {
+			Do propertyList.Insert(result.GetColumnName(j)) 		
+		}
+		set ^webService(tableName _ " # columns ") = propertyList.Count()
+		Do result.Close()
+		*/
+		
+	
+    }
+    else
+    {
+	    
+	    Set prop=""
+		For {
+			Set prop=$$$comMemberNext("IHC.X12.SharedData",$$$cCLASSproperty,prop) Quit:prop=""
+				
+			If (' ((prop [ "OID") || (prop [ "x12")) )
+			{
+				Do propertyList.Insert(prop) 
+			}
+		}
+		set ^webService("IHC.X12.SharedData") = "Get columns: " _ propertyList.Count()
+    }
 ]]></Implementation>
 </Method>
 
@@ -101,7 +211,7 @@ The method arguments hold values for:<br/>
     		for ind=1:1:propertyList.Count()
     		{
     		    set column = propertyList.GetAt(ind)
-    		    
+    		    set ^webService(tableName _ " Get") = 	ind _": " _	column
     		    set val = rs.%Get(column)
     		    set ^webService(tableName _ " Data") = 	ind _": " _	column _", " _ val
     		    if (column = "InterchangeDateTime")
@@ -169,34 +279,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    
-    set ^webService("Claims Start:") = searchStr _ ": " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-      
-    
-    set propertyList = ##class(%Library.ListOfDataTypes).%New()
-    	
+  	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.Claim"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("Claims ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-    
-
-	set ^webService("Claims") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -209,32 +296,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    
-    set ^webService("ClaimStatusResponse Start ") = searchStr _", " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
-    	
+       	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.ClaimStatusResponse"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-    
-	set ^webService("ClaimStatusResponse") = "End: " = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -247,31 +313,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    set ^webService("EligibilityBenefitResponses Start") = searchStr _ ", " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.EligibilityResponse"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-    
-
-	set ^webService("EligibilityResponse") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -284,31 +330,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    set ^webService("ClaimPayment Start") = " @ " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.ClaimPayment"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-    
-	set ^webService("ClaimPayment") = "End: " = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -321,32 +347,12 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-       set ^webService("ClaimStatusRequest Start ") = searchStr _ ": " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    
-    
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
+   
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.ClaimStatusRequest"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-    
-	set ^webService("ClaimStatusRequest") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -359,32 +365,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    set ^webService("ClaimAcknowledgment Start") = searchStr _ ": " _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    
-    
-    set propertyList = ##class(%Library.ListOfDataTypes).%New()
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.ClaimAcknowledgement"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-
-	set ^webService("ClaimAcknowledgment") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -397,32 +382,11 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    set ^webService("InterchangeAcknowledgment Start") = searchStr _ ": " _ $ZDATETIME($HOROLOG,3, 1)
-       
-    Set tArr = []
-    set sqlStr = ..CreateSql(searchStr, "IHC_X12.DataTA1")
-
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.InterchangeAcknowledgment"
 	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-	set ^webService("InterchangeAcknowledgment") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -435,29 +399,29 @@ The method arguments hold values for:<br/>
 <FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
-    set ^webService("ImplementationAcknowledgment Start") = searchStr _ " @" _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-
-    #dim rs As %SQL.StatementResult
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     	
 	set tableName = "IHC_ITF_ITFCOMMON_X12.ImplementationAcknowledgment"
 	
-	Do ..getColumnNames(tableName, propertyList)
 	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("EligibilityResponse ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-	set ^webService("ImplementationAcknowledgment") = "End. Send: " _ rs.%ROWCOUNT _ " @ "_ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
+]]></Implementation>
+</Method>
 
-	return tArr
+<Method name="TA1">
+<Description><![CDATA[
+This request returns TA1<br/>
+The method arguments hold values for:<br/>
+    searchStr, array for SQL<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    	
+	set tableName = "IHC_ITF_ITFCOMMON_X12.TA1"
+	
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
+	return ..GetRows(tableName, searchStr)
 ]]></Implementation>
 </Method>
 
@@ -532,7 +496,6 @@ The method arguments hold values for:<br/>
 <Description>
 This request returns TransactionFields in response</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
      
@@ -559,173 +522,11 @@ This request returns TransactionFields in response</Description>
 			})
 		
 	}
+		
 	set ^webService("TransactionFields") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
 	Do ..%SetStatusCode(200)
 
 	return tArr
-]]></Implementation>
-</Method>
-
-<Method name="GetDisplayColumns">
-<Description><![CDATA[
-This request returns DisplayColumns in response<br/>
-The method arguments hold values for:<br/>
-    userNm, User Name<br/>]]></Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>userNm:%String</FormalSpec>
-<ReturnType>%Stream.Object</ReturnType>
-<Implementation><![CDATA[
-    set ^webService("GetDisplayColumns Start") = userNm _ " @" _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-    set transList=##class(%ListOfDataTypes).%New()
-    
-    set whereStr = " Setting ='Session' and ""User"" = '" _ userNm _ "'"    
-    Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
-   
-	set ^webService("DisplayColumns Session Trans: ") = transList.Count()_", count: " _ tArr.%Size()
-    
-    
-	set whereStr = " Setting ='Default' and ""User"" = '" _ userNm _ "'" 
-	Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
-	
-	set ^webService("DisplayColumns User Trans: ") = transList.Count() _", count: " _ tArr.%Size()
-    
-    set whereStr = " (""User"" = 'All' OR ""User"" is null) "
-    Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
-    
-	set ^webService("GetDisplayColumns") = "End: " _ tArr.%Size() _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
-]]></Implementation>
-</Method>
-
-<Method name="SaveDisplayColumns">
-<Description>
-This request saves DisplayColumns</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec/>
-<ReturnType>%Stream.Object</ReturnType>
-<Implementation><![CDATA[
-	Set result={}
-    set ^webService("SaveDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
-	If '..GetJSONFromRequest(.obj) {
-		Set %response.Status = 400 // ..#HTTP400BADREQUEST
-		Set error = {"errormessage": "JSON not found"}
-		Write error.%ToJSON()
-		Quit $$$OK
-	}
-	set ^webService("SaveDisplayColumns JSON") = obj.%ToJSON()
-	set ^webService("SaveDisplayColumns") = "ValidateJSONForDisplayColumns: " _ $ZDATETIME($HOROLOG,3, 1)
-	If '..ValidateJSONForDisplayColumns(obj,.error) {
-		Set %response.Status = 400 // ..#HTTP400BADREQUEST
-		Write error.%ToJSON()
-		Quit $$$OK
-	}
-	
-	set ^webService("SaveDisplayColumns") = "CopyDisplayColumnsFromJSON " _ $ZDATETIME($HOROLOG,3, 1)
-	Do ..CopyDisplayColumnsFromJSON(.obj,.result)
-		
-	do result.%Set("Operation","SaveDisplayColumns")
-	
-	
-	Quit result
-]]></Implementation>
-</Method>
-
-<Method name="ValidateJSONForDisplayColumns">
-<Description>
-Helper methods</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
-<ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[
-	Set error = {}
-	
-	If obj.%Get("User") = "" {
-		set ^webService("ValidateJSONForDisplayColumns") = "User was blank"
-		Set error.errormessage = "User was blank"
-		Quit 0
-	}	
-	
-	set ^webService("ValidateJSONForDisplayColumns") = "ValidateJSONForDisplayColumns: " _ obj.%Get("User")
-	Quit 1
-]]></Implementation>
-</Method>
-
-<Method name="CopyDisplayColumnsFromJSON">
-<ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[obj:%DynamicObject,&result:%DynamicObject]]></FormalSpec>
-<Private>1</Private>
-<Implementation><![CDATA[
-	set ^webService("CopyDisplayColumnsFromJSON User: ") = obj.User
-	set deleteRows = 1
-
-	set iter = obj.displayColumns.%GetIterator()
-
-    while iter.%GetNext(.key , .value ) {
-	    if ( (value.TransactionCode '= "") && (value.key '= "" ))
-	    {
-		  	set cm = ##class(IHC.ITF.ITFCOMMON.X12.DisplayColumns).%New()
-			Set cm.User=obj.User
-			set cm.TransactionCode = value.TransactionCode
-			Set cm.Key = value.key
-			set cm.Order = value.Order	
-			set cm.Setting = value.Setting
-			set cm.Mode = value.Mode
-			set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
-			if (deleteRows = 1)
-			{
-					Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.DisplayColumns " _ 
-					" where user = '" _ obj.User _ "' AND TransactionCode = '" _value.TransactionCode _ "'" _
-					" AND Setting = '" _ value.Setting _"'" _
-					" AND Mode = '" _ value.Mode _"'")
-					Set deleteRows = 0
-			}
-			
-			Set sc = cm.%Save()
-			do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
-			if ($$$ISOK(sc)) {
-				set ^webService("CopyDisplayColumnsFromJSON Added") = cm.%Id()	
-				do result.%Set("ID", cm.%Id())
-				do result.%Set("User", cm.User)
-			}
-			else
-			{
-				set ^webService("CopyDisplayColumnsFromJSON Error") = sc
-				QUIT
-			}
-	    }
-		
-    }
-]]></Implementation>
-</Method>
-
-<Method name="DeleteDisplayColumns">
-<Description>
-This request deletes DisplayColumns</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec/>
-<ReturnType>%Stream.Object</ReturnType>
-<Implementation><![CDATA[
-	Set result={}
-    set ^webService("DeleteDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
-	If '..GetJSONFromRequest(.obj) {
-		Set %response.Status = 400 // ..#HTTP400BADREQUEST
-		Set error = {"errormessage": "JSON not found"}
-		Write error.%ToJSON()
-		Quit $$$OK
-	}
-	
-	#dim rs as %SQL.StatementResult
-    Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.DisplayColumns " _ 
-					" where user = '" _ obj.User _ "' AND Setting = '" _ obj.Setting _"'")
-	do result.%Set("Operation","DeleteDisplayColumns")
-	do result.%Set("ROWCOUNT", rs.%ROWCOUNT)
-	do result.%Set("User", obj.User)
-	do result.%Set("Setting", obj.Setting)
-	set ^webService("DeleteDisplayColumns") = "Deleted: " _ rs.%ROWCOUNT _" @ " _ $ZDATETIME($HOROLOG,3, 1)
-	Quit result
 ]]></Implementation>
 </Method>
 
@@ -795,8 +596,8 @@ The method arguments hold values for:<br/>
 	SET x12query = 5
 	SET x12query(1) = "select distinct cl.InterchangeSenderID, cl.InterchangeReceiverID, cl.InterchangeControlNumber, ack.FileName, ack.x12Data as ST, ack2.x12Data as X999, cl.x12Data as tranX12"
 	SET x12query(2) = " from  " _ tableNm _ " cl, IHC_ITF_ITFCOMMON_X12.ImplementationAcknowledgment ack, IHC_ITF_ITFCOMMON_X12.ImplementationAcknowledgment ack2 "
-	SET x12query(3) = " where ack.GroupControlNumber = cl.GroupControlNumber AND cl.X12DataParentId is null"
-	SET x12query(4) = " and ack.X12DataParentId = ack2.ID and ack.GroupVersion = cl.VersionReleaseIndustryIdenti "
+	SET x12query(3) = " where ack.GroupRespControlNumber = cl.GroupControlNumber AND cl.X12DataParentId is null"
+	SET x12query(4) = " and ack.X12DataParentId = ack2.ID and ack.GroupRespVersion = cl.VersionReleaseIndustryIdenti "
 	SET x12query(5) = " and cl.GroupControlNumber = ? and cl.InterchangeSenderID = ? and cl.InterchangeReceiverID = ?"
     set tStatus = tStatement.%Prepare(.x12query)
     if $$$ISERR(tStatus)
@@ -1400,7 +1201,7 @@ The method arguments hold values for:<br/>
 
 <Method name="CreateSql">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>searchArr:%ListOfDataTypes(ELEMENTTYPE="%String"),table:%String</FormalSpec>
+<FormalSpec>searchArr:%ListOfDataTypes(ELEMENTTYPE="%String"),table:%String,summary:%Integer</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
    
@@ -1452,11 +1253,25 @@ The method arguments hold values for:<br/>
     elseif (ID '= "")
 	{
 		set sqlStr = "SELECT * FROM " _ table _ " WHERE ID = '" _ ID _"'"
+	}
+	elseif (summary = 1)
+	{
+				set sqlStr = "SELECT distinct top 1000  *, data.ID as ID FROM " _ table _ " data WHERE X12DataParentId is null "
 	}	
     else
     {
-		set sqlStr = "SELECT top 1000 * FROM " _ table _ " WHERE X12DataParentId is not null "
+		set sqlStr = "SELECT top 1000 *, data.ID as ID FROM " _ table _ " data WHERE X12DataParentId is not null "
     }
+	/***
+	elseif (summary = 1)
+	{
+				set sqlStr = "SELECT distinct top 1000 rtp.Name as Receiver,  stp.Name as Sender, *, data.ID as ID FROM " _ table _ " data, IHC_TPManage.TradingPartner stp, IHC_TPManage.TradingPartner rtp, IHC_TPManage.TPIDS rtpid, IHC_TPManage.TPIDS stpid WHERE X12DataParentId is null AND InterchangeReceiverID = rtpid.TPID and InterchangeSenderID = stpid.TPID and stpid.TPFK = stp.ID and rtpid.TPFK = rtp.ID "
+	}	
+    else
+    {
+		set sqlStr = "SELECT top 1000 rtp.Name as Receiver,  stp.Name as Sender, *, data.ID as ID FROM " _ table _ " data, IHC_TPManage.TradingPartner stp, IHC_TPManage.TradingPartner rtp, IHC_TPManage.TPIDS rtpid, IHC_TPManage.TPIDS stpid WHERE X12DataParentId is not null AND InterchangeReceiverID = rtpid.TPID and InterchangeSenderID = stpid.TPID and stpid.TPFK = stp.ID and rtpid.TPFK = rtp.ID "
+    }
+    ****/
 	
 	
 	if (endDtTm '= "")
@@ -1480,6 +1295,185 @@ The method arguments hold values for:<br/>
 ]]></Implementation>
 </Method>
 
+<Method name="GetDisplayColumns">
+<Description><![CDATA[
+This request returns DisplayColumns in response<br/>
+The method arguments hold values for:<br/>
+    userNm, User Name<br/>
+    setting, Default, Session<br/>
+    dispType, Summary, Transactions<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>userNm:%String,setting:%String,dispType:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    set ^webService("GetDisplayColumns Start") = userNm _ ", " _ setting _ ", " _ dispType _ " @" _ $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    set transList=##class(%ListOfDataTypes).%New()
+
+   
+    
+    set whereStr = " Setting ='Session' and ""User"" = '" _ userNm _ "' AND Setting = '" _ setting _"' AND DispType = '" _ dispType _"'" 
+    Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
+   
+	set ^webService("DisplayColumns Session Trans: ") = transList.Count()_", count: " _ tArr.%Size()
+    
+    
+	set whereStr = " Setting ='Default' and ""User"" = '" _ userNm _ "' AND Setting = '" _ setting  _"' AND DispType = '" _ dispType _"'"  
+	Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
+	
+	set ^webService("DisplayColumns User Trans: ") = transList.Count() _", count: " _ tArr.%Size()
+    
+    set whereStr = " (""User"" = 'All' OR ""User"" is null) AND Setting = '" _ setting _"' AND DispType = '" _ dispType _"'"   
+    Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.DisplayColumns", whereStr, tArr, transList)
+    
+	set ^webService("GetDisplayColumns") = "User All: " _ transList.Count() _ ", End count: " _ tArr.%Size() _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+    
+    
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="SaveDisplayColumns">
+<Description>
+This request saves DisplayColumns</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+    set ^webService("SaveDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	set ^webService("SaveDisplayColumns JSON") = obj.%ToJSON()
+	set ^webService("SaveDisplayColumns") = "ValidateJSONForDisplayColumns: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..ValidateJSONForDisplayColumns(obj,.error) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	
+	set ^webService("SaveDisplayColumns") = "CopyDisplayColumnsFromJSON " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..CopyDisplayColumnsFromJSON(.obj,.result)
+		
+	do result.%Set("Operation","SaveDisplayColumns")
+	
+	
+	Quit result
+]]></Implementation>
+</Method>
+
+<Method name="ValidateJSONForDisplayColumns">
+<Description>
+Helper methods</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:%DynamicObject,*error:%DynamicObject</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+	Set error = {}
+	
+	If obj.%Get("User") = "" {
+		set ^webService("ValidateJSONForDisplayColumns") = "User was blank"
+		Set error.errormessage = "User was blank"
+		Quit 0
+	}	
+	
+	set ^webService("ValidateJSONForDisplayColumns") = "ValidateJSONForDisplayColumns: " _ obj.%Get("User")
+	Quit 1
+]]></Implementation>
+</Method>
+
+<Method name="CopyDisplayColumnsFromJSON">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[obj:%DynamicObject,&result:%DynamicObject]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+	set ^webService("CopyDisplayColumnsFromJSON User: ") = obj.User
+	set deleteRows = 1
+
+	set iter = obj.displayColumns.%GetIterator()
+
+    while iter.%GetNext(.key , .value ) {
+	    if ( (value.TransactionCode '= "") && (value.key '= "" ))
+	    {
+		  	set cm = ##class(IHC.ITF.ITFCOMMON.X12.DisplayColumns).%New()
+			Set cm.User=obj.User
+			set cm.TransactionCode = value.TransactionCode
+			Set cm.Key = value.key
+			set cm.Order = value.Order	
+			set cm.Setting = value.Setting
+			set cm.Mode = value.Mode
+			set cm.DispType = value.DispType
+			set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
+			if (deleteRows = 1)
+			{
+					Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.DisplayColumns " _ 
+					" where ""User"" = '" _ obj.User _ "' AND TransactionCode = '" _value.TransactionCode _ "'" _
+					" AND Setting = '" _ value.Setting _"'" _ " AND DispType = '" _ value.DispType _"'" _
+					" AND Mode = '" _ value.Mode _"'")
+					Set deleteRows = 0
+			}
+			
+			Set sc = cm.%Save()
+			do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
+			if ($$$ISOK(sc)) {
+				set ^webService("CopyDisplayColumnsFromJSON Added") = cm.%Id()	
+				do result.%Set("ID", cm.%Id())
+				do result.%Set("User", cm.User)
+			}
+			else
+			{
+				set ^webService("CopyDisplayColumnsFromJSON Error") = sc
+				QUIT
+			}
+	    }
+		
+    }
+]]></Implementation>
+</Method>
+
+<Method name="DeleteDisplayColumns">
+<Description>
+This request deletes DisplayColumns</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+	Set result={}
+    set ^webService("DeleteDisplayColumns") = "Start: " _ $ZDATETIME($HOROLOG,3, 1)
+	If '..GetJSONFromRequest(.obj) {
+		Set %response.Status = 400 // ..#HTTP400BADREQUEST
+		Set error = {"errormessage": "JSON not found"}
+		Write error.%ToJSON()
+		Quit $$$OK
+	}
+	set ^webService("DeleteDisplayColumns Params:") = "Start: " _obj.User _", " _ obj.Setting _", " _ obj.Mode _", " _ obj.Transaction
+	#dim rs as %SQL.StatementResult
+	
+	if ( (obj.Mode '="") && (obj.Transaction '= ""))
+	{
+		Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.DisplayColumns " _ 
+					" where ""User"" = '" _ obj.User _ "' AND Setting = '" _ obj.Setting _ "'"
+					_ " AND Mode = '" _ obj.Mode _ "'"
+					_ " AND TransactionCode = '" _ obj.Transaction _ "' AND DispType = 'Transactions'" )
+	}
+	else
+	{
+    	Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.DisplayColumns " _ 
+					" where ""User"" = '" _ obj.User _ "' AND Setting = '" _ obj.Setting _ "'")
+	}				
+	do result.%Set("Operation","DeleteDisplayColumns")
+	do result.%Set("ROWCOUNT", rs.%ROWCOUNT)
+	do result.%Set("User", obj.User)
+	do result.%Set("Setting", obj.Setting)
+	set ^webService("DeleteDisplayColumns") = "Deleted: " _ rs.%ROWCOUNT _" @ " _ $ZDATETIME($HOROLOG,3, 1)
+	Quit result
+]]></Implementation>
+</Method>
+
 <Method name="GetSearchColumns">
 <Description><![CDATA[
 This request returns SearchColumns in response<br/>
@@ -1495,18 +1489,18 @@ The method arguments hold values for:<br/>
 
     
     set whereStr = " Setting ='Session' and ""User"" = '" _ userNm _ "'"    
-    Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
+    Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
    
 	set ^webService("GetSearchColumns Session Trans: ") = transList.Count()_", count: " _ tArr.%Size()
     
     
 	set whereStr = " Setting ='Default' and ""User"" = '" _ userNm _ "'"  
-	Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
+	Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
 	
 	set ^webService("GetSearchColumns User Trans: ") = transList.Count() _", count: " _ tArr.%Size()
     
     set whereStr = " (""User"" = 'All' OR ""User"" is null) "
-    Do ..ExecuteSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
+    Do ..GetColumnsFromSql("IHC_ITF_ITFCOMMON_X12.SearchColumns", whereStr, tArr, transList)
 	
 	set ^webService("GetSearchColumns") = "End: " _ $ZDATETIME($HOROLOG,3, 1) _", count: " _ tArr.%Size()
 	Do ..%SetStatusCode(200)
@@ -1515,62 +1509,67 @@ The method arguments hold values for:<br/>
 ]]></Implementation>
 </Method>
 
-<Method name="ExecuteSql">
+<Method name="GetColumnsFromSql">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>tblNm:%String,whereStr:%String,tArr:%ArrayOfDataTypes,transList:%ListOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 	#dim rs As %SQL.StatementResult
-	set transStr = ""
-	if (transList.Count() > 0)
-	{
-		FOR i=1:1:transList.Count() {
-		    if ( transStr = "")
-		    {
-		    set transStr =  "'" _ transList.GetAt(i) _ "'"
-		    }
-		    else
-		    {
-			    set transStr = transStr _ ",'" _ transList.GetAt(i) _ "'"
-		    }
-	    }
-	    set whereStr = whereStr _ " AND TransactionCode not in (" _ transStr _ ")"
-	}
-    
+	
+	
+	set temptransList = ##class(%ListOfDataTypes).%New()
+	
+	    
     set ^webService(tblNm _ " where") = whereStr
     Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM " _ tblNm _ " where " _ whereStr)
     While rs.%Next() {
-	    set trans = rs.%Get("TransactionCode")
 	    
-	    if (transList.Find(trans) = "")
+	    set trans = rs.%Get("TransactionCode")
+	    set mode = rs.%Get("Mode")
+	    set key = rs.%Get("Key")
+	    if (tblNm [ "DisplayColumns") 
 	    {
-	    	Do transList.Insert(trans)
-	    }
-		if (tblNm [ "DisplayColumns") {	
-			Do tArr.%Push({
-				"Operation":(tblNm),
-				"ID": (rs.%Get("ID")),
-				"key": (rs.%Get("Key")),
-				"Mode": (rs.%Get("Mode")),
-				"Order": (rs.%Get("Order")),
-				"Setting": (rs.%Get("Setting")),
-				"TransactionCode": (trans)
-			})
+		    
+		    set dispType = rs.%Get("DispType")
+		    
+		    if (transList.Find(trans_","_dispType_","_mode) = "")
+		    {
+		    	Do temptransList.Insert(trans_","_dispType_","_mode)
+		    	Do tArr.%Push({
+						"Operation":(tblNm),
+						"ID": (rs.%Get("ID")),
+						"key": (key),
+						"Mode": (mode),
+						"Order": (rs.%Get("Order")),
+						"Setting": (rs.%Get("Setting")),
+						"DispType": (dispType),
+						"TransactionCode": (trans)
+				})
+		    }
 		}
 		else
 		{
-			Do tArr.%Push({
+			if (transList.Find(trans_","_mode) = "")
+		    {
+		    	Do temptransList.Insert(trans_","_mode)
+		    	
+				Do tArr.%Push({
 				"Operation":(tblNm),
 				"ID": (rs.%Get("ID")),
-				"key": (rs.%Get("Key")),
-				"Mode": (rs.%Get("Mode")),
+				"key": (key),
+				"Mode": (mode),
 				"Setting": (rs.%Get("Setting")),
 				"TransactionCode": (trans)
-			})
+				})
+		    
+			}
 		}
 	
 	}
-	set ^webService(tblNm _ " ROWS:") = rs.%ROWCOUNT 
-	set ^webService(tblNm _ " where") = whereStr _ ", Array size: " _ tArr.%Size()
+	for i=1:1:temptransList.Count()
+	{
+		Do transList.Insert(temptransList.GetAt(i))
+	}
+	set ^webService(tblNm _ whereStr _ " ROW COUNT:") = rs.%ROWCOUNT _ ", Array size: " _ tArr.%Size()
 ]]></Implementation>
 </Method>
 
@@ -1578,7 +1577,6 @@ The method arguments hold values for:<br/>
 <Description>
 This request saves SearchColumns</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1675,46 +1673,10 @@ Helper methods</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="TA1">
-<Description><![CDATA[
-This request returns TA1<br/>
-The method arguments hold values for:<br/>
-    searchStr, array for SQL<br/>]]></Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
-<ReturnType>%Stream.Object</ReturnType>
-<Implementation><![CDATA[
-     set ^webService("TA1 Start") = searchStr _ " @" _ $ZDATETIME($HOROLOG,3, 1)
-    Set tArr = []
-
-    #dim rs As %SQL.StatementResult
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-     set propertyList = ##class(%Library.ListOfDataTypes).%New()
-    	
-	set tableName = "IHC_ITF_ITFCOMMON_X12.TA1"
-	
-	Do ..getColumnNames(tableName, propertyList)
-	
-    set sqlStr = ..CreateSql(searchStr, tableName)
-    
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService("TA1 ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
-	set ^webService("TA1") = "End. Send: " _ rs.%ROWCOUNT _ " @ "_ $ZDATETIME($HOROLOG,3, 1)
-	Do ..%SetStatusCode(200)
-
-	return tArr
-]]></Implementation>
-</Method>
-
 <Method name="DeleteSearchColumns">
 <Description>
 This request deletes SearchColumns</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1728,7 +1690,7 @@ This request deletes SearchColumns</Description>
 	
 	#dim rs as %SQL.StatementResult
     Set rs = ##class(%SQL.Statement).%ExecDirect(,"DELETE IHC_ITF_ITFCOMMON_X12.SearchColumns " _ 
-					" where user = '" _ obj.User _ "' AND Setting = '" _ obj.Setting _"'")
+					" where ""User"" = '" _ obj.User _ "' AND Setting = '" _ obj.Setting _"'")
 	do result.%Set("Operation","DeleteSearchColumns")
 	do result.%Set("ROWCOUNT", rs.%ROWCOUNT)
 	do result.%Set("User", obj.User)
@@ -1742,7 +1704,6 @@ This request deletes SearchColumns</Description>
 <Description>
 This request retruns users</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
     Set tArr = []
