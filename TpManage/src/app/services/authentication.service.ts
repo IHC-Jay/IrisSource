@@ -6,7 +6,7 @@ import { map } from "rxjs/operators";
 import { User } from "../login/user";
 import {TpRestServiceComponent} from './tprest-service.component';
 import {TransRestServiceComponent} from './transrest-service.component';
-
+import { WfRestServiceComponent } from './wfrest-service.component';
 
 @Injectable({ providedIn: "root" })
 
@@ -15,7 +15,7 @@ export class AuthenticationService {
   public currentUser: Observable<User>;
 
   constructor(private tpService: TpRestServiceComponent, private tpTransService: TransRestServiceComponent,
-              private usrTransService: TransRestServiceComponent
+              private usrTransService: TransRestServiceComponent,  private wfTransService: WfRestServiceComponent
     ) {
 
       console.info('In AuthenticationService constructor ' + tpService +", " + tpTransService);
@@ -34,6 +34,7 @@ export class AuthenticationService {
             console.info('Set User: ' + user.username);
             this.tpTransService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
             this.tpService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
+            this.wfTransService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
           }
           else{
             console.info('User object not initialized');

@@ -7,6 +7,7 @@ import {User} from '../login/user';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError } from 'rxjs';
 import {TransRestServiceComponent} from '../services/transrest-service.component';
+import { MatTabsModule, MatTabChangeEvent } from '@angular/material/tabs';
 
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
@@ -28,7 +29,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   returnUrl: string;
   displayHelp: string = "Username/Password will used for calling IRIS REST services";
   error = '';
-  firstPage = '/TradingPartners';
+  firstPage = '/dashboard';
   transaction = "";
   id = "";
   tpId = "";
@@ -42,14 +43,17 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   selectedMenu:string = 'tradingPartner'
   links = [
+    {name:'Settings', link:"/transaction/transaction-settings/"},
     {name:'Trading Partners', link:"/TradingPartners"},
     {name:'Search TPID', link:"/search"},
-    {name:'Summary', link:"/summary"},
+    {name:'Dashboard', link:"/dashboard"},
+    {name:'Batches', link:"/summary"},
     {name:'Transactions', link:"/transaction"},
     {name:'Work Flow', link:"/workflow"}
   ];
 
-  activeLink = this.links[0].link;
+  selectedLnkIndex = 3;
+
   background = 'white';
 
   constructor(private router: Router, private authenticationService: AuthenticationService,
@@ -117,31 +121,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
      // convenience getter for easy access to form fields
      get f() { return this.loginForm.controls; }
 
-
-  routeLnk(event: Event, lnk: string): void{
-    console.info('route: ' + lnk +", " + (event.target as HTMLButtonElement).getAttribute('style'));
-
-    const collection = document.getElementsByTagName("BUTTON");
-
-  for (let i = 0; i < collection.length; i++) {
-
-      this.links.forEach(element => {
-        // console.info( i + ". " + collection[i].nodeName +", " + collection[i].tagName +", " + element.name );
-        if  ( (collection[i].nodeName === 'BUTTON') && (collection[i].textContent.trim() === element.name.trim()) )
-          {
-          // console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent +", " + element.name );
-          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: azure');
-
-          }
-      });
-
-  }
-
-
-    (event.target as HTMLButtonElement).setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
-
-    this.router.navigate([lnk] );
-  }
 
   logout() {
     this.authenticationService.logout();
@@ -229,9 +208,17 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
    }
 
+   onTabChanged(event: MatTabChangeEvent): void {
+    this.selectedLnkIndex = event.index;
+    console.info(this.links[event.index].link)
+      this.router.navigate([this.links[event.index].link])
+   }
+
    onHome()
    {
-    this.router.navigate(["/transaction"]);
+    this.selectedLnkIndex = 3;
+    this.router.navigate([this.links[this.selectedLnkIndex].link]);
+
    }
 
    // Auto logout

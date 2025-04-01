@@ -1,0 +1,424 @@
+import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+
+import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
+
+
+import {TransRestServiceComponent} from '../services/transrest-service.component';
+import { MatTableDataSource } from '@angular/material/table';
+
+import { Router, ActivatedRoute } from '@angular/router';
+
+import {DisplayColumns} from '../transaction/DisplayColumns'
+
+import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
+
+import { catchError } from 'rxjs';
+
+import { MatDialog } from '@angular/material/dialog';
+
+
+
+@Component({
+  selector: 'app-dashboard',
+  templateUrl: './dashboard.component.html',
+  styleUrls: ['./dashboard.component.css']
+})
+
+
+export class DashBoardComponent implements OnInit {
+
+
+  public barChartOptions:any = {
+    scaleShowVerticalLines: false,
+    responsive: true
+  };
+
+    public mbarChartLabels:string[] = [];
+
+    public barChartType:string = 'bar';
+    public barChartLegend:boolean = true;
+
+    public barChartColors:Array<any> = [
+    {
+      backgroundColor: 'rgba(233, 206, 110, 0.2)',
+      borderColor: 'rgb(113, 140, 148)',
+      pointBackgroundColor: 'rgb(196, 144, 224)',
+      pointBorderColor: '#fafafa',
+      pointHoverBackgroundColor: '#fafafa',
+      pointHoverBorderColor: 'rgba(105,159,177)'
+    },
+    {
+      backgroundColor: 'rgba(77,20,96,0.3)',
+      borderColor: 'rgba(77,20,96,1)',
+      pointBackgroundColor: 'rgb(98, 144, 151)',
+      pointBorderColor: '#fff',
+      pointHoverBackgroundColor: '#fff',
+      pointHoverBorderColor: 'rgba(77,20,96,1)'
+    }
+  ];
+
+  public barChartData:any[] = [];
+
+
+  contextMenuPosition = { x: '0px', y: '0px' };
+  @ViewChild(MatMenuTrigger)
+  contextMenu: MatMenuTrigger;
+
+  nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+
+  startDate = "2023-01-12";
+  startTm = "13:30";
+  endDate= "2023-01-12";
+  endTm ="13:30";
+
+  paramsList: string[];
+
+  loading:boolean = false;
+  searchDashBoard:boolean = false;
+
+
+  form!: FormGroup;
+  dataTableLabel: string[] = [];
+  dataTableKey: string[] = [];
+  canRenderDetails = false;
+
+
+  dataSource = new MatTableDataSource<any>;
+
+
+  additionalsearchString = "";
+  searchTypeString = "";
+  currentTransType = '270';
+  currentMode = 'Batch';
+  sub:any;
+
+  constructor(private DashBoardService: TransRestServiceComponent,
+    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
+      tpId: new FormControl();
+
+  }
+
+
+
+
+  ngOnInit()
+  {
+    console.info("ngOnInit");
+
+
+    this.currentTransType = ''
+
+    this.sub = this.route.queryParams.subscribe(params => {
+
+      if(params !== undefined && params.dashboard !== undefined)
+        {
+          // Defaults to '' if no query param provided.
+
+          this.currentTransType =  params['transaction'] || '';
+          this.additionalsearchString = params['additionalSearch'] || '';
+          this.searchTypeString = params['searchTypeString'];
+
+        }
+
+          if (this.searchTypeString === null || this.searchTypeString.length == 0)
+            {
+              console.info('no query params')
+              this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+              let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+              let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+              this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+              let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+              tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+              this.startTm = tmVal
+              this.endTm= tmVal
+              console.info("Time: " + tmVal)
+              this.nowDt = new Date(new Date().getTime());
+              mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+              dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+              this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+            }
+
+    });
+    this.onSearchDashBoard();
+
+  }
+
+
+
+  onSearchDashBoard()
+    {
+      this.canRenderDetails = false;
+      this.paramsList = [];
+      this.paramsList.push("mode::Batch");
+      this.paramsList.push("transaction::"+this.currentTransType);
+      this.paramsList.push("status::Processed" );
+
+      this.paramsList.push("startDtTm::" + this.startDate +" "+ this.startTm);
+
+      this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
+      this.paramsList.push("count::25" );
+
+      if(this.additionalsearchString !== "")
+      {
+        this.paramsList.push("sql::" + this.additionalsearchString);
+      }
+
+
+      this.loading = true;
+
+      let staticSearchStr = "";
+
+
+      if(this.additionalsearchString.length > 0)
+        {
+          console.info("additionalsearchString: " + this.additionalsearchString)
+          staticSearchStr = staticSearchStr + " AND " + this.additionalsearchString
+
+        }
+      if(staticSearchStr.length > 3)
+      {
+          staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
+          this.paramsList.push("sql::" + staticSearchStr);
+      }
+      this.paramsList.push("dashboard::1");
+
+      this.searchTypeString = "";
+      this.paramsList.forEach( val => {
+        this.searchTypeString += val +";";
+       });
+
+      sessionStorage.setItem("searchTypeString", this.searchTypeString)
+
+          this.DashBoardService.fetchDashboardentries(this.paramsList).subscribe((res: any) => {
+
+            console.info("Data rows array: " + res.length);
+            this.dataTableLabel = [];
+            this.dataTableKey = [];
+            this.dataTableLabel.push("Transaction");
+            this.dataTableKey.push("Transaction");
+
+            let lable = "", prevLab = "";
+            let transCount = [];
+            res.forEach( (element, index) => {
+              lable = element.Transaction
+
+              if (lable !== prevLab)
+                {
+
+                  if(transCount.length > 0)
+                  {
+                    this.barChartData.push ( {data: transCount, label:  prevLab});
+                  }
+                  prevLab = lable;
+                  transCount = [];
+                }
+
+              if(this.mbarChartLabels.indexOf(element.Days) < 0)
+              {
+                this.mbarChartLabels.push(element.Days)
+                this.dataTableLabel.push(element.Days);
+                this.dataTableKey.push(element.Days);
+              }
+
+
+              transCount.push(element.Count);
+
+              if ( (index+1) == res.length)
+              {
+                this.barChartData.push ( {data: transCount, label:  lable});
+
+              }
+
+            });
+
+            this.barChartData.forEach(element => {
+              console.info("Barchart label: " + element.label +", " + element.data);
+
+              this.dataSource.data.push({Transaction:[element.label],
+                [this.dataTableLabel[1]]:element.data[0],
+                 [this.dataTableLabel[2]]:element.data[1],
+                 [this.dataTableLabel[3]]:element.data[2],
+                 [this.dataTableLabel[4]]:element.data[3]});
+
+
+            });
+
+
+              this.canRenderDetails = true;
+
+
+
+
+            this.loading = false;
+
+            }),
+
+            catchError(errorRes => {
+
+              alert('Error in fetching EligibilityBenefit Requests: ' + errorRes);
+              this.dataSource.data = [];
+              return errorRes;
+            })
+
+
+    }
+
+
+
+// Handle right click
+
+onContextMenu(event: MouseEvent, row:any, ind: number) {
+  event.preventDefault();
+
+  console.log( 'Row clicked: ' + row.Transaction +' Params: ' + this.paramsList.length);
+
+  this.contextMenuPosition.x = event.clientX + 'px';
+  this.contextMenuPosition.y = event.clientY + 'px';
+
+  let item: Item ={rowId: row.Transaction, FileName: ""};
+
+
+  let trans:string = row.Transaction.toString().toUpperCase()
+
+  if(trans == "CLAIM")
+  {
+      this.currentTransType = "837P"
+  }
+  else if(trans == "CLAIMPAYMENT")
+  {
+        this.currentTransType = "835"
+  }
+  else if(trans == "CLAIMACKNOWLEDGEMENT")
+    {
+          this.currentTransType = "277CA"
+    }
+    else if(trans == "ELIGIBILITYREQUEST")
+      {
+            this.currentTransType = "270"
+      }
+      else if(trans == "ELIGIBILITYRESPONSE")
+        {
+              this.currentTransType = "271"
+        }
+        else if(trans == "CLAIMSTATUSREQUEST")
+          {
+                this.currentTransType = "276"
+          }
+          else if(trans == "CLAIMSTATUSRESPONSE")
+            {
+                  this.currentTransType = "277"
+            }
+            else if(trans == "IMPLEMENTATIONACKNOWLEDGMENT")
+              {
+                    this.currentTransType = "999"
+              }
+
+  else
+  {
+    this.currentTransType = "Unknown"
+  }
+
+
+  let index = 0;
+
+  for (let index = 0; index < this.paramsList.length; index++)
+    {
+        let ind = this.paramsList[index].indexOf("transaction")
+
+        if (ind >= 0)
+        {
+          this.paramsList = this.paramsList.splice(ind, 1, "transaction::"+this.currentTransType)
+          console.log('Replace transaction in paramsList')
+          break;
+        }
+     };
+     if (index >= this.paramsList.length)
+     {
+      console.log('Add transaction in paramsList')
+      this.paramsList.push("transaction::"+this.currentTransType)
+     }
+
+  this.contextMenu.menuData = { 'item': item };
+  this.contextMenu.menu.focusFirstItem('mouse');
+  this.contextMenu.openMenu();
+}
+
+onContextMenuNew(item: Item) {
+  console.log("Click on Action id: " + item.rowId);
+
+    this.searchTypeString = "";
+    this.paramsList.forEach( val => {
+      this.searchTypeString += val +";";
+      console.log(val);
+     });
+
+
+    if (this.searchTypeString.indexOf('transaction') < 0)
+    {
+      this.searchTypeString += "transaction::"+this.currentTransType + ";status::Processed;" +
+      "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+      "endDtTm::" + this.endDate+" " +this.endTm +";" +
+      "count::25;"  ;
+    }
+
+    this.searchTypeString += ";sameWindow::false";
+       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
+      {queryParams: {  'transaction': this.currentTransType,  'searchTypeString': this.searchTypeString } }
+       ));
+    const newTab = window.open(url, '_blank');
+    if(newTab) {
+        newTab.opener = null;
+    }
+
+}
+
+onContextMenuSame(item: Item) {
+
+  this.searchTypeString = "";
+  this.paramsList.forEach( val => {
+    this.searchTypeString += val +";";
+   });
+
+   this.searchTypeString += ";sameWindow::true";
+      this.router.navigate(["/transaction/"],
+      {queryParams: { 'transaction': this.currentTransType, 'searchTypeString': this.searchTypeString } }
+       );
+
+}
+
+onContextSettings(item: Item) {
+
+    console.log("call onContextSettings")
+    this.searchTypeString = "mode::Batch;" +
+    "dashboard::1;" +
+    "transaction::"+this.currentTransType +";" +
+    "status::Processed;" +
+    "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+    "endDtTm::" + this.endDate+" " +this.endTm +";" +
+    "count::25;"  ;
+
+
+   this.searchTypeString += ";sameWindow::true";
+      this.router.navigate(["/dashboard/dashboard-settings/"],
+      {queryParams: {'dashboard':1, 'transaction': this.currentTransType, 'mode': 'Batch', 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString  } }
+       );
+
+}
+
+
+public chartClicked(e:any):void {
+  console.log(e);
+}
+
+public chartHovered(e:any):void {
+  // console.log(e);
+}
+
+}
+
+export interface Item {
+  FileName: string;
+  rowId: number;
+}
+

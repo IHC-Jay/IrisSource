@@ -2,22 +2,17 @@ import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angula
 
 import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
 
-import {TransRestServiceComponent} from '../../services/transrest-service.component';
+
+import {WfRestServiceComponent} from '../../services/wfrest-service.component';
+
 import { MatTableDataSource } from '@angular/material/table';
 
-import { MatPaginator } from '@angular/material/paginator';
-import { MatSort, MatSortHeader } from '@angular/material/sort';
+
 import { Router, ActivatedRoute } from '@angular/router';
 import {SelectionModel} from '@angular/cdk/collections';
 
 
-import {MatNativeDateModule} from '@angular/material/core';
-import {MatDatepickerModule} from '@angular/material/datepicker';
-import {MatFormFieldModule} from '@angular/material/form-field';
-import {MatCheckboxModule} from '@angular/material/checkbox';
-import {MatCardModule} from '@angular/material/card';
 import {x12err} from './WfDetails';
-import { MatRow } from '@angular/material/table';
 
 @Component({
   selector: 'app-workflowDetails',
@@ -42,10 +37,6 @@ export class WorkflowDetailsComponent implements OnInit {
   @ViewChild("statusType") statusType: ElementRef;
 
 
-  @ViewChild(MatPaginator) paginator: MatPaginator;
-  @ViewChild(MatSort) sort: MatSort;
-
-
   statusTypeString = "";
   wfStatus: string = "";
   transTypeStr = '';
@@ -65,7 +56,7 @@ export class WorkflowDetailsComponent implements OnInit {
   isSelected: boolean = true;
 
   sub:any;
-  id:string;
+  ID:string;
   selectedRow: number = -1;
   minSelRow:number = 0
   maxSelRow:number = 0;
@@ -79,7 +70,7 @@ export class WorkflowDetailsComponent implements OnInit {
   selection = new SelectionModel<x12err>(false, []);
 
 
-  constructor(private WfService: TransRestServiceComponent,
+  constructor(private WfService: WfRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
 
@@ -100,16 +91,16 @@ export class WorkflowDetailsComponent implements OnInit {
     .queryParams
     .subscribe(searchParams => {
       // Defaults to 0 if no query param provided.
-      this.id = ''+searchParams['id'] || '0';
+      this.ID = ''+searchParams['ID'] || '0';
       this.searchParams = searchParams['searchParams'];
 
       let fInd = this.searchParams.indexOf("status::") + "status::".length;
       let val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
       console.log(fInd + ". statusType:" + val )
-      this.form.controls.statusType.setValue(val)
+
       this.wfStatus = val
 
-      console.log('Query params id: ', this.id + ', params: ' + this.searchParams );
+      console.log('Query params ID: ', this.ID + ', params: ' + this.searchParams );
     });
     this.getX12();
 
@@ -126,12 +117,12 @@ export class WorkflowDetailsComponent implements OnInit {
 getX12()
 {
   this.canRenderDetails = false;
-  console.log("Call service for " +this.id +", ", this.wfStatus);
-    this.WfService.fetchWorkFlowEntry("id=" + this.id ).subscribe((res: any) => {
+  console.log("Call service for " +this.ID +", ", this.wfStatus);
+    this.WfService.fetchWorkFlowEntry("ID=" + this.ID ).subscribe((res: any) => {
 
       console.log("# of records: " + res.length)
       let x12DataLns = res[0].X12.split("~")
-      this.errorStr = (String)(res[0].Error).replaceAll(";", "\n");
+      this.errorStr = "Workflow ID: " + this.ID + ", Status: " + this.wfStatus + "\n" + (String)(res[0].Error).replaceAll(";", "\n") + "\n" + "Number of errors: " + (res.length - 1);
       this.wfCurrentStat = res[0].Status;
       this.x12Array.splice(0, this.x12Array.length)
       let segNum = 0
@@ -185,12 +176,13 @@ getX12()
               {
                 this.x12Array.push({lnNum:(index+1), segId:segStr, data: item, segElem:segEle, error:err});
                 errFound = true;
+
               }
             }
             else
             {
               this.x12Array.push({lnNum:(index+1), segId:segStr, data: item, segElem:segEle, error:err});
-
+              console.log("Push Row: " + segStr +", " + err)
             }
           }
           if(item.startsWith('SE*') || item.startsWith('SE|'))
@@ -228,11 +220,16 @@ getX12()
  updateWF()
  {
 
-  console.info("Update WorkFlowItem id: " +this.id +",  status: " +  this.wfStatus)
+  console.info("Update WorkFlowItem ID: " +this.ID +",  status: " +  this.wfStatus)
   if (this.wfStatus !== '')
   {
+    let paramsList: string[]= [];
 
-    this.WfService.updateWorkFlowItem(this.id, this.wfStatus, '').subscribe((res: any) => {
+    paramsList.push("ID::" + this.ID);
+    paramsList.push("Status::" +  this.wfStatus);
+    paramsList.push("AssignedUser::" + "");
+
+    this.WfService.updateWorkFlowItem(paramsList).subscribe((res: any) => {
       this.dataSource.data = res;
       this.canRenderDetails = true;
 

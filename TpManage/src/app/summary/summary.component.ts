@@ -141,18 +141,6 @@ endDate ="13:30";
   ngOnInit()
   {
     console.info("ngOnInit");
-    const collection = document.getElementsByTagName("BUTTON");
-      for (let i = 0; i < collection.length; i++)
-      {
-
-        console.info( collection[i].nodeName +", " + collection[i].textContent  );
-        if (collection[i].textContent.trim() === 'Summary')
-          {
-           // console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent  );
-          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
-          break;
-          }
-      }
 
 
     this.form = this.formBuilder.group({

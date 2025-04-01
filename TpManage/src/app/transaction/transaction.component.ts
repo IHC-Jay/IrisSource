@@ -140,18 +140,7 @@ endDate ="13:30";
   ngOnInit()
   {
     console.info("ngOnInit");
-    const collection = document.getElementsByTagName("BUTTON");
-      for (let i = 0; i < collection.length; i++)
-      {
 
-        console.info( collection[i].nodeName +", " + collection[i].textContent  );
-        if (collection[i].textContent.trim() === 'Transactions')
-          {
-          console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent  );
-          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
-          break;
-          }
-      }
     sessionStorage.setItem("Screen", "Transactions")
 
 
@@ -525,13 +514,15 @@ endDate ="13:30";
       else if(this.form.controls.transType.value === '276'){
 
         this.TransactionService.fetchClaimStatusReq(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
+          console.info("Service array: " + res.length);
          this.dataSource.data = res;
          this.dataSource.sort = this.sort;
          this.canRenderDetails = true;
          this.loading = false;
          console.info("Claim Status  Req array: " + this.dataSource.data.length);
 
-        });
+        }
+    );
 
       }
        else if(this.form.controls.transType.value === '277'){

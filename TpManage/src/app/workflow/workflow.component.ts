@@ -7,6 +7,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
+import {WfRestServiceComponent} from '../services/wfrest-service.component';
 import {WorkFlowEntry, IrisUsers} from './WorkFlowEntry';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
@@ -39,17 +40,19 @@ export class WorkflowComponent implements OnInit {
     'ErrorType',
     'Resent',
     'WorkStatus',
-    'WorkUser',
+    'AssignedUser',
     'LastmodDtTM',
     'LastmodID',
-
-    'Details'
+    'Details',
+    'History'
 ];
 
     displayLabel: string = "Display columns:";
+
     statusTypes = [
       "New",
-      "Assigned",
+      "Assigned To Me",
+      "Assigned To Others",
       "Resolved",
       "Ignored"
     ];
@@ -57,7 +60,7 @@ export class WorkflowComponent implements OnInit {
     updStatusTypes = [
       "Assigned",
       "Resolved",
-      "Resolve and Resend",
+      "Resend and Resolved",
       "Ignored"
     ];
 
@@ -69,6 +72,7 @@ export class WorkflowComponent implements OnInit {
   statusTypeString = 'New';
   transTypeStr = '835';
   errorTypeStr = 'All';
+
 
   canRenderDetails = false;
   rowSelected : number = 0;
@@ -82,7 +86,7 @@ export class WorkflowComponent implements OnInit {
   displayType = 1;
   searchTransaction = false;
 
-  constructor(private WfService: TransRestServiceComponent,
+  constructor(private WfService: WfRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
 
@@ -98,6 +102,7 @@ export class WorkflowComponent implements OnInit {
       errorType: ['', Validators.required],
       rowSelected: [''],
       updStatusType: ['', Validators.required],
+      notes:[''],
       assignee:['']
     });
     this.canRenderDetails = false;
@@ -178,12 +183,12 @@ export class WorkflowComponent implements OnInit {
           this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
 
           this.form.controls.rowCnt.setValue(this.maxCount[1]);
-          this.form.controls.statusType.setValue(this.statusTypes[0]);
+          this.form.controls.statusType.setValue(this.statusTypes[1]);
           this.form.controls.transType.setValue(this.transactionTypes[0])
           this.form.controls.errorType.setValue(this.errorTypes[0])
           this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
 
-          this.statusTypeString = this.statusTypes[0];
+          this.statusTypeString = this.statusTypes[1];
           this.transTypeStr = this.transactionTypes[0];
           this.errorTypeStr = this.errorTypes[0];
         }
@@ -201,6 +206,13 @@ export class WorkflowComponent implements OnInit {
 
 onSubmit()
 {
+  let paramsList: string[]= [];
+
+  paramsList.push("TransactionType::" + this.transTypeStr);
+  paramsList.push("Count::" + this.form.controls.rowCnt.value);
+  paramsList.push("DateRange::" + "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'");
+  paramsList.push("StatusTypes::" + this.statusTypeString);
+  paramsList.push("ErrorType::" + this.errorTypeStr)
 
   console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr +", count: " + this.form.controls.rowCnt.value)
 
@@ -209,14 +221,8 @@ onSubmit()
     this.form.controls.transType.setValue(this.transTypeStr);
   }
 
-  console.debug("startDtTm::" + this.startDate +" "+ this.startTm);
 
-  console.debug("endDtTm::" + this.endDate+" " +this.endTm );
-
-
-  this.WfService.fetchWorkFlowItems(this.transTypeStr, this.statusTypeString, this.errorTypeStr, this.form.controls.rowCnt.value,
-    "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'"
-  ).subscribe((res: any) => {
+  this.WfService.fetchWorkFlowItems(paramsList).subscribe((res: any) => {
     this.dataSource.data = res;
     this.canRenderDetails = true;
 
@@ -258,7 +264,7 @@ errorTypeChange(evt: any)
   this.errorTypeStr = this.form.controls.errorType.value
 }
 
-onRowClicked(row) {
+onDetailsClicked(row) {
 
   let searchParamsString = "errorType::" + this.form.controls.errorType.value +";" +
           "transaction::"+this.form.controls.transType.value +";" +
@@ -267,13 +273,31 @@ onRowClicked(row) {
           "endDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  ;
 
-  console.log('Row clicked, id: ' + row.id + ", Transaction: " + searchParamsString);
+  console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
 
  this.router.navigate(["/workflow/workflowDetails/"],
-  {queryParams: { id:  row.id,  searchParams:  searchParamsString } }
+  {queryParams: { ID:  row.ID,  searchParams:  searchParamsString } }
    );
 
 }
+
+onHistoryClicked(row) {
+
+  let searchParamsString = "errorType::" + this.form.controls.errorType.value +";" +
+          "transaction::"+this.form.controls.transType.value +";" +
+          "status::"+this.form.controls.statusType.value +";" +
+          "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+          "endDtTm::" + this.endDate+" " +this.endTm +";" +
+          "count::" + this.form.controls.rowCnt.value +";"  ;
+
+  console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
+
+ this.router.navigate(["/workflow/workflowHistory/"],
+  {queryParams: { ID:  row.ID,  searchParams:  searchParamsString } }
+   );
+
+}
+
 /** Whether the number of selected elements matches the total number of rows. */
 isAllSelected() {
   this.rowSelected = this.selection.selected.length;
@@ -286,7 +310,7 @@ isAllSelected() {
 singleToggle(row)
 {
   console.log('# of rows checked: ' + this.selection.selected.length)
-  console.log('Row Find: ' + row.id + ": " + this.selection.isSelected(row));
+  console.log('Row Find: ' + row.ID + ": " + this.selection.isSelected(row));
 
   if (this.selection.isSelected(row))
   {
@@ -364,9 +388,17 @@ updateWF()
         else
         {
           this.selection.selected.forEach(row => {
-              console.info("ID: " + row.id +"-> " + this.updStatus)
+            let paramsList: string[]= [];
 
-              this.WfService.updateWorkFlowItem(row.id, this.updStatus, (this.updStatus === 'Assigned')? assignee : '').subscribe((res:any) => {
+            paramsList.push("ID::" + row.ID);
+            paramsList.push("Status::" + this.updStatus);
+            paramsList.push("AssignedUser::" + assignee);
+            paramsList.push("Notes::" + this.form.controls.notes.value)
+
+
+              console.info("ID: " + row.ID +"-> " + this.updStatus)
+
+              this.WfService.updateWorkFlowItem(paramsList).subscribe((res:any) => {
                 console.info("updateWorkFlowItem complete")
                 this.selection.clear();
                 this.rowSelected  = 0;
@@ -390,9 +422,18 @@ updateWF()
   console.info("Assign WorkFlow: " + this.selection.selected.length );
 
       this.selection.selected.forEach(row => {
-          console.info("ID: " + row.id +"-> 'Assigned'")
+          console.info("ID: " + row.ID +"-> 'Assigned'")
 
-          this.WfService.updateWorkFlowItem(row.id, 'Assigned', '').subscribe((res: any) => {
+          let paramsList: string[]= [];
+
+          paramsList.push("ID::" + row.ID);
+          paramsList.push("Status::" + "Assigned");
+          paramsList.push("AssignedUser::" + "");
+          paramsList.push("Notes::" + this.form.controls.notes.value)
+
+
+
+          this.WfService.updateWorkFlowItem(paramsList).subscribe((res: any) => {
             this.dataSource.data = res;
             error: err => console.error("Error in updateWorkFlowItem: " + err)
             complete: () =>

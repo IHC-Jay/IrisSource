@@ -74,7 +74,7 @@ searchTypeString:string;
   currentTransType = '';
   sub:any;
   value = 'Clear me';
-
+  showMode = 1
   usrSelectedDisplayFields = [];
 
   usrSelectedSearchFields = [];
@@ -183,11 +183,16 @@ transactionChange(evt: any)
 
   this.currentTransType = this.form.controls.transType.value;
 
-  if (this.currentTransType === "837P")
+  if (this.currentTransType === "835" || this.currentTransType.indexOf("837") == 0 || this.currentTransType === "277CA")
   {
       this.modeString = "Batch";
+      this.showMode = 0
 
       this.form.controls.mode.setValue(this.modeString)
+  }
+  else
+  {
+    this.showMode = 1
   }
 
 

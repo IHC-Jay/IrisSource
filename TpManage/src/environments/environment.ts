@@ -7,6 +7,7 @@ export const environment = {
   tpDevUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRest/TpManage/',
   rtDevTransUrl: 'https://itf-webapache-dev.co.ihc.com:8443/Rest/RtTransactions/',
   batchDevTransUrl: 'https://itf-webapache-dev.co.ihc.com:8443/Rest/BatchTransactions/',
+  batchDevWFUrl: 'https://itf-webapache-dev.co.ihc.com:8443/Rest/BatchWorkFlow/',
   tpQaUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/TpManage/',
   rtQaTransUrl: 'https://itf-webapache-qa.co.ihc.com:8443/Rest/RtTransactions/',
   batchQaTransUrl: 'https://itf-webapache-qa.co.ihc.com:8443/Rest/BatchTransactions/'

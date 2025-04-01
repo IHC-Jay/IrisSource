@@ -85,18 +85,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
           return isMatch;
         }
 
-        const collection = document.getElementsByTagName("BUTTON");
-      for (let i = 0; i < collection.length; i++)
-      {
 
-        console.info( collection[i].nodeName +", " + collection[i].textContent  );
-        if (collection[i].textContent.trim() === 'Trading Partners')
-          {
-          console.info( " FOUND " + collection[i].nodeName +", " + collection[i].textContent  );
-          collection[i].setAttribute('style', 'font-size: 12px; width: 120pt; background-color: cyan;');
-          break;
-          }
-      }
 
       });
 

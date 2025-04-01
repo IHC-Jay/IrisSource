@@ -17,13 +17,14 @@ import { MatSort, MatSortModule } from '@angular/material/sort';
 
 import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
 
-import { MatTabsModule } from '@angular/material/tabs';
+import { MatTabsModule, MatTabChangeEvent } from '@angular/material/tabs';
 import { MatCard, MatCardModule } from '@angular/material/card';
 import { AppRoutingModule } from './app-routing.module';
 import { HeaderComponent } from './header/header.component';
 
 import { TpRestServiceComponent } from './services/tprest-service.component';
 import { TransRestServiceComponent } from './services/transrest-service.component';
+import { WfRestServiceComponent } from './services/wfrest-service.component';
 import {UtilService} from './services/utilService';
 
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
@@ -62,9 +63,11 @@ import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/
 import { AngularSplitModule } from 'angular-split';
 
 import {SummaryComponent} from './summary/summary.component'
-
+import {DashBoardComponent} from './dashboard/dashboard.component'
 import { WorkflowComponent } from './workflow/workflow.component';
 import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
+import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component';
+import { NgChartsModule } from 'ng2-charts';
 
 @NgModule({
   declarations: [
@@ -72,6 +75,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     HeaderComponent,
     TpRestServiceComponent,
     TransRestServiceComponent,
+    WfRestServiceComponent,
     TradingPartnersComponent,
     copyTPComponent,
     ConfirmDialogComponent,
@@ -87,8 +91,10 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     TransactionDetailComponent,
     TransactionSettingsComponent,
     SummaryComponent,
+    DashBoardComponent,
     WorkflowComponent,
-    WorkflowDetailsComponent
+    WorkflowDetailsComponent,
+    WorkflowHistoryComponent
   ],
   imports: [
     BrowserModule,
@@ -117,7 +123,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     MatNativeDateModule,
     MatDatepickerModule,
     AngularSplitModule,
-    MatCardModule, MatRadioModule
+    MatCardModule, MatRadioModule, NgChartsModule
   ],
   exports:[
     MatTableModule,

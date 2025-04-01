@@ -1,12 +1,12 @@
 export interface WorkFlowEntry {
-  id: string;
+  ID: string;
   InterchangeSenderID: string;
   InterchangeReceiverID: string;
   TransactionType: string;
   CreateDtTm: string;
   ResolveDtTm: string;
   WorkStatus: string;
-  WorkUser: string;
+  AssignedUser: string;
   ErrorType: string;
   Error: string;
   Resent: string;
@@ -14,7 +14,7 @@ export interface WorkFlowEntry {
 }
 
 export interface IrisUsers {
-id: string;
+ID: string;
 UserName: string;
 FullName: string;
 GrantedRoles: string;

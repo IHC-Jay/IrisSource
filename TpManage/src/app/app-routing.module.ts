@@ -16,7 +16,9 @@ import {TransactionDetailComponent} from './transaction/transaction-details/tran
 import {TransactionSettingsComponent} from "./transaction/transaction-settings/transaction-settings.component"
 import { WorkflowComponent } from './workflow/workflow.component';
 import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
+import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component'
 import { SummaryComponent } from './summary/summary.component';
+import {DashBoardComponent} from './dashboard/dashboard.component';
 
 
 const appRoutes: Routes = [
@@ -34,7 +36,9 @@ const appRoutes: Routes = [
   {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard]},
   {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard]},
   {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard]},
-  {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard]}
+  {path: 'dashboard', component: DashBoardComponent, canActivate: [AuthGuard]},
+  {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard]},
+  {path: 'workflow/workflowHistory', component: WorkflowHistoryComponent, canActivate: [AuthGuard]}
 ];
 
 @NgModule({

@@ -41,6 +41,7 @@ export class TransRestServiceComponent {
 
    rtTransUrl = `${environment.rtDevTransUrl}`;
    batchTransUrl = `${environment.batchDevTransUrl}`;
+   batchWfUrl = `${environment.batchDevWFUrl}`;
    authenticationService: AuthenticationService;
 
   error = new Subject<string>();
@@ -86,6 +87,46 @@ getCurrentUser()
         this.router.navigate(['/']);
       }
      console.log('Return getCurrentUser: ' + this.currentUser);
+
+}
+
+fetchDashboardentries(searchArr: string[]) {
+
+  if(this.currentUser === '')
+  {
+    this.getCurrentUser()
+  }
+
+  let url = this.batchTransUrl + 'Dashboard?searchStr=' + searchArr;
+
+  console.log('Fetch Dashboard from  ' + url);
+  return this.http2
+    .get<{ [key: string]: TransactionData }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const dashArray: TransactionData[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            dashArray.push({ ...responseData[key], value: responseData[key].value });
+          }
+        }
+        console.info('return Dashboard array: ' + dashArray.length );
+        return dashArray;
+
+
+      }),
+
+      catchError(errorRes => {
+
+        console.error('In fetchDashboard catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
 
 }
 
@@ -176,7 +217,7 @@ fetchEligibilityBenefitResponses(mode: string, searchArr: string[]) {
 
 fetchClaims(mode: string, searchArr: string[]) {
   console.log('Fetch Claim with Auth ' );
-
+  const ClaimArray: TransactionData[] = [];
   let url = this.batchTransUrl + 'Claims?searchStr=' + searchArr;
 
   if (mode === 'RealTime')
@@ -193,7 +234,7 @@ fetchClaims(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimArray: TransactionData[] = [];
+
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
             ClaimArray.push({ ...responseData[key], value: responseData[key].value });
@@ -208,13 +249,14 @@ fetchClaims(mode: string, searchArr: string[]) {
       catchError(errorRes => {
         // Send to analytics server
         console.error('In fetchClaims catchError: ' + errorRes);
-        return errorRes;
+        return ClaimArray;
       })
     );
 
 }
 fetchClaimStatusReq(mode: string, searchArr: string[]) {
   console.log('Fetch Claim Status Req with Auth ' );
+  const ClaimStatusReqArray: TransactionData[] = [];
 
   let url = this.batchTransUrl + 'ClaimStatusRequest?searchStr=' + searchArr;
 
@@ -232,7 +274,7 @@ fetchClaimStatusReq(mode: string, searchArr: string[]) {
       map(responseData => {
         console.info(responseData);
 
-        const ClaimStatusReqArray: TransactionData[] = [];
+
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
             ClaimStatusReqArray.push({ ...responseData[key], value: responseData[key].value });
@@ -247,7 +289,7 @@ fetchClaimStatusReq(mode: string, searchArr: string[]) {
       catchError(errorRes => {
         // Send to analytics server
         console.error('In fetchClaimStatusReq catchError: ' + errorRes);
-        return errorRes;
+        return ClaimStatusReqArray;
       })
     );
 
@@ -998,192 +1040,6 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   }
   console.log('URL: ' + url);
   return url;
-}
-
-fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number, dtRange: string) {
-  console.log('Fetch WF entries ' + "dateRange="+dtRange +", Search: " + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
-
-  let url = this.batchTransUrl + "WorkFlowEntries?searchStr=" + errType +"&TransType=" + searchStr + "&ErrorType=" + statType +"&userNm="+ this.currentUser+ "&count="+maxCnt + "&dateRange="+dtRange;
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    ).pipe(map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id});
-          }
-        }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchWorkFlowEntries catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-
-fetchIrisUsers() {
-  console.log('Fetch Users');
-
-  let url = this.batchTransUrl + "GetIrisUsers";
-
-  return this.http2
-    .get<{ [key: string]: IrisUsers }>(
-      url
-    ).pipe(map(responseData => {
-        console.info(responseData);
-
-        const UserArray: IrisUsers[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            UserArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return User array: ' + UserArray.length );
-        return UserArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchWorkFlowEntries catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-fetchWorkFlowEntry(searchStr: string) {
-  console.log('Fetch WF Entry with Auth for '+ this.currentUser );
-
-  let url = this.batchTransUrl + 'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    )
-
-    .pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchWorkFlowEntry catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-
-
-updateWorkFlowItem(id: string, status: string, assignUser: string) {
-  console.log('Update WF Entry with Auth as ' + this.currentUser);
-  let url = this.batchTransUrl
-  if (assignUser !== '')
-  {
-    url += 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ assignUser+"&modUserNm="+ this.currentUser;
-  }
-  else
-  {
-
-    url += 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser+"&modUserNm="+ this.currentUser;
-  }
-  console.log('Update WF Entry: ' + url)
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    ).pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return updated WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In updateWorkFlowEntry catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-passArray(mode: string, searchStr: string[]) {
-  console.log( this.env + ' - passArray with Auth for: ' + searchStr );
-
-  let url = this.batchTransUrl + 'ReadArray?searchArr=' + searchStr;
-
-  if (mode === 'RealTime')
-  {
-     url = this.rtTransUrl + 'ReadArray?searchArr=' + searchStr;
-  }
-
-
-  console.log('search URL: ' + url)
-  return this.http2
-    .get<{ [key: string]: TransactionData }>(
-      url
-    )
-
-    .pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const EligibilityRequestArray: TransactionData[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-             EligibilityRequestArray.push({ ...responseData[key], value: responseData[key].value });
-          }
-        }
-        console.info('return TP array: ' + EligibilityRequestArray.length );
-        return EligibilityRequestArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchEligibilityRequest catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
 }
 
 }
