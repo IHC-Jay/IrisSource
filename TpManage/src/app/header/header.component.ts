@@ -67,7 +67,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.authenticationService.currentUser.subscribe(x => {
         this.currentUser = x
         this.isLogin = (x != null);
-        console.log("HeaderComponent: " + this.currentUser)
+        console.log("HeaderComponent: " + this.currentUser.username)
         }
         );
 
@@ -86,9 +86,16 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       // get return url from route parameters or default to '/'
       this.returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/login';
 
-      this.route.queryParams
-      .subscribe(params => {
+
+      this.route.queryParams.subscribe(params => {
+        console.log(this.returnUrl + ', Header Query params: ' + params)
+
         this.paramsObject = { ...params.keys, ...params };
+        console.log("Header paramsObject: " + this.paramsObject.transaction )
+        if (this.paramsObject.transaction !== undefined)
+        {
+          this.selectedLnkIndex =5;
+        }
 
         if(params !== undefined && params.page !== undefined)
         {
@@ -109,12 +116,14 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         }
       }
     );
-      // console.log('HeaderComponent ngOnInit: ' + this.firstPage)
+     console.log('HeaderComponent ngOnInit: ' + this.firstPage)
   }
 
   ngAfterViewInit() {
     if(this.focusField !== undefined && this.focusField.nativeElement !== undefined)
+    {
       this.focusField.nativeElement.focus();
+    }
   }
 
 
@@ -135,7 +144,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    onLogin()
    {
 
-
+    console.log("header onLogin")
       // stop here if form is invalid
       if (this.loginForm.invalid) {
         console.error("Invalid login form");
@@ -209,6 +218,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    }
 
    onTabChanged(event: MatTabChangeEvent): void {
+    console.log("header onTabChanged")
     this.selectedLnkIndex = event.index;
     console.info(this.links[event.index].link)
       this.router.navigate([this.links[event.index].link])
@@ -216,6 +226,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
    onHome()
    {
+    console.log("header onHome")
     this.selectedLnkIndex = 3;
     this.router.navigate([this.links[this.selectedLnkIndex].link]);
 

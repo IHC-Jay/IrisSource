@@ -38,6 +38,9 @@ import {MatSelectModule} from '@angular/material/select';
 import {MatTooltipModule} from '@angular/material/tooltip';
 import {MatRadioModule, MatRadioGroup} from '@angular/material/radio';
 
+import {MatTreeModule} from '@angular/material/tree';
+
+
 import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
@@ -123,7 +126,8 @@ import { NgChartsModule } from 'ng2-charts';
     MatNativeDateModule,
     MatDatepickerModule,
     AngularSplitModule,
-    MatCardModule, MatRadioModule, NgChartsModule
+    MatCardModule, MatRadioModule, NgChartsModule,
+    MatTreeModule
   ],
   exports:[
     MatTableModule,

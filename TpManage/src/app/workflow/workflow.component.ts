@@ -30,9 +30,11 @@ export class WorkflowComponent implements OnInit {
   endDate ="13:30";
   startTm = "13:30";
   endTm= "2023-01-12";
+  noAssignee:boolean = true;
 
   displayedColumns: string[] = [
     'Select',
+    'ID',
     'InterchangeSenderID',
     'InterchangeReceiverID',
     'TransactionType',
@@ -66,10 +68,11 @@ export class WorkflowComponent implements OnInit {
 
     maxCount = ["10", "25", "50", "100", "200"];
 
-    transactionTypes: string[] = ["All", "270", "271","276", "277", "277CA", "835", "837", "837I", "837P", "837D"];
+    transactionTypes: string[] = ["All", "270", "271","276", "277", "277CA", "835", "837"];
     errorTypes: string[] =['All','Data', 'TP','Connection','Ack','Duplicate']
 
-  statusTypeString = 'New';
+  statusTypeString:string = 'New';
+  selectedObjects: string[] = ['New'];
   transTypeStr = '835';
   errorTypeStr = 'All';
 
@@ -84,6 +87,7 @@ export class WorkflowComponent implements OnInit {
   dataSource = new MatTableDataSource<WorkFlowEntry>();
   selection = new SelectionModel<WorkFlowEntry>(true, []);
   displayType = 1;
+  searchID:boolean = false;
   searchTransaction = false;
 
   constructor(private WfService: WfRestServiceComponent,
@@ -96,14 +100,15 @@ export class WorkflowComponent implements OnInit {
   ngOnInit() {
 
     this.form = this.formBuilder.group({
-      statusType: ['', Validators.required],
+      statusType: ['New', Validators.required],
       rowCnt:['', Validators.required],
       transType: ['', Validators.required],
       errorType: ['', Validators.required],
       rowSelected: [''],
       updStatusType: ['', Validators.required],
       notes:[''],
-      assignee:['']
+      assignee:[''],
+      searchID:['']
     });
     this.canRenderDetails = false;
     this.irisUsers = [];
@@ -128,7 +133,9 @@ export class WorkflowComponent implements OnInit {
           fInd = searchParams.indexOf("status::") + "status::".length;
           val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
           this.statusTypeString = val;
-          this.form.controls.statusType.setValue(this.statusTypeString);
+          // this.form.controls.statusType.setValue(this.statusTypeString);
+          this.selectedObjects = this.selectedObjects.slice()
+          this.selectedObjects = this.statusTypeString.toString().split(',');
 
           fInd = searchParams.indexOf("count::") + "count::".length;
           val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
@@ -183,15 +190,18 @@ export class WorkflowComponent implements OnInit {
           this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
 
           this.form.controls.rowCnt.setValue(this.maxCount[1]);
-          this.form.controls.statusType.setValue(this.statusTypes[1]);
+          this.form.controls.statusType.setValue(this.statusTypes[0]);
           this.form.controls.transType.setValue(this.transactionTypes[0])
           this.form.controls.errorType.setValue(this.errorTypes[0])
           this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
 
-          this.statusTypeString = this.statusTypes[1];
+          this.statusTypeString = this.statusTypes[0];
           this.transTypeStr = this.transactionTypes[0];
           this.errorTypeStr = this.errorTypes[0];
+
+
         }
+        this.onSubmit()
 
     });
 
@@ -208,13 +218,24 @@ onSubmit()
 {
   let paramsList: string[]= [];
 
-  paramsList.push("TransactionType::" + this.transTypeStr);
-  paramsList.push("Count::" + this.form.controls.rowCnt.value);
-  paramsList.push("DateRange::" + "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'");
-  paramsList.push("StatusTypes::" + this.statusTypeString);
-  paramsList.push("ErrorType::" + this.errorTypeStr)
+  if (this.form.controls.searchID.value !== '')
+  {
+    paramsList.push("ID::" + this.form.controls.searchID.value)
+    console.info("fetchWorkFlowItems ID: " + this.form.controls.searchID.value)
+  }
+  else
+  {
 
-  console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr +", count: " + this.form.controls.rowCnt.value)
+    paramsList.push("TransactionType::" + this.transTypeStr);
+    paramsList.push("Count::" + this.form.controls.rowCnt.value);
+    paramsList.push("DateRange::" + "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'");
+    let stStr = this.statusTypeString.toString().replaceAll(",",";");
+    paramsList.push('StatusTypes::' +  stStr);
+    paramsList.push("ErrorType::" + this.errorTypeStr)
+    console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr +", count: " + this.form.controls.rowCnt.value)
+
+  }
+
 
   if (this.form.controls.transType.value === '' && this.transTypeStr !== '')
   {
@@ -233,6 +254,21 @@ onSubmit()
 
  }
 
+ inputID()
+ {
+  console.info('ID: ' +  this.form.controls.searchID.value)
+
+  if (this.form.controls.searchID.value !== '')
+  {
+    this.searchID = true
+  }
+  else
+  {
+    this.searchID = false
+  }
+
+ }
+
  onRowCnt()
       {
         console.info('Set paginator.pageSize: ' + this.form.controls.rowCnt.value)
@@ -243,6 +279,10 @@ onSubmit()
  statusTypeChange(evt: any)
  {
    this.statusTypeString = this.form.controls.statusType.value
+   this.selectedObjects = this.selectedObjects.slice()
+   this.selectedObjects = this.statusTypeString.toString().split(',');
+   console.log("Status length: " + this.selectedObjects.length)
+
  }
 
  updStatusTypeChange (evt: any)
@@ -310,7 +350,7 @@ isAllSelected() {
 singleToggle(row)
 {
   console.log('# of rows checked: ' + this.selection.selected.length)
-  console.log('Row Find: ' + row.ID + ": " + this.selection.isSelected(row));
+  console.log('Row Find: ' + row.AssignedUser + ": " + this.WfService.currentUser + ", " + this.selection.isSelected(row));
 
   if (this.selection.isSelected(row))
   {
@@ -319,7 +359,15 @@ singleToggle(row)
   else
   {
     this.selection.select(row);
+    if (row.AssignedUser === this.WfService.currentUser){
+      this.noAssignee = false;
+    }
+    else
+    {
+      this.noAssignee = true;
+    }
     this.getUsers();
+
   }
   this.rowSelected = this.selection.selected.length;
   // this.dataSource.data.forEach(row => this.selection.select(row));
@@ -343,7 +391,11 @@ getUsers()
 
 updUserChange(event: any)
 {
-
+   console.info("User: " + event +", " +  this.form.controls.assignee.value)
+   if (this.form.controls.assignee.value !== "")
+   {
+    this.noAssignee = false
+   }
 }
 
 /** Selects all rows if they are not all selected; otherwise clear selection. */
@@ -409,6 +461,8 @@ updateWF()
               });
 
             });
+            this.selection.clear()
+            this.rowSelected = 0
 
 
         }
@@ -448,6 +502,8 @@ updateWF()
 
 
         });
+        this.selection.clear()
+        this.rowSelected = 0
 
 
 

@@ -124,11 +124,10 @@ getX12()
 
       res.forEach(element => {
 
-        if (element.ID !== undefined || element.ID > 0)
+        if (element.Status !== undefined && element.ModUser !== undefined )
         {
-          console.log("WF entry: " + element.ID)
-        }
-        else{
+
+          console.log("WF entry: " + element.Status)
           this.dataSource.data.push(element);
         }
       });

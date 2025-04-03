@@ -38,24 +38,6 @@ export class DashBoardComponent implements OnInit {
     public barChartType:string = 'bar';
     public barChartLegend:boolean = true;
 
-    public barChartColors:Array<any> = [
-    {
-      backgroundColor: 'rgba(233, 206, 110, 0.2)',
-      borderColor: 'rgb(113, 140, 148)',
-      pointBackgroundColor: 'rgb(196, 144, 224)',
-      pointBorderColor: '#fafafa',
-      pointHoverBackgroundColor: '#fafafa',
-      pointHoverBorderColor: 'rgba(105,159,177)'
-    },
-    {
-      backgroundColor: 'rgba(77,20,96,0.3)',
-      borderColor: 'rgba(77,20,96,1)',
-      pointBackgroundColor: 'rgb(98, 144, 151)',
-      pointBorderColor: '#fff',
-      pointHoverBackgroundColor: '#fff',
-      pointHoverBorderColor: 'rgba(77,20,96,1)'
-    }
-  ];
 
   public barChartData:any[] = [];
 
@@ -195,13 +177,22 @@ export class DashBoardComponent implements OnInit {
             console.info("Data rows array: " + res.length);
             this.dataTableLabel = [];
             this.dataTableKey = [];
+
             this.dataTableLabel.push("Transaction");
             this.dataTableKey.push("Transaction");
+            this.dataTableLabel.push("LastProcessed");
+            this.dataTableKey.push("LastProcessed");
 
-            let lable = "", prevLab = "";
+            let lable = "", prevLab = ""
+            let lastProc = [];
             let transCount = [];
+
+
+
             res.forEach( (element, index) => {
+
               lable = element.Transaction
+              lastProc.push(element.LastProcessed)
 
               if (lable !== prevLab)
                 {
@@ -221,25 +212,31 @@ export class DashBoardComponent implements OnInit {
                 this.dataTableKey.push(element.Days);
               }
 
-
               transCount.push(element.Count);
 
               if ( (index+1) == res.length)
               {
                 this.barChartData.push ( {data: transCount, label:  lable});
-
               }
 
             });
 
-            this.barChartData.forEach(element => {
-              console.info("Barchart label: " + element.label +", " + element.data);
+            this.barChartData.forEach((chartEle, index) => {
+              console.info("Barchart label: " + chartEle.label +", " + chartEle.data +", " + lastProc[index]);
+              console.info(this.dataTableLabel[1] +": " + chartEle.data[0])
 
-              this.dataSource.data.push({Transaction:[element.label],
-                [this.dataTableLabel[1]]:element.data[0],
-                 [this.dataTableLabel[2]]:element.data[1],
-                 [this.dataTableLabel[3]]:element.data[2],
-                 [this.dataTableLabel[4]]:element.data[3]});
+              this.dataSource.data.push(
+                {
+                  [this.dataTableLabel[0]]:[chartEle.label],
+                  [this.dataTableLabel[1]]:lastProc[index],
+                  [this.dataTableLabel[2]]:chartEle.data[0],
+                  [this.dataTableLabel[3]]:chartEle.data[0],
+                  [this.dataTableLabel[4]]:chartEle.data[1],
+                  [this.dataTableLabel[5]]:chartEle.data[2],
+                  [this.dataTableLabel[6]]:chartEle.data[3]
+                }
+                );
+
 
 
             });

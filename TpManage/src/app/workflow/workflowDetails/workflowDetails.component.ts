@@ -5,11 +5,15 @@ import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms'
 
 import {WfRestServiceComponent} from '../../services/wfrest-service.component';
 
-import { MatTableDataSource } from '@angular/material/table';
+import { MatTable,  MatTableDataSource } from '@angular/material/table';
 
 
 import { Router, ActivatedRoute } from '@angular/router';
 import {SelectionModel} from '@angular/cdk/collections';
+import { BrowserModule } from '@angular/platform-browser';
+import { MatPaginator } from '@angular/material/paginator';
+
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 
 import {x12err} from './WfDetails';
@@ -35,22 +39,43 @@ export class WorkflowDetailsComponent implements OnInit {
 
 
   @ViewChild("statusType") statusType: ElementRef;
+  @ViewChild('dataPaginator') dataPaginator: MatPaginator;
+  @ViewChild('errPaginator') errPaginator: MatPaginator;
+  @ViewChild(MatTable) table!: MatTable<any>;
 
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.dataPaginator;
+    this.errorDataSource.paginator = this.errPaginator;
+  }
 
   statusTypeString = "";
   wfStatus: string = "";
   transTypeStr = '';
   errorTypeStr = '';
   submitted = false;
+  rowClicked:number;
+
+  pageLength= 25;
+  pageIndex = 1;
+  pageSize = 25;
+
+  errPageSize = 5
+  errPageLength = 5;
+  errPageIndex = 1;
+
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
+  errorDataSource = new MatTableDataSource<any>();
   checked = false;
   errorStr:string = "";
 
 
-  dataTableLabel:string[] =  ['#', 'Segment', 'Data', 'Segment/Element', 'Error'];
-  dataTableKey: string[] = ['lnNum', 'segId', 'data', 'segElem', 'error'];
+  dataTableLabel:string[] =  ['#', 'Segment', 'X12 Data', 'Segment/Element']; // , 'Error'];
+  dataTableKey: string[] = ['lnNum', 'segId', 'data', 'segElem']; //, 'error'];
 
+  displayedColumns: string[] = [
+    'Num', 'Segment', 'Error'
+  ]
 
   isEdit: boolean = false;
   isSelected: boolean = true;
@@ -58,13 +83,12 @@ export class WorkflowDetailsComponent implements OnInit {
   sub:any;
   ID:string;
   selectedRow: number = -1;
-  minSelRow:number = 0
-  maxSelRow:number = 0;
 
   wfCurrentStat:string;
   searchParams:string;
 
   x12Array: [x12err] = [{lnNum:'0', segId:'1', data:"TEST", segElem:'1/1', error:'Y'}];
+  errArray:any[] = [];
 
   x12Data:string;
   selection = new SelectionModel<x12err>(false, []);
@@ -121,19 +145,27 @@ getX12()
     this.WfService.fetchWorkFlowEntry("ID=" + this.ID ).subscribe((res: any) => {
 
       console.log("# of records: " + res.length)
-      let x12DataLns = res[0].X12.split("~")
-      this.errorStr = "Workflow ID: " + this.ID + ", Status: " + this.wfStatus + "\n" + (String)(res[0].Error).replaceAll(";", "\n") + "\n" + "Number of errors: " + (res.length - 1);
-      this.wfCurrentStat = res[0].Status;
-      this.x12Array.splice(0, this.x12Array.length)
-      let segNum = 0
-      let segEle = ""
-      this.selectedRow = -1;
 
 
-      let errFound:boolean = false;
-      x12DataLns.forEach((item, index) => {
+        // First record - WF entry
+        let x12DataLns = res[0].X12.split("~")
+        let sep = res[0].X12.substr(3, 1)
+        console.log("Sep: " + sep)
+        this.errorStr = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + (String)(res[0].Error).replaceAll(";", "\n") + "\n" ;
+        this.wfCurrentStat = res[0].Status;
+        this.x12Array.splice(0, this.x12Array.length)
+        let segNum = 0
+        let segEle = ""
+        this.selectedRow = -1;
+
+
+        let errFound:boolean = false;
+        let transCtrlNum =0
+
+        x12DataLns.forEach((item, index) => {
           let err = '';
           segEle ='';
+
 
 
           if(segNum >= 1)
@@ -141,66 +173,83 @@ getX12()
               segNum++;
             }
 
-            if(item.startsWith('ST*') || item.startsWith('ST|'))
+            if(item.startsWith('ST' + sep))
             {
               segNum = 1
+              const words = item.split(sep);
+              transCtrlNum = words[2]
+              // console.log("ST: " + transCtrlNum + ", " + segNum)
             }
 
+            // Error details
 
-          for (var ind=1; (ind < res.length && segNum > 0); ind++) {
+            for (var ind=1; (ind < res.length && segNum > 0); ind++) {
 
-            if(segNum == res[ind].segNum)
-            {
-              segEle = res[ind].segNum +"/" + res[ind].eleNum
-              err =  res[ind].segErrStr + "(" + res[ind].segErrCode + ") / "  + res[ind].eleErrStr +"("+ res[ind].eleErrCode +")";
 
-              if (this.selectedRow === -1 && err !== '')
+              if(segNum == res[ind].segNum && transCtrlNum  == res[ind].stNum)
               {
-                this.selectedRow = index + 1;
-                this.minSelRow = this.selectedRow;
+                segEle = res[ind].segNum +"/" + res[ind].eleNum
+                err =  res[ind].segErrStr + "(" + res[ind].segErrCode + ") / "  + res[ind].eleErrStr +"("+ res[ind].eleErrCode +")" +" Element: " +
+                res[ind].eleNum;
+
+                if (this.selectedRow === -1 && err !== '')
+                {
+                  this.selectedRow = index + 1;
+
+                }
+
+                console.log(transCtrlNum +" == " + res[ind].stNum +": " + err)
+                break;
               }
-              this.maxSelRow = index+1;
-
-              break;
             }
-          }
 
 
-          if(item !== '')
-          {
-            let segStr = (segNum==0)?'-':segNum.toString();
-
-            if (this.checked)
+            if(item !== '')
             {
+              let segStr = (segNum==0)?'-':segNum.toString();
+
               if(err !== '')
+                {
+                  this.errArray.push({'Num': ind, 'Segment':(index+1), 'Error' : err})
+              }
+              if (this.checked) // Show errors only
+              {
+                if(err !== '')
+                {
+                  this.x12Array.push({lnNum:(index+1), segId:segStr, data: item, segElem:segEle, error:err});
+                  errFound = true;
+
+                }
+              }
+              else
               {
                 this.x12Array.push({lnNum:(index+1), segId:segStr, data: item, segElem:segEle, error:err});
-                errFound = true;
-
               }
             }
-            else
-            {
-              this.x12Array.push({lnNum:(index+1), segId:segStr, data: item, segElem:segEle, error:err});
-              console.log("Push Row: " + segStr +", " + err)
-            }
-          }
-          if(item.startsWith('SE*') || item.startsWith('SE|'))
-            {
-              segNum = 0
-            }
+            if(item.startsWith('SE*') || item.startsWith('SE|'))
+              {
+                // console.log("SE: " + transCtrlNum + ", " + segNum)
+                segNum = 0
+                transCtrlNum =0
+              }
+
 
         });
 
-      console.log(this.checked + ", x12Array: " + this.x12Array.length +", errors:" + errFound)
+
+      console.log(this.checked + ", x12Array: " + this.x12Array.length +", errors:" + this.errArray.length)
+      if (this.errArray.length > 0)
+      {
+        this.errorStr += "Number of errors: " +this.errArray.length;
+      }
 
       if(!errFound)
       {
         this.selectedRow = 0
-        console.log(this.selectedRow +", min: " + this.minSelRow +", max: " + this.maxSelRow)
       }
       this.dataSource.data = this.x12Array;
-      console.log("# of lines: " + this.dataSource.data.length  )
+      this.errorDataSource.data = this.errArray;
+      console.log("# of lines: "  + ", " + this.errorDataSource.data.length  )
       this.canRenderDetails = true;
 
       console.log("Remove " + this.wfCurrentStat +" from " + this.statusTypes.length)
@@ -262,23 +311,18 @@ getX12()
        );
   }
 
-  SelectNextError()
+  SelectNextError(lnNum:string)
   {
    for(var ind=this.selectedRow+1; ind < this.x12Array.length; ind++){
-      if(this.x12Array[ind].error != '')
+      if(this.x12Array[ind].error != '' && this.x12Array[ind].lnNum == lnNum )
       {
           this.selectedRow = ind+1;
 
-          const ele = document.querySelectorAll("table");
+          this.dataPaginator.pageIndex = Math.floor(this.selectedRow / this.dataPaginator.pageSize)
 
-          ele.forEach(element => {
+          console.log("Next Found row " + this.selectedRow +", pageIndex: " + this.dataPaginator.pageIndex)
 
-            if (element.id === 'wftab'){
-              console.log("scrollIntoView: " + element.nodeName +": " + element.id)
-              element.scrollIntoView();
-            }
-          });
-
+          this.pageIndex =  this.dataPaginator.pageIndex;
 
 
           break;
@@ -287,12 +331,17 @@ getX12()
    }
   }
 
-  SelectPrevError()
+  SelectPrevError(lnNum:string)
   {
    for(var ind=this.selectedRow-2; ind > 0 ; ind--){
-      if(this.x12Array[ind].error != '')
+      if(this.x12Array[ind].error != ''  && this.x12Array[ind].lnNum == lnNum )
       {
           this.selectedRow = ind+1;
+
+          this.dataPaginator.pageIndex =  Math.floor(this.selectedRow / this.dataPaginator.pageSize)
+          this.pageIndex =  this.dataPaginator.pageIndex;
+
+          console.log("Prev Found row " + this.selectedRow +", pageIndex: " + this.dataPaginator.pageIndex)
           break;
 
       }
@@ -300,10 +349,63 @@ getX12()
 
   }
 
-  OnRowClick(evt)
+  onErrPaginateChange(event: any)
   {
-    this.selection.select(evt.lnNum)
-   console.log(this.selection.selected)
+    console.log("onErrPaginateChange: " + event.pageIndex);
+  }
+  onPaginateChange(event: any)
+  {
+    console.log("onPaginateChange: " + event.pageIndex);
+
+
+    this.dataPaginator.pageIndex =  event.pageIndex
+    this.selectedRow  = (this.pageIndex * this.dataPaginator.pageSize) + 1
+    this.pageIndex =  this.dataPaginator.pageIndex;
+
+    this.dataSource.data = this.x12Array;
+    this.table.renderRows();
+
+  }
+
+  OnErrorRowClick(evt:any, idx)
+  {
+     this.selection.select(evt.Segment)
+     console.log(evt.Segment +", "  + this.selectedRow +", page Size: " + this.dataPaginator.pageSize)
+
+
+      if(this.rowClicked === idx) this.rowClicked = -1;
+      else this.rowClicked = idx;
+
+      if (evt.Segment == this.selectedRow)
+      {
+        this.selectedRow = 1
+      }
+     else if (evt.Segment > this.selectedRow)
+     {
+      this.SelectNextError(evt.Segment)
+     }
+      else{
+        this.SelectPrevError(evt.Segment)
+      }
+
+      const ele = document.querySelectorAll("table");
+      ele.forEach(element => {
+
+        if (element.id === 'wftab'){
+          console.log("scrollIntoView: " + element.nodeName +": " + element.id)
+          element.scrollIntoView();
+
+        }
+      });
+      this.dataSource.data = this.x12Array;
+      this.table.renderRows();
+
+     console.log(evt)
+  }
+  OnRowClick(evt:any)
+  {
+    this.selectedRow = evt.lnNum
+    console.log("Selected row: "  + evt.lnNum)
   }
 
 }

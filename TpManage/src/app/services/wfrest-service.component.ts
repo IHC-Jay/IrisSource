@@ -86,6 +86,7 @@ getCurrentUser()
         this.router.navigate(['/']);
       }
      console.log('Return getCurrentUser: ' + this.currentUser);
+     return this.currentUser
 
 }
 
