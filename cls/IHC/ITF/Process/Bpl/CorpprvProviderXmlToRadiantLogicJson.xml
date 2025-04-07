@@ -31,13 +31,29 @@ Filter out employment type status ids</Description>
 <Default><![CDATA[RadiantSrvcTargetConfigName:Additional,TargetConfigNameCorpprvOp:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},FilterOutEmplmntStatusTypeIds:Additional,-NextOperation,-TargetConfigMask]]></Default>
 </Parameter>
 
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>CorpprvProviderXmlToRadiantLogicJsonDefaultData</DefaultData>
+<Data name="CorpprvProviderXmlToRadiantLogicJsonDefaultData">
+<Subscript>"CorpprvProviderXmlToRadiantLogicJson"</Subscript>
+<Value name="1">
+<Value>RadiantSrvcTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>FilterOutEmplmntStatusTypeIds</Value>
+</Value>
+<Value name="3">
+<Value>TargetConfigNameCorpprvOp</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
-BPL Definition
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='EnsLib.HL7.Message' response='Ens.Response' height='4350' width='2000' >
+<process language='objectscript' request='EnsLib.HL7.Message' height='4350' width='2000' >
 <context>
 <property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
@@ -66,10 +82,10 @@ BPL Definition</Description>
 <property name='existingPrvdr' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='pid' type='%String' initialexpression='""' instantiate='0' />
 <property name='pdata' type='IHC.ITF.DStruc.Request.PrvdrRecodComb' instantiate='0' />
-
+<property name='corpprvVsPrmyAddrOnly' type='IHC.ITF.DStruc.Schema.CORPPRVProviderRequest.CORPPRVPROVIDER' instantiate='0' />
 </context>
-<sequence xend='200' yend='1450' >
-<scope xpos='200' ypos='250' xend='200' yend='1350' >
+<sequence xend='200' yend='1950' >
+<scope xpos='200' ypos='250' xend='200' yend='1850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -96,13 +112,14 @@ BPL Definition</Description>
  }
  	  ]]]]><![CDATA[>
 </code>
-<code name='check NPI' xpos='200' ypos='650' >
+<code name='check NPI' xpos='200' ypos='550' >
 <![CDATA[ if ((request.PROVIDERDEMOGRAPHIC.ADVPROVIDERNTNLPRVDRID.content '= "") && ($L(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERNTNLPRVDRID.content)'=10)) {
    //Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"NPI length is not valid, Skip the record.")
  }]]]]><![CDATA[>
 </code>
+<transform name='Get Corpprv data with primary address' class='IHC.ITF.Transform.Dtl.CorpprvXmlToCorpprvPrimaryAddressXml' source='request' target='context.corpprvVsPrmyAddrOnly' xpos='200' ypos='650' />
 <code name='check employment status type id' xpos='200' ypos='750' >
-<![CDATA[ set context.pid=$zstrip(request.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content,"<>W")
+<![CDATA[ set context.pid=$zstrip(context.corpprvVsPrmyAddrOnly.PROVIDERDEMOGRAPHIC.ADVPROVIDERPRVDRID.content,"<>W")
  $$$TRACE("Provider ID: " _ context.pid) 
  if (context.pid'="" && ($ISVALIDNUM(context.pid)'="1")){	  
     $$$TRACE("Provider ID # is NOT a VALID number ")
@@ -128,7 +145,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='check if the provider is already in Radiant' xpos='200' ypos='750' >
+<code name='check if the provider is already in Radiant' xpos='200' ypos='850' >
 <![CDATA[ $$$TRACE("Call RadiantLogic REST Operation")
   set context.prvdrId.StringValue=context.pid
   set status=process.SendRequestSync(context.rsOpNm,context.prvdrId,.restResponse)
@@ -149,11 +166,10 @@ BPL Definition</Description>
  }
   ]]]]><![CDATA[>
 </code>
-
-<transform name='COrpprv xml to RadiantLogic Json string' class='IHC.ITF.Transform.Dtl.CorpprvXmlToRadiantLogicJsonString' source='request' target='context.jsnStr' xpos='200' ypos='550' />
-<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='650' xend='200' yend='1100' >
+<transform name='COrpprv xml to RadiantLogic Json string' class='IHC.ITF.Transform.Dtl.CorpprvXmlToRadiantLogicJsonString' source='context.corpprvVsPrmyAddrOnly' target='context.jsnStr' xpos='200' ypos='950' />
+<if name='check if the Json string is not null' condition='context.jsnStr.StringValue&apos;=""' xpos='200' ypos='1050' xend='200' yend='1600' >
 <true>
-<code name='Call RadiantLogic service' xpos='470' ypos='800' >
+<code name='Call RadiantLogic service' xpos='470' ypos='1200' >
 <![CDATA[  $$$TRACE("Call RadiantLogic REST Operation")
   $$$TRACE("Json String: "_context.jsnStr.StringValue)
   if context.existingPrvdr=1 {
@@ -225,7 +241,7 @@ BPL Definition</Description>
      set context.pdata=##class(IHC.ITF.DStruc.Request.PrvdrRecodComb).%New()
      set context.pdata.sourceSystem="Corpprv"
      set context.pdata.RLResponse=restResponse.StringValue
-     set status=request.XMLExportToString(.strCorpPrv)
+     set status=context.corpprvVsPrmyAddrOnly.XMLExportToString(.strCorpPrv)
      set context.pdata.srcMsg=strCorpPrv
   }
   else {
@@ -233,13 +249,13 @@ BPL Definition</Description>
      Set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName,"Calling Radiant Service failed, please check the operation alert for the specific error.")  
   }]]]]><![CDATA[>
 </code>
-<code name='GetTargetConfigList' xpos='470' ypos='900' >
+<code name='GetTargetConfigList' xpos='470' ypos='1300' >
 <![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())
    $$$TRACE("Send source msg plus RadiantLogic response to the target")]]]]><![CDATA[>
 </code>
-<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1300' xend='200' yend='800' >
-<if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='700' >
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='470' ypos='1400' xend='200' yend='700' >
+<if name='If TargetConfigNot blnk' condition='context.targetList.GetAt(context.cntr)&apos;=""' xpos='200' ypos='250' xend='200' yend='600' >
 <true>
 <trace value='"Sending data to the target..."' xpos='335' ypos='400' />
 <call name='send Verity and RadiantLogic combo data' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='335' ypos='500' >
@@ -250,17 +266,17 @@ BPL Definition</Description>
 </true>
 </if>
 </foreach>
-<code name='RESET ERROR' xpos='470' ypos='1000' >
+<code name='RESET ERROR' xpos='470' ypos='1500' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<trace name='No message to send' value='"There is no Usiis Immunization record to send to iCentra."' xpos='200' ypos='800' />
+<trace name='No message to send' value='"There is no Usiis Immunization record to send to iCentra."' xpos='200' ypos='1200' />
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1200' xend='200' yend='350' >
+<catchall xpos='200' ypos='1700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
@@ -273,22 +289,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>CorpprvProviderXmlToRadiantLogicJsonDefaultData</DefaultData>
-<Data name="CorpprvProviderXmlToRadiantLogicJsonDefaultData">
-<Subscript>"CorpprvProviderXmlToRadiantLogicJson"</Subscript>
-<Value name="1">
-<Value>RadiantSrvcTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>FilterOutEmplmntStatusTypeIds</Value>
-</Value>
-<Value name="3">
-<Value>TargetConfigNameCorpprvOp</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
