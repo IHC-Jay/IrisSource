@@ -1,6 +1,5 @@
-
+import { Component, OnInit, Input, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
 import { SelectionModel } from "@angular/cdk/collections";
-import { Component, OnInit, ViewChild } from "@angular/core";
 import { MatTableDataSource } from "@angular/material/table";
 
 import { Router, ActivatedRoute } from '@angular/router';
@@ -90,6 +89,7 @@ export class WorkflowComponent implements OnInit {
   searchID:boolean = false;
   searchTransaction = false;
 
+
   constructor(private WfService: WfRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
@@ -112,69 +112,114 @@ export class WorkflowComponent implements OnInit {
     });
     this.canRenderDetails = false;
     this.irisUsers = [];
+    let wfItems = 0
 
     this.sub = this.route.queryParams.subscribe(params => {
 
-      if(params !== undefined && params.searchParams !== undefined)
+      if(params !== undefined)
+      {
+
+        if(params.WFitems !== undefined)
         {
-          let searchParams =  params['searchParams'];
+          wfItems =  params['WFitems'];
+          if (wfItems > 0)
+          {
+            console.log(wfItems)
 
-          let fInd = searchParams.indexOf("transaction::") + "transaction::".length;
-          let val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
-          this.transTypeStr =  val;
-          this.form.controls.transType.setValue(this.transTypeStr);
+            this.statusTypeString = "Assigned To Me"
+            this.selectedObjects = this.selectedObjects.slice()
+            this.selectedObjects = this.statusTypeString.toString().split(',');
 
-          fInd = searchParams.indexOf("errorType::") + "errorType::".length;
-          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
-          this.errorTypeStr =  val;
-          this.form.controls.errorType.setValue(this.errorTypeStr);
-          console.log("ngOnInit - errorType: " + this.errorTypeStr);
+            this.nowDt = new Date((new Date().getTime() - (30 *24 * 60 * 60 * 1000)));
+            let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+            let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+            this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+            let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
 
-          fInd = searchParams.indexOf("status::") + "status::".length;
-          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
-          this.statusTypeString = val;
-          // this.form.controls.statusType.setValue(this.statusTypeString);
-          this.selectedObjects = this.selectedObjects.slice()
-          this.selectedObjects = this.statusTypeString.toString().split(',');
+            tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+            this.startTm = tmVal
+            this.endTm= tmVal
+            console.info("Time: " + tmVal)
+            this.nowDt = new Date(new Date().getTime());
+            mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+            dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+            this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
 
-          fInd = searchParams.indexOf("count::") + "count::".length;
-          val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
-          this.form.controls.rowCnt.setValue(val)
-          console.log("rowCnt: " + val)
+            this.form.controls.rowCnt.setValue(this.maxCount[1]);
+            this.form.controls.statusType.setValue(this.statusTypes[0]);
+            this.form.controls.transType.setValue(this.transactionTypes[0])
+            this.form.controls.errorType.setValue(this.errorTypes[0])
+            this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
 
-          fInd = searchParams.indexOf("startDtTm::") + "startDtTm::".length;
-          let fInd2 = searchParams.indexOf(" ", fInd)
-          val = searchParams.substring( fInd, fInd2)
-          console.log(fInd + ". startDate:" + val )
-          this.startDate = val
+            this.transTypeStr = this.transactionTypes[0];
+            this.errorTypeStr = this.errorTypes[0];
 
-          let fInd3 = searchParams.indexOf(";", fInd2)
-          val = searchParams.substring( fInd2+1, fInd3)
-          console.log(fInd + ". startTm:" + val )
-          this.startTm = val
+          }
+        }
 
-          fInd = searchParams.indexOf("endDtTm::") + "endDtTm::".length;
-          fInd2 = searchParams.indexOf(" ", fInd)
-          val = searchParams.substring( fInd, fInd2)
-          console.log(fInd + ". endDate:" + val )
-          this.endDate = val
+        else if(params.searchParams !== undefined)
+        {
 
-          fInd3 = searchParams.indexOf(";", fInd2)
-          val = searchParams.substring( fInd2+1, fInd3)
-          console.log(fInd + ". endTm:" + val )
-          this.endTm = val
+            let searchParams =  params['searchParams'];
 
-          console.log('ngOnInit - Query params ' + this.statusTypeString +", transType: " + this.transTypeStr);
-          this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
+            let fInd = searchParams.indexOf("transaction::") + "transaction::".length;
+            let val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+            this.transTypeStr =  val;
+            this.form.controls.transType.setValue(this.transTypeStr);
 
-          this.onSubmit()
+            fInd = searchParams.indexOf("errorType::") + "errorType::".length;
+            val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+            this.errorTypeStr =  val;
+            this.form.controls.errorType.setValue(this.errorTypeStr);
+            console.log("ngOnInit - errorType: " + this.errorTypeStr);
+
+            fInd = searchParams.indexOf("status::") + "status::".length;
+            val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+            this.statusTypeString = val;
+            // this.form.controls.statusType.setValue(this.statusTypeString);
+            this.selectedObjects = this.selectedObjects.slice()
+            this.selectedObjects = this.statusTypeString.toString().split(',');
+
+            fInd = searchParams.indexOf("count::") + "count::".length;
+            val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
+            this.form.controls.rowCnt.setValue(val)
+            console.log("rowCnt: " + val)
+
+            fInd = searchParams.indexOf("startDtTm::") + "startDtTm::".length;
+            let fInd2 = searchParams.indexOf(" ", fInd)
+            val = searchParams.substring( fInd, fInd2)
+            console.log(fInd + ". startDate:" + val )
+            this.startDate = val
+
+            let fInd3 = searchParams.indexOf(";", fInd2)
+            val = searchParams.substring( fInd2+1, fInd3)
+            console.log(fInd + ". startTm:" + val )
+            this.startTm = val
+
+            fInd = searchParams.indexOf("endDtTm::") + "endDtTm::".length;
+            fInd2 = searchParams.indexOf(" ", fInd)
+            val = searchParams.substring( fInd, fInd2)
+            console.log(fInd + ". endDate:" + val )
+            this.endDate = val
+
+            fInd3 = searchParams.indexOf(";", fInd2)
+            val = searchParams.substring( fInd2+1, fInd3)
+            console.log(fInd + ". endTm:" + val )
+            this.endTm = val
+
+            console.log('ngOnInit - Query params ' + this.statusTypeString +", transType: " + this.transTypeStr);
+            this.form.controls.updStatusType.setValue(this.updStatusTypes[0])
+            wfItems = 1
 
         }
-        else
+      }
+    });
+
+        if (wfItems <= 0)
         {
           console.log('ngOnInit - No Query params ')
 
-          this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+          this.nowDt = new Date((new Date().getTime() - (7 * 24 * 60 * 60 * 1000)));
           let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
           let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
           this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
@@ -203,8 +248,6 @@ export class WorkflowComponent implements OnInit {
         }
         this.onSubmit()
 
-    });
-
 
   }
 
@@ -217,7 +260,7 @@ export class WorkflowComponent implements OnInit {
 onSubmit()
 {
   let paramsList: string[]= [];
-
+  console.info("onSubmit fetchWorkFlowItems")
   if (this.form.controls.searchID.value !== '')
   {
     paramsList.push("ID::" + this.form.controls.searchID.value)
@@ -242,10 +285,11 @@ onSubmit()
     this.form.controls.transType.setValue(this.transTypeStr);
   }
 
-
+  console.info("WfService.fetchWorkFlowItems")
   this.WfService.fetchWorkFlowItems(paramsList).subscribe((res: any) => {
     this.dataSource.data = res;
     this.canRenderDetails = true;
+
 
     console.info("WorkFlowItems array: " + this.dataSource.data.length  );
     this.paginator.pageSize = this.form.controls.rowCnt.value;
@@ -489,15 +533,16 @@ updateWF()
 
           this.WfService.updateWorkFlowItem(paramsList).subscribe((res: any) => {
             this.dataSource.data = res;
-            error: err => console.error("Error in updateWorkFlowItem: " + err)
-            complete: () =>
-              {
+
                 console.info("updateWorkFlowItem complete")
                 this.selection.clear();
                 this.rowSelected  = 0;
+                this.statusTypeString = "Assigned To Me"
+                this.selectedObjects = this.selectedObjects.slice()
+                this.selectedObjects = this.statusTypeString.toString().split(',');
                 this.onSubmit();
                 this.canRenderDetails = true;
-              }
+
           });
 
 

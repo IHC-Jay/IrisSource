@@ -39,14 +39,9 @@ export class WorkflowDetailsComponent implements OnInit {
 
 
   @ViewChild("statusType") statusType: ElementRef;
-  @ViewChild('dataPaginator') dataPaginator: MatPaginator;
-  @ViewChild('errPaginator') errPaginator: MatPaginator;
-  @ViewChild(MatTable) table!: MatTable<any>;
 
-  ngAfterViewInit() {
-    this.dataSource.paginator = this.dataPaginator;
-    this.errorDataSource.paginator = this.errPaginator;
-  }
+ // @ViewChild('dataTable') dataTable!: MatTable<any>;
+ // @ViewChild('errorTable') errorTable!: MatTable<any>;
 
   statusTypeString = "";
   wfStatus: string = "";
@@ -55,17 +50,22 @@ export class WorkflowDetailsComponent implements OnInit {
   submitted = false;
   rowClicked:number;
 
-  pageLength= 25;
-  pageIndex = 1;
-  pageSize = 25;
 
-  errPageSize = 5
-  errPageLength = 5;
-  errPageIndex = 1;
 
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
   errorDataSource = new MatTableDataSource<any>();
+
+  @ViewChild('dataPaginator') dataPaginator: MatPaginator;
+  pageLength= 25;
+  pageIndex = 1;
+  pageSize = 25;
+
+  @ViewChild('errorPaginator') errorPaginator: MatPaginator;
+  totalErrRecords = 0;
+  errPageSize = 5;
+  errPageIndex = 0;
+
   checked = false;
   errorStr:string = "";
 
@@ -73,7 +73,9 @@ export class WorkflowDetailsComponent implements OnInit {
   dataTableLabel:string[] =  ['#', 'Segment', 'X12 Data', 'Segment/Element']; // , 'Error'];
   dataTableKey: string[] = ['lnNum', 'segId', 'data', 'segElem']; //, 'error'];
 
-  displayedColumns: string[] = [
+  errDataTableLabel:string[] =  ['#', 'Line #', 'Error'];
+
+  errDataTableKey: string[] = [
     'Num', 'Segment', 'Error'
   ]
 
@@ -83,6 +85,7 @@ export class WorkflowDetailsComponent implements OnInit {
   sub:any;
   ID:string;
   selectedRow: number = -1;
+  errSelectedRow:  number = -1;
 
   wfCurrentStat:string;
   searchParams:string;
@@ -98,6 +101,13 @@ export class WorkflowDetailsComponent implements OnInit {
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
       tpId: new FormControl();
 
+  }
+
+
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.dataPaginator;
+    this.errorDataSource.paginator = this.errorPaginator;
+    console.info("In ngAfterViewInit")
   }
 
   ngOnInit()
@@ -198,7 +208,7 @@ getX12()
 
                 }
 
-                console.log(transCtrlNum +" == " + res[ind].stNum +": " + err)
+                // console.log(transCtrlNum +" == " + res[ind].stNum +": " + err)
                 break;
               }
             }
@@ -241,6 +251,7 @@ getX12()
       if (this.errArray.length > 0)
       {
         this.errorStr += "Number of errors: " +this.errArray.length;
+
       }
 
       if(!errFound)
@@ -250,6 +261,8 @@ getX12()
       this.dataSource.data = this.x12Array;
       this.errorDataSource.data = this.errArray;
       console.log("# of lines: "  + ", " + this.errorDataSource.data.length  )
+      this.totalErrRecords = this.errorDataSource.data.length;
+
       this.canRenderDetails = true;
 
       console.log("Remove " + this.wfCurrentStat +" from " + this.statusTypes.length)
@@ -320,6 +333,11 @@ getX12()
 
           this.dataPaginator.pageIndex = Math.floor(this.selectedRow / this.dataPaginator.pageSize)
 
+          if (this.selectedRow % this.dataPaginator.pageSize == 0)
+          {
+            this.dataPaginator.pageIndex--
+          }
+
           console.log("Next Found row " + this.selectedRow +", pageIndex: " + this.dataPaginator.pageIndex)
 
           this.pageIndex =  this.dataPaginator.pageIndex;
@@ -340,6 +358,11 @@ getX12()
 
           this.dataPaginator.pageIndex =  Math.floor(this.selectedRow / this.dataPaginator.pageSize)
           this.pageIndex =  this.dataPaginator.pageIndex;
+          if (this.selectedRow % this.dataPaginator.pageSize == 0)
+            {
+              this.dataPaginator.pageIndex--
+            }
+
 
           console.log("Prev Found row " + this.selectedRow +", pageIndex: " + this.dataPaginator.pageIndex)
           break;
@@ -349,10 +372,18 @@ getX12()
 
   }
 
-  onErrPaginateChange(event: any)
-  {
-    console.log("onErrPaginateChange: " + event.pageIndex);
-  }
+  onErrPaginateChange(event: any) {
+    this.errPageIndex = event.pageIndex;
+    this.errPageSize = event.pageSize;
+    this.errorPaginator.pageIndex =  event.pageIndex
+
+    this.errorDataSource.data = this.errArray;
+    //this.errorTable.renderRows();
+
+    console.log("onErrPaginateChange: " + event.pageSize);
+
+}
+
   onPaginateChange(event: any)
   {
     console.log("onPaginateChange: " + event.pageIndex);
@@ -363,18 +394,17 @@ getX12()
     this.pageIndex =  this.dataPaginator.pageIndex;
 
     this.dataSource.data = this.x12Array;
-    this.table.renderRows();
+    // this.dataTable.renderRows();
 
   }
 
-  OnErrorRowClick(evt:any, idx)
+  OnErrorRowClick(evt:any)
   {
      this.selection.select(evt.Segment)
-     console.log(evt.Segment +", "  + this.selectedRow +", page Size: " + this.dataPaginator.pageSize)
 
+     console.log( evt.Num + " === " + this.errSelectedRow)
 
-      if(this.rowClicked === idx) this.rowClicked = -1;
-      else this.rowClicked = idx;
+     console.log( this.errSelectedRow+", Seg #" + evt.Segment +", "  + this.selectedRow +", page Size: " + this.dataPaginator.pageSize)
 
       if (evt.Segment == this.selectedRow)
       {
@@ -391,17 +421,19 @@ getX12()
       const ele = document.querySelectorAll("table");
       ele.forEach(element => {
 
-        if (element.id === 'wftab'){
+        if (element.id === 'dataTable'){
           console.log("scrollIntoView: " + element.nodeName +": " + element.id)
           element.scrollIntoView();
 
         }
       });
       this.dataSource.data = this.x12Array;
-      this.table.renderRows();
+      //this.errorTable.renderRows();
+      // this.dataTable.renderRows();
+      this.errSelectedRow = evt.Num;
 
-     console.log(evt)
   }
+
   OnRowClick(evt:any)
   {
     this.selectedRow = evt.lnNum

@@ -23,22 +23,22 @@ import {DashBoardComponent} from './dashboard/dashboard.component';
 
 const appRoutes: Routes = [
   {path: '/', component: HeaderComponent},
-  {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/copyTP', component: copyTPComponent, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/tpIds/tp-links/tp-bulkAdd/:tp', component: BulkAddComponents, canActivate: [AuthGuard]},
-  {path: 'TradingPartners/tpIds/tp-links/tp-edit/:tpId/:tpLink', component: AddEditComponent, canActivate: [AuthGuard]},
-  {path: 'search', component: SearchComponent, canActivate: [AuthGuard]},
-  {path: 'transaction', component: TransactionComponent, canActivate: [AuthGuard]},
-  {path: 'transaction/transaction-settings', component: TransactionSettingsComponent, canActivate: [AuthGuard]},
-  {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard]},
-  {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard]},
-  {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard]},
-  {path: 'dashboard', component: DashBoardComponent, canActivate: [AuthGuard]},
-  {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard]},
-  {path: 'workflow/workflowHistory', component: WorkflowHistoryComponent, canActivate: [AuthGuard]}
+  {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard] , title: 'Trading Partners'},
+  {path: 'TradingPartners/copyTP', component: copyTPComponent, canActivate: [AuthGuard] , title: 'Copy TP'},
+  {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard] , title: 'TPID'},
+  {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard] , title: 'TP Links'},
+  {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard] , title: 'TP Add'},
+  {path: 'TradingPartners/tpIds/tp-links/tp-bulkAdd/:tp', component: BulkAddComponents, canActivate: [AuthGuard] , title: 'TP Add'},
+  {path: 'TradingPartners/tpIds/tp-links/tp-edit/:tpId/:tpLink', component: AddEditComponent, canActivate: [AuthGuard], title: 'TP Link'},
+  {path: 'search', component: SearchComponent, canActivate: [AuthGuard], title: 'TP Search'},
+  {path: 'transaction', component: TransactionComponent, canActivate: [AuthGuard], title: 'Transactions'},
+  {path: 'transaction/transaction-settings', component: TransactionSettingsComponent, canActivate: [AuthGuard], title: 'Settings'},
+  {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard], title: 'Transaction Details'},
+  {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard] , title: 'WorkFlow'},
+  {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard] , title: 'Batches'},
+  {path: 'dashboard', component: DashBoardComponent, canActivate: [AuthGuard], title: 'Dashboard'},
+  {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard] , title: 'WF Details'},
+  {path: 'workflow/workflowHistory', component: WorkflowHistoryComponent, canActivate: [AuthGuard], title: 'WF History'}
 ];
 
 @NgModule({

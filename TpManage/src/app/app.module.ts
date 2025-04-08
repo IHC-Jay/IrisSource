@@ -60,6 +60,7 @@ import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion
 import { Modalx12Component } from './transaction/transaction-details/modal/modal-x12.component';
 import { ModalHelperService } from './transaction/transaction-details/modal/modal-helper.service';
 
+import {MatBadgeModule} from '@angular/material/badge';
 import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
 
@@ -114,6 +115,7 @@ import { NgChartsModule } from 'ng2-charts';
     AppRoutingModule,
     MatButtonModule,
     MatIconModule,
+    MatBadgeModule,
     FormsModule,
     ReactiveFormsModule,
     MatSortModule,

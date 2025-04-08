@@ -111,6 +111,7 @@ endDate ="13:30";
   currentTransType = '';
   currentMode = '';
   sub:any;
+  fileName:string="";
 
   selDropdownList = [];
 
@@ -165,6 +166,13 @@ endDate ="13:30";
           this.currentTransType =  params['transaction'] || '';
           this.additionalSearchStr = params['additionalSearch'] || '';
           this.searchTypeString = params['searchTypeString'];
+          console.info("no query params, additionalSearchStr: " + this.additionalSearchStr)
+
+          let fInd = this.additionalSearchStr.indexOf("FileName=") + "FileName=".length;
+            let val = this.additionalSearchStr.substring( fInd)
+            console.log(fInd + ". FileName:" + val )
+            this.fileName = val
+
         }
         else
         {
@@ -194,6 +202,8 @@ endDate ="13:30";
           if (this.searchTypeString !== null && this.searchTypeString.length > 0)
           {
 
+
+
             let fInd = this.searchTypeString.indexOf("mode::") + 6;
             let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". MODE:" + val )
@@ -202,11 +212,18 @@ endDate ="13:30";
             fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
             val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". transType:" + val )
+            if (val == "")
+              {
+                val = "270"
+              }
+
+
             this.form.controls.transType.setValue(val)
 
             fInd = this.searchTypeString.indexOf("status::") + "status::".length;
             val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". disposition:" + val )
+
             this.form.controls.disposition.setValue(val)
 
 
@@ -247,6 +264,7 @@ endDate ="13:30";
             {
               console.info('Set custom search:' + this.staticSearchStr);
             }
+            this.updateCustomFlds()
 
               this.searchTransaction = true;
           }
@@ -620,6 +638,32 @@ private clearCustomFlds() {
   }
 }
 
+private updateCustomFlds() {
+
+  const formArr = this.form.get('additional') as FormArray
+  let customFlds:string[] = this.transSearchLbls;
+  let tabCol:string[] =this.transSearchFlds;
+
+  if (formArr.length >= 1) {
+    for(let i=0;i< formArr.length;i++)
+    {
+      let fGrp = formArr.at(i) as FormGroup
+
+      for (let [ind, val] of customFlds.entries()) {
+
+        if(fGrp.controls.fld.value === val && tabCol[ind] === 'FileName')
+          {
+            fGrp.controls.newFldValue.setValue(this.fileName.replaceAll("'", ""));
+            console.info("updateCustomFlds: " + ind + ": " + tabCol[ind] + ", " + fGrp.controls.newFldValue.value)
+          }
+      };
+
+
+    }
+  }
+
+  }
+
 private readCustomFlds() {
 
   const formArr = this.form.get('additional') as FormArray
@@ -628,7 +672,7 @@ private readCustomFlds() {
     for(let i=0;i< formArr.length;i++)
     {
       let fGrp = formArr.at(i) as FormGroup
-      // console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
+       console.info("readCustomFlds: " + fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
     }
   }
   console.info("Added to Additional search: " + formArr.length)
@@ -794,6 +838,7 @@ transactionChange(evt: any)
         }
 
       }
+      this.updateCustomFlds()
     }
   });
   this.onSearchTransactions();

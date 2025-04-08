@@ -276,45 +276,7 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
   let item: Item ={rowId: row.Transaction, FileName: ""};
 
 
-  let trans:string = row.Transaction.toString().toUpperCase()
-
-  if(trans == "CLAIM")
-  {
-      this.currentTransType = "837P"
-  }
-  else if(trans == "CLAIMPAYMENT")
-  {
-        this.currentTransType = "835"
-  }
-  else if(trans == "CLAIMACKNOWLEDGEMENT")
-    {
-          this.currentTransType = "277CA"
-    }
-    else if(trans == "ELIGIBILITYREQUEST")
-      {
-            this.currentTransType = "270"
-      }
-      else if(trans == "ELIGIBILITYRESPONSE")
-        {
-              this.currentTransType = "271"
-        }
-        else if(trans == "CLAIMSTATUSREQUEST")
-          {
-                this.currentTransType = "276"
-          }
-          else if(trans == "CLAIMSTATUSRESPONSE")
-            {
-                  this.currentTransType = "277"
-            }
-            else if(trans == "IMPLEMENTATIONACKNOWLEDGMENT")
-              {
-                    this.currentTransType = "999"
-              }
-
-  else
-  {
-    this.currentTransType = "Unknown"
-  }
+  this.currentTransType = row.Transaction.toString().toUpperCase()
 
 
   let index = 0;
@@ -373,9 +335,20 @@ onContextMenuNew(item: Item) {
 onContextMenuSame(item: Item) {
 
   this.searchTypeString = "";
-  this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
-   });
+    this.paramsList.forEach( val => {
+      this.searchTypeString += val +";";
+      console.log(val);
+     });
+
+
+    if (this.searchTypeString.indexOf('transaction') < 0)
+    {
+      this.searchTypeString += "transaction::"+this.currentTransType + ";status::Processed;" +
+      "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+      "endDtTm::" + this.endDate+" " +this.endTm +";" +
+      "count::25;"  ;
+    }
+
 
    this.searchTypeString += ";sameWindow::true";
       this.router.navigate(["/transaction/"],

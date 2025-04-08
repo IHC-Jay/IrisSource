@@ -1,13 +1,18 @@
-import { Component, EventEmitter, OnInit, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
+import { Component, OnInit, Input, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
 import {User} from '../login/user';
 
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { catchError } from 'rxjs';
+import { catchError, Observable } from 'rxjs';
 import {TransRestServiceComponent} from '../services/transrest-service.component';
+import {WfRestServiceComponent} from '../services/wfrest-service.component';
 import { MatTabsModule, MatTabChangeEvent } from '@angular/material/tabs';
+import { Title } from '@angular/platform-browser';
+import {MatIconModule} from '@angular/material/icon';
+import {MatButtonModule} from '@angular/material/button';
+import {MatBadgeModule} from '@angular/material/badge';
 
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
@@ -35,10 +40,14 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   tpId = "";
   paramsObject:any;
   currentUser: User;
+  searchStr:string = "";
+  NumAssignedItems:number;
+
+
 
   isLogin:boolean;
   collapsed = true;
-  @Output() selectedFeature = new EventEmitter<string>();
+
   @ViewChild("username") focusField: ElementRef;
 
   selectedMenu:string = 'tradingPartner'
@@ -59,7 +68,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   constructor(private router: Router, private authenticationService: AuthenticationService,
       private formBuilder: FormBuilder,
       private route: ActivatedRoute,
-      private TransactionService: TransRestServiceComponent
+      private TransactionService: TransRestServiceComponent,
+      private WfService: WfRestServiceComponent
     )
     {
       console.log('**** HeaderComponent constructor ****');
@@ -91,11 +101,50 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         console.log(this.returnUrl + ', Header Query params: ' + params)
 
         this.paramsObject = { ...params.keys, ...params };
-        console.log("Header paramsObject: " + this.paramsObject.transaction )
-        if (this.paramsObject.transaction !== undefined)
+
+        if (this.paramsObject.searchTypeString  !== undefined && this.paramsObject.searchTypeString  !== '')
         {
-          this.selectedLnkIndex =5;
+          let str:string = this.paramsObject.searchTypeString.toString()
+          if(str.indexOf('sameWindow::false') >= 0)
+          {
+
+            if (this.paramsObject.transaction !== undefined)
+            {
+              this.searchStr = "Transaction: " + this.paramsObject.transaction
+              let element = document.getElementById('tabGrp') as HTMLElement;
+              element.setAttribute('hidden', 'true');
+              console.log("Disable: " + element);
+
+              element = document.getElementById('logout') as HTMLElement;
+              element.setAttribute('hidden', 'true');
+              console.log("Disable: " + element);
+
+
+            }
+
+
+            if (this.paramsObject.additionalSearch  !== undefined && this.paramsObject.additionalSearch  !== '')
+            {
+              console.log("ADDITIONAL: " + this.paramsObject.additionalSearch)
+              this.searchStr += ", " + this.paramsObject.additionalSearch
+            }
+            if(this.paramsObject.ID !== undefined)
+            {
+              this.searchStr += ", ID: " + this.paramsObject.ID
+
+            }
+            console.log("Label: " + this.searchStr + "sameWindow: " + this.paramsObject.searchTypeString)
+          }
+          else
+          {
+            this.searchStr = ""
+          }
         }
+        else
+        {
+          this.searchStr = ""
+        }
+
 
         if(params !== undefined && params.page !== undefined)
         {
@@ -116,7 +165,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         }
       }
     );
-     console.log('HeaderComponent ngOnInit: ' + this.firstPage)
+
   }
 
   ngAfterViewInit() {
@@ -170,6 +219,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
           });
 
+          this.getWFitems();
+
           if (this.firstPage.includes("transaction-details") )
           {
             console.log("navigate: /transaction/transaction-details/ -" + this.id);
@@ -202,6 +253,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
 
           return;
+
+
         },
         error: (e) => {
           console.error('onLogin catchError: ' +e);
@@ -218,17 +271,55 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    }
 
    onTabChanged(event: MatTabChangeEvent): void {
-    console.log("header onTabChanged")
+
+    console.log("header onTabChanged: " + event.index)
     this.selectedLnkIndex = event.index;
     console.info(this.links[event.index].link)
-      this.router.navigate([this.links[event.index].link])
+
+    if (event.index == 6)
+    {
+
+        let numItems = this.NumAssignedItems
+
+          this.NumAssignedItems = 0;
+
+          this.router.navigate([this.links[event.index].link], {queryParams: { 'WFitems':  numItems}} );
+
+      }
+      else{
+
+        this.getWFitems()
+        this.router.navigate([this.links[event.index].link]);
+
+      }
+
+   }
+
+   getWFitems()
+   {
+    let paramsList: string[]= [];
+
+    paramsList.push('TransactionType::All')
+    paramsList.push('StatusTypes::Assigned To Me')
+    paramsList.push('ErrorType::All')
+
+    this.WfService.fetchWorkFlowItems(paramsList).subscribe((res: any) => {
+      this.NumAssignedItems = res.length;
+
+
+
+    });
    }
 
    onHome()
    {
     console.log("header onHome")
     this.selectedLnkIndex = 3;
+
+    this.getWFitems()
     this.router.navigate([this.links[this.selectedLnkIndex].link]);
+
+
 
    }
 
@@ -268,10 +359,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   onContextSettings()
   {
-
-
     this.router.navigate(["/transaction/transaction-settings/"],
-
      );
   }
 

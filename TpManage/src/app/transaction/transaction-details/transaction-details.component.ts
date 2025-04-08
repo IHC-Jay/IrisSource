@@ -48,9 +48,7 @@ export class TransactionDetailComponent {
 
   ngOnInit() {
 
-    this.sub = this.route
-    .queryParams
-    .subscribe(params => {
+    this.sub = this.route.queryParams.subscribe(params => {
       // Defaults to 0 if no query param provided.
       this.ID = ''+params['ID'] || '0';
       this.transaction = ''+params['transaction'] || '0';

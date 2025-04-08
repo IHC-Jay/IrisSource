@@ -201,6 +201,10 @@ endDate ="13:30";
             fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
             val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". transType:" + val )
+            if (val == "")
+              {
+                val = "270"
+              }
             this.form.controls.transType.setValue(val)
 
             fInd = this.searchTypeString.indexOf("status::") + "status::".length;
@@ -888,12 +892,12 @@ onContextMenuNew(item: Item) {
       console.log(val);
      });
 
-    this.additionalsearchString = "FileName='"+item.FileName +"'";
+    let additionalsearchString = "FileName='"+item.FileName +"'";
 
     this.searchTypeString += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.rowId, 'transaction': this.form.controls.transType.value, 'additionalSearch': additionalsearchString, 'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {

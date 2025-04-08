@@ -47,6 +47,7 @@ export class WfRestServiceComponent {
   error = new Subject<string>();
   currentUser: string = "";
   env: string = "";
+  NumAssignedItems:number= 8
 
   constructor(private http: HttpClient, private router: Router, @Inject(LOCALE_ID) public locale: string, private tpService: TpRestServiceComponent)
    {
@@ -69,6 +70,14 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
   }
 }
 
+updateWFitems(items:any)
+{
+  console.log("updateWFitems")
+
+
+  this.NumAssignedItems = items;
+
+}
 
 getCurrentUser()
 {
@@ -105,6 +114,8 @@ fetchWorkFlowItems(searchArr: string[]) {
       url
     ).pipe(map(responseData => {
         console.info(responseData);
+
+        this.updateWFitems(responseData.length)
 
         const WorkFlowEntriesArray: WorkFlowEntry[] = [];
         for (const key in responseData) {
