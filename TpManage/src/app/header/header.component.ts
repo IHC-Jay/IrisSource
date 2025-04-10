@@ -306,8 +306,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
     this.WfService.fetchWorkFlowItems(paramsList).subscribe((res: any) => {
       this.NumAssignedItems = res.length;
 
-
-
     });
    }
 

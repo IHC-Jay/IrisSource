@@ -1,4 +1,4 @@
-import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, Input, Output, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
 
@@ -14,7 +14,6 @@ import { BrowserModule } from '@angular/platform-browser';
 import { MatPaginator } from '@angular/material/paginator';
 
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
-
 
 import {x12err} from './WfDetails';
 
@@ -49,8 +48,7 @@ export class WorkflowDetailsComponent implements OnInit {
   errorTypeStr = '';
   submitted = false;
   rowClicked:number;
-
-
+  separator:string;
 
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
@@ -68,6 +66,8 @@ export class WorkflowDetailsComponent implements OnInit {
 
   checked = false;
   errorStr:string = "";
+
+  errorSegmentText:string = "";
 
 
   dataTableLabel:string[] =  ['#', 'Segment', 'X12 Data', 'Segment/Element']; // , 'Error'];
@@ -159,8 +159,8 @@ getX12()
 
         // First record - WF entry
         let x12DataLns = res[0].X12.split("~")
-        let sep = res[0].X12.substr(3, 1)
-        console.log("Sep: " + sep)
+        this.separator = res[0].X12.substr(3, 1)
+        console.log("Sep: " + this.separator)
         this.errorStr = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + (String)(res[0].Error).replaceAll(";", "\n") + "\n" ;
         this.wfCurrentStat = res[0].Status;
         this.x12Array.splice(0, this.x12Array.length)
@@ -183,10 +183,10 @@ getX12()
               segNum++;
             }
 
-            if(item.startsWith('ST' + sep))
+            if(item.startsWith('ST' + this.separator))
             {
               segNum = 1
-              const words = item.split(sep);
+              const words = item.split(this.separator);
               transCtrlNum = words[2]
               // console.log("ST: " + transCtrlNum + ", " + segNum)
             }
@@ -427,10 +427,35 @@ getX12()
 
         }
       });
+      let rowData = this.x12Array[evt.Segment - 1]
+
+      let segEle = rowData["segElem"]
+      let colInd = segEle.indexOf(":")
+      if (colInd > 0)
+      {
+        segEle = segEle.substring(segEle.indexOf("/") + 1, colInd)
+      }
+      else
+      {
+        segEle = segEle.substring(segEle.indexOf("/") + 1)
+      }
+
+
+
+      let rowEle = rowData["data"].toString().split(this.separator)
+      rowEle[segEle] = "<mark>" + rowEle[segEle] + "</mark>"
+      console.log("Segment: " +  segEle + " = " + rowEle[segEle])
+      this.errorSegmentText = rowEle.join(this.separator)
+
+
+
+      let delArr = this.x12Array.splice(evt.Segment - 1, 1, rowData)
+
       this.dataSource.data = this.x12Array;
       //this.errorTable.renderRows();
       // this.dataTable.renderRows();
       this.errSelectedRow = evt.Num;
+      console.log("Row " + this.errSelectedRow +": " + this.x12Array[this.errSelectedRow].data +", element: " + delArr[0].segElem)
 
   }
 

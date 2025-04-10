@@ -531,7 +531,7 @@ export class TransactionDetailComponent {
 
           }
           else{
-            val = 'Related 835 not found';
+            val = 'Related 837 not found';
           }
       }
       else
@@ -545,7 +545,7 @@ export class TransactionDetailComponent {
 
           }
           else{
-            val = 'Related 837 not found';
+            val = 'Related 835 not found';
           }
 
 
@@ -567,7 +567,7 @@ export class TransactionDetailComponent {
   }
   openRelated277CAModel()
   {
-    console.log('openRelated83xModel: ' + this.dataSource.data[0].ClaimId);
+    console.log('openRelated277CAModel: ' + this.dataSource.data[0].ClaimId);
 
     var clmId = ""
     var title = ""

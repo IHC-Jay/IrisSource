@@ -99,6 +99,7 @@ import { NgChartsModule } from 'ng2-charts';
     WorkflowComponent,
     WorkflowDetailsComponent,
     WorkflowHistoryComponent
+
   ],
   imports: [
     BrowserModule,
@@ -130,6 +131,7 @@ import { NgChartsModule } from 'ng2-charts';
     AngularSplitModule,
     MatCardModule, MatRadioModule, NgChartsModule,
     MatTreeModule
+
   ],
   exports:[
     MatTableModule,
