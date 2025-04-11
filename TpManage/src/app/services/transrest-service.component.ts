@@ -24,6 +24,8 @@ import { AuthenticationService } from './authentication.service';
 import {TpRestServiceComponent} from './tprest-service.component';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
+import {ConfirationArray, ConfigColumns} from '../transaction/Configuration';
+
 import {SearchColumns, SearchColumnsArray} from '../transaction/SearchColumns';
 import { Router, ActivatedRoute} from '@angular/router';
 import {User} from '../login/user';
@@ -971,6 +973,72 @@ openRelatedClaimAckModel(trans: string,
      })
    );
 
+
+}
+
+
+saveConfiguration(configArr:ConfirationArray)
+{
+  configArr.User = this.currentUser;
+
+  console.log('saveConfiguration ' +  this.currentUser);
+
+  let url = this.batchTransUrl + 'SaveConfiguration';
+
+  console.info('Post to saveConfiguration: ' + url +" for " + this.currentUser +", length: " + configArr.configColumns.length);
+
+
+  return this.http.post<any>(url, configArr)
+  .pipe(
+
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('saveConfiguration catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
+
+fetchConfiguration() {
+  console.log('Fetch User COnfig with Auth for '+ this.currentUser );
+
+  let url = this.batchTransUrl + 'GetConfiguration?userNm=' + this.currentUser;
+
+  return this.http
+    .get<{ [key: string]: WorkFlowEntry }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+            WorkFlowEntriesArray.push({ ...responseData[key], ID: responseData[key].ID });
+          }
+        }
+        console.info('return WF array: ' + WorkFlowEntriesArray.length );
+        return WorkFlowEntriesArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchWorkFlowEntry catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
 
 }
 

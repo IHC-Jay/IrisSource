@@ -154,8 +154,9 @@ endDate ="13:30";
       additional:this.formBuilder.array([this.createinitForm()])
     });
 
-
-    this.currentTransType = ''
+    this.currentTransType = sessionStorage.getItem('TranType');
+    console.info("From session: " +  this.currentTransType)
+    this.form.controls.transType.setValue(this.currentTransType)
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -214,7 +215,7 @@ endDate ="13:30";
             console.log(fInd + ". transType:" + val )
             if (val == "")
               {
-                val = "270"
+                val = sessionStorage.getItem('TranType')
               }
 
 

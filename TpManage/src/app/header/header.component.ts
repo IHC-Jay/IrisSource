@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
 import {User} from '../login/user';
+import {Link, tabLinks} from './Links';
 
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError, Observable } from 'rxjs';
@@ -13,6 +14,7 @@ import { Title } from '@angular/platform-browser';
 import {MatIconModule} from '@angular/material/icon';
 import {MatButtonModule} from '@angular/material/button';
 import {MatBadgeModule} from '@angular/material/badge';
+import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
 
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
@@ -42,7 +44,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   currentUser: User;
   searchStr:string = "";
   NumAssignedItems:number;
-
+  public links:Link[] = tabLinks;
 
 
   isLogin:boolean;
@@ -51,15 +53,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   @ViewChild("username") focusField: ElementRef;
 
   selectedMenu:string = 'tradingPartner'
-  links = [
-    {name:'Settings', link:"/transaction/transaction-settings/"},
-    {name:'Trading Partners', link:"/TradingPartners"},
-    {name:'Search TPID', link:"/search"},
-    {name:'Dashboard', link:"/dashboard"},
-    {name:'Batches', link:"/summary"},
-    {name:'Transactions', link:"/transaction"},
-    {name:'Work Flow', link:"/workflow"}
-  ];
+
 
   selectedLnkIndex = 3;
 
@@ -219,37 +213,79 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
           });
 
-          this.getWFitems();
 
-          if (this.firstPage.includes("transaction-details") )
-          {
-            console.log("navigate: /transaction/transaction-details/ -" + this.id);
-            this.router.navigate(["/transaction/transaction-details/"],
-            {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
-            );
-          }
-          else if (this.firstPage.includes("tp-add"))
-          {
-            console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
-            this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
-            {queryParams: { 'transaction': this.transaction} }
-            );
-          }
-          else{
-            this.router.navigate([this.firstPage]);
-          }
 
           this.isLogin = true;
           this.submitted = true;
 
 
-          // Auto logout
 
-          this.check();
-          this.initListener();
-          this.initInterval();
-          console.log('Store in sessionStorage')
-          sessionStorage.setItem(STORE_KEY,Date.now().toString());
+          this.TransactionService.fetchConfiguration().subscribe((res: any) => {
+            console.info("Configuration array : " + res.length);
+            if (res.length == 1)
+            {
+                console.log('Open Setting')
+                this.router.navigate([this.links[0].link]);
+                this.selectedLnkIndex = 0;
+            }
+            else
+            {
+
+              for(let ind = 0; ind < res.length; ind++)
+                {
+                  sessionStorage.setItem(res[ind].Key, res[ind].Value);
+                  console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
+
+                  if(res[ind].Key === 'Page')
+                    {
+                      for(let tabInd = 0; tabInd < this.links.length; tabInd++)
+                        {
+                          if(this.links[tabInd].name === res[ind].Value)
+                          {
+                            this.firstPage = this.links[tabInd].link;
+                            this.selectedLnkIndex = tabInd;
+                            console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex)
+                          }
+                        }
+                    }
+                }
+
+
+
+              this.getWFitems();
+
+              if (this.firstPage.includes("transaction-details") )
+              {
+                console.log("navigate: /transaction/transaction-details/ -" + this.id);
+                this.router.navigate(["/transaction/transaction-details/"],
+                {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
+                );
+                this.selectedLnkIndex = 5
+              }
+              else if (this.firstPage.includes("tp-add"))
+              {
+                console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
+                this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
+                {queryParams: { 'transaction': this.transaction} }
+                );
+                this.selectedLnkIndex = 1
+              }
+              else{
+                console.log('Navigate: ' + this.firstPage + ' # ' +  this.selectedLnkIndex)
+                this.router.navigate([this.firstPage]);
+              }
+
+            }
+
+            // Auto logout
+
+            this.check();
+            this.initListener();
+            this.initInterval();
+            console.log('Store in sessionStorage')
+            sessionStorage.setItem(STORE_KEY,Date.now().toString());
+
+          });
 
 
           return;
@@ -357,6 +393,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   onContextSettings()
   {
+    this.selectedLnkIndex = 0
     this.router.navigate(["/transaction/transaction-settings/"],
      );
   }

@@ -19,6 +19,8 @@ import { environment } from '../../environments/environment';
 import { transition } from '@angular/animations';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
+import {ConfirationArray, ConfigColumns} from '../transaction/Configuration';
+
 import { AuthenticationService } from './authentication.service';
 import { Router, ActivatedRoute} from '@angular/router';
 

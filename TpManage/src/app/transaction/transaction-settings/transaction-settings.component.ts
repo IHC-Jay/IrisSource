@@ -13,6 +13,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import {MatSelectModule,} from '@angular/material/select';
 import {DisplayColumns, DisplayColumnsArray} from '../DisplayColumns'
 import {SearchColumns, SearchColumnsArray} from '../SearchColumns'
+import {ConfirationArray, ConfigColumns} from '../Configuration';
 
 import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
@@ -20,6 +21,8 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
+import {Link, tabLinks} from '../../header/Links';
+
 
 @Component({
   selector: 'app-transaction-settings',
@@ -34,23 +37,31 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
   paramsList: string[];
 
-    maxCount = ["10", "25", "50", "100", "200"];
+  maxCount = ["10", "25", "50", "100", "200"];
+
+  logoutTime = ["15", "30", "60", "120"]
+
+  searchTime = ["Last 1 day", "Last 7 days", "Last 30 days"];
+
+  landingPage = ["Trading Parners", "Dashboard", "Batches", "Transactions", "Workflow"];
 
   transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+
+  modes: string[] = ["Batch", "RealTime"];
 
   form!: FormGroup;
 
 // All transaction fields from the service
 
 additionalSearchStr :string;
-searchTypeString:string;
+searchTypeString:string = "";
 
   allTransactionsFields= [
     {
       key: 'Invalid',
       type: 'text',
       label: 'Select Transaction to view the Columns',
-      transactionCode: 'XXX',
+      transactionCode: '270',
       order: 1,
       checked: 'false'
     }];
@@ -64,18 +75,20 @@ searchTypeString:string;
   displayCheckBoxValues= this.allTransactionsFields.slice();
   searchCheckBoxValues= this.allTransactionsFields.slice();
 
-  @ViewChild("rowCnt") rowCnt: ElementRef;
-  @ViewChild("transType") transType: ElementRef;
-  @ViewChild("displayCols") displayCols: ElementRef;
+  @ViewChild("cngfDispCnt") cngfDispCnt: ElementRef;
+  @ViewChild("dispTransType") dispTransType: ElementRef;
+  @ViewChild("dispMode") dispMode: ElementRef;
 
-
-
-  modeString = "";
-  currentTransType = '';
+  modeString = "Batch";
+  currentTransType = '270';
   sub:any;
   value = 'Clear me';
   showMode = 1
+  showCngfMode = 1
   usrSelectedDisplayFields = [];
+
+  cngfTranType = "835"
+  cngfMode = "Batch";
 
   usrSelectedSearchFields = [];
 
@@ -91,24 +104,97 @@ searchTypeString:string;
 
 
     this.form = this.formBuilder.group({
-      rowCnt:['25', Validators.required],
-      transType: ['270', Validators.required],
-      mode:['Batch', Validators.required]
+      cngfPage:['Batches', Validators.required],
+      cngfTranType:['270', Validators.required],
+      cngfMode:['Batch', Validators.required],
+      cngfBthTime:['Last 1 day', Validators.required],
+      cngfTranTime:['Last 1 day', Validators.required],
+      cngfWfTime:['Last 7 days', Validators.required],
+      cngfLogoff:['30', Validators.required],
+      cngfDispCnt:['25', Validators.required],
+      dispTransType: ['270', Validators.required],
+      dispMode:['Batch', Validators.required]
     });
 
-
-
-
-    let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
+    if (this.searchTypeString !== null)
+    {
+      let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
             let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". transType:" + val )
-            this.form.controls.transType.setValue(val)
+            this.form.controls.dispTransType.setValue(val)
             this.currentTransType = val;
 
              fInd = this.searchTypeString.indexOf("mode::") + 6;
              val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". MODE:" + val )
-            this.form.controls.mode.setValue(val)
+            this.form.controls.dispMode.setValue(val);
+    }
+
+    this.TransactionService.fetchConfiguration().subscribe((res: any) => {
+      console.info("Configuration array : " + res.length);
+      if (res.length == 1)
+      {
+          console.log('No Setting')
+      }
+      else
+      {
+        for(let ind = 0; ind < res.length; ind++)
+          {
+
+            if('Page' === res[ind].Key)
+            {
+
+              this.form.controls.cngfPage.setValue(res[ind].Value)
+
+            }
+            else if('TranType' === res[ind].Key)
+              {
+
+                this.form.controls.cngfTranType.setValue(res[ind].Value)
+
+              }
+              else if('Mode' === res[ind].Key)
+                {
+
+                  this.form.controls.cngfMode.setValue(res[ind].Value)
+
+                }
+                else if('BthTime' === res[ind].Key)
+                  {
+
+                    this.form.controls.cngfBthTime.setValue(res[ind].Value)
+
+                  }
+                  else if('TranTime' === res[ind].Key)
+                    {
+
+                      this.form.controls.cngfTranTime.setValue(res[ind].Value)
+
+                    }
+                    else if('WfTime' === res[ind].Key)
+                      {
+
+                        this.form.controls.cngfWfTime.setValue(res[ind].Value)
+
+                      }
+                      else if('Logoff' === res[ind].Key)
+                        {
+
+                          this.form.controls.cngfLogoff.setValue(res[ind].Value)
+
+                        }
+                        else if('DispCnt' === res[ind].Key)
+                          {
+
+                            this.form.controls.cngfDispCnt.setValue(res[ind].Value)
+
+                          }
+
+          }
+      }
+
+    });
+
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -118,8 +204,8 @@ searchTypeString:string;
 
       this.currentTransType =  params['transaction'] || '';
       this.modeString = params['mode'];
-      this.form.controls.transType.setValue(this.currentTransType);
-      this.form.controls.mode.setValue(this.modeString)
+      this.form.controls.dispTransType.setValue(this.currentTransType);
+      this.form.controls.dispMode.setValue(this.modeString)
 
       this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
@@ -128,6 +214,13 @@ searchTypeString:string;
 
       }
     });
+    if (this.currentTransType == '')
+      {
+        this.currentTransType = '270'
+
+        this.form.controls.dispTransType.setValue(this.currentTransType);
+      }
+
 
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
@@ -170,7 +263,28 @@ searchTypeString:string;
 
   get f() { return this.form.controls; }
 
+  modeChange(evt: any)
+  {
+    console.info("Mode: " + this.form.controls.dispMode.value)
+    this.modeString = this.form.controls.dispMode.value
 
+  }
+
+  cngfTranTypeChange(evt: any)
+  {
+    this.cngfTranType = this.form.controls.cngfTranType.value
+    if (this.cngfTranType === "835" || this.cngfTranType.indexOf("837") == 0 || this.cngfTranType === "277CA")
+    {
+        this.cngfMode = "Batch";
+        this.showCngfMode = 0
+
+        this.form.controls.cngfMode.setValue(this.cngfMode)
+    }
+    else
+    {
+      this.showCngfMode = 1
+    }
+  }
 
 transactionChange(evt: any)
 {
@@ -181,14 +295,14 @@ transactionChange(evt: any)
   this.usrSelectedDisplayFields= [];
   this.usrSelectedSearchFields=[];
 
-  this.currentTransType = this.form.controls.transType.value;
+  this.currentTransType = this.form.controls.dispTransType.value;
 
   if (this.currentTransType === "835" || this.currentTransType.indexOf("837") == 0 || this.currentTransType === "277CA")
   {
       this.modeString = "Batch";
       this.showMode = 0
 
-      this.form.controls.mode.setValue(this.modeString)
+      this.form.controls.dispMode.setValue(this.modeString)
   }
   else
   {
@@ -199,7 +313,7 @@ transactionChange(evt: any)
   for (var col of this.allTransactionsFields)
     {
       // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
-      if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.transType.value)
+      if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.dispTransType.value)
           )
 
       {
@@ -224,8 +338,8 @@ transactionChange(evt: any)
       for (var col of this.allTransactionsFields)
       {
 
-        if ( disp.TransactionCode === this.form.controls.transType.value
-          && disp.key === col.key && disp.Mode === this.form.controls.mode.value)
+        if ( disp.TransactionCode === this.form.controls.dispTransType.value
+          && disp.key === col.key && disp.Mode === this.form.controls.dispMode.value)
         {
           var selInd = this.allDropdownListFindDisplay(col.label);
           if(selInd !== -1)
@@ -265,7 +379,6 @@ transactionChange(evt: any)
         if (srcCol.checked !== 'true')
         {
           srcCol.order = 99
-          console.info(item.item_text +" not selected")
         }
     }
 
@@ -289,8 +402,8 @@ transactionChange(evt: any)
         for (var col of this.allTransactionsFields)
         {
 
-          if ( srch.TransactionCode === this.form.controls.transType.value
-            && srch.key === col.key && srch.Mode === this.form.controls.mode.value)
+          if ( srch.TransactionCode === this.form.controls.dispTransType.value
+            && srch.key === col.key && srch.Mode === this.form.controls.dispMode.value)
           {
             var selInd = this.allDropdownListFindSearch(col.label);
             if(selInd !== -1)
@@ -361,6 +474,8 @@ allDropdownListFindSearch(label:string)
 ngAfterViewInit()
 {
  console.info("ngAfterViewInit");
+
+
 }
 
 checkOrNotSearch(event: any)
@@ -401,12 +516,13 @@ checkOrNotDisplay(event: any)
 
 resetSettings()
 {
-  this.TransactionService.deleteDisplayColumns('Default',  this.form.controls.mode.value,  this.form.controls.transType.value).subscribe((res: any) => {
+  this.TransactionService.deleteDisplayColumns('Default',  this.form.controls.dispMode.value,  this.form.controls.dispTransType.value).subscribe((res: any) => {
 
     console.info("Delete Display: " + res);
 
   });
 }
+
 saveSettings(setting: string)
 {
 
@@ -419,7 +535,7 @@ saveSettings(setting: string)
 
   var ind = 0;
 
-  console.info('Save: ' + this.form.controls.transType.value + ", Display #: " + this.displayCheckBoxValues.length);
+  console.info('Save: ' + this.form.controls.dispTransType.value + ", Display #: " + this.displayCheckBoxValues.length);
 
   for (var item of this.displayCheckBoxValues)
   {
@@ -428,12 +544,12 @@ saveSettings(setting: string)
        var dispOrd = Number((<HTMLInputElement>document.getElementById('OrdId'+ind)).value)
        console.log('Save: ' + item.label +", order: " + dispOrd);
        dispCol.displayColumns.push({  id: '1',
-        TransactionCode: this.form.controls.transType.value,
+        TransactionCode: this.form.controls.dispTransType.value,
         key:  item.key,
         Order: dispOrd,
         Setting: setting,
         DispType: 'Transactions',
-        Mode:this.form.controls.mode.value});
+        Mode:this.form.controls.dispMode.value});
 
     }
     ind++;
@@ -446,10 +562,10 @@ saveSettings(setting: string)
     {
        console.log('Save: ' + item.label);
        srchCol.SearchColumns.push({  id: '1',
-        TransactionCode: this.form.controls.transType.value,
+        TransactionCode: this.form.controls.dispTransType.value,
         key:  item.key,
         Setting: setting,
-        Mode:this.form.controls.mode.value});
+        Mode:this.form.controls.dispMode.value});
 
     }
   }
@@ -470,6 +586,47 @@ saveSettings(setting: string)
 
 
 }
+
+saveConfig()
+{
+  let paramsList=<ConfirationArray>{};
+
+
+  paramsList.configColumns = [];
+
+   paramsList.configColumns.push({key:'Page', value: this.form.controls.cngfPage.value });
+   paramsList.configColumns.push({key:'TranType', value: this.form.controls.cngfTranType.value})
+   paramsList.configColumns.push({key:'Mode', value: this.form.controls.cngfMode.value})
+   paramsList.configColumns.push({key:'BthTime', value:this.form.controls.cngfBthTime.value})
+   paramsList.configColumns.push({key:'TranTime', value:this.form.controls.cngfTranTime.value})
+   paramsList.configColumns.push({key:'WfTime', value: this.form.controls.cngfWfTime.value})
+   paramsList.configColumns.push({key:'Logoff', value: this.form.controls.cngfLogoff.value})
+   paramsList.configColumns.push({key:'DispCnt', value: this.form.controls.cngfDispCnt.value})
+
+
+   this.TransactionService.saveConfiguration(paramsList).subscribe((res: any) => {
+
+    console.info("saveConfiguration: " + res + ", navigate: " + this.form.controls.cngfPage.value);
+
+    for(let ind = 0; ind < tabLinks.length; ind++)
+      {
+
+        if(tabLinks[ind].name === this.form.controls.cngfPage.value)
+        {
+          this.router.navigate([tabLinks[ind].link]);
+          console.log("Route: " + tabLinks[ind].link);
+          break;
+        }
+
+      }
+
+
+
+  });
+
+
+}
+
 toTransactions()
   {
 
