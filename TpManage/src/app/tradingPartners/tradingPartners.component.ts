@@ -67,7 +67,8 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     ngOnInit()
     {
 
-
+      sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Trading Partners")
 
       this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
         this.dataSource.data = res;

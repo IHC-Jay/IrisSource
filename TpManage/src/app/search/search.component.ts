@@ -57,6 +57,9 @@ export class SearchComponent implements OnInit {
 
   async ngOnInit() {
 
+      sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Search TPID");
+
     this.form = this.formBuilder.group({
       searchTpId: ['', Validators.required]
 

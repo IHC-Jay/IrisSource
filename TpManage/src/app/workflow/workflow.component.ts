@@ -99,6 +99,9 @@ export class WorkflowComponent implements OnInit {
 
   ngOnInit() {
 
+    sessionStorage.removeItem("currentTab")
+    sessionStorage.setItem("currentTab", "Work Flow")
+
     this.form = this.formBuilder.group({
       statusType: ['New', Validators.required],
       rowCnt:['', Validators.required],
@@ -112,7 +115,24 @@ export class WorkflowComponent implements OnInit {
     });
     this.canRenderDetails = false;
     this.irisUsers = [];
-    let wfItems = 0
+    let wfItems = 0;
+    let stDt = 30;
+
+    if (sessionStorage.getItem('WfTime') !== undefined)
+      {
+
+        let stDtStr = sessionStorage.getItem('WfTime');
+
+        if(stDtStr.toString().indexOf('1') > 1)
+        {
+          stDt = 1
+        }
+        if(stDtStr.toString().indexOf('7') > 1)
+          {
+            stDt = 7
+          }
+          console.info("Search from " + stDt + " days. " + stDtStr);
+    }
 
     this.sub = this.route.queryParams.subscribe(params => {
 
@@ -130,7 +150,7 @@ export class WorkflowComponent implements OnInit {
             this.selectedObjects = this.selectedObjects.slice()
             this.selectedObjects = this.statusTypeString.toString().split(',');
 
-            this.nowDt = new Date((new Date().getTime() - (30 *24 * 60 * 60 * 1000)));
+            this.nowDt = new Date((new Date().getTime() - (stDt *24 * 60 * 60 * 1000)));
             let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
             let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
             this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();

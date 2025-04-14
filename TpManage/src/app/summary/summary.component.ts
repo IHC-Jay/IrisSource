@@ -140,7 +140,9 @@ endDate ="13:30";
 
   ngOnInit()
   {
-    console.info("ngOnInit");
+    console.info("ngOnInit Batches");
+    sessionStorage.removeItem("currentTab")
+    sessionStorage.setItem("currentTab", "Batches")
 
 
     this.form = this.formBuilder.group({
@@ -151,6 +153,31 @@ endDate ="13:30";
       direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
     });
+    let stDt = 30;
+
+    if (sessionStorage.getItem('TranType') !== undefined)
+    {
+
+        this.currentTransType = sessionStorage.getItem('TranType');
+        this.form.controls.transType.setValue(this.currentTransType);
+
+        this.form.controls.rowCnt.setValue(sessionStorage.getItem('DispCnt'));
+        this.form.controls.mode.setValue(sessionStorage.getItem('Mode'));
+        this.currentMode = this.form.controls.mode.value;
+
+        let stDtStr = sessionStorage.getItem('BthTime');
+
+        if(stDtStr.toString().indexOf('1') > 1)
+        {
+          stDt = 1
+        }
+        if(stDtStr.toString().indexOf('7') > 1)
+          {
+            stDt = 7
+          }
+          console.info("Init from session: " +  this.currentTransType);
+          console.info("Search from " + stDt + " days. " + stDtStr);
+    }
 
 
     this.currentTransType = ''
@@ -173,7 +200,7 @@ endDate ="13:30";
           if (this.searchTypeString === null || this.searchTypeString.length == 0)
             {
               console.info('no query params')
-              this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
+              this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
               let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
               let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
               this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();

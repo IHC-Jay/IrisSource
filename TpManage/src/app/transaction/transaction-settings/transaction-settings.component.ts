@@ -43,7 +43,7 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
   searchTime = ["Last 1 day", "Last 7 days", "Last 30 days"];
 
-  landingPage = ["Trading Parners", "Dashboard", "Batches", "Transactions", "Workflow"];
+  landingPage = ["Trading Partners", "Dashboard", "Batches", "Transactions", "Work Flow"];
 
   transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
 
@@ -100,6 +100,7 @@ searchTypeString:string = "";
 
   ngOnInit()
   {
+
     this.searchTypeString =  sessionStorage.getItem("searchTypeString");
 
 
@@ -606,19 +607,39 @@ saveConfig()
 
    this.TransactionService.saveConfiguration(paramsList).subscribe((res: any) => {
 
-    console.info("saveConfiguration: " + res + ", navigate: " + this.form.controls.cngfPage.value);
-
-    for(let ind = 0; ind < tabLinks.length; ind++)
+    console.info("saved Configuration, navigate: " + this.form.controls.cngfPage.value);
+    let ind = 0;
+    for(; ind < tabLinks.length; ind++)
       {
-
+        console.info( tabLinks[ind].name +" === " + this.form.controls.cngfPage.value)
         if(tabLinks[ind].name === this.form.controls.cngfPage.value)
         {
-          this.router.navigate([tabLinks[ind].link]);
-          console.log("Route: " + tabLinks[ind].link);
+          console.log("Navigate to : " + tabLinks[ind].link);
           break;
         }
 
       }
+      paramsList.configColumns.forEach(element => {
+        sessionStorage.removeItem(element.key)
+        sessionStorage.setItem(element.key, element.value);
+      });
+
+      sessionStorage.removeItem("currentTab");
+      sessionStorage.setItem("currentTab", tabLinks[ind].name)
+
+
+      if (ind >= tabLinks.length)
+      {
+        ind = 3
+      }
+      this.router.navigate([tabLinks[ind].link],
+          {
+          queryParams: { transaction: this.currentTransType,
+          'additionalSearch': this.additionalSearchStr,
+          'searchTypeString': this.searchTypeString }
+          }
+        );
+
 
 
 
@@ -632,7 +653,6 @@ toTransactions()
 
       console.log('To Transactions: ' + this.currentTransType + "= " + this.searchTypeString + "/" + this.additionalSearchStr);
       this.router.navigate(["/transaction/"],
-      // {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
       {
         queryParams: { transaction: this.currentTransType,
           'additionalSearch': this.additionalSearchStr,

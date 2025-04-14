@@ -1,5 +1,5 @@
 import { Component, OnInit, Input, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { FormsModule, FormControl } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
 import {User} from '../login/user';
@@ -9,7 +9,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { catchError, Observable } from 'rxjs';
 import {TransRestServiceComponent} from '../services/transrest-service.component';
 import {WfRestServiceComponent} from '../services/wfrest-service.component';
-import { MatTabsModule, MatTabChangeEvent } from '@angular/material/tabs';
+import { MatTabsModule, MatTabChangeEvent, MatTabGroup } from '@angular/material/tabs';
 import { Title } from '@angular/platform-browser';
 import {MatIconModule} from '@angular/material/icon';
 import {MatButtonModule} from '@angular/material/button';
@@ -33,7 +33,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   loading = false;
   submitted = false;
-  returnUrl: string;
   displayHelp: string = "Username/Password will used for calling IRIS REST services";
   error = '';
   firstPage = '/dashboard';
@@ -51,11 +50,13 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   collapsed = true;
 
   @ViewChild("username") focusField: ElementRef;
+  @ViewChild("tabGrp", { static: false }) tabGrp: MatTabGroup;
 
   selectedMenu:string = 'tradingPartner'
 
 
-  selectedLnkIndex = 3;
+  selectedLnkIndex = new FormControl(3);
+  prevLnkIndex = 0;
 
   background = 'white';
 
@@ -78,6 +79,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
     }
 
     ngOnInit() {
+      console.log('HeaderComponent ngOnInit')
 
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
@@ -88,11 +90,28 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
 
       // get return url from route parameters or default to '/'
-      this.returnUrl = this.route.snapshot.queryParams['returnUrl'] || '/login';
-
 
       this.route.queryParams.subscribe(params => {
-        console.log(this.returnUrl + ', Header Query params: ' + params)
+
+        let retTab =  sessionStorage.getItem("currentTab");
+        console.log('HeaderComponent currentTab: '+ retTab);
+        let tabInd = 0
+
+        for(; (retTab!== undefined || retTab !== '') && tabInd < this.links.length; tabInd++)
+          {
+            if(this.links[tabInd].name === retTab)
+            {
+              this.firstPage = this.links[tabInd].link;
+              this.selectedLnkIndex.setValue(tabInd);
+              console.log('HeaderComponent ngOnInit, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
+              break;
+            }
+          }
+          if(tabInd >= this.links.length)
+          {
+            console.log('queryParams returnUrl: ' + this.route.snapshot.queryParams['returnUrl'])
+            this.firstPage = this.route.snapshot.queryParams['returnUrl'] || '/login';
+          }
 
         this.paramsObject = { ...params.keys, ...params };
 
@@ -200,7 +219,6 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         next: (res) =>
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
-          console.info(this.f.env.value + '- OK: ' + this.returnUrl);
 
           this.TransactionService.deleteDisplayColumns('Session','','').subscribe((res: any) => {
 
@@ -226,15 +244,18 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
             {
                 console.log('Open Setting')
                 this.router.navigate([this.links[0].link]);
-                this.selectedLnkIndex = 0;
+                this.selectedLnkIndex.setValue(0);
             }
             else
             {
 
               for(let ind = 0; ind < res.length; ind++)
                 {
-                  sessionStorage.setItem(res[ind].Key, res[ind].Value);
-                  console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
+                  if (res[ind].Key !== undefined)
+                  {
+                    sessionStorage.setItem(res[ind].Key, res[ind].Value);
+                    console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
+                  }
 
                   if(res[ind].Key === 'Page')
                     {
@@ -243,11 +264,16 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                           if(this.links[tabInd].name === res[ind].Value)
                           {
                             this.firstPage = this.links[tabInd].link;
-                            this.selectedLnkIndex = tabInd;
-                            console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex)
+                            this.selectedLnkIndex.setValue(tabInd);
+                            console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
                           }
                         }
                     }
+
+                }
+                if (sessionStorage.getItem('Logoff') !== undefined)
+                {
+                    this.loginForm.controls.logoutTime.setValue(sessionStorage.getItem('Logoff'));
                 }
 
 
@@ -260,7 +286,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                 this.router.navigate(["/transaction/transaction-details/"],
                 {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
                 );
-                this.selectedLnkIndex = 5
+                this.selectedLnkIndex.setValue( 5)
               }
               else if (this.firstPage.includes("tp-add"))
               {
@@ -268,10 +294,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                 this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
                 {queryParams: { 'transaction': this.transaction} }
                 );
-                this.selectedLnkIndex = 1
+                this.selectedLnkIndex.setValue( 1)
               }
               else{
-                console.log('Navigate: ' + this.firstPage + ' # ' +  this.selectedLnkIndex)
+                console.log('Navigate: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
                 this.router.navigate([this.firstPage]);
               }
 
@@ -306,28 +332,45 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
    }
 
+   getSelectedIndex(): number {
+    console.log("header getSelectedIndex. current: " + this.selectedLnkIndex.value +" prev: "+ this.prevLnkIndex)
+    return this.selectedLnkIndex.value;
+   }
+
    onTabChanged(event: MatTabChangeEvent): void {
 
-    console.log("header onTabChanged: " + event.index)
-    this.selectedLnkIndex = event.index;
-    console.info(this.links[event.index].link)
+    console.log("header onTabChanged. from: " + this.selectedLnkIndex.value +" to: "+ event.index)
 
-    if (event.index == 6)
-    {
 
-        let numItems = this.NumAssignedItems
+      this.selectedLnkIndex.setValue(event.index);
 
-          this.NumAssignedItems = 0;
+      console.info("onTabChanged Navigate to " + this.links[event.index].link)
 
-          this.router.navigate([this.links[event.index].link], {queryParams: { 'WFitems':  numItems}} );
+      if (event.index == 6)
+      {
+
+          let numItems = this.NumAssignedItems
+
+            this.NumAssignedItems = 0;
+
+            this.router.navigate([this.links[event.index].link], {queryParams: { 'WFitems':  numItems}} );
+
 
       }
       else{
 
-        this.getWFitems()
-        this.router.navigate([this.links[event.index].link]);
+          this.getWFitems()
+
+          if (event.index != 0)
+          {
+            sessionStorage.removeItem("currentTab")
+            sessionStorage.setItem("currentTab", this.links[event.index].name);
+          }
+          this.router.navigate([this.links[event.index].link]);
 
       }
+      this.prevLnkIndex = this.selectedLnkIndex.value
+
 
    }
 
@@ -348,10 +391,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    onHome()
    {
     console.log("header onHome")
-    this.selectedLnkIndex = 3;
+    this.selectedLnkIndex.setValue(3);
 
     this.getWFitems()
-    this.router.navigate([this.links[this.selectedLnkIndex].link]);
+    this.router.navigate([this.links[this.selectedLnkIndex.value].link]);
 
 
 
@@ -393,7 +436,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   onContextSettings()
   {
-    this.selectedLnkIndex = 0
+    this.selectedLnkIndex.setValue(0);
     this.router.navigate(["/transaction/transaction-settings/"],
      );
   }
