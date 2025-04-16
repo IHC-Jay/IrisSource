@@ -912,6 +912,8 @@ onContextMenuNew(item: Item) {
 
 
     console.log(item.FileName);
+    sessionStorage.removeItem("currentTab")
+    sessionStorage.setItem("currentTab", "Transactions");
 
     this.searchTypeString = "";
     this.paramsList.forEach( val => {
@@ -938,6 +940,9 @@ onContextMenuNew(item: Item) {
 onContextMenuSame(item: Item) {
 
   this.searchTypeString = "";
+  sessionStorage.removeItem("currentTab")
+  sessionStorage.setItem("currentTab", "Transactions");
+
   this.paramsList.forEach( val => {
     this.searchTypeString += val +";";
    });

@@ -15,7 +15,7 @@ import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSort, MatSortModule } from '@angular/material/sort';
 
-import { HttpClientModule, HTTP_INTERCEPTORS } from '@angular/common/http';
+import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
 
 import { MatTabsModule, MatTabChangeEvent } from '@angular/material/tabs';
 import { MatCard, MatCardModule } from '@angular/material/card';
@@ -73,79 +73,79 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
 import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component';
 import { NgChartsModule } from 'ng2-charts';
 
-@NgModule({
-  declarations: [
-    AppComponent,
-    HeaderComponent,
-    TpRestServiceComponent,
-    TransRestServiceComponent,
-    WfRestServiceComponent,
-    TradingPartnersComponent,
-    copyTPComponent,
-    ConfirmDialogComponent,
-    TpIdComponent,
-    tpLinksComponent,
-    AddEditComponent,
-    SearchComponent,
-    TransactionComponent,
-    BulkAddComponents,
-    SingleNoteComponent,
-    CreateNoteComponent,
-    Modalx12Component,
-    TransactionDetailComponent,
-    TransactionSettingsComponent,
-    SummaryComponent,
-    DashBoardComponent,
-    WorkflowComponent,
-    WorkflowDetailsComponent,
-    WorkflowHistoryComponent
+import {
+  CdkDrag,
+  CdkDropList,
+  CdkDropListGroup
+} from '@angular/cdk/drag-drop';
 
-  ],
-  imports: [
-    BrowserModule,
-    BrowserAnimationsModule,
-    MatMenuModule,
-    MatTableModule,
-    MatPaginatorModule,
-    MatListModule,
-    MatButtonModule,
-    MatTabsModule,
-    MatCheckboxModule,
-    MatDialogModule,
-    HttpClientModule,
-    AppRoutingModule,
-    MatButtonModule,
-    MatIconModule,
-    MatBadgeModule,
-    FormsModule,
-    ReactiveFormsModule,
-    MatSortModule,
-    MatSelectModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatTooltipModule,
-    NgMultiSelectDropDownModule.forRoot(),
-    MatExpansionModule,
-    MatNativeDateModule,
-    MatDatepickerModule,
-    AngularSplitModule,
-    MatCardModule, MatRadioModule, NgChartsModule,
-    MatTreeModule
-
-  ],
-  exports:[
-    MatTableModule,
-    MatSortModule,
-    MatPaginatorModule
-  ],
-  providers: [
-    { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
-    { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
-    ModalHelperService
-
-  ],
-  bootstrap: [AppComponent]
-})
+@NgModule({ declarations: [
+        AppComponent,
+        HeaderComponent,
+        TpRestServiceComponent,
+        TransRestServiceComponent,
+        WfRestServiceComponent,
+        TradingPartnersComponent,
+        copyTPComponent,
+        ConfirmDialogComponent,
+        TpIdComponent,
+        tpLinksComponent,
+        AddEditComponent,
+        SearchComponent,
+        TransactionComponent,
+        BulkAddComponents,
+        SingleNoteComponent,
+        CreateNoteComponent,
+        Modalx12Component,
+        TransactionDetailComponent,
+        TransactionSettingsComponent,
+        SummaryComponent,
+        DashBoardComponent,
+        WorkflowComponent,
+        WorkflowDetailsComponent,
+        WorkflowHistoryComponent
+    ],
+    exports: [
+        MatTableModule,
+        MatSortModule,
+        MatPaginatorModule
+    ],
+    bootstrap: [AppComponent], imports: [BrowserModule,
+        BrowserAnimationsModule,
+        MatMenuModule,
+        MatTableModule,
+        MatPaginatorModule,
+        MatListModule,
+        MatButtonModule,
+        MatTabsModule,
+        MatCheckboxModule,
+        MatDialogModule,
+        AppRoutingModule,
+        MatButtonModule,
+        MatIconModule,
+        MatBadgeModule,
+        FormsModule,
+        ReactiveFormsModule,
+        MatSortModule,
+        MatSelectModule,
+        MatFormFieldModule,
+        MatInputModule,
+        MatTooltipModule,
+        NgMultiSelectDropDownModule.forRoot(),
+        MatExpansionModule,
+        MatNativeDateModule,
+        MatDatepickerModule,
+        AngularSplitModule,
+        MatCardModule, MatRadioModule, NgChartsModule,
+        MatTreeModule,
+        CdkDrag,
+        CdkDropList,
+        CdkDropListGroup], providers: [
+        { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
+        { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
+        ModalHelperService,
+        provideHttpClient(withInterceptorsFromDi())
+    ] })
 export class AppModule {
 
 public cors = require('cors');

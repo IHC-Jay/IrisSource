@@ -1,7 +1,7 @@
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
-
+import { CdkDragDrop, moveItemInArray } from "@angular/cdk/drag-drop";
 
 import {TransRestServiceComponent} from '../../services/transrest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
@@ -23,6 +23,12 @@ import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
 import {Link, tabLinks} from '../../header/Links';
 
+import {
+  CdkDrag,
+  CdkDropList,
+  CdkDropListGroup,
+  transferArrayItem,
+} from '@angular/cdk/drag-drop';
 
 @Component({
   selector: 'app-transaction-settings',
@@ -34,6 +40,11 @@ import {Link, tabLinks} from '../../header/Links';
 
 export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
+  allDispFields = [];
+  allSearchFields = [];
+
+  usrSelectedDispCols = [];
+  usrSelectedSearchCols = [];
 
   paramsList: string[];
 
@@ -72,8 +83,6 @@ searchTypeString:string = "";
     // Search columns for a user from the service
     usrSearchColumns: SearchColumns[] = [];
 
-  displayCheckBoxValues= this.allTransactionsFields.slice();
-  searchCheckBoxValues= this.allTransactionsFields.slice();
 
   @ViewChild("cngfDispCnt") cngfDispCnt: ElementRef;
   @ViewChild("dispTransType") dispTransType: ElementRef;
@@ -85,12 +94,10 @@ searchTypeString:string = "";
   value = 'Clear me';
   showMode = 1
   showCngfMode = 1
-  usrSelectedDisplayFields = [];
 
   cngfTranType = "835"
   cngfMode = "Batch";
 
-  usrSelectedSearchFields = [];
 
   constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
@@ -234,27 +241,29 @@ searchTypeString:string = "";
             type: item.Type, label: item.Label, transactionCode: item.TransactionCode, order: item.Order,
           checked:'false'});
       }
-      console.info("transactionsSearchColumns: " + this.allTransactionsFields.length);
-      console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
+      console.info("All TransactionsFields: " + this.allTransactionsFields.length);
+
+      console.info("Fetch Display, Search Columns. ");
 
       this.TransactionService.fetchDisplayColumns("Default" , "Transactions").subscribe((res: any) => {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
 
-      });
 
-      this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
-        this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
-        this.usrSearchColumns.push(...res);
-        console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-        if(this.currentTransType !== '')
-        {
+        this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+          this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
+          this.usrSearchColumns.push(...res);
+          console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-        this.transactionChange(this.currentTransType);
+          if(this.currentTransType !== '')
+          {
 
-        }
+          this.transactionChange(this.currentTransType);
+
+          }
+        });
       });
 
     });
@@ -290,11 +299,10 @@ searchTypeString:string = "";
 transactionChange(evt: any)
 {
 
-  this.displayCheckBoxValues =[];
-  this.searchCheckBoxValues = [];
-
-  this.usrSelectedDisplayFields= [];
-  this.usrSelectedSearchFields=[];
+  this.usrSelectedDispCols = [];
+  this.usrSelectedSearchCols=[];
+  this.allDispFields=[];
+  this.allSearchFields=[];
 
   this.currentTransType = this.form.controls.dispTransType.value;
 
@@ -313,25 +321,24 @@ transactionChange(evt: any)
 
   for (var col of this.allTransactionsFields)
     {
-      // console.info("searchColumns push? = " + col.key + ", " + col.transactionCode);
+
       if ( (Number.parseInt(col.transactionCode) == 1 || col.transactionCode === this.form.controls.dispTransType.value)
           )
 
       {
-          // this.searchColumns.push(col);
-          this.displayCheckBoxValues.push({key: col.key, type:'', label:col.label, transactionCode:col.transactionCode,
-            order:col.order,checked:'false'
-          });
-          this.searchCheckBoxValues.push({key: col.key, type:'', label:col.label, transactionCode:col.transactionCode,
-           order:col.order,checked:'false'
-          });
+          // console.info("all search disp Columns push = " + col.key + ", " + col.transactionCode);
+
+          this.allDispFields.push(col.label)
+          this.allSearchFields.push(col.label)
+
+
           // console.info("searchColumns pushed: " + col.key);
       }
     }
 
   if(this.usrDisplayColumns.length > 0)
   {
-    console.info("Check usrDisplayColumns: " + this.usrDisplayColumns.length +', allDropdownList #: ' + this.displayCheckBoxValues.length);
+    console.info("Check usrDisplayColumns: " + this.usrDisplayColumns.length +', allDropdownList #: ' + this.allDispFields.length);
 
     for (var disp of this.usrDisplayColumns)
     {
@@ -342,135 +349,52 @@ transactionChange(evt: any)
         if ( disp.TransactionCode === this.form.controls.dispTransType.value
           && disp.key === col.key && disp.Mode === this.form.controls.dispMode.value)
         {
-          var selInd = this.allDropdownListFindDisplay(col.label);
-          if(selInd !== -1)
-          {
+
             // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
-            this.usrSelectedDisplayFields.push({item_id:selInd, item_text:col.label, item_order:disp.Order});
+            this.usrSelectedDispCols.push(col.label)
+            let ind = this.allDispFields.indexOf(col.label)
+            this.allDispFields.splice(ind, 1)
             break;
-          }
+
         }
       }
     }
 
   }
-
-  for (var item of this.usrSelectedDisplayFields)
-  {
-    // console.info("selDropdownList key: " + item.item_id +", val: " +item.item_text )
-
-      for (var srcCol of this.displayCheckBoxValues)
-      {
-        if (srcCol.label === item.item_text)
-        {
-
-          srcCol.checked = 'true';
-          srcCol.order = item.item_order
-          console.info(item.item_text + " - Display fld checked, order: " + srcCol.order);
-          break;
-        }
-
-      }
-
-
-
-  }
-  for (var srcCol of this.displayCheckBoxValues)
-    {
-        if (srcCol.checked !== 'true')
-        {
-          srcCol.order = 99
-        }
-    }
-
-  this.displayCheckBoxValues.sort((a,b) => a.order > b.order ? 1:-1)
-
-  for (var srcCol of this.displayCheckBoxValues)
-    {
-        if (srcCol.checked !== 'true')
-        {
-          srcCol.order = 0
-
-        }
-    }
-
   if(this.usrSearchColumns.length > 0)
     {
-      console.info("Check usrSearchColumns: " + this.usrSearchColumns.length +', allDropdownList #: ' + this.displayCheckBoxValues.length);
+      console.info("Check usrDisplayColumns: " + this.usrDisplayColumns.length +', allDropdownList #: ' + this.allSearchFields.length);
 
-      for (var srch of this.usrSearchColumns)
+      for (let srch of this.usrSearchColumns)
       {
+        // console.info(disp.TransactionCode + ", # " + this.transactionsSearchColumns.length +', allDropdownList #: ' + this.allDropdownList.length)
         for (var col of this.allTransactionsFields)
         {
 
           if ( srch.TransactionCode === this.form.controls.dispTransType.value
             && srch.key === col.key && srch.Mode === this.form.controls.dispMode.value)
           {
-            var selInd = this.allDropdownListFindSearch(col.label);
-            if(selInd !== -1)
-            {
-              // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
-              this.usrSelectedSearchFields.push({item_id:selInd, item_text:col.label});
 
+              // console.info(disp.TransactionCode + " PUSH User selected column: " + disp.key + "===" + col.key +", selInd: " + selInd)
+              this.usrSelectedSearchCols.push(col.label)
+              let ind = this.allSearchFields.indexOf(col.label)
+              this.allSearchFields.splice(ind, 1)
               break;
-            }
+
           }
         }
       }
 
     }
 
-    for (var item of this.usrSelectedSearchFields)
-    {
-      // console.info("selDropdownList key: " + item.item_id +", val: " +item.item_text )
 
-        for (var srcCol of this.searchCheckBoxValues)
-        {
-          if (srcCol.label === item.item_text)
-          {
-            console.info(item.item_text + " - Search fld checked")
-            srcCol.checked = 'true';
+  console.info("Usr DisplayFields #: " + this.usrSelectedDispCols.length);
 
-          }
-        }
 
-    }
-
-  console.info("DisplayFields #: " + this.displayCheckBoxValues.length);
-  console.info("Usr DisplayFields #: " + this.usrSelectedDisplayFields.length);
-
-  console.info("SearchColumns #: " + this.searchCheckBoxValues.length);
-  console.info("Usr SearchFields #: " + this.usrSelectedSearchFields.length);
+  console.info("Usr SearchFields #: " + this.usrSelectedSearchCols.length);
 
 }
 
-
-
-allDropdownListFindDisplay(label:string)
-{
-  for(var val of this.displayCheckBoxValues)
-  {
-    if(val.label === label)
-    {
-      // console.info("allDropdownListFind: " + val.item_id);
-      return val.key
-    }
-  }
-  return -1;
-}
-
-allDropdownListFindSearch(label:string)
-{
-  for(var val of this.searchCheckBoxValues)
-  {
-    if(val.label === label)
-    {
-      // console.info("allDropdownListFind: " + val.item_id);
-      return val.key
-    }
-  }
-  return -1;
-}
 
 ngAfterViewInit()
 {
@@ -479,41 +403,7 @@ ngAfterViewInit()
 
 }
 
-checkOrNotSearch(event: any)
-{
-  let val = (event.target as HTMLInputElement).value;
-  console.info("checkOrNot Search: " + val)
 
-  for (var srcCol of this.searchCheckBoxValues)
-    {
-      if (srcCol.label === val)
-      {
-
-        srcCol.checked = (srcCol.checked==='true')?'false':'true';
-        console.info(val + " changed to: " + srcCol.checked )
-        break;
-      }
-    }
-
-}
-
-checkOrNotDisplay(event: any)
-{
-  let val = (event.target as HTMLInputElement).value;
-  console.info("checkOrNot Display: " + val)
-  for (var index in this.displayCheckBoxValues)
-    {
-      var srcCol = this.displayCheckBoxValues[index]
-      if (srcCol.label === val)
-      {
-
-        srcCol.checked = (srcCol.checked==='true')?'false':'true';
-        srcCol.key
-        console.info(val + " changed to: " + srcCol.checked  + 'OrdId' + index +': ' +  (<HTMLInputElement>document.getElementById('OrdId'+index)).value )
-        break;
-      }
-    }
-}
 
 resetSettings()
 {
@@ -536,39 +426,62 @@ saveSettings(setting: string)
 
   var ind = 0;
 
-  console.info('Save: ' + this.form.controls.dispTransType.value + ", Display #: " + this.displayCheckBoxValues.length);
+  console.info('Save: ' + this.form.controls.dispTransType.value + ", Display #: " + this.usrSelectedDispCols.length);
 
-  for (var item of this.displayCheckBoxValues)
+  for (var item of this.usrSelectedDispCols)
   {
-    if (item.checked === 'true')
-    {
-       var dispOrd = Number((<HTMLInputElement>document.getElementById('OrdId'+ind)).value)
-       console.log('Save: ' + item.label +", order: " + dispOrd);
-       dispCol.displayColumns.push({  id: '1',
+     let key = ""
+    for (var col of this.allTransactionsFields)
+      {
+
+        if ( item === col.label)
+        {
+            key = col.key
+            break;
+        }
+      }
+
+
+       console.log('Save: ' + item +", order: " + ind +", key: " + key);
+       dispCol.displayColumns.push(
+        {  id: '1',
         TransactionCode: this.form.controls.dispTransType.value,
-        key:  item.key,
-        Order: dispOrd,
+        key:  key,
+        Order: ind,
         Setting: setting,
         DispType: 'Transactions',
-        Mode:this.form.controls.dispMode.value});
+        Mode:this.form.controls.dispMode.value}
+      );
 
-    }
+
     ind++;
   }
   console.log('Save Display: ' + dispCol.displayColumns.length);
 
-  for (var item of this.searchCheckBoxValues)
-  {
-    if (item.checked === 'true')
-    {
-       console.log('Save: ' + item.label);
-       srchCol.SearchColumns.push({  id: '1',
-        TransactionCode: this.form.controls.dispTransType.value,
-        key:  item.key,
-        Setting: setting,
-        Mode:this.form.controls.dispMode.value});
 
-    }
+
+  for (var item of this.usrSelectedSearchCols)
+  {
+    let key = ""
+    for (var col of this.allTransactionsFields)
+      {
+
+        if ( item === col.label)
+        {
+            key = col.key
+            break;
+        }
+      }
+       console.log('Search Save: ' + item +", key: " + key);
+       srchCol.SearchColumns.push(
+        {  id: '1',
+        TransactionCode: this.form.controls.dispTransType.value,
+        key:  key,
+        Setting: setting,
+        Mode:this.form.controls.dispMode.value}
+      );
+
+
   }
   console.log('Save Search: ' + srchCol.SearchColumns.length);
 
@@ -583,6 +496,7 @@ saveSettings(setting: string)
           console.info("Search TransactionService: " + res);
 
         });
+
 
 
 
@@ -661,6 +575,22 @@ toTransactions()
 
        );
   }
+
+  drop(event: CdkDragDrop<string[]>) {
+    console.log(event.previousIndex +", " + event.currentIndex)
+    if (event.previousContainer === event.container) {
+      moveItemInArray(event.container.data, event.previousIndex, event.currentIndex);
+    } else {
+      transferArrayItem(
+        event.previousContainer.data,
+        event.container.data,
+        event.previousIndex,
+        event.currentIndex,
+      );
+    }
+  }
+
+
 
 }
 

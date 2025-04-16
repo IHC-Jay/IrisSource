@@ -305,6 +305,8 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
 onContextMenuNew(item: Item) {
   console.log("Click on Action id: " + item.rowId);
+  sessionStorage.removeItem("currentTab")
+  sessionStorage.setItem("currentTab", "Transactions");
 
     this.searchTypeString = "";
     this.paramsList.forEach( val => {
@@ -335,6 +337,9 @@ onContextMenuNew(item: Item) {
 onContextMenuSame(item: Item) {
 
   this.searchTypeString = "";
+  sessionStorage.removeItem("currentTab")
+  sessionStorage.setItem("currentTab", "Transactions");
+
     this.paramsList.forEach( val => {
       this.searchTypeString += val +";";
       console.log(val);
