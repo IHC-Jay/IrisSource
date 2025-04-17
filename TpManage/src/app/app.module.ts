@@ -1,6 +1,6 @@
 // app.module.ts
 
-import { NgModule } from '@angular/core';
+import { NgModule, Component, inject } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { Routes, RouterModule } from '@angular/router';
 import { formatDate} from '@angular/common'
@@ -73,6 +73,8 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
 import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component';
 import { NgChartsModule } from 'ng2-charts';
 
+import { MatSnackBarModule } from '@angular/material/snack-bar';
+
 import {
   CdkDrag,
   CdkDropList,
@@ -140,6 +142,7 @@ import {
         MatTreeModule,
         CdkDrag,
         CdkDropList,
+        MatSnackBarModule,
         CdkDropListGroup], providers: [
         { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },

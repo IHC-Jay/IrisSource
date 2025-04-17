@@ -1,4 +1,4 @@
-import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, AfterViewInit, ViewChild, ElementRef, inject } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
 import { CdkDragDrop, moveItemInArray } from "@angular/cdk/drag-drop";
@@ -22,6 +22,8 @@ import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
 import {Link, tabLinks} from '../../header/Links';
+
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 
 import {
   CdkDrag,
@@ -97,7 +99,7 @@ searchTypeString:string = "";
 
   cngfTranType = "835"
   cngfMode = "Batch";
-
+  private _snackBar = inject(MatSnackBar);
 
   constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
@@ -495,6 +497,8 @@ saveSettings(setting: string)
 
           console.info("Search TransactionService: " + res);
 
+          this.openSnackBar('Search, Display', (setting === 'Default' ) ? 'Saved as ' + setting : 'Saved for ' + setting );
+
         });
 
 
@@ -541,7 +545,8 @@ saveConfig()
       sessionStorage.removeItem("currentTab");
       sessionStorage.setItem("currentTab", tabLinks[ind].name)
 
-
+      this.openSnackBar('Configuration', 'Saved' );
+     /**
       if (ind >= tabLinks.length)
       {
         ind = 3
@@ -553,6 +558,7 @@ saveConfig()
           'searchTypeString': this.searchTypeString }
           }
         );
+        **/
 
 
 
@@ -592,7 +598,13 @@ toTransactions()
 
 
 
-}
+  openSnackBar(message: string, action: string) {
+    this._snackBar.open(message, action, {duration:2000});
+  }
+
+
+
+  }
 
 
 
