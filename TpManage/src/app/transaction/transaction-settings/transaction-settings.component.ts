@@ -1,4 +1,4 @@
-import { Component, OnInit, AfterViewInit, ViewChild, ElementRef, inject } from '@angular/core';
+import { Component, OnInit, AfterViewInit, ViewChild, ElementRef, inject, model, signal } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
 import { CdkDragDrop, moveItemInArray } from "@angular/cdk/drag-drop";
@@ -23,6 +23,9 @@ import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
 import {Link, tabLinks} from '../../header/Links';
 
+import { ListConfirmDialogComponent } from '../../list-confirm-dialog/list-confirm-dialog.component';
+
+
 import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 
 import {
@@ -31,6 +34,16 @@ import {
   CdkDropListGroup,
   transferArrayItem,
 } from '@angular/cdk/drag-drop';
+
+import {
+  MAT_DIALOG_DATA,
+  MatDialog,
+  MatDialogActions,
+  MatDialogClose,
+  MatDialogContent,
+  MatDialogRef,
+  MatDialogTitle,
+} from '@angular/material/dialog';
 
 @Component({
   selector: 'app-transaction-settings',
@@ -599,12 +612,85 @@ toTransactions()
 
 
   openSnackBar(message: string, action: string) {
-    this._snackBar.open(message, action, {duration:2000});
+    this._snackBar.open(message, action, {duration:3000});
   }
 
 
+  readonly dialog = inject(MatDialog);
+
+  openDialog(): void {
+
+        try
+        {
+          let data = [];
+          data.push(this.currentTransType)
+
+          this.TransactionService.fetchUsersWithSettings().subscribe((res: any) => {
+            console.info("Users array : " + res.length);
+            if (res.length <= 0 )
+            {
+                console.log('No Users')
+            }
+            else
+            {
+              for(let ind = 0; ind < res.length; ind++)
+                {
+                  console.log(res[ind].UserName)
+                  data.push(res[ind].UserName);
+                }
+
+
+                  this.dialog
+                  .open(ListConfirmDialogComponent , {
+                    width: '600px',
+                    height: '300px',
+                    data:data
+                  })
+                  .afterClosed()
+                  .subscribe((confirm) => {
+                    if (confirm) {
+
+                            //alert(confirm.event + ': ' + confirm.data);
+                            if (confirm.event === 'Save')
+                            {
+
+                              this.TransactionService.saveUserSettings(confirm.data, this.currentTransType).subscribe((res: any) => {
+
+                                this.openSnackBar( res.Transaction + ' Settings from ' + res.From + " To " + res.To, "Display # "+ res.DisplayCount + ", Search # " + res.SearchCount + " " + confirm.event +"d. ");
+
+                              });
+
+
+                            }
+
+                            return;
+
+
+                }});
+
+
+
+
+            }
+          });
+
+
+
+
+
+
+        }
+        catch(e)
+        {
+          console.error('Exception: ' + e)
+        }
+
+
+
+
 
   }
 
+  }
 
 

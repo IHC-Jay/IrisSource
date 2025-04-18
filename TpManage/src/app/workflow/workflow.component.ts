@@ -118,7 +118,7 @@ export class WorkflowComponent implements OnInit {
     let wfItems = 0;
     let stDt = 30;
 
-    if (sessionStorage.getItem('WfTime') !== undefined)
+    if (sessionStorage.getItem('WfTime') !== undefined && sessionStorage.getItem('WfTime') !== null)
       {
 
         let stDtStr = sessionStorage.getItem('WfTime');

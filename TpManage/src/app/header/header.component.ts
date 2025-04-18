@@ -46,7 +46,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   public links:Link[] = tabLinks;
 
 
-  isLogin:boolean;
+  isLogin:boolean=false;
   collapsed = true;
 
   @ViewChild("username") focusField: ElementRef;
@@ -70,9 +70,14 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       console.log('**** HeaderComponent constructor ****');
 
       this.authenticationService.currentUser.subscribe(x => {
-        this.currentUser = x
-        this.isLogin = (x != null);
-        console.log("HeaderComponent: " + this.currentUser.username)
+          this.currentUser = x
+
+          if  (this.currentUser !== undefined && this.currentUser !== null)
+          {
+              console.log("HeaderComponent: " + this.currentUser.username);
+
+              this.isLogin = (x != null);
+          }
         }
         );
 
@@ -107,10 +112,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
               break;
             }
           }
-          if(tabInd >= this.links.length)
+          if(tabInd ==0 || tabInd >= this.links.length)
           {
-            console.log('queryParams returnUrl: ' + this.route.snapshot.queryParams['returnUrl'])
-            this.firstPage = this.route.snapshot.queryParams['returnUrl'] || '/login';
+            console.log('queryParams returnUrl is not set ' )
+            this.firstPage = '/login';
           }
 
         this.paramsObject = { ...params.keys, ...params };
@@ -214,108 +219,110 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       }
 
       this.loading = true;
+      if (this.f.username == undefined)
+      {
+        console.error('username is null')
+        return
+      }
       return this.authenticationService.login(this.f.username.value, this.f.password.value, this.f.env.value)
       .subscribe({
         next: (res) =>
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
+          this.isLogin = true;
 
           this.TransactionService.deleteDisplayColumns('Session','','').subscribe((res: any) => {
 
-            console.info("Delete Display: " + res);
-
-          });
-          this.TransactionService.deleteSearchColumns().subscribe((res: any) => {
-
-            console.info("Delete Search: " + res);
-
-          });
+              console.info("Delete Display: " + res);
 
 
+              this.TransactionService.deleteSearchColumns().subscribe((res: any) => {
 
-          this.isLogin = true;
-          this.submitted = true;
+                console.info("Delete Search: " + res);
+
+              });
 
 
 
-          this.TransactionService.fetchConfiguration().subscribe((res: any) => {
-            console.info("Configuration array : " + res.length);
-            if (res.length == 1)
-            {
-                console.log('Open Setting')
-                this.router.navigate([this.links[0].link]);
-                this.selectedLnkIndex.setValue(0);
-            }
-            else
-            {
-
-              for(let ind = 0; ind < res.length; ind++)
+              this.TransactionService.fetchConfiguration().subscribe((res: any) => {
+                console.info("Configuration array : " + res.length);
+                if (res.length == 1)
                 {
-                  if (res[ind].Key !== undefined)
-                  {
-                    sessionStorage.setItem(res[ind].Key, res[ind].Value);
-                    console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
-                  }
+                    console.log('Open Setting')
+                    this.router.navigate([this.links[0].link]);
+                    this.selectedLnkIndex.setValue(0);
+                }
+                else
+                {
 
-                  if(res[ind].Key === 'Page')
+                  for(let ind = 0; ind < res.length; ind++)
                     {
-                      for(let tabInd = 0; tabInd < this.links.length; tabInd++)
+                      if (res[ind].Key !== undefined)
+                      {
+                        sessionStorage.setItem(res[ind].Key, res[ind].Value);
+                        console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
+                      }
+
+                      if(res[ind].Key === 'Page')
                         {
-                          if(this.links[tabInd].name === res[ind].Value)
-                          {
-                            this.firstPage = this.links[tabInd].link;
-                            this.selectedLnkIndex.setValue(tabInd);
-                            console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
-                          }
+                          for(let tabInd = 0; tabInd < this.links.length; tabInd++)
+                            {
+                              if(this.links[tabInd].name === res[ind].Value)
+                              {
+                                this.firstPage = this.links[tabInd].link;
+                                this.selectedLnkIndex.setValue(tabInd);
+                                console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
+                              }
+                            }
                         }
+
+                    }
+                    if (sessionStorage.getItem('Logoff') !== undefined && sessionStorage.getItem('Logoff') !== null)
+                    {
+                        this.loginForm.controls.logoutTime.setValue(sessionStorage.getItem('Logoff'));
                     }
 
+
+
+                  this.getWFitems();
+
+                  if (this.firstPage.includes("transaction-details") )
+                  {
+                    console.log("navigate: /transaction/transaction-details/ -" + this.id);
+                    this.router.navigate(["/transaction/transaction-details/"],
+                    {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
+                    );
+                    this.selectedLnkIndex.setValue( 5)
+                  }
+                  else if (this.firstPage.includes("tp-add"))
+                  {
+                    console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
+                    this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
+                    {queryParams: { 'transaction': this.transaction} }
+                    );
+                    this.selectedLnkIndex.setValue( 1)
+                  }
+                  else{
+                    console.log('Navigate: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
+                    this.router.navigate([this.firstPage]);
+                  }
+
                 }
-                if (sessionStorage.getItem('Logoff') !== undefined)
-                {
-                    this.loginForm.controls.logoutTime.setValue(sessionStorage.getItem('Logoff'));
-                }
+
+                // Auto logout
+
+                this.check();
+                this.initListener();
+                this.initInterval();
+                console.log('Store in sessionStorage')
+                sessionStorage.setItem(STORE_KEY,Date.now().toString());
+                return;
+
+              });
+        });
 
 
-
-              this.getWFitems();
-
-              if (this.firstPage.includes("transaction-details") )
-              {
-                console.log("navigate: /transaction/transaction-details/ -" + this.id);
-                this.router.navigate(["/transaction/transaction-details/"],
-                {queryParams: { id:  this.id, 'transaction': this.transaction, 'search': ''} }
-                );
-                this.selectedLnkIndex.setValue( 5)
-              }
-              else if (this.firstPage.includes("tp-add"))
-              {
-                console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
-                this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
-                {queryParams: { 'transaction': this.transaction} }
-                );
-                this.selectedLnkIndex.setValue( 1)
-              }
-              else{
-                console.log('Navigate: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
-                this.router.navigate([this.firstPage]);
-              }
-
-            }
-
-            // Auto logout
-
-            this.check();
-            this.initListener();
-            this.initInterval();
-            console.log('Store in sessionStorage')
-            sessionStorage.setItem(STORE_KEY,Date.now().toString());
-
-          });
-
-
-          return;
-
+        this.submitted = true;
 
         },
         error: (e) => {
@@ -352,6 +359,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           let numItems = this.NumAssignedItems
 
             this.NumAssignedItems = 0;
+            sessionStorage.removeItem("currentTab")
+            sessionStorage.setItem("currentTab", this.links[event.index].name);
 
             this.router.navigate([this.links[event.index].link], {queryParams: { 'WFitems':  numItems}} );
 

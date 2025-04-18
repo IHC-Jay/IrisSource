@@ -30,6 +30,7 @@ import {UtilService} from './services/utilService';
 import { TradingPartnersComponent } from './tradingPartners/tradingPartners.component';
 import { copyTPComponent  } from './tradingPartners/copyTP.component';
 import { ConfirmDialogComponent } from './confirm-dialog/confirm-dialog.component';
+import { ListConfirmDialogComponent } from './list-confirm-dialog/list-confirm-dialog.component';
 import { MatInputModule } from '@angular/material/input';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatCheckboxModule } from '@angular/material/checkbox';
@@ -90,6 +91,7 @@ import {
         TradingPartnersComponent,
         copyTPComponent,
         ConfirmDialogComponent,
+        ListConfirmDialogComponent,
         TpIdComponent,
         tpLinksComponent,
         AddEditComponent,

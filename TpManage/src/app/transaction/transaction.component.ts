@@ -108,7 +108,7 @@ endDate ="13:30";
   staticSearchStr = "";
   additionalSearchStr = "";
   searchTypeString = "";
-  currentTransType = '';
+  currentTransType = '270';
   currentMode = '';
   sub:any;
   fileName:string="";
@@ -157,7 +157,8 @@ endDate ="13:30";
 
     let stDt = 30;
 
-    if (sessionStorage.getItem('TranType') !== undefined)
+
+    if (sessionStorage.getItem('TranType') !== undefined && sessionStorage.getItem('TranType') !== null)
     {
 
       this.currentTransType = sessionStorage.getItem('TranType');
@@ -241,6 +242,10 @@ endDate ="13:30";
               {
                 val = sessionStorage.getItem('TranType')
               }
+              if (val == "")
+                {
+                  val = '270'
+                }
 
 
             this.form.controls.transType.setValue(val)

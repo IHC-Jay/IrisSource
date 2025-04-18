@@ -155,7 +155,9 @@ endDate ="13:30";
     });
     let stDt = 30;
 
-    if (sessionStorage.getItem('TranType') !== undefined)
+    console.log('sessionStorage TranType: ' + sessionStorage.getItem('TranType'))
+
+    if (sessionStorage.getItem('TranType') !== undefined && sessionStorage.getItem('TranType') !== null)
     {
 
         this.currentTransType = sessionStorage.getItem('TranType');

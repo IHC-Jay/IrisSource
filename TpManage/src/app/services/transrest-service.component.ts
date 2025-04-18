@@ -1106,6 +1106,68 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   return url;
 }
 
+
+
+fetchUsersWithSettings() {
+
+  if(this.currentUser === '')
+  {
+    this.getCurrentUser()
+  }
+
+  let url = this.batchTransUrl + 'GetUsersWithSettings?userNm=' +  this.currentUser;
+
+  console.log('Fetch fetchUsersWithSettings from  ' + url);
+  return this.http2
+    .get<{ [key: string]: SearchColumns }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+
+        return responseData;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchUsersWithSettings catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
+saveUserSettings(copyUsrNm: string, trans:string )
+{
+
+  console.log('saveUserSettings ' +  this.currentUser);
+
+  let url = this. batchTransUrl + 'SaveUserSettings';
+
+  console.info('Post to saveUserSettings: ' + url );
+
+  return this.http.post<any>(url, {'FromUser': copyUsrNm, 'CurrentUser': this.currentUser, 'Transaction':trans} )
+  .pipe(
+    map(responseData => {
+      console.info(responseData);
+
+      return responseData;
+
+    }),
+    catchError(errorRes => {
+      // Send to analytics server
+      console.error('saveUserSettings catchError: ' + errorRes);
+      return errorRes;
+    })
+  );
+
+}
+
 }
 
 
