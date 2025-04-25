@@ -87,6 +87,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	
 	#dim source As EnsLib.EDI.X12.Document
 	$$$TRACE("ProcessStreamContainer " _ streamContainer.OriginalFilename _" - Stream size: " _ streamContainer.Stream.Size)
+	Do streamContainer.Stream.Rewind()
 	if (receiptDtTm = "")
 	{
 		set mId = streamContainer.%Id()
@@ -105,7 +106,8 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	}
 	else
 	{
-		$$$LOGERROR("ImportFromLibraryStream failed " _ tSC)
+		$$$LOGERROR("ImportFromLibraryStream failed " _ tSC _", EnsLib.EDI.X12.Document: " _ source )
+		return "0"
 	}
 ]]></Implementation>
 </Method>
@@ -133,16 +135,21 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 
 <Method name="ProcessX12String">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>x12Data:%String,fileName:%String=""</FormalSpec>
+<FormalSpec>x12Data:%String,fileName:%String="",stat:%String="Processed",receiptDtTm:%DateTime="",direction:%String="Inbound"</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	#dim source As EnsLib.EDI.X12.Document
+	if ($L(x12Data) > 100)
+	{
 
-	 set source = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
-	 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
-	 {
-		 return ..ProcessX12Doc(source, fileName)
-	 }
+	 	set source = ##class(EnsLib.EDI.X12.Document).ImportFromString(x12Data)
+	 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	 	{
+		 	return ..ProcessX12Doc(source, fileName, stat, receiptDtTm, direction)
+	 	}
+	}
+	
+	return ""
 ]]></Implementation>
 </Method>
 
@@ -162,7 +169,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		  if (x12Doc.ChildCount = 0)
 		  {
 			  //TA1
-			  Do ..ProcessTA1(x12Doc, "TA1", fileName, stat, receiptDtTm, direction)
+			  return ..ProcessTA1(x12Doc, "TA1", fileName, stat, receiptDtTm, direction)
 			  QUIT
 		  }
 		  
@@ -455,7 +462,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <Implementation><![CDATA[
 	set elObj = ##class(IHC.X12.Data837).%New()
 	#dim elObjSub As IHC.X12.Data837;
-	set elObjProv = $$$NULLOREF // 20, 2000A		   
+			   
 	set elObjSub = $$$NULLOREF // 22, 2000B
 		  
 	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm, direction ) 
@@ -527,6 +534,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					  		Do elObjSub.%Save()
 					  		Do $INCREMENT(objCnt)
 					  		WRITE !, "CLM IHC.X12.Data837 ID: " _ elObjSub.%Id()
+					  		set elObjSub = elObj.%ConstructClone()
 					  					  		
 					  	}
 				  	}
@@ -564,7 +572,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				  	}
 				  	elseif ($PIECE(segVal, x12Doc.ElementSeparator , 2) = "EI")
 				  	{					  	
-					  	set elObjProv.BillingProviderTaxId = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
+					  	set elObjSub.BillingProviderTaxId = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
 				  	}
 			  	}
 			  	elseif ($FIND(segVal,"DTP") = 4)
@@ -612,8 +620,8 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				  	}
 				  	if (seg1Val = "85")
 				  	{
-					  	set elObjProv.BillingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
-					  	set elObjProv.BillingProviderNpi = $PIECE(segVal, x12Doc.ElementSeparator , 10) 
+					  	set elObj.BillingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	set elObj.BillingProviderNpi = $PIECE(segVal, x12Doc.ElementSeparator , 10) 
 				  	}
 				  	
 				  	if (seg1Val = "PR")
@@ -680,6 +688,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				  	set newSub = 0, newClm = 0
 				  	Do $INCREMENT(objCnt)
 				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elObjSub.%Id() _", Parent: " _ parentId
+				  	set elObjSub = elObj.%ConstructClone()
 				  	
 			  	}
 			  	
@@ -714,8 +723,9 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					  		Do elObjSub.%Save()
 					  		Do $INCREMENT(objCnt)
 					  		WRITE !, "SUB IHC.X12.Data837 ID: " _ elObjSub.%Id()
+					  		set elObjSub = elObj.%ConstructClone()
 					  	}
-					  	set elObjSub = elObjProv.%ConstructClone()
+					  	set elObjSub = elObj.%ConstructClone()
 					  	set newSub = 1, newClm = 0
 					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
 				  					  		
@@ -736,10 +746,9 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 						  
 
 						  set elObjSub = $$$NULLOREF
-						  set elObjProv = $$$NULLOREF
-						  set elObjProv = elObj.%ConstructClone()
+						  set elObjSub = elObj.%ConstructClone()
 						  set newSub = 0, newClm = 0
-						  set elObjProv.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
 			  		}
 			  	}
 			  	
@@ -1070,6 +1079,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				  		Do elObjSub.%Save()
 				  		Do $INCREMENT(objCnt)
 				  		WRITE !, "IHC.X12.Data271 ID: " _ elObjSub.%Id()
+				  		set elObjSub = elObj.%ConstructClone()
 				  					  		
 				  	}
 				  	elseif( (elObj.Payer '= "") && (elObj.Provider '= ""))
@@ -1081,6 +1091,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 						  set elObjSub.x12Data = ""
 						  Do elObjSub.x12DataStream.Clear()
 						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+						  set elObjSub = elObj.%ConstructClone()
 			  		}
 				  				  		  	
 
@@ -1950,29 +1961,73 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime,direction</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-	set elObj = ##class(IHC.X12.DataTA1).%New()
-			  
-	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm, direction )
+	set ta1Obj = ##class(IHC.X12.DataTA1).%New()
+	WRITE !, "	ProcessTA1 " _ transType	  
+	
 	if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
 	{
 			WRITE !, "Create global: X12Data" _ transType
 		 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
 	}
-	set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
-			  
-			  
-	for seg=1:1:x12Doc.SegCount{
+	set ta1Obj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+	if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+    {
+		 if (x12Doc.DocType = "")
+		 {
+
+	    		set x12Doc.DocType =  "HIPAA_5010:Interchange"  
+	    
+				Set tSC =x12Doc.BuildMap()
+		 }
+	    
+	    set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	    set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	    set InterchangeCtrlNum = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlNumber"),"<","0")
+	    
+	   WRITE !, "TA1: " _ InterchangeSenderID _" -> " _ InterchangeReceiverID _", Ctrl #" _InterchangeCtrlNum 
+	   
+	   set x12Doc.DocType = "HIPAA_5010:Interchange:Group" 
+       
+       set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+       
+			  	  
+	   for seg=1:1:x12Doc.SegCount
+	   {
 		if (x12Doc.GetSegmentAt(seg).Name = "TA1")
 		{
-		 	set elObj.ControlNumber = x12Doc.GetSegmentAt(seg).GetValueAt(1) 
-		 	set elObj.AcknowledgeCode = x12Doc.GetSegmentAt(seg).GetValueAt(4) 
-		 	set elObj.NoteCode = x12Doc.GetSegmentAt(seg).GetValueAt(5)
-		 	set elObj.Status = "Processed"
-		 	set stat = elObj.%Save()
-		 	$$$TRACE("TA1 ID: " _ elObj.%Id() _ ", stat:" _ stat)
+			set ta1Obj.FileName = ##class(%File).GetFilename(fileName)
+			  set ta1Obj.MonthPartition = mmId
+			  
+			  set ta1Obj.InterchangeControlNumber = InterchangeCtrlNum
+			  set ta1Obj.InterchangeDateTime = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeDate"), "<>W") _ $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeTime"), "<>W")
+			  set ta1Obj.InterchangeReceiverID = InterchangeReceiverID
+			  set ta1Obj.InterchangeReceiverName = ..GetTpName(InterchangeReceiverID)
+			  set ta1Obj.InterchangeSenderID = InterchangeSenderID
+	  
+		 	set ta1Obj.ControlNumber = x12Doc.GetSegmentAt(seg).GetValueAt(1) 
+		 	set ta1Obj.AcknowledgeCode = x12Doc.GetSegmentAt(seg).GetValueAt(4) 
+		 	set ta1Obj.NoteCode = x12Doc.GetSegmentAt(seg).GetValueAt(5)
+		 	set ta1Obj.Status = "Processed"
+		 	
+		 	set ta1Obj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+			  set ta1Obj.ReceiptDtTm = receiptDtTm
+				  
+				  
+			 
+			      set ta1Obj.x12Data = x12Doc.OutputToString(,.stat,)
+			      if (stat '= 1)
+			      {
+				      WRITE !, " --- The length of the document is greater than the maximum string length ---"
+			      }
+			 
+		 	
+		 	set stat = ta1Obj.%Save()
+		 	$$$TRACE("TA1 ID: " _ ta1Obj.%Id() _ ", stat:" _ stat)
+		 	WRITE !, "TA1 ID: " _ ta1Obj.%Id() _ ", stat:" _ stat
 		 }
-	}
-	return elObj.%Id()
+	   }
+    }
+	return ta1Obj.%Id()
 ]]></Implementation>
 </Method>
 
