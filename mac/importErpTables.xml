@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Routine name="importErpTables" type="MAC" languagemode="0"><![CDATA[
+#include Ensemble
+ // Run ErpExport.mac in DEV, 
+ // Copy the files to /itf-share/itf-tmp/Erp-TpManage
+ WRITE !, $NAMESPACE _" / " _ $SYSTEM
+ 
+  /*** done inside th code
+  &SQL(DELETE IHC_ERP_TPManage.TransactionType)
+  &SQL(DELETE IHC_ERP_TPManage.TradeLink)
+  	
+  &SQL(DELETE IHC_ERP_TPManage.TpId)
+	
+  &SQL(DELETE IHC_ERP_TPManage.TradingPartner)
+  ***/
+
+  set direc = "/home/lpjnaras/" // "/itf-share/itf-tmp/Erp-TpManage/"
+  
+  set tbls = $LISTBUILD(
+   "TransactionType",
+   "TradingPartner",
+   "TpId",
+   "TradeLink")
+   
+    // set TpList = ##class(%Library.ListOfDataTypes).%New()
+    set TpIdList = ##class(%Library.ListOfDataTypes).%New()
+    set OrigTpIdList = ##class(%Library.ListOfDataTypes).%New()
+    
+    set OrigTpIdIdList = ##class(%Library.ListOfDataTypes).%New()
+    set TpIdIdList = ##class(%Library.ListOfDataTypes).%New()
+    
+    set OrigTypeIdList = ##class(%Library.ListOfDataTypes).%New()
+    set TypeIdList = ##class(%Library.ListOfDataTypes).%New()
+
+	// Delete rows from all tables
+    FOR tblInd=$LISTLENGTH(tbls):-1:1
+    {
+	    set tableName = $LIST(tbls,tblInd)
+	    set sqlStr = "DELETE IHC_ERP_TPManage." _ tableName
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+		 if ( (rs.%SQLCODE '= 0) && (rs.%SQLCODE '= 100) ) {
+			 write !,  tableName _ " Delete Execute failed: " _ rs.%SQLCODE
+		 	QUIT
+		 }
+		 else
+		 {
+			 WRITE !, sqlStr _ ": " _ rs.%ROWCOUNT
+		 }
+    }
+  FOR tblInd=1:1:$LISTLENGTH(tbls) 
+  {			
+    set tableName = $LIST(tbls,tblInd)			 
+  	set flNm = direc _  "B2B_" _ tableName _".csv" 
+  	set insertTbl = "TradingPartners"
+ 
+ 	WRITE !, "Process: " _ flNm
+	 if (##class(%File).Exists(flNm))
+	 {
+	    
+		 set fileObj = ##class(%File).%New(flNm)
+		 
+		 set status = fileObj.Open("R")
+		 set numRecs = -1, numLinks = 0, numTps = 0, origId = 0
+		 #dim rs As %SQL.StatementResult
+		 while 'fileObj.AtEnd {
+			 set text = ""
+			 set text = fileObj.ReadLine(,.sc, .eol)
+			 if $$$ISERR(sc) 
+			 {
+				 WRITE !, "End of File: " _sc _ ", " _ eol
+				 QUIT
+			 }
+			 else
+			 {
+				 if (eol)
+				 {
+					 WRITE !, "EOL"
+					 QUIT
+				 }
+				 if ($L(text) <= 0)
+				 {
+				   continue
+				 }
+				 set rowList = $LISTBUILD()
+				 if (numRecs = -1) // Column names
+				 {
+					 set colList = $LISTFROMSTRING(text, "#$#")
+					 WRITE "List length: ",$LISTLENGTH(colList),!
+					 FOR i=1:1: ($LISTLENGTH(colList)-1) {
+	      				WRITE "Col ",i,": ",$LIST(colList,i) ,"; "
+					 }
+					 WRITE !
+					 
+				 }
+				 else
+				 {
+					 set rowList = $LISTFROMSTRING(text, "#$#")
+					 set sqlColStr = ""
+					 set sqlValStr = "", tpName = ""
+					 
+					 FOR i=1:1:($LISTLENGTH(colList)-1) 
+					 {
+		   				set colNm = $LIST(colList,i) // Column name
+		   				set val = $LIST(rowList,i)  // Value for the column
+		   				if (tableName = "TransactionType")
+						{
+							if (colNm '= "ID") 
+		      				{
+			      				if (val '="") 
+			      				{				      				
+				      				if (sqlColStr ="")
+				      				{
+					      				set sqlColStr = "INSERT INTO IHC_ERP_TPManage." _ tableName _"(" _ colNm 
+							 			set sqlValStr = " VALUES ('" _ val_"'"
+
+				      				}
+				      				else
+				      				{
+				      					set sqlColStr = sqlColStr _", " _ colNm 
+				      					set sqlValStr = sqlValStr _", '" _ val _"'"
+				      				}
+			      				}
+		      				}
+		      				else
+		      				{
+							 set origId = val
+		      				} 
+						}
+	      				elseif (tableName = "TradingPartner")
+	      				{ 
+		      				if (colNm '= "ID") 
+		      				{
+			      				if (val '="") 
+			      				{
+				      				if (colNm = "Name")
+				      				{
+					      				set tpName = val
+				      				}
+				      				if (sqlColStr ="")
+				      				{
+					      				set sqlColStr = "INSERT INTO IHC_ERP_TPManage." _ tableName _"(" _ colNm 
+							 			set sqlValStr = " VALUES ('" _ val_"'"
+
+				      				}
+				      				else
+				      				{
+				      					set sqlColStr = sqlColStr _", " _ colNm 
+				      					set sqlValStr = sqlValStr _", '" _ val _"'"
+				      				}
+			      				}
+			      				
+		      				}
+		      				else
+			      			{
+				      			set origId = val
+			      			}
+	      				}
+	      				elseif (tableName = "TpId")
+	      				{
+		      				if (colNm = "TPFK") 
+		      				{
+			      				set tpIdINd = OrigTpIdList.Find(val)
+			      				if (tpIdINd > 0)
+			      				{
+			      					// WRITE !, val _ " --- TP ID: " _ tpIdINd _", " _ TpIdList.GetAt(tpIdINd)
+				      				set sqlColStr = "INSERT INTO IHC_ERP_TPManage." _ tableName _"(" _ colNm 
+						 			set sqlValStr = " VALUES ('" _ TpIdList.GetAt(tpIdINd) _"'"
+			      				}
+			      				else
+			      				{
+				      				WRITE !, "---- Can not find ID for TpId: " _ val
+			      				}
+		      				}
+		      				else {	
+			      					if ( (colNm '= "ID") && (colNm '= "childsub") )
+				      				{
+					      				if (val '="") 
+					      				{
+						      					set sqlColStr = sqlColStr _", " _ colNm 
+						      					set sqlValStr = sqlValStr _", '" _ val _"'"
+						      			}
+					      				
+				      				}
+				      				elseif (colNm = "ID")
+					      			{
+						      			set origId = val
+					      			}
+
+		      				}
+	      				}
+	      				elseif (tableName = "TradeLink")
+	      				{
+		      				if ( (colNm [ "SenderId") || (colNm [ "ReceiverId") )
+		      				{
+			      				if (val '="") 
+					      		{
+				      				set tpIdINd = OrigTpIdIdList.Find(val)
+				      				if (tpIdINd > 0)
+				      				{
+				      					// WRITE !, val _ " --- TP ID: " _ tpIdINd _", " _ TpIdIdList.GetAt(tpIdINd)
+					      				set sqlColStr = sqlColStr _", "  _ colNm 
+							 			set sqlValStr = sqlValStr _", '"  _ TpIdIdList.GetAt(tpIdINd) _"'"
+
+				      				}
+				      				else
+				      				{
+					      				WRITE !, "---- Can not find ID for " _ colNm _": " _ val
+				      				}
+					      		}
+		      				}
+		      				elseif (colNm = "TransactionType")
+		      				{
+			      				set tpIdINd = OrigTypeIdList.Find(val)
+			      				if (tpIdINd > 0)
+			      				{
+			      					// WRITE !, val _ " --- TP ID: " _ tpIdINd _", " _ TypeIdList.GetAt(tpIdINd)
+				      				set sqlColStr = sqlColStr _", "  _ colNm 
+						 			set sqlValStr = sqlValStr _", '"  _ TypeIdList.GetAt(tpIdINd) _"'"
+
+			      				}
+			      				else
+			      				{
+				      				WRITE !, "---- Can not find ID for TransactionType: " _ val
+			      				}
+		      				}
+		      				elseif (colNm '= "ID") 
+		      				{
+			      				if (val '="") 
+			      				{
+				      				if (colNm = "Name")
+				      				{
+					      				set tpName = val
+				      				}
+				      				if (sqlColStr ="")
+				      				{
+					      				set sqlColStr = "INSERT INTO IHC_ERP_TPManage." _ tableName _"(" _ colNm 
+							 			set sqlValStr = " VALUES ('" _ val_"'"
+
+				      				}
+				      				else
+				      				{
+				      					set sqlColStr = sqlColStr _", " _ colNm 
+				      					set sqlValStr = sqlValStr _", '" _ val _"'"
+				      				}
+			      				}
+			      				
+		      				}
+	      				}
+	      				
+					 }
+					 if (sqlColStr '= "")
+					 {
+						 set sqlStr = sqlColStr _")" _sqlValStr _")"
+						 WRITE !, sqlStr
+						 Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+						 if (rs.%SQLCODE '= 0) {
+							 write !,  tableName _ " %Execute failed: " _ sqlStr
+						 	do rs.%Display()
+						 	QUIT
+						 }
+						 else
+						 {
+							 if (tableName = "TradingPartner")
+							 {
+								// Do TpList.Insert(tpName )
+								Do TpIdList.Insert(rs.%ROWID)
+								Do OrigTpIdList.Insert(origId)  
+							 }
+							 elseif (tableName = "TpId")
+							 {
+								 Do TpIdIdList.Insert(rs.%ROWID) 
+								 Do OrigTpIdIdList.Insert(origId)
+							 }
+							 elseif (tableName = "TransactionType")
+							 {
+								 Do TypeIdList.Insert(rs.%ROWID) 
+								 Do OrigTypeIdList.Insert(origId)
+							 }
+							 
+						 }
+					 }
+					 
+  
+				 }
+				 set numRecs = numRecs + 1 				 
+			 }
+		 }
+		 WRITE !, "Num of rows: " _ numRecs
+		 /*
+		 if (tableName = "TradingPartner")
+		 {
+		 	for id=1:1:TpList.Count()
+	    	{
+	    		     
+			 	WRITE !, TpList.GetAt(id) _": " _ TpIdList.GetAt(id) _": " _ OrigTpIdList.GetAt(id)
+	    	}
+		 }
+		 */
+	 }
+    }
+]]></Routine>
+</Export>
