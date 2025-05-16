@@ -67,7 +67,7 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
   logoutTime = ["15", "30", "60", "120"]
 
-  searchTime = ["Last 1 day", "Last 7 days", "Last 30 days"];
+  searchTime = ["Last 1 day", "Last 7 days", "Last 30 days", "Last 90 days", "Last 365 days",];
 
   landingPage = ["Trading Partners", "Dashboard", "Batches", "Transactions", "Work Flow"];
 
@@ -422,11 +422,13 @@ ngAfterViewInit()
 
 resetSettings()
 {
-  this.TransactionService.deleteDisplayColumns('Default',  this.form.controls.dispMode.value,  this.form.controls.dispTransType.value).subscribe((res: any) => {
 
-    console.info("Delete Display: " + res);
+   this.TransactionService.saveUserSettings('All', this.form.controls.dispTransType.value, this.modeString).subscribe((res: any) => {
 
-  });
+         this.openSnackBar(this.form.controls.dispTransType.value +", " + this.modeString, "Default Settings copied. Display # "+ res.DisplayCount + ", Search # " + res.SearchCount);
+
+   });
+
 }
 
 saveSettings(setting: string)
@@ -654,7 +656,7 @@ toTransactions()
                             if (confirm.event === 'Save')
                             {
 
-                              this.TransactionService.saveUserSettings(confirm.data, this.currentTransType).subscribe((res: any) => {
+                              this.TransactionService.saveUserSettings(confirm.data, this.currentTransType, '').subscribe((res: any) => {
 
                                 this.openSnackBar( res.Transaction + ' Settings from ' + res.From + " To " + res.To, "Display # "+ res.DisplayCount + ", Search # " + res.SearchCount + " " + confirm.event +"d. ");
 

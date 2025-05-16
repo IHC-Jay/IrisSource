@@ -1142,16 +1142,16 @@ fetchUsersWithSettings() {
 
 }
 
-saveUserSettings(copyUsrNm: string, trans:string )
+saveUserSettings(copyUsrNm: string, trans:string, mode:string )
 {
 
-  console.log('saveUserSettings ' +  this.currentUser);
+  console.log('saveUserSettings ' +  this.currentUser +", Trans: " + trans +", Mode: " + mode);
 
   let url = this. batchTransUrl + 'SaveUserSettings';
 
   console.info('Post to saveUserSettings: ' + url );
 
-  return this.http.post<any>(url, {'FromUser': copyUsrNm, 'CurrentUser': this.currentUser, 'Transaction':trans} )
+  return this.http.post<any>(url, {'FromUser': copyUsrNm, 'CurrentUser': this.currentUser, 'Transaction':trans, 'Mode':mode} )
   .pipe(
     map(responseData => {
       console.info(responseData);
