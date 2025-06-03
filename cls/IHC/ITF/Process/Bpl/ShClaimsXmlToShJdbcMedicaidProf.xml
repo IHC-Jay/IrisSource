@@ -218,23 +218,19 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='subStreamList' type='%ListOfDataTypes' instantiate='1' />
-<property name='subInd' type='%Integer' instantiate='0' />
-<property name='sameProvider' type='%Boolean' initialexpression='0' instantiate='0' >
-<annotation><![CDATA[Not same provider, used when data is split at subscriber level]]]]><![CDATA[></annotation>
-</property>
-<property name='subIndex' type='%Integer' initialexpression='1' instantiate='0' />
+
 <property name='schedId' type='%String' initialexpression='""' instantiate='0' />
 <property name='fileName' type='%String' initialexpression='""' instantiate='0' />
 <property name='numSuccessBatchCounts' type='%String' initialexpression='"0"' instantiate='0' />
 <property name='numErrBatchCounts' type='%String' initialexpression='"0"' instantiate='0' />
-<property name='totalBatchCounts' type='%String' initialexpression='"0"' instantiate='0' />
 <property name='startDate' type='%String' initialexpression='""' instantiate='0' />
 <property name='endDate' type='%String' initialexpression='""' instantiate='0' />
 <property name='returnCode' type='%String' initialexpression='""' instantiate='0' />
 <property name='returnDesc' type='%String' initialexpression='""' instantiate='0' />
 <property name='errMsg' type='%String' initialexpression='""' instantiate='0' />
 <property name='xmlDoc' type='SH.Medicaid.Prof.MedicaidProfessionalFile' instantiate='1' />
+
+<property name='isXmlResponse' type='%String' initialexpression='"3"' instantiate='0' />
 </context>
 <sequence xend='200' yend='1850' >
 <scope xpos='200' ypos='250' xend='200' yend='1750' >
@@ -359,7 +355,7 @@ BPL Definition</Description>
 <if condition='(context.batchCount&gt;0)' xpos='200' ypos='950' xend='200' yend='1500' >
 <true>
 <assign property="context.batchNum" value="0" action="set" xpos='335' ypos='1100' />
-<assign property="isXmlResponse" value="&quot;3&quot;" action="set" xpos='335' ypos='1200' />
+<assign property="context.isXmlResponse" value="&quot;3&quot;" action="set" xpos='335' ypos='1200' />
 <while condition='context.batchNum &lt; context.batchCount' xpos='335' ypos='1300' xend='200' yend='1000' >
 <code name='CallClaimMedicaidGenXml' xpos='200' ypos='250' >
 <![CDATA[ 
@@ -397,11 +393,18 @@ BPL Definition</Description>
 					set className = "SH.Medicaid.Prof.MedicaidProfessionalFile"
 					Do tReader.Correlate(elementName,className)
 					set tCount = 0
-					While tReader.Next(.tRequest,.tSC) {
+					While tReader.Next(.tRequest,.sc) {
 						Set tCount=tCount+1
-						set context.xmlDoc = tRequest			
+						set context.xmlDoc = tRequest
+						$$$TRACE(" sc status :"_sc)						
 					}
-					set isXmlResponse= "1"
+					$$$TRACE(" sc status(1) :"_sc)	
+					If $$$ISERR(sc){
+						Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Unable to create XML objects "_sc)   			 
+					}
+					set context.isXmlResponse= "1"
+					$$$TRACE(" isXmlResponse: "_context.isXmlResponse)
+					
 				}
 	  		}else{
 		  		set returnDesc = "Failed to get XML file from Oracle SP call. Skipping the trigger file request.."
@@ -420,17 +423,19 @@ BPL Definition</Description>
   			set fileReqObj.DestinationFilePath= context.errorFilePath
   			set fileReqObj.DestinationFileName = fileName
   			set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,fileReqObj)  			
-  			set updStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidProf).ClaimStatusUpdate("15",context.guId,context.schedId,context.batchNum+1,fileName,.process)		
-	 		set retDesc = "Error while calling the SP -- SHSP_MEDICAID_JOB_STS_UPD, Failed to update the claim status of 837P. BatchCount: ["_context.batchNum+1_"]. "_errText	
-	 		set context.errMsg = context.errMsg_retDesc
-		 	set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidProf).createAndSendResponse("8",retDesc,context.schedId, context.errorFilePath,.process)		
+  			//set updStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidProf).ClaimStatusUpdate(0,context.guId,context.schedId,context.batchNum+1,fileName,.process)		
+	 		//set retDesc = "Error while calling the SP -- SHSP_MEDICAID_JOB_STS_UPD, Failed to update the claim status of 837P. BatchCount: ["_context.batchNum+1_"]. "_errText	
+	 		//set context.errMsg = context.errMsg_retDesc
+		 	//set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidProf).createAndSendResponse("8",retDesc,context.schedId, context.errorFilePath,.process)		
 	 		set context.numErrBatchCounts =  context.numErrBatchCounts +1
-	 		set context.batchNum = context.batchNum + 1
+	 		set context.isXmlResponse = "3"
+	 		$$$TRACE( " isXmlResponse : "_context.isXmlResponse)
+	 		set context.batchNum = context.batchNum + 1	 
 	  	}
 			
 	]]]]><![CDATA[>
 </code>
-<if condition='(isXmlResponse="1")' xpos='200' ypos='350' xend='200' yend='900' >
+<if condition='(context.isXmlResponse="1")' xpos='200' ypos='350' xend='200' yend='900' >
 <true>
 <transform name='Transform' class='IHC.ITF.Transform.Dtl.ShClaimsXmlToShJdbcMedicaidProf' source='context.xmlDoc' target='response' xpos='200' ypos='500' >
 <annotation><![CDATA[Translates Medicaid Claims To X12]]]]><![CDATA[></annotation>
@@ -468,10 +473,10 @@ BPL Definition</Description>
     set processBatchCounts = context.numSuccessBatchCounts+context.numErrBatchCounts
     if (processBatchCounts = context.numSuccessBatchCounts){
 	    set context.returnCode = "0"
-		set context.returnDesc = "Medicaid837p Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ context.totalBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts
+		set context.returnDesc = "Medicaid837p Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ processBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts
 	}else{
 		set context.returnCode = "2"
-		set context.returnDesc = "Medicaid837p Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ context.totalBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts_" Error:"_context.errMsg
+		set context.returnDesc = "Medicaid837p Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ processBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts_" Error:"_context.errMsg
 	}
 	$$$TRACE( context.returnDesc )
 	
