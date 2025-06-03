@@ -5906,7 +5906,7 @@ class TransactionComponent {
   }
   ngOnInit() {
     this.startDate = new Date(new Date().getTime() - 24 * 60 * 60 * 1000);
-    console.info("ngOnInit " + this.startDate);
+    console.info("ngOnInit with  tradingPartner: " + this.startDate);
     let queryParams = 0;
     this.form = this.formBuilder.group({
       rowCnt: ['', _angular_forms__WEBPACK_IMPORTED_MODULE_4__.Validators.required],
@@ -6069,7 +6069,7 @@ class TransactionComponent {
       this.dataSource.data = res;
       this.canRenderDetails = true;
       this.dataSource.sort = this.sort;
-      console.info("Data rows array: " + this.dataSource.data.length);
+      console.info("Data rows with sorted array: " + this.dataSource.data.length);
       this.loading = false;
       this.setControls();
     });
