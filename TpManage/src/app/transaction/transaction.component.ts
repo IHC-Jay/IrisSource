@@ -817,7 +817,7 @@ transactionChange(evt: any)
 
       if ( col.transactionCode === this.form.controls.transType.value)
       {
-          // console.info(col.transactionCode + " PUSH " + col.key)
+          console.info(col.transactionCode + " PUSH " + col.key)
 
           tempArr.push({item_id:col.key, item_text:col.label});
           tempArr2.push({item_id:col.key, item_text:col.label});

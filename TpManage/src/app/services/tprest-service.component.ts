@@ -83,6 +83,10 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
     {
       this.tpUrl = `${environment.tpQaUrl}` ;
     }
+    else if( env == 'UAT')
+    {
+      this.tpUrl = `${environment.tpUatUrl}` ;
+    }
 
     url = this.tpUrl + 'ping';
 
@@ -153,7 +157,7 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
     }
 
     fetchTPIDs(tpName: String) {
-      console.log('Fetch Class: ' + tpName);
+      console.log('Fetch TPIDs: ' + tpName);
 
       let url = '';
 

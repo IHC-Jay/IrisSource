@@ -64,6 +64,11 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
     this.rtTransUrl = `${environment.rtQaTransUrl}`;
     this.batchTransUrl = `${environment.batchQaTransUrl}`;
   }
+  else if(env == 'UAT')
+  {
+    this.rtTransUrl = `${environment.rtUatTransUrl}`;
+    this.batchTransUrl = `${environment.batchUatTransUrl}`;
+  }
 }
 
 updateWFitems(items:any)
