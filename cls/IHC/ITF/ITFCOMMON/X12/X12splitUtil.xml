@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.X12.X12splitUtil">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>67368,42962.584510972</TimeCreated>
+
+<Method name="TraverseGlobal">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[idHL:%Integer,segSep:%String,eleSep:%String,&ctrlNum:%Integer,incVal:%Integer,x12Stream:%Stream.GlobalCharacter]]></FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	// WRITE !, "  Print SEGMENTS for ID: " _ idHL 
+	set segNum = 1
+	if (idHL >= 0)
+	{
+		Set node = $Query(^segments(idHL))
+		 While (node '= "") {
+			 
+			 // Get indexes from the global - ^segments(0,-1,1)
+			 set nodeStr = $PIECE(node, ",", 1)
+			 set id = $EXTRACT(nodeStr, $FIND(nodeStr, "("), *)
+			 set parentId = $PIECE(node, ",", 2)
+			 set nodeStr = $PIECE(node, ",", 3)
+			 set ind = $EXTRACT(nodeStr, 1, $FIND(nodeStr, ")")-2)
+			 if ($FIND(@node,"ST") = 3) 
+		     {
+		        set ctrlNum = $PIECE(@node, eleSep, 3) + incVal 
+		        
+		        set $PIECE(@node, eleSep, 3) = $tr($j(ctrlNum,4)," ","0") 
+		     	// Write !, "   " _ node _" = " _ @node _", Parent: " _ parentId _", Index: " _ ind _", id: " _ id _ " '= ID: " _ idHL _", Ctrl: " _ ctrlNum 		     	
+		     }
+		     if ( (parentId '= -1) && (parentId '= idHL) && (ind = "1") && (idHL > parentId))
+		     {
+		     	set segNum = ..TraverseGlobal(parentId, segSep,  eleSep, .ctrlNum, incVal, x12Stream)	     	
+		     }
+		     if (id > idHL)
+		     {		
+		     	 	     
+			     return segNum 
+		     }
+		     	     
+		     // WRITE !,  @node _ segSep _", Parent: " _ parentId _", Index: " _ ind _", id: " _ id _ " '= ID: " _ idHL _", " _ node
+		     Do x12Stream.Write(@node _ segSep)
+		     Do $INCREMENT(segNum)
+		     
+
+		     // get next node
+		     Set node = $Query(@node)
+		 }
+		 // WRITE !, "SE" _ eleSep _ segNum _ eleSep _ (ctrlNum - 1) _ segSep
+	}
+	
+	return segNum
+]]></Implementation>
+</Method>
+
+<Method name="SplitX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,x12Stream:%Stream.GlobalCharacter</FormalSpec>
+<Implementation><![CDATA[
+	if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 $$$TRACE( "SplitX12: Process X12: " _ x12Doc.FullSize  _", Separators: " _ x12Doc.Separators)
+		 set segSep = $EXTRACT(x12Doc.Separators, 4)
+		 set eleSep = $EXTRACT(x12Doc.Separators, 1, 1)
+	 }
+	 else
+	 {
+		 WRITE !, "Not a valid X12 Document"
+		 QUIT
+	 }
+	 if (x12Doc.DocType = "")
+	 {
+ 		set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+	 }
+	  Set tSC =x12Doc.BuildMap()
+	  if ($$$ISERR( tSC ))
+	  {
+		  $$$TRACE("Invalid DocType")
+		  QUIT
+	  }
+	  set GSCounter = x12Doc.ChildCount 
+	  WRITE !, " ISA Child count:" _ GSCounter _", Seg #" _ x12Doc.SegCount
+	  
+	 	
+    //ISA	  
+	set segPath = x12Doc.GetSegmentPath(1, .stat)	  	
+  	set segVal = x12Doc.GetValueAt(segPath,, .stat)
+  	Do x12Stream.Write(segVal _ segSep)
+			  
+	  
+		   	
+ 	#dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF
+ 	kill ^segments
+ 	set splitX12 = 1, stCtrl = 0, origSts = 0
+ 
+ 	
+	for gsInt=1:1:GSCounter
+    { 
+        
+        set individualGroup = x12Doc.NextChild(individualGroup) // x12Doc.getNthChild(gsInt,2)
+
+		
+		if (individualGroup.DocType = "")
+		 {
+	 		set individualGroup.DocType = "HIPAA_5010:Group"
+		 }
+		 set origSts = individualGroup.ChildCount
+		$$$TRACE( individualGroup.DocType _ " # of STs: " _ origSts _", Seg # " _ individualGroup.SegCount)
+		
+	 
+			
+		// GS	    	  
+		set segPath = individualGroup.GetSegmentPath(1, .stat1)	  	
+	  	set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+	  	Do x12Stream.Write( segVal _ segSep)
+	
+		  #dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
+		  set segNum = 0, ctrlNum = 0
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  
+		  {
+			  		  
+			  set STRecord=individualGroup.NextChild(STRecord)  
+			  set transType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
+			  if (STRecord.DocType = "")
+			  {	
+			  	set STRecord.DocType = "HIPAA_5010:" _ transType
+			  }
+			  
+			  // ST control number
+			  set segPath = STRecord.GetSegmentPath(1, .stat)	  	
+			  set stCtrl = STRecord.GetValueAt(segPath_":2",, .stat)
+			  
+	  		  
+	  		  WRITE !, " " _ transType _ ". ST segments: " _ origSts
+	  		  set idHL = 0,  idParentHL = -1
+	  		  set segClmFound = 0, segInd = 1, split2000 = 0
+			  FOR ind=1:1:origSts
+			  {		
+			    
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  				  	
+			  	set res = $MATCH(segPath, "loop2000A\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  	//Do STRecord.SetValueAt(1, segPath_":1")
+					set segVal = STRecord.GetValueAt(segPath,, .stat)
+					  	
+				  	if (segClmFound)
+				  	{
+					  	WRITE !, "-- SPLIT @ A"
+					  	set segNum = ..TraverseGlobal(idHL, segSep, eleSep,  .ctrlNum, split2000, x12Stream)
+					  	 
+					  	Do x12Stream.Write( "SE" _ eleSep _ segNum _ eleSep _ $tr($j(ctrlNum,4)," ","0") _ segSep)
+					  	set segInd = 1
+					  	Do $INCREMENT(splitX12)
+					  	set segClmFound = 0, split2000 = 1
+					  	kill ^segments(idHL)
+				  	}
+				  	
+				  	WRITE !, "-A." _ segPath _"= " _ segVal
+				  	set idHL = STRecord.GetValueAt(segPath_":1",, .stat)
+				  	set idParentHL = 0, segInd = 1
+				  	
+			  	
+			  	}
+			  	
+			  	set res = $MATCH(segPath, "loop2000A.*loop2000B\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  	if (segClmFound)
+				  	{
+					  	WRITE !, "-- SPLIT @ B" 
+					   	set segNum = ..TraverseGlobal(idHL, segSep, eleSep,  .ctrlNum, split2000, x12Stream)
+					  	Do x12Stream.Write( "SE" _ eleSep _ segNum _ eleSep _ $tr($j(ctrlNum,4)," ","0") _ segSep)
+
+					  	set segInd = 1
+					  	Do $INCREMENT(splitX12)
+					  	set segClmFound = 0, split2000 = 1
+					  	kill ^segments(idHL, idParentHL)
+				  	}
+				  	
+				  	WRITE !, " -B. " _ segPath _"= " _ segVal 
+				  	set idHL = STRecord.GetValueAt(segPath_":1",, .stat)
+				  	set idParentHL = STRecord.GetValueAt(segPath_":2",, .stat)
+				  	
+				  	set segInd = 1
+			  	}
+			  	set res = $MATCH(segPath, "loop2000A.*loop2000B.*loop2000C\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  	if (segClmFound)
+				  	{
+					  	WRITE !, "-- SPLIT @ C " 
+					  	set segNum = ..TraverseGlobal(idHL, segSep, eleSep,  .ctrlNum, split2000, x12Stream)
+					  	Do x12Stream.Write( "SE" _ eleSep _ segNum _ eleSep _ $tr($j(ctrlNum,4)," ","0") _ segSep)
+
+					  	set segInd = 1
+					  	Do $INCREMENT(splitX12)
+					  	set segClmFound = 0, split2000 = 1
+					  	kill ^segments(idHL, idParentHL)
+
+				  	}
+				  	
+				  	WRITE !, " -C. " _ segPath _"= " _ segVal 
+				  	set idHL = STRecord.GetValueAt(segPath_":1",, .stat)
+				  	set idParentHL = STRecord.GetValueAt(segPath_":2",, .stat)
+				  	
+				  
+				  	
+				  	set segInd = 1
+			  	}
+			  	if ( $FIND(segVal, "CLM") = 4  )
+			  	{
+				  	if (segClmFound)
+				  	{
+					  	WRITE !, "-- SPLIT @ CLM "
+					  	
+					  	set segNum = ..TraverseGlobal(idHL, segSep, eleSep,  .ctrlNum, split2000, x12Stream)
+					  	Do x12Stream.Write( "SE" _ eleSep _ segNum _ eleSep _ $tr($j(ctrlNum,4)," ","0") _ segSep)
+
+					  	set segInd = 1
+					  	Do $INCREMENT(splitX12)
+					  	set segClmFound = 0, split2000 = 1
+
+				  	}
+				  	// WRITE !, "    --- " _ segVal _" <- " _ segPath
+				  	set segClmFound = 1
+
+			  	}
+			  	if ( $FIND(segVal, "SE") = 3  )
+			  	{
+				  	WRITE !, "-- SPLIT @ SE --" _ segPath _"= " _ segVal _", Indexes: " _ idHL _", " _ idParentHL_", " _ segInd
+				  	if (segClmFound)
+				  	{
+					  	set segNum = ..TraverseGlobal(idHL, segSep, eleSep, .ctrlNum, split2000, x12Stream)
+					  	WRITE !, " -> SE" _ eleSep _ segNum _ eleSep _ ctrlNum _ segSep
+					  	Do x12Stream.Write( "SE" _ eleSep _ segNum _ eleSep _ $tr($j(ctrlNum,4)," ","0") _ segSep)
+					  	set split2000 = 0
+
+					  	DO $INCREMENT(splitX12)
+					  	kill ^segments(idHL)
+				  	}
+			  	}
+			  	else
+			  	{
+			  	  set ^segments(idHL, idParentHL, segInd) = segVal
+				  // WRITE !, idHL _", " _ idParentHL_", " _  segInd_"= " _  segVal
+			  	}
+					  	
+				  Do $INCREMENT(segInd)
+				  
+			  	
+			  }
+		  }
+    }
+    if ((splitX12  - 1) > origSts)
+    {
+	    // GE
+		set segPath = individualGroup.GetSegmentPath(3, .stat1)	  		
+	  	Do individualGroup.SetValueAt("" _ (splitX12-1), segPath _":1") // Update GE:1 
+	  	set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+	  	Do x12Stream.Write( segVal _ segSep)
+
+	    set segPath = x12Doc.GetSegmentPath(3, .stat)	  	
+	  	set segVal = x12Doc.GetValueAt(segPath,, .stat)
+		// IEA
+	  	Do x12Stream.Write( segVal _ segSep)
+		
+	  	$$$TRACE( "New Split X12 Size: " _ x12Stream.Size)
+	  	Do x12Stream.Rewind()
+	  	$$$TRACE( "# of splits: " _ (splitX12  - 1) _", Inbound ST-SEs: " _ origSts )
+	  	
+	  	#dim x12Doc2 As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(x12Stream,.x12Stat)
+	   #dim x12Stream2 As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
+	   Do ..ResetIDs(x12Doc2, x12Stream2)
+	   Do x12Stream.CopyFrom(x12Stream2)
+   }
+   else
+   {
+       $$$TRACE( "X12 has one Subscriber information in each ST-SE")
+       Do x12Stream.Clear()
+       Do x12Doc.OutputToLibraryStream(x12Stream)
+       Do x12Stream.Rewind()
+	   $$$TRACE( "Unchanged X12 Size: " _ x12Stream.Size)
+
+   }
+]]></Implementation>
+</Method>
+
+<Method name="ResetIDs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,x12Stream:%Stream.GlobalCharacter</FormalSpec>
+<Implementation><![CDATA[
+	if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 WRITE !, "-- RESET X12: " _ x12Doc.FullSize  _", Separators: " _ x12Doc.Separators
+		 set segSep = $EXTRACT(x12Doc.Separators, 4)
+		 set eleSep = $EXTRACT(x12Doc.Separators, 1, 1)
+	 }
+	 else
+	 {
+		 WRITE !, "Not a valid X12 Document"
+		 QUIT
+	 }
+	 if (x12Doc.DocType = "")
+	 {
+ 		set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+	 }
+	  Set tSC =x12Doc.BuildMap()
+	  if ($$$ISERR( tSC ))
+	  {
+		  $$$TRACE("Invalid DocType")
+		  QUIT
+	  }
+	  set GSCounter = x12Doc.ChildCount 
+	  WRITE !, " ISA Child count:" _ GSCounter _", Seg #" _ x12Doc.SegCount
+	  
+	 	
+    //ISA	  
+	set segPath = x12Doc.GetSegmentPath(1, .stat)	  	
+  	set segVal = x12Doc.GetValueAt(segPath,, .stat)
+  	Do x12Stream.Write(segVal _ segSep)
+			  
+	  
+		   	
+ 	#dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF
+ 
+ 	
+	for gsInt=1:1:GSCounter
+    { 
+        
+        set individualGroup = x12Doc.NextChild(individualGroup) // x12Doc.getNthChild(gsInt,2)
+
+		// WRITE !, individualGroup.DocType _ " # of STs: " _ individualGroup.ChildCount _", Seg # " _ individualGroup.SegCount
+		
+		if (individualGroup.DocType = "")
+		 {
+	 		set individualGroup.DocType = "HIPAA_5010:Group"
+		 }
+	 
+			
+		// GS	    	  
+		set segPath = individualGroup.GetSegmentPath(1, .stat1)	  	
+	  	set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+	  	Do x12Stream.Write( segVal _ segSep)
+	
+		  #dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
+		  set segNum = 0, ctrlNum = 0
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  
+		  {
+			  		  
+			  set STRecord=individualGroup.NextChild(STRecord)  
+			  set transType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
+			  if (STRecord.DocType = "")
+			  {	
+			  	set STRecord.DocType = "HIPAA_5010:" _ transType
+			  }
+			  
+			  // ST control number
+			  set segPath = STRecord.GetSegmentPath(1, .stat)	  	
+			  set stCtrl = STRecord.GetValueAt(segPath_":2",, .stat)
+	  		  
+	  		  // WRITE !, " " _ transType _ ". ST segments: " _ STRecord.SegCountGet()
+	  		  set idHL = 0,  idParentHL = -1
+	  		  set segClmFound = 0, segInd = 1, split2000 = 0
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {		
+			    
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  				  	
+			  	set res = $MATCH(segPath, "loop2000A\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  	
+				  	// WRITE !, "-A." _ segPath _"= " _ segVal
+				  	set idHL = STRecord.SetValueAt(1, segPath_":1")			  	
+			  	
+			  	}
+			  	
+			  	set res = $MATCH(segPath, "loop2000A.*loop2000B\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  
+				  	// WRITE !, " -B. " _ segPath _"= " _ segVal 
+				  	set idHL = STRecord.SetValueAt(2, segPath_":1")
+					set idHL = STRecord.SetValueAt(1, segPath_":2")
+			  	}
+			  	set res = $MATCH(segPath, "loop2000A.*loop2000B.*loop2000C\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  
+				  	// WRITE !, " -C. " _ segPath _"= " _ segVal 
+				  	set idHL = STRecord.SetValueAt(3, segPath_":1")
+					set idHL = STRecord.SetValueAt(2, segPath_":2")
+
+			
+			  	}
+			  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat2)
+			  	// WRITE !, segVal
+			  	Do x12Stream.Write(segVal _ segSep)
+			  	
+			  }
+		  }
+    }
+    set segPath = individualGroup.GetSegmentPath(3, .stat1)	  		
+	  	
+	  	set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+	  	Do x12Stream.Write( segVal _ segSep)
+
+	    set segPath = x12Doc.GetSegmentPath(3, .stat)	  	
+	  	set segVal = x12Doc.GetValueAt(segPath,, .stat)
+		// IEA
+	  	Do x12Stream.Write( segVal _ segSep)
+		
+	  	$$$TRACE( "Size: " _ x12Stream.Size)
+	  	Do x12Stream.Rewind()
+]]></Implementation>
+</Method>
+</Class>
+</Export>
