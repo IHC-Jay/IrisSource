@@ -16,8 +16,15 @@ Business Process from iCentra Adt LegacyPlus to Epic - GapLoad</Description>
 <Parameter name="MAXLEN" value="500"/>
 </Property>
 
+<Property name="EncounterTargetConfigName">
+<Description>
+"EncounterTargetConfigName": EncounterTargetConfigName. This target receives all live encounters for epic journey.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="25000"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AllowedEventTypes:Additional,AllowedPatientClasses:Additional</Default>
+<Default><![CDATA[AllowedEventTypes:Additional,AllowedPatientClasses:Additional,EncounterTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -30,6 +37,9 @@ Business Process from iCentra Adt LegacyPlus to Epic - GapLoad</Description>
 </Value>
 <Value name="2">
 <Value>AllowedPatientClasses</Value>
+</Value>
+<Value name="3">
+<Value>EncounterTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -50,7 +60,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='OutpatientRecord' type='%Boolean' initialexpression='0' instantiate='0' />
-<property name='OutboundTarget' type='%String' initialexpression='"Out-EpicMigration-Hl7tcp-OUTENCOUTERS0"' instantiate='0' />
+<property name='EncounterTarget' type='%String' collection='list' instantiate='0' />
+<property name='EncounterIndex' type='%Integer' instantiate='0' />
 </context>
 <sequence xend='200' yend='1850' >
 <scope xpos='200' ypos='250' xend='200' yend='1750' >
@@ -91,7 +102,13 @@ BPL Definition</Description>
     $$$TRACE("TargetConfigNames: " _context.targetList)
     $$$TRACE("Count: " _ context.targetList.Count())
  
- 
+ set encounterStatus = ##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName, "EncounterTargetConfigName", .encounterTargets)
+ For iTarget=1:1:$L(encounterTargets, ",") { 
+    Set tOneTarget=$ZStrip($P(encounterTargets,",",iTarget),"<>W")  
+    Continue:""=tOneTarget
+    set stat = context.EncounterTarget.Insert(tOneTarget)
+    $$$TRACE("encounter target" _ tOneTarget _ " " _ stat)
+ } 
 ]]]]><![CDATA[>
 </code>
 <code name='getMessageType.TriggerEvent' xpos='200' ypos='650' >
@@ -113,9 +130,13 @@ BPL Definition</Description>
      
     ]]]]><![CDATA[>
 </code>
-<code name='AllowedPatientClasses' xpos='200' ypos='750' >
+<code name='Filtering' xpos='200' ypos='750' >
 <annotation><![CDATA[get Message type]]]]><![CDATA[></annotation>
 <![CDATA[     
+     set bDate =request.GetValueAt("PID:DateTimeOfBirth.timeofanevent") 
+     if (bDate ="") {
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a record with no birthdate. Skipping record.***")
+     }
      Set patClass =request.GetValueAt("PV1:PatientClass")
      $$$TRACE("Patient CLass: " _ patClass) 
      set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedPatientClasses",.AllowedPatientClasses) 
@@ -145,19 +166,28 @@ BPL Definition</Description>
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
-<response type='Ens.Response' />
 </call>
 </foreach>
 </true>
 <false>
 <code name='Remove name type' xpos='470' ypos='1100' >
-<![CDATA[ do response.SetValueAt("", "PID:PatientName(1).nametypecode")]]]]><![CDATA[>
+<![CDATA[ do response.SetValueAt("", "PID:PatientName(1).nametypecode")
+ set secondname = response.GetValueAt("PID:PatientName(2).nametypecode")
+ if (secondname '="") {
+     do response.SetValueAt("", "PID:PatientName(2).nametypecode")
+ }
+ set thirdname =  response.GetValueAt("PID:PatientName(3).nametypecode")
+ if (thirdname '="") {
+     do response.SetValueAt("", "PID:PatientName(3).nametypecode")
+ }]]]]><![CDATA[>
 </code>
-<call name='outpatient send' target='@context.OutboundTarget' async='1' xpos='470' ypos='1200' >
+<foreach name='encounter send' property='context.EncounterTarget' key='context.EncounterIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<call name='outpatient send' target='@context.EncounterTarget.GetAt(context.EncounterIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
 <assign property="callrequest" value="response" action="set" />
 </request>
 </call>
+</foreach>
 </false>
 </if>
 <trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='1400' />
