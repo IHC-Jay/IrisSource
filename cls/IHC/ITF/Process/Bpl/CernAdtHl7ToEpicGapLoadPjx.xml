@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.CernAdtHl7ToEpicGapLoadPjx">
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>67403,35809.00995712</TimeCreated>
+
+<Property name="AllowedEventTypes">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="AllowedPatientClasses">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="EncounterTargetConfigName">
+<Description>
+"EncounterTargetConfigName": EncounterTargetConfigName. This target receives all live encounters for epic journey.</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="25000"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[AllowedEventTypes:Additional,AllowedPatientClasses:Additional,EncounterTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='3450' width='2000' >
+<context>
+<property name='targetConfigIndex' type='%Integer' instantiate='0' />
+<property name='validationSettingValue' type='%String' instantiate='0' />
+<property name='msgType' type='%String' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+<property name='OutpatientRecord' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='EncounterTarget' type='%String' collection='list' instantiate='0' />
+<property name='EncounterIndex' type='%Integer' instantiate='0' />
+</context>
+<sequence xend='200' yend='1850' >
+<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<trace name='incomingMessage' value=' "Incoming Message: "_request.RawContent' xpos='200' ypos='350' >
+<annotation><![CDATA[Incoming Record is request.RawContent]]]]><![CDATA[></annotation>
+</trace>
+<code name='validateMsgStructure' xpos='200' ypos='450' >
+<annotation><![CDATA[unMarshall - Check if the message passes the message validation as set in the Validation Settings ]]]]><![CDATA[></annotation>
+<![CDATA[  
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Validation",.configValue)  
+  if ($$$ISOK(pstatus)){
+     set context.validationSettingValue=configValue
+  } 
+  
+ $$$TRACE("Validate Message Begins...") 
+ set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).OnValidate(request,context.validationSettingValue) 
+ if (tStatus'=$$$OK){  	
+    $$$TRACE("Failed Validation Settings " _ context.validationSettingValue)
+    // Skip the record.
+    set status = ##class(IHC.ITF.ITFCOMMON.Utility).CheckError(process.%ConfigName, "Hl7 message validation failed, Skipping the record." _ "Hl7 Msg:" _ request.RawContent)
+ }else{
+	  $$$TRACE("Passed Validation Settings: " _ context.validationSettingValue) 
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='initializePortalSettings' xpos='200' ypos='550' >
+<annotation><![CDATA[Check/Initialize for Management Portal Settings]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")) { 	
+ 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError($CLASSNAME(),"Initialization error, No ReplyCodeActions found")
+ } 
+ 
+ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: [" _ maxErr+"]")
+ 
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+    $$$TRACE("TargetConfigNames: " _context.targetList)
+    $$$TRACE("Count: " _ context.targetList.Count())
+ 
+ set encounterStatus = ##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName, "EncounterTargetConfigName", .encounterTargets)
+ For iTarget=1:1:$L(encounterTargets, ",") { 
+    Set tOneTarget=$ZStrip($P(encounterTargets,",",iTarget),"<>W")  
+    Continue:""=tOneTarget
+    set stat = context.EncounterTarget.Insert(tOneTarget)
+    $$$TRACE("encounter target" _ tOneTarget _ " " _ stat)
+ } 
+]]]]><![CDATA[>
+</code>
+<code name='getMessageType.TriggerEvent' xpos='200' ypos='650' >
+<annotation><![CDATA[get Message type]]]]><![CDATA[></annotation>
+<![CDATA[     
+     Set context.msgType =request.GetValueAt("MSH:MessageType.TriggerEvent")
+     $$$TRACE("Trigger Event: " _ context.msgType) 
+     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedEventTypes",.AllowedAdtEvents) 
+     if ($$$ISOK(pstatus)&&(AllowedAdtEvents '="")){    	
+    	$$$TRACE("Value of allowed ADT events="_AllowedAdtEvents)
+    	if ($LISTFIND($LISTFROMSTRING(AllowedAdtEvents,","), context.msgType) = 0) {	     
+	     set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found an event type: ["_context.msgType_"] that does not match a value from the Allowed list of event types :["_AllowedAdtEvents_"]")
+        }
+     } else {
+    	$$$TRACE("Config setting for AllowedAdtEvents not Available")
+    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No configuration for AllowedAdtEvents found")
+     }
+ 	 
+     
+    ]]]]><![CDATA[>
+</code>
+<code name='Filtering' xpos='200' ypos='750' >
+<annotation><![CDATA[get Message type]]]]><![CDATA[></annotation>
+<![CDATA[     
+     set bDate =request.GetValueAt("PID:DateTimeOfBirth.timeofanevent") 
+     if (bDate ="") {
+        set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a record with no birthdate. Skipping record.***")
+     }
+     Set patClass =request.GetValueAt("PV1:PatientClass")
+     $$$TRACE("Patient CLass: " _ patClass) 
+     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AllowedPatientClasses",.AllowedPatientClasses) 
+     if ($$$ISOK(pstatus)&&(AllowedPatientClasses '="")){    	
+    	$$$TRACE("Value of allowed Patient Classes="_AllowedPatientClasses)
+    	if (($LISTFIND($LISTFROMSTRING(AllowedPatientClasses,","), patClass) = 0) && ((context.msgType ="A03") || (context.msgType ="A08"))) {	     
+	     $$$TRACE("Not wanted on new patient pathway sending to outpatient conversion interface.")
+	     set context.OutpatientRecord = 1
+        }elseif (((context.msgType '="A31") && (context.msgType '="A34") && (context.msgType '="A28")) && ($LISTFIND($LISTFROMSTRING(AllowedPatientClasses,","), patClass) = 0)){
+           set status = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName, "***Found a patient class: ["_patClass_"] that does not match a value from the Allowed list of patient classes and record types. Skipping record.")
+        }
+     } else {
+    	$$$TRACE("Config setting for AllowedPatientClasses not Available")
+    	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Initialization error, No configuration for AllowedPatientClasses found")
+     }
+ 	 
+     
+    ]]]]><![CDATA[>
+</code>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.CernAdtHl7ToEpicGapLoadPjx' source='request' target='response' xpos='200' ypos='850' >
+<annotation><![CDATA[translates iCentra Adt to Epic Gap Load Hl7]]]]><![CDATA[></annotation>
+</transform>
+<if name='is inpatient?' condition='context.OutpatientRecord =0' xpos='200' ypos='950' xend='200' yend='1300' >
+<true>
+<foreach name='Send To Inpatient Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='1100' xend='200' yend='350' >
+<call name='Send to TargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+<false>
+<code name='Remove name type' xpos='470' ypos='1100' >
+<![CDATA[ do response.SetValueAt("", "PID:PatientName(1).nametypecode")
+ set secondname = response.GetValueAt("PID:PatientName(2).nametypecode")
+ if (secondname '="") {
+     do response.SetValueAt("", "PID:PatientName(2).nametypecode")
+ }
+ set thirdname =  response.GetValueAt("PID:PatientName(3).nametypecode")
+ if (thirdname '="") {
+     do response.SetValueAt("", "PID:PatientName(3).nametypecode")
+ }]]]]><![CDATA[>
+</code>
+<foreach name='encounter send' property='context.EncounterTarget' key='context.EncounterIndex' xpos='470' ypos='1200' xend='200' yend='350' >
+<call name='outpatient send' target='@context.EncounterTarget.GetAt(context.EncounterIndex)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+</false>
+</if>
+<trace name='RecordSent' value='"Record Sent !!!!... "' xpos='200' ypos='1400' />
+<code name='RESETERROR' xpos='200' ypos='1500' >
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
+
+]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>CernAdtHl7ToEpicGapLoadPjxDefaultData</DefaultData>
+<Data name="CernAdtHl7ToEpicGapLoadPjxDefaultData">
+<Subscript>"CernAdtHl7ToEpicGapLoadPjx"</Subscript>
+<Value name="1">
+<Value>AllowedEventTypes</Value>
+</Value>
+<Value name="2">
+<Value>AllowedPatientClasses</Value>
+</Value>
+<Value name="3">
+<Value>EncounterTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
