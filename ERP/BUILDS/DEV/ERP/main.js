@@ -1381,6 +1381,7 @@ class TpRestServiceComponent {
     this.env = '';
     this.error = new rxjs__WEBPACK_IMPORTED_MODULE_1__.Subject();
     console.log('**** TpRestServiceComponent RestServiceComponent constructor ****');
+    this.tpUrl = `${_environments_environment__WEBPACK_IMPORTED_MODULE_0__.environment.tpUrl}`;
   }
   getCurrentUser() {
     console.log('Fetch getCurrentUser: ' + this.currentUser);
@@ -6328,7 +6329,7 @@ class TransactionComponent {
   }
   onContextMenuNew(item) {
     // alert('Click on Action 1 ' + item.id);
-    const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"], {
+    const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/transaction/transaction-details/"], {
       queryParams: {
         id: item.id,
         'transaction': this.form.controls.transType.value,
