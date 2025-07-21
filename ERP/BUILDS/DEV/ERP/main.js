@@ -6328,7 +6328,7 @@ class TransactionComponent {
   }
   onContextMenuNew(item) {
     // alert('Click on Action 1 ' + item.id);
-    const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"], {
+    const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/transaction/transaction-details/"], {
       queryParams: {
         id: item.id,
         'transaction': this.form.controls.transType.value,
