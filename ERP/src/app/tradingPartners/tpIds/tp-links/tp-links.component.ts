@@ -43,6 +43,8 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpIdToLink:String;
   tpId:String;
+  tpType:String;
+  tpName:String;
 
   isTableExpanded = false;
 
@@ -74,16 +76,14 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     console.info("ngOnInit tpLinksService.fetchTpLinks");
     const routeParams = this.route.snapshot.paramMap;
     this.tpId = routeParams.get('tpId');
-    console.info("tpLink init:" + this.tpId);
+    this.tpType = routeParams.get('Type');
+    this.tpName = routeParams.get('Name');
+    console.info("tpLink init:" + this.tpId +", " + this.tpType +", " + this.tpName);
     this.errorSub = this.tpLinksService.error.subscribe(errorMessage => {
       this.error = errorMessage;
     });
     this.Refresh();
 
-
-    this.errorSub = this.tpLinksService.error.subscribe(errorMessage => {
-      this.error = errorMessage;
-    });
   }
 
   ngAfterViewInit() {
@@ -149,8 +149,15 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   addRow()
   {
-    console.info("Call add for: " + this.tpId);
-    this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/" + this.tpId] );
+    console.info("Call add for: " + this.tpId +", " + this.tpType);
+    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-add/", this.tpId, this.tpName, this.tpType]);
+
+  }
+
+  edit(tpLink: string)
+  {
+    console.info("Call edit for: " + tpLink +", "+ this.tpId +", " + this.tpType);
+    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-edit/", this.tpId, tpLink, this.tpType, this.tpName]);
   }
 
   delete(tpLink: string) {

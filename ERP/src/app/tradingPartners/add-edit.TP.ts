@@ -27,6 +27,7 @@ export class AddEditTP implements OnInit {
     submitted = false;
 
     tpTypes:string[] = ["Partner","Owner"];
+    protocols:string[] = ["as2","sftp","https","rest","none"];
 
     canRender = false;
 
@@ -71,6 +72,7 @@ public initializeData()
           Name: ['', Validators.required],
           TPtype: ['', Validators.required],
           Folder: ['', Validators.required],
+          CommunicationProtocol: ['', Validators.required],
           BusinessContact: [''],
           CommunicationContact: [''],
           InterchangeIdQualifier: [''],
@@ -128,6 +130,11 @@ public initializeData()
                   console.log("TPtype.setValue " + x[key].toString());
                   this.form.controls.TPtype.setValue(x[key].toString());
                 }
+                else if(key === 'CommunicationProtocol')
+                  {
+                    console.log("CommunicationProtocol.setValue " + x[key].toString());
+                    this.form.controls.CommunicationProtocol.setValue(x[key].toString());
+                  }
 
                 else{
                   console.log(key +"-- Not mapped")

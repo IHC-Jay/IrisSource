@@ -10,6 +10,7 @@ GsReceiverId:string;
 TransactionType:string;
 Version:string;
 Direction:string;
+Separators:string;
 isExpanded: boolean;
 TPID: string;
 

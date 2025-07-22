@@ -32,7 +32,7 @@ import { AuthenticationService } from './authentication.service';
 
 export class TransRestServiceComponent {
 
-   rtTransUrl = `${environment.devTransUrl}`;
+   rtTransUrl = `${environment.transUrl}`;
 
   error = new Subject<string>();
   currentUser: string = "";
@@ -42,22 +42,28 @@ export class TransRestServiceComponent {
   constructor(private http: HttpClient, private http2: HttpClient
     , private router: Router, @Inject(LOCALE_ID) public locale: string)
    {
-    console.log('**** TransRestServiceComponent RestServiceComponent constructor ****');
+     console.log('**** TransRestServiceComponent RestServiceComponent constructor ****');
+     this.rtTransUrl = `${environment.transUrl}` ;
    }
 
  // Transactions REST
 
 setcurrentUser(currentUser : string, env: string, authService: AuthenticationService)
 {
-  console.log('setcurrentUser: ' + currentUser);
+  console.log( env + ', setcurrentUser: ' + currentUser);
   this.currentUser = currentUser;
   this.env = env;
   this.authenticationService = authService;
-  if(env == 'QA')
-  {
-    this.rtTransUrl = `${environment.qaTransUrl}`;
 
-  }
+  if( env == 'QA')
+    {
+      this.rtTransUrl = `${environment.transUrl}` ;
+    }
+    else
+    {
+      this.rtTransUrl = `${environment.transUrl}`;
+    }
+
 }
 
 
@@ -78,10 +84,10 @@ getCurrentUser()
 
 }
 
-fetchERPtransactions(searchStr: string, searchType: string, maxCnt : Number, partnerName: string) {
-  console.log( this.env + ' - Fetch fetchERPtransactions with Auth for: ' + searchStr +", " + searchType);
+fetchERPtransactions(searchStr: string, searchType: string, isaOrSt: string, maxCnt : Number, partnerName: string) {
+  console.log( this.env + ' - Fetch fetchERPtransactions with Auth for: ' + searchStr +", " + searchType +", for " + partnerName);
 
-  let url = this.createRestUrl('EDI', searchStr, searchType, maxCnt, partnerName);
+  let url = this.createRestUrl('EDI', searchStr, searchType, maxCnt, partnerName, isaOrSt);
 
   console.log('ERP transactions URL: ' + url)
   return this.http2
@@ -302,7 +308,7 @@ deleteDisplayColumns(dispCol: DisplayColumnsArray)
 }
 
 
-createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : Number, partnerName: string)
+createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : Number, partnerName: string, isaOrSt: string)
 {
   let dateFormat = require('dateformat');
   let dte = new Date();
@@ -327,7 +333,7 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
       let dtTm = ""
       if (searchType.indexOf("between") < 0)
       {
-        dtTm = "ProcessDtTm >= '" + formatDate(searchType, 'yyyy-MM-dd hh:mm:ss',this.locale) +"'";
+        dtTm = "ProcessDtTm >= '" + formatDate(searchType, 'yyyy-MM-dd',this.locale) +"'";
       }
       else{
         dtTm = searchType
@@ -348,9 +354,16 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
 
   }
   if(partnerName !== "")
-    {
+  {
       url = url + "&partner=" + partnerName
-    }
+  }
+  else
+  {
+    url = url + "&partner="
+  }
+
+  url = url + "&transactionSet=" + isaOrSt
+
   console.log('ERP URL: ' + url);
   return url;
 }

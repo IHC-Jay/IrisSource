@@ -29,15 +29,20 @@ import { Router, ActivatedRoute} from '@angular/router';
 export class TpRestServiceComponent {
 
   currentUser:string = '';
-  tpUrl = `${environment.tpDevUrl}`;
+
+
+  tpUrl:string;
+
   env:string = '';
+
   error = new Subject<string>();
   authenticationService: AuthenticationService;
 
   constructor(private http: HttpClient, private http2: HttpClient
     , private router: Router)
    {
-    console.log('**** TpRestServiceComponent RestServiceComponent constructor ****')
+    console.log('**** TpRestServiceComponent RestServiceComponent constructor ****');
+    this.tpUrl = `${environment.tpUrl}`;
    }
 
    getCurrentUser()
@@ -72,15 +77,15 @@ export class TpRestServiceComponent {
     let url = '';
     this.env = env;
 
-    if( env == 'QA')
-    {
-      this.tpUrl = `${environment.tpQaUrl}` ;
-    }
+
+
+    this.tpUrl = `${environment.tpUrl}`;
+
 
     url = this.tpUrl + 'ping';
 
 
-    console.log('Validate User: ' + usr + " in " + env + ", URL: " + url);
+    console.info('Validate User: ' + usr + " in " + env + ", URL: " + url);
 
 
     return this.http.get<{ [key: string]: string }>(
@@ -113,11 +118,12 @@ export class TpRestServiceComponent {
 
 
     fetchTradingPartners() {
-      console.log( this.env + ' - Fetch TradingPartners with Auth ' );
+
 
       let url = '';
 
       url = this.tpUrl + 'Tps';
+       console.info( 'Fetch TradingPartners with Auth ' + this.tpUrl  );
 
 
       return this.http

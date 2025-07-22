@@ -6,6 +6,7 @@ export interface TradingPartner {
   BusinessContact: string;
   CommunicationContact: string;
   Folder: string;
+  CommunicationProtocol: string;
   InterchangeIdQualifier: string;
   PartnerInterchangeIdQualifier: string;
   User:string;
@@ -30,6 +31,12 @@ export const TradingPartnerColumns = [
     key: 'Folder',
     type: 'text',
     label: 'Folder',
+    required: true,
+  },
+  {
+    key: 'CommunicationProtocol',
+    type: 'text',
+    label: 'Communication Protocol',
     required: true,
   },
   {

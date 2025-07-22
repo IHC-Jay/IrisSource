@@ -59,6 +59,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
         {
           console.log("HeaderComponent: " + this.currentUser.username)
         }
+        else
+        {
+          this.router.navigate(['/']);
+        }
         }
         );
     }
@@ -125,9 +129,13 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   }
 
   logout() {
+     this.isLogin = false;
+    this.returnUrl = ""
+    this.firstPage = "/";
+
     this.authenticationService.logout();
     sessionStorage.clear();
-    this.isLogin = false;
+
     this.f.username.setValue('');
     this.f.password.setValue('');
     this.router.navigate(['/']);
@@ -161,8 +169,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           }
           else if (this.firstPage.includes("tp-add"))
           {
-            console.log("navigate: /TradingPartners/tpIds/tp-links/tp-add -" + this.id);
-            this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/"+this.tpId ],
+            console.log("navigate: /TradingPartners/tpIds/tp-links/tpLink-add -" + this.id);
+            this.router.navigate(["/TradingPartners/tpIds/tp-links/tpLink-add/"+this.tpId ],
             {queryParams: { 'transaction': this.transaction} }
             );
           }
@@ -196,7 +204,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    }
    onHome()
    {
-    this.router.navigate(["/transaction"]);
+    this.router.navigate(["/"]);
    }
 
 }

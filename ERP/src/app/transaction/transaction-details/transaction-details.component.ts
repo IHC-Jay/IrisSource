@@ -31,6 +31,7 @@ export class TransactionDetailComponent {
   searchStr:string;
   searchTypeString:string;
   transactionType:string;
+  tradingPartner:string;
   transaction:string;
   erpData:string;
   fileName = "TEST";
@@ -60,6 +61,7 @@ export class TransactionDetailComponent {
       this.searchStr = params['search'];
       this.searchTypeString = params['searchTypeString'];
       this.transactionType = params['TransactionType'];
+      this.tradingPartner = params['TradingPartner'];
       this.prevWindow = params['sameWindow'];
 
       console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString + ", Same Window: " + this.prevWindow);
@@ -90,7 +92,7 @@ export class TransactionDetailComponent {
 
 
 
-          this.TransactionService.fetchERPtransactions("id='" + this.id +"' AND TransactionType ='" + this.transactionType + "'" , this.searchTypeString, 1, "").subscribe((res: any) => {
+          this.TransactionService.fetchERPtransactions("id='" + this.id +"' AND TransactionType ='" + this.transactionType + "'" , this.searchTypeString, "", 1, "").subscribe((res: any) => {
 
 
             this.dataSource.data = res;
@@ -161,13 +163,14 @@ export class TransactionDetailComponent {
   toTransactions()
   {
 
-      console.log('To Transactions: ' + this.transaction + "/" + this.searchTypeString);
+      console.log('To Transactions: ' + this.transaction + "/" + this.searchTypeString +"/"+ this.tradingPartner );
       this.router.navigate(["/transaction/"],
       // {queryParams: { trans: this.transaction, 'search':  this.searchStr } }
       {
         queryParams: { transaction: this.transaction,
           'search': this.searchStr,
-          'searchTypeString': this.searchTypeString }
+          'searchTypeString': this.searchTypeString,
+          'tradingPartner': this.tradingPartner }
     }
 
        );

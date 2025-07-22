@@ -4,12 +4,48 @@
 
 export const environment = {
   production: true,
-  tpDevUrl: 'http://lp-itfdevvp3.co.ihc.com:26974/EdiRest/TpManage/',
-  devTransUrl: 'http://lp-itfdevvp3.co.ihc.com:26974/EdiRest/Transaction/',
+  envName: 'ERP',
+  tpUrl:'TradingPartner',
+  transUrl:'Transaction',
+  "configurations": {
+    "development": {
+      "fileReplacements": [
+          {
+            "replace": "src/environments/environment.ts",
+            "with": "src/environments/environment.development.ts"
+          }
+        ],
 
-  tpQaUrl: 'http://lp-itfqavp3.co.ihc.com:25974/EdiRest/TpManage/',
-  qaTransUrl: 'http://lp-itfqavp3.co.ihc.com:25974/EdiRest/RtTransaction/',
+    },
+    "qa": {
+      "fileReplacements": [
+          {
+            "replace": "src/environments/environment.ts",
+            "with": "src/environments/environment.qa.ts"
+          }
+        ],
 
+    },
+    "UAT": {
+      "fileReplacements": [
+          {
+            "replace": "src/environments/environment.ts",
+            "with": "src/environments/environment.UAT.ts"
+          }
+        ],
+
+    },
+    "production": {
+      "fileReplacements": [
+          {
+            "replace": "src/environments/environment.ts",
+            "with": "src/environments/environment.production.ts"
+          }
+        ],
+
+    }
+ },
+ "defaultConfiguration": "development"
 };
 
 

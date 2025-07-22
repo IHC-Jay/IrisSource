@@ -4,6 +4,7 @@ import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms'
 import {ERPRequest} from './ERPRequest'
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
+import { TpRestServiceComponent } from '../services/tprest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
 
@@ -17,7 +18,7 @@ import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
-
+import {MatRadioModule} from '@angular/material/radio';
 
 @Component({
   selector: 'app-transaction',
@@ -33,7 +34,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
   endDate = "";
-  maxCount = ["10", "25", "50", "100", "200"];
+  maxCount = ["ALL", "10", "25", "50", "100", "200"];
 
   contextMenuPosition = { x: '0px', y: '0px' };
   @ViewChild(MatMenuTrigger)
@@ -62,6 +63,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
   searchFieldVal:string = "";
   dataSource = new MatTableDataSource<any>();
+  tpDataSource: string[] = [];
 
   usrDisplayColumns= [
 
@@ -95,6 +97,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   searchString = "";
   searchTypeString = "";
   currentTransType = "";
+  tradingPartnerString:string = "";
   sub:any;
   isTableExpanded = false;
 
@@ -104,8 +107,14 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
 
   @ViewChild(MatPaginator) paginator: MatPaginator;
-  @ViewChild(MatSort) sort: MatSort;
 
+  @ViewChild(MatSort) sort: MatSort;
+  @ViewChild(MatSort) set matSort(sort: MatSort) {
+    if (!this.dataSource.sort) {
+      console.debug("Set sort in ViewChild")
+      this.dataSource.sort = sort;
+    }
+  }
 
   dropdownSettings={};
 
@@ -113,7 +122,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
 
 
-  constructor(private TransactionService: TransRestServiceComponent,
+  constructor(private TransactionService: TransRestServiceComponent,  private TradingPartnerService: TpRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
 
       tpId: new FormControl();
@@ -125,7 +134,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   {
 
     this.startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-    console.info("ngOnInit " + this.startDate);
+    console.info("ngOnInit with  tradingPartner: " + this.startDate);
     let queryParams = 0
 
     this.form = this.formBuilder.group({
@@ -138,7 +147,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       matEndDate:[''],
       Sender:[''],
       Receiver:[''],
-      TradingPartner:[''],
+      TradingPartner:['All'],
       InterchangeReceiverID:[''],
       InterchangeControlNumber:[''],
       GroupControlNumber:[''],
@@ -147,7 +156,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       ProductTransfer:[''],
       PurchaseOrder:[''],
       InvoiceNumber:[''],
-      FileName:['']
+      FileName:[''],
+      isaOrSt:['ST']
     });
 
     this.form.controls.matStartDate.setValue(this.startDate);
@@ -174,13 +184,15 @@ export class TransactionComponent implements OnInit, AfterViewInit {
           this.searchString=""
         }
         this.searchTypeString = params['searchTypeString'];
+        this.tradingPartnerString = params['tradingPartner'];
         this.startDate =  new Date(this.searchTypeString);
         this.form.controls.transType.setValue(this.currentTransType);
+        this.form.controls.TradingPartner.setValue(this.tradingPartnerString);
 
         console.log('ngOnInit - Query params ' + this.searchTypeString +", transType: " + this.currentTransType +", " + this.searchString);
       }
     });
-    console.info("TransactionType: " + this.currentTransType)
+    console.info("TransactionType: " + this.currentTransType +",tradingPartner: " + this.tradingPartnerString)
     this.transactionTypes.push('All')
     this.TransactionService.fetchTransactionTypes().subscribe((res: any) => {
 
@@ -202,7 +214,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
           console.info("New search Set TransactionType: " + this.currentTransType +", Date: " + this.form.controls.matStartDate.value)
         }
 
-    });
+
 
     this.TransactionService.fetchTransactionFields(0).subscribe((res: any) => {
     this.transactionsSearchColumns = [];
@@ -265,7 +277,23 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       });
 
+      this.tpDataSource.push('All');
+
+      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+
+        for (var item of res)
+        {
+
+           this.tpDataSource.push(item.Name);
+
+        }
+
+        console.log('# of TPs: ' + this.tpDataSource.length);
+      });
+
+
     });
+  });
 
   }
 
@@ -279,7 +307,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   onSearchTransactions()
     {
       let staticSearchStr =  "";
-      console.info("SearchTransactions for TradingPartner: " + this.form.controls.TradingPartner.value)
+      this.tradingPartnerString = (this.form.controls.TradingPartner.value  === 'All') ? '': this.form.controls.TradingPartner.value;
+      console.info("SearchTransactions for TradingPartner: " + this.tradingPartnerString + ', isa / st: '+ this.form.controls.isaOrSt.value)
+
       if (this.form.controls.matEndDate.value !== null && this.form.controls.matEndDate.value !== "")
       {
 
@@ -328,16 +358,24 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         console.info("X12 search: "+ staticSearchStr + ", SearchType: " +  this.searchTypeString)
 
         console.info('Transaction search with: ' + staticSearchStr);
-        this.TransactionService.fetchERPtransactions(staticSearchStr, this.searchTypeString, this.form.controls.rowCnt.value, this.form.controls.TradingPartner.value).subscribe((res: any) => {
+        var rowCnt = this.form.controls.rowCnt.value
+        if (rowCnt === "ALL")
+        {
+          rowCnt = 1000
+        }
+        this.TransactionService.fetchERPtransactions(staticSearchStr, this.searchTypeString,  this.form.controls.isaOrSt.value, rowCnt, this.tradingPartnerString).subscribe((res: any) => {
 
         this.dataSource.data = res;
         this.canRenderDetails = true;
+        this.dataSource.sort = this.sort;
 
-        console.info("Data rows array: " + this.dataSource.data.length);
+        console.info("Data rows with sorted array: " + this.dataSource.data.length);
 
         this.loading = false;
 
         this.setControls();
+
+
         });
 
 
@@ -474,35 +512,6 @@ saveDisplayColumns()
       this.TransactionService.saveDisplayColumns(dispCol).subscribe((res: any) => {
 
           console.info("TransactionService: " + res);
-          /***
-
-          this.TransactionService.fetchTransactionFields(0).subscribe((res: any) => {
-            this.transactionsSearchColumns = [];
-
-              for (var item of res)
-              {
-                // console.info("Push transactionsSearchColumns: " + item.Key)
-                  this.transactionsSearchColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode, detail: item.Detail});
-              }
-              console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
-              console.info("Usr Columns: " + this.usrDisplayColumns.length);
-              this.TransactionService.fetchDisplayColumns().subscribe((res: any) => {
-                this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
-                this.usrDisplayColumns.push(...res);
-
-                if(this.currentTransType !== '')
-                {
-
-                console.info("User display columns: " + this.usrDisplayColumns.length);
-                this.transactionChange(this.currentTransType);
-
-                console.info('Transaction search with: ' + this.searchString);
-                this.onSearchTransactions();
-                }
-              });
-
-            });
-            ***/
 
         });
 }
@@ -518,6 +527,12 @@ searchTypeChange(evt: any)
 
   this.form.controls.rowCnt.setValue(this.maxCount[1]);
 
+}
+
+tpChange()
+{
+  console.info("tpChange: " + this.form.controls.TradingPartner.value)
+  this.tradingPartnerString = this.form.controls.TradingPartner.value
 }
 
 transactionChange(evt: any)
@@ -664,7 +679,7 @@ onRowClicked(row) {
   this.router.navigate(["/transaction/transaction-details/"],
   {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value,
     'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-     'TransactionType':row.TransactionType } }
+     'TransactionType':row.TransactionType, 'TradingPartner':this.tradingPartnerString } }
    );
 }
 
@@ -686,10 +701,10 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 onContextMenuNew(item: Item) {
   // alert('Click on Action 1 ' + item.id);
 
-       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
+       const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/transaction/transaction-details/"],
       {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'sameWindow':false
+        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':false
          } }
        ));
     const newTab = window.open(url, '_blank');
@@ -707,7 +722,7 @@ onContextMenuSame(item: Item) {
       this.router.navigate(["/transaction/transaction-details/"],
       {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'sameWindow':true } }
+        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':true } }
        );
 
 }

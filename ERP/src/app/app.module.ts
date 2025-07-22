@@ -14,6 +14,7 @@ import { MatListModule } from '@angular/material/list';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSort, MatSortModule } from '@angular/material/sort';
+import {MatRadioModule} from '@angular/material/radio';
 
 import { HTTP_INTERCEPTORS, provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
 
@@ -108,6 +109,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
         MatDatepickerModule,
         AngularSplitModule,
         MatCardModule,
+        MatRadioModule,
         ], providers: [
         { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },

@@ -15,7 +15,7 @@ import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.comp
 })
 
 export class TpIdComponent implements OnInit {
-  tpId: string;
+  tpName: string;
 
   public size = 5;
   public pageNumber = 0;
@@ -32,7 +32,7 @@ export class TpIdComponent implements OnInit {
   ngOnInit() {
     // First get the product id from the current route.
     const routeParams = this.route.snapshot.paramMap;
-    this.tpId = routeParams.get('tpId');
+    this.tpName = routeParams.get('tpId');
     this.RefreshRows();
     }
 
@@ -43,7 +43,7 @@ export class TpIdComponent implements OnInit {
     addRow() {
       const newRow: TpId = {
         id: '-1',
-        Name: this.tpId,
+        Name: this.tpName,
         TPID: '',
         Type: 'ISA',
         isEdit: true,
@@ -59,11 +59,21 @@ export class TpIdComponent implements OnInit {
         console.info('Add a TP ' + row.id);
         if (row.TPID !== '')
         {
-          let res = this.tpIdService.addTPID(row).subscribe((res) => {
+          let res = this.tpIdService.addTPID(row).subscribe((res:any) => {
+            if(res.errormessage !== "")
+            {
+              alert("ERROR in adding TPID: " + res.errormessage)
+              let ind = this.dataSource.data.indexOf(row)
+              this.dataSource.data.splice(ind, 1);
+              this.dataSource.data = [...this.dataSource.data];
+            }
+            else
+            {
+              row.id = res.id;
+              row.isEdit = false;
+              console.info('Added TPID: ' + row.TPID +", ID: " + row.id);
+            }
             row.isEdit = false;
-            row.id = res.id;
-            row.isEdit = false;
-            console.info('Added TP: ' + row.TPID +", ID: " + row.id);
           });
 
         }
@@ -133,8 +143,8 @@ export class TpIdComponent implements OnInit {
 
     RefreshRows()
     {
-      console.info('RefreshRows')
-      this.tpIdService.getTpIds(this.tpId).subscribe((res: any) => {
+      console.info('RefreshRows for ' + this.tpName)
+      this.tpIdService.getTpIds(this.tpName).subscribe((res: any) => {
         this.dataSource.data = res;
       });
     }
