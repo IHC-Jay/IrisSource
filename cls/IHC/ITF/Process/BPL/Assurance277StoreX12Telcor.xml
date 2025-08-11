@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.BPL.Assurance277StoreX12Telcor">
+<Description>
+Use this temple BPL to start your BPL</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63622,34594.72093</TimeCreated>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' response='Ens.Response' height='2000' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='1100' >
+<scope xpos='200' ypos='250' xend='200' yend='1000' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _ ", Input: " _ request.%ClassName()' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Deploy code' xpos='200' ypos='450' >
+<annotation><![CDATA[check Reploy code]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+ 	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Get Target' xpos='200' ypos='550' >
+<![CDATA[   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+        $$$LOGWARNING("Initialization error, No TargetConfigNames found")
+ }
+ else
+ {
+   set context.targetConfigNames = configValue
+ }]]]]><![CDATA[>
+</code>
+<code name='Call X12 store method' xpos='200' ypos='650' >
+<![CDATA[ 
+  if (request.%ClassName() = "StoreX12")
+  {
+     $$$TRACE("Store: " _ request.streamContainer.OriginalFilename _ ", Stream of size: " _ request.streamContainer.Stream.Size _", status: " _ request.status)
+     Do ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).ProcessStream(request.streamContainer.Stream, request.streamContainer.OriginalFilename, request.status, request.createDtTm)
+  }
+  elseif (request.%ClassName() = "StreamContainer")
+  {
+     $$$TRACE("Store StreamContainer: " _ request.OriginalFilename _ ", Stream of size: " _ request.Stream.Size)
+     Do ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).ProcessStreamContainer(request)
+  }
+  elseif (request.%ClassName() [ "x12MessageReq") // CORERULES message
+  {
+     $$$TRACE("Store x12MessageReq  : " _ request.pTransactionFileName_ ", Inbound X12 size: " _ $L(request.Payload) )
+     set inpId = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).ProcessX12String(request.Payload, request.pTransactionFileName, "Processed", request.TimeStamp, "Inbound")
+     set respId = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).ProcessX12String(request.RespPayload, request.pTransactionFileName, "Processed", request.RespTimeStamp, "Outbound")
+     $$$TRACE("X12 IDs: " _ inpId _", " _ respId)
+  }
+  else
+  {
+   $$$TRACE("Process X12 Stream: " _ ##class(%File).GetFilename(request.Source) _", " _ request.%ClassName())
+   Do ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).ProcessX12Doc(request)
+  }
+ $$$TRACE("Processed X12Doc data")]]]]><![CDATA[>
+</code>
+<code name='Send to target' xpos='200' ypos='750' >
+<![CDATA[ if (context.targetConfigNames = "")
+ {
+    Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+ }
+   
+    set stream=##class(%Stream.GlobalCharacter).%New()
+
+    
+    if (request.%ClassName() = "StreamContainer")
+    {
+        Set tSC = stream.CopyFrom(request.Stream)
+    }
+    elseif (request.%ClassName() = "EnsLib.EDI.X12.Document")
+    {
+       Set tSC =request.OutputToLibraryStream(stream)
+    }
+    else
+    {
+       set tSC = $$$ERROR("Invalid inbound message")
+    }
+    If $$$ISOK(tSC) {
+    
+      set newStreamContainer =##class(Ens.StreamContainer).%New(stream)
+      set newStreamContainer.OriginalFilename = request.OriginalFilename
+    
+      For iTarget=1:1:$L(context.targetConfigNames, ",") 
+      {
+	 Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+	 Set tSC1=process.SendRequestAsync(tOneTarget, newStreamContainer)
+	 $$$TRACE("Send Async Incoming X12 message to Process: " _ tOneTarget _ " in targetConfigNames, status: " _ tSC1 )
+			
+      }
+    }]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='850' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+</Storage>
+</Class>
+</Export>
