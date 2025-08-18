@@ -1,0 +1,266 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.SyngoResultsHl7ToCernPreprocess">
+<Description>
+Syngo text result to Cerner preprocess</Description>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>63770,48624.416482</TimeCreated>
+
+<Property name="AccessTokenTargetConfigName">
+<Description>
+Ping Access Token Operation</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Property name="PatientServiceTargetConfigName">
+<Description>
+Patient Demographic Service</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="250"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default><![CDATA[-NextOperation,AccessTokenTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},PatientServiceTargetConfigName:Additional:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId}]]></Default>
+</Parameter>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='2850' width='2000' >
+<context>
+<property name='errorStatus' type='%Status' initialexpression='$$$OK' instantiate='0' />
+<property name='targetList' type='%String' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='cntr' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrIds' type='%String' initialexpression='""' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrLnms' type='%String' initialexpression='""' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='attPrvdrFnms' type='%String' initialexpression='""' collection='list' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='jsonRequest' type='Ens.StringRequest' instantiate='0' />
+<property name='restHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='testRep' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='AccessTokenTargetConfigName' type='%String' instantiate='0' />
+<property name='restAccessTokenHttpResponse' type='EnsLib.HTTP.GenericMessage' instantiate='0' />
+<property name='accessToken' type='%String' instantiate='0' />
+<property name='empiNum' type='%String' instantiate='0' />
+<property name='patientServiceTargetConfigName' type='%String' instantiate='0' />
+<property name='hieReadDemogrObj' type='IHC.ITF.ITFCOMMON.Util.Hie.HieServiceReadDemographics' instantiate='0' />
+<property name='obr321' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='prvdrId' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='mrn' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+</context>
+<sequence xend='200' yend='2200' >
+<scope xpos='200' ypos='250' xend='200' yend='2100' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check Deploy code' xpos='200' ypos='450' >
+<annotation><![CDATA[check deploy code - look for reply action code settings]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+   Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
+ }
+ 	  ]]]]><![CDATA[>
+</code>
+<code name='Get MaxError and Custom Property' xpos='200' ypos='550' >
+<annotation><![CDATA[Example to get MaxError and Custom Property]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+ 
+]]]]><![CDATA[>
+</code>
+<code name='get empi and OBR-32.1' xpos='200' ypos='650' >
+<![CDATA[ set context.empiNum = $ZSTRIP(request.GetValueAt("PID:PatientIdentifierList(1).ID"),"<","0")
+ $$$TRACE("EmpiNumber: " _ context.empiNum)
+ 
+ set context.obr321 = $ZSTRIP(request.GetValueAt("OBR:32.1"),"<","0")
+ $$$TRACE("OBr-32.1: " _ context.obr321)		]]]]><![CDATA[>
+</code>
+<if name='check if the empi is from EPIC' condition='(##Class(Ens.Util.FunctionSet).StartsWith(context.empiNum,"X")=1)' xpos='200' ypos='750' xend='200' yend='1100' >
+<true>
+<code name='ping token' xpos='335' ypos='900' >
+<![CDATA[ set context.AccessTokenTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AccessTokenTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+    $$$TRACE("PingDir AccessTokenTargetConfigName: " _ context.AccessTokenTargetConfigName)
+ }else{
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No AccessTokenTargetConfigName found in the Ensemble settings")
+ } 
+ set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
+ set status =  process.SendRequestSync(context.AccessTokenTargetConfigName,httpRequestObj,.accessTokenResponse)
+ if ($$$ISOK(status)){
+    $$$TRACE("AcsessToken Operation status - OK")
+    set context.restAccessTokenHttpResponse=accessTokenResponse      
+    Set tcharStream = ##class(%GlobalCharacterStream).%New()
+    Set tStatus = tcharStream.CopyFrom(context.restAccessTokenHttpResponse.Stream)
+    set text=""
+    While 'tcharStream.AtEnd {
+      Set text = text_tcharStream.Read($$$MaxStringLength)
+    } 
+    set context.accessToken = text
+    $$$TRACE("Accss Token from Ping Service: "_context.accessToken)
+    if (context.accessToken=""){
+       $$$TRACE(" Access Token is blank/empty")
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName," No Access Token from ping service. ") 
+    }      
+ }else {
+    $$$TRACE("Calling Ping Service to get the Access Token failed!!!")
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Calling Ping Service to get the Access Token failed!!!") 
+ }
+   ]]]]><![CDATA[>
+</code>
+<code name='Get patient demographics' xpos='335' ypos='1000' >
+<![CDATA[  
+ set context.patientServiceTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","PatientServiceTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+    $$$TRACE(" PatientServiceTargetConfigName: " _ context.patientServiceTargetConfigName)
+ }else{
+    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No PatientServiceTargetConfigName found in the Ensemble settings")
+ }
+ $$$TRACE(" Target Operation to Patient service " _ context.patientServiceTargetConfigName) 
+ set httpPingServiceRequestObj=##class(IHC.ITF.ITFCOMMON.Request.httpsRequestForPingService).%New() 
+ set httpPingServiceRequestObj.accessToken = context.accessToken
+ set httpPingServiceRequestObj.operationType = "READ"   
+ set httpPingServiceRequestObj.assignAuth = "PEAKS"
+ set httpPingServiceRequestObj.identifier = context.empiNum
+ $$$TRACE(" Calling Patient Service - GetPatientService:  "_context.patientServiceTargetConfigName)
+ set status = process.SendRequestSync(context.patientServiceTargetConfigName,httpPingServiceRequestObj,.patientServiceResponse)
+   
+ if ($$$ISOK(status)){
+    $$$TRACE("Call PatientService-GetPatientService Operation OK status. ")
+    set restPatientServiceHttpResponse = patientServiceResponse
+    set jsonPatient = restPatientServiceHttpResponse.Attributes.GetAt("Person")
+     
+    $$$TRACE("Json: " _ jsonPatient  )
+     
+    set consumedJSONobj = ##class(%DynamicAbstractObject).%FromJSON(jsonPatient) 
+    set statusVal = consumedJSONobj.%Get("status")  
+    $$$TRACE("  statusVal: "_statusVal)     
+    if (statusVal="SUCCESS"){ 
+       $$$TRACE("Parsing Json String is done.")
+       set dataObj=consumedJSONobj.%Get("data")
+       set mrnObj=dataObj.primaryIds
+       #dim mrnIter As %Iterator.Array
+       set mrnIter =  mrnObj.%GetIterator()
+       if (##class(Ens.Util.FunctionSet).Contains(mrnObj,"DynamicArray")) {
+          while mrnIter.%GetNext(.key,.dvalue) { 
+             set idObj=dvalue
+             $$$TRACE("KEY-: "_key)
+             if idObj.assigningAuthority="INMT" {
+                $$$TRACE("Cerner MRN: "_idObj.mrn)
+                set context.mrn=idObj.mrn
+                break
+             }
+          }
+       }
+  
+    }elseif(statusVal="NO_MATCH"){
+       set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Keep mrn# not exists in Verato. Skipping the record with error notification to EMPI support.")
+    }else{
+       set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Shutting down..Unknown Error.")
+    }
+    
+ }else {
+    set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Error while calling the PatientService-GetPatientService") 
+ }  
+    
+      
+   ]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<if name='check if OBR-32.1 is a NPI' condition='$L(context.obr321)=10' xpos='200' ypos='1200' xend='200' yend='1450' >
+<true>
+<code name='Lookup the provider ID' xpos='335' ypos='1350' >
+<![CDATA[     set tStatus=##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.SyngoDynamicsResultsHl7ToCernPreprocess.Lookup.prvdrNpiIds", context.obr321, .retVal)
+   if retVal {
+      set context.prvdrId=retVal
+   }
+   else {
+      set status = ##class(IHC.ITF.ITFCOMMON.Utility).FailMsgError(process.%ConfigName, "Provider ID is not found for this NPI: "_context.obr321_", skip message.")
+   }]]]]><![CDATA[>
+</code>
+</true>
+</if>
+<transform name='Translate Muse Hl7 to Ellkay Hl7' class='IHC.ITF.Transform.Dtl.SyngoResultsHl7ToCernPreprocess' source='request' target='response' xpos='200' ypos='1550' />
+<code name='GetTargetConfigList' xpos='200' ypos='1650' >
+<![CDATA[   set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+<foreach name='send to targets' property='context.targetList' key='context.cntr' xpos='200' ypos='1750' xend='200' yend='350' >
+<call name='sendToTarget' target='@context.targetList.GetAt(context.cntr)' async='1' xpos='200' ypos='250' >
+<request type='Ens.Request' >
+<assign property="callrequest" value="response" action="set" />
+</request>
+</call>
+</foreach>
+<code name='reset error count' xpos='200' ypos='1850' >
+<![CDATA[ Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
+</code>
+<faulthandlers>
+<catchall xpos='200' ypos='1950' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>SyngoResultsHl7ToCernPreprocessDefaultData</DefaultData>
+<Data name="SyngoResultsHl7ToCernPreprocessDefaultData">
+<Subscript>"SyngoResultsHl7ToCernPreprocess"</Subscript>
+<Value name="1">
+<Value>AccessTokenTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>PatientServiceTargetConfigName</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
