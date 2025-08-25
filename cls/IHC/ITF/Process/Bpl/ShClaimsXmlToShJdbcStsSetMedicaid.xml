@@ -186,8 +186,12 @@ BPL Definition</Description>
 <property name='guId' type='%String' instantiate='0' />
 <property name='stream' type='%Stream.GlobalCharacter' instantiate='0' />
 <property name='xmlDoc' type='EnsLib.EDI.XML.Document' instantiate='0' />
-
+<property name='ControlNumber' type='%String' instantiate='0' />
 <property name='claimStatusUpdateRequest' type='IHC.ITF.Request.ShspMedicareJobStsUpdate' instantiate='1' />
+
+<property name='ClmRespFileIO' type='IHC.ITF.ITFCOMMON.Request.FileIO' instantiate='1' />
+
+
 
 <property name='claimsStatusUpdateTargetConfigName' type='%String' initialexpression='"Op-Sh-Claims-Xml-Jdbc-STSSETMEDICAID"' instantiate='0' >
 <parameters>
@@ -248,6 +252,7 @@ BPL Definition</Description>
 <property name='errMsg' type='%String' initialexpression='""' instantiate='0' />
 
 <property name='isXmlResponse' type='%String' initialexpression='"3"' instantiate='0' />
+
 
 
 </context>
@@ -393,6 +398,7 @@ BPL Definition</Description>
 		$$$TRACE(" Begin SHSP_MEDICAID_CLM_GEN_XML stored procedure call(INST) for batch count... "_clmMedicaidGenXmlRequest.pBatchNumber)
 		set tStatus=process.SendRequestSync(context.claimsShXmlTargetConfigName,clmMedicaidGenXmlRequest,.clmXmlResponse)
   		$$$TRACE(" After SHSP_MEDICAID_CLM_GEN_XML stored procedure call(INST) ... "_tStatus)  
+  		set context.ClmRespFileIO =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(clmXmlResponse) 
   		if (tStatus) {
   			$$$TRACE(" XML Response file size: "_clmXmlResponse.Size)
   			if (clmXmlResponse.Size=0){
@@ -406,6 +412,7 @@ BPL Definition</Description>
   			set context.fileName = fileReqObj.DestinationFileName 
   			set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,fileReqObj)	  
 	  		$$$TRACE(" Oracle Raw XML File sent status: "_tStatus)
+	  		
   			Set xmlObj = ##class(EnsLib.EDI.XML.Document).%New()
 			set context.xmlDoc  = xmlObj.ImportFromLibraryStream(clmXmlResponse)
 			if (clmXmlResponse.Size < 2440000){
@@ -445,13 +452,26 @@ BPL Definition</Description>
 	</transform>
 	<code name='Check X12 response' xpos='200' ypos='1050' >
 	<![CDATA[ 
+	$$$TRACE( " context.ControlNumber : "_context.ControlNumber)
+	//set fileReqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(context.xmlDoc) 
+	//$$$TRACE(" *** 1 ***")
+  	set context.ClmRespFileIO.DestinationFilePath= context.oraArchiveFilePath
+  	$$$TRACE(" *** 2 ***")
+  	set context.ClmRespFileIO.DestinationFileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_"_"_context.ControlNumber_".837.XML"
+  	$$$TRACE(" *** 3 ***")
+  	set context.fileName = context.ClmRespFileIO.DestinationFileName 
+  	$$$TRACE(" *** 4 ***")
+  	set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,context.ClmRespFileIO)	  
+  	$$$TRACE(" *** 5 ***")
+	$$$TRACE(" Oracle Raw XML File sent status: "_tStatus)
+	  		
 	 set tRequest = ##class(Ens.StreamContainer).%New("")	 
 	 Set tStream=##Class(%Library.GlobalCharacterStream).%New()
 	 Set pStatus = response.OutputToLibraryStream(tStream)
      set tRequest.Stream = tStream	 
      set reqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(tRequest.Stream) 	 
      set reqObj.DestinationFilePath= context.ediX12FilePath
-  	 set reqObj.DestinationFileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_".837.X12" 	 
+  	 set reqObj.DestinationFileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_"_"_context.ControlNumber_".837.X12" 	 
   	 set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,reqObj)	  
 	 $$$TRACE(" EDI X12 837I File sent status: "_tStatus)
 	 if (tStatus){
@@ -679,8 +699,8 @@ BPL Definition</Description>
 	}
       set oStream = ##class(%Stream.GlobalCharacter).%New()
       set stat = context.x12Doc.OutputToLibraryStream(oStream)
-      set fileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_".837.X12" 	 
-      set filePath = context.ediX12FilePath_"/"_"HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_".837.X12" 	 
+      set fileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_"_"_context.ControlNumber_".837.X12" 	 
+      set filePath = context.ediX12FilePath_"/"_"HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_context.batchNum_"_"_context.ControlNumber_".837.X12" 	 
   	  set stat = context.x12Doc.OutputToFile(filePath )
   	  $$$TRACE("X12 Stream size: " _ oStream.Size _ ", " _ filePath _", size: " _ ##class(%File).GetFileSize(fileName))  
   	  if (stat=$$$OK){  
@@ -712,12 +732,15 @@ BPL Definition</Description>
     if (processBatchCounts = context.numSuccessBatchCounts){
 	    set context.returnCode = "0"
 		set context.returnDesc = "Medicaid837i Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ context.totalBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts
+		set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicaid).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.responseFilePath,.process)		
+		
 	}else{
 		set context.returnCode = "2"
 		set context.returnDesc = "Medicaid837i Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ context.totalBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts_" Error:"_context.errMsg
+		set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicaid).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.errorFilePath,.process)		
 	}
 	$$$TRACE( context.returnDesc )
-	set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicaid).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.errorFilePath,.process)		
+	
 ]]]]><![CDATA[>
 </code>
 
@@ -746,6 +769,7 @@ BPL Definition</Description>
 <Type>%Storage.Persistent</Type>
 <DefaultData>ShClaimsXmlToShJdbcStsSetMedicaidDefaultData</DefaultData>
 <Data name="ShClaimsXmlToShJdbcStsSetMedicaidDefaultData">
+<Structure>listnode</Structure>
 <Subscript>"ShClaimsXmlToShJdbcStsSetMedicaid"</Subscript>
 <Value name="1">
 <Value>ClaimsStatusSetTargetConfigName</Value>
@@ -757,13 +781,13 @@ BPL Definition</Description>
 <Value>ClaimsOraXmlFileTargetConfigName</Value>
 </Value>
 <Value name="4">
-<Value>OraArchiveFilePath</Value>
+<Value>ClaimsStatusUpdateTargetConfigName</Value>
 </Value>
 <Value name="5">
-<Value>EdiX12FilePath</Value>
+<Value>OraArchiveFilePath</Value>
 </Value>
 <Value name="6">
-<Value>ClaimsStatusUpdateTargetConfigName</Value>
+<Value>EdiX12FilePath</Value>
 </Value>
 <Value name="7">
 <Value>ErrorFilePath</Value>
