@@ -71,8 +71,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='1650' >
-<scope xpos='200' ypos='250' xend='200' yend='1550' >
+<sequence xend='200' yend='1750' >
+<scope xpos='200' ypos='250' xend='200' yend='1650' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName  _", " _ request.%Id()' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -165,12 +165,65 @@ BPL Definition</Description>
 	SET $ZSTORAGE=-1
 	$$$TRACE("Storage: " _ $ZS)]]]]><![CDATA[>
 </code>
-<if name='documentType ' condition='context.dtlNm &apos;= ""' xpos='200' ypos='750' xend='200' yend='1300' >
+<if name='documentType ' condition='context.dtlNm &apos;= ""' xpos='200' ypos='750' xend='200' yend='1400' >
 <true>
 <assign name="tradingPartnerName" property="context.tradingPartnerName" value="request.TradingPartnerName" action="set" xpos='470' ypos='900' />
-<transform name='Call DTL' class='@context.dtlNm' source='context.x12Doc' target='response' xpos='470' ypos='1000' />
-<trace name='From DTL' value='"From DTL: " _ response.RawContent' xpos='470' ypos='1100' />
-<code name='Send data' xpos='470' ypos='1200' >
+<code name='Validate X12 data' xpos='470' ypos='1000' >
+<![CDATA[	 
+       set GSnum = 1
+ 	   set GSCounter = context.x12Doc.ChildCount
+         
+  		$$$TRACE(  " GS ChildCount " _ GSCounter)
+          
+          while ( GSnum <= GSCounter)
+          {
+	          	set individualGroup = context.x12Doc.getNthChild(GSnum,2)
+	          	set individualGroup.DocType = "HIPAA_5010:Group"
+	          	set STCounter = individualGroup.ChildCount 
+		        $$$TRACE(  GSnum _ ". ST ChildCount " _ STCounter)
+		        #dim individualST As EnsLib.EDI.X12.Document
+		        set STnum = 1
+		        if ( STCounter >= 1)
+		        { 
+		        	set individualST = individualGroup.getNthChild(STnum)
+		        	set individualST.DocType = "ERP_4010:" _ context.documentType
+		        	Do individualST.BuildMap()
+		        	if $$$ISERR(individualST.BuildMapStatus)
+		        	{
+		        		$$$TRACE( "BuildMapStatus: failed" )
+						set errStr = ""
+		        		Do $system.Status.DecomposeStatus(individualST.BuildMapStatus,.err,"-d")
+	  					For i=1:1:err { set errStr = errStr _", " _ err(i) }
+	  					Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"X12 data error. " _ errStr)
+		        	}
+		        	else
+		        	{
+			        	$$$TRACE( "BuildMapStatus: passed")
+		        	}
+		        }
+		        else
+		        {
+			        $$$TRACE( "No segments in ST-SE")
+					Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"X12 data error. No segments in ST-SE")
+		        } 
+		        Do $INCREMENT(GSnum) 
+          }
+       if $$$ISERR(status)
+       {
+             Set errStr = $SYSTEM.Status.GetErrorText(status)  				  		    
+             Do process.ItfSendAlert(errStr _ " Invalid Inbound Data, file name: " _ request.OriginalFilename)
+   
+             set tStatus=process.SendRequestAsync("ErpInbound-ToError-XmlAndX12-File", request, "20")
+             if ('tStatus) { 
+                 set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned or call failure." _$SYSTEM.Status.GetOneErrorText(tStatus)) 
+             }   
+       }
+  
+  ]]]]><![CDATA[>
+</code>
+<transform name='Call DTL' class='@context.dtlNm' source='context.x12Doc' target='response' xpos='470' ypos='1100' />
+<trace name='From DTL' value='"From DTL: " _ response.RawContent' xpos='470' ypos='1200' />
+<code name='Send data' xpos='470' ypos='1300' >
 <![CDATA[
    $$$TRACE("Create Stream Container")
    set scTp = ##class(IHC.ITF.DStruc.Record.StreamContainerWithTransType).%New()
@@ -237,7 +290,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='1400' xend='200' yend='350' >
+<catchall xpos='200' ypos='1500' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
