@@ -397,7 +397,9 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
     this.WfService.fetchWorkFlowItems( 'Batch', paramsList).subscribe((res: any) => {
       this.NumAssignedItems = res.length;
           console.log("Batch WF: " + res.length);
-          this.WfService.fetchWorkFlowItems( 'RealTime', paramsList).subscribe(
+          if (`${environment.org}` == 'SH')
+          {
+            this.WfService.fetchWorkFlowItems( 'RealTime', paramsList).subscribe(
             (res:[]) => {
             console.log("RT WF: " + res.length);
                 this.NumAssignedItems += res.length;
@@ -408,6 +410,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
               },
               () => console.log('HTTP request completed.')
             );
+          }
     });
 
    }

@@ -4,7 +4,7 @@
 
 export const environment = {
   production: true,
-  org: 'SH,'
+  org: 'SH',
 
   tpDevUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRest/TpManage/',
   rtDevTransUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRest/RtTransactions/',
@@ -15,8 +15,8 @@ export const environment = {
   tpQaUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/TpManage/',
   rtQaTransUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/RtTransactions/',
   batchQaTransUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/BatchTransactions/',
-  batchQaWFUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/BatchWorkFlow/',
-  rtQaWFUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/RtWorkFlow/',
+  batchQaWFUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/BatchWorkFlow/',
+  rtQaWFUrl: 'https://itf-webapache-qa.co.ihc.com:8443/EdiRest/RtWorkFlow/',
 
   tpUatUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/TpManage/',
   rtUatTransUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/RtTransactions/',

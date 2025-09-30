@@ -318,7 +318,7 @@ onContextMenuNew(item: Item) {
     if (this.searchTypeString.indexOf('transaction') < 0)
     {
       this.searchTypeString += "transaction::"+this.currentTransType + ";status::Processed;" +
-      "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+      "tranStartDtTm::" + this.startDate +" "+ this.startTm +";" +
       "endDtTm::" + this.endDate+" " +this.endTm +";" +
       "count::25;"  ;
     }
@@ -349,7 +349,7 @@ onContextMenuSame(item: Item) {
     if (this.searchTypeString.indexOf('transaction') < 0)
     {
       this.searchTypeString += "transaction::"+this.currentTransType + ";status::Processed;" +
-      "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+      "tranStartDtTm::" + this.startDate +" "+ this.startTm +";" +
       "endDtTm::" + this.endDate+" " +this.endTm +";" +
       "count::25;"  ;
     }

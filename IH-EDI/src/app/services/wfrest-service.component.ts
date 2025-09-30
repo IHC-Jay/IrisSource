@@ -24,7 +24,7 @@ import {SearchColumns, SearchColumnsArray} from '../transaction/SearchColumns';
 import { Router, ActivatedRoute} from '@angular/router';
 import {User} from '../login/user';
 
-
+import { of } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
 
@@ -60,18 +60,23 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
   this.currentUser = currentUser;
   this.env = env;
   this.authenticationService = authService;
-  console.debug("Set User,env,auth " + authService)
+  console.log("Set User,env for WF " + env)
 
   if(env == 'QA')
   {
     this.rtTransUrl = `${environment.rtQaTransUrl}`;
     this.batchTransUrl = `${environment.batchQaTransUrl}`;
+    this.batchWfUrl =  `${environment.batchQaWFUrl}`;
+    this.rtWfUrl = "";
   }
   else if(env == 'UAT')
   {
     this.rtTransUrl = `${environment.rtUatTransUrl}`;
     this.batchTransUrl = `${environment.batchUatTransUrl}`;
+    this.batchWfUrl =  `${environment.batchUatWFUrl}`;
+    this.rtWfUrl = "";
   }
+  console.log(this.batchWfUrl);
 }
 
 updateWFitems(items:any)
@@ -113,7 +118,7 @@ fetchWorkFlowItems(mode: string, searchArr: string[]) {
   let url = this.batchWfUrl + "WorkFlowEntries?searchArr=" + searchArr;
   if (mode === 'RealTime')
   {
-     url = this.rtWfUrl + 'WorkFlowEntries?searchStr=' + searchArr;
+     url = this.rtWfUrl + 'WorkFlowEntries?searchArr=' + searchArr;
   }
 
   console.log('URL: ' + url)
@@ -146,6 +151,7 @@ fetchWorkFlowItems(mode: string, searchArr: string[]) {
     );
 
 }
+
 
 
 fetchIrisUsers() {

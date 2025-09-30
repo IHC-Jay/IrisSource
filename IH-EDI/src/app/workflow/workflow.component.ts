@@ -10,6 +10,7 @@ import {WfRestServiceComponent} from '../services/wfrest-service.component';
 import {WorkFlowEntry, IrisUsers} from './WorkFlowEntry';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
+import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-workflow',
@@ -67,7 +68,9 @@ export class WorkflowComponent implements OnInit {
 
     maxCount = ["10", "25", "50", "100", "200"];
 
-    transactionTypes: string[] = ["All Batch", "All RT", "270", "271","276", "277", "277CA", "835", "837"];
+    transactionTypes: string[] ;
+
+
     showMode = false;
     showUsers = false;
     errorTypes: string[] =['All','Data', 'TP','Connection','Ack','Duplicate']
@@ -101,6 +104,13 @@ export class WorkflowComponent implements OnInit {
 
   ngOnInit() {
 
+   if (`${environment.org}` == 'SH')
+  {
+    this.transactionTypes = ["All Batch", "All RT", "270", "271","276", "277", "277CA", "835", "837"];
+  }
+  else{
+    this.transactionTypes = ["All Batch",  "277CA", "835", "837"];
+  }
     sessionStorage.removeItem("currentTab")
     sessionStorage.setItem("currentTab", "Work Flow")
 
@@ -129,14 +139,28 @@ export class WorkflowComponent implements OnInit {
 
         let stDtStr = sessionStorage.getItem('WfTime');
 
-        if(stDtStr.toString().indexOf('1') > 1)
+        // Format: Last 90 days
+
+      if(stDtStr.toString().indexOf('1') > 1)
+      {
+        stDt = 1
+      }
+      else if(stDtStr.toString().indexOf('7') > 1)
         {
-          stDt = 1
+          stDt = 7
         }
-        if(stDtStr.toString().indexOf('7') > 1)
-          {
-            stDt = 7
-          }
+        else if(stDtStr.toString().indexOf('30') > 1)
+        {
+          stDt = 30
+        }
+        else if(stDtStr.toString().indexOf('90') > 1)
+        {
+          stDt = 90
+        }
+        else if(stDtStr.toString().indexOf('365') > 1)
+        {
+          stDt = 365
+        }
           console.info("Search from " + stDt + " days. " + stDtStr);
     }
 
@@ -221,7 +245,7 @@ export class WorkflowComponent implements OnInit {
             this.form.controls.rowCnt.setValue(val)
             console.log("rowCnt: " + val)
 
-            fInd = searchParams.indexOf("startDtTm::") + "startDtTm::".length;
+            fInd = searchParams.indexOf("wfStartDtTm::") + "wfStartDtTm::".length;
             let fInd2 = searchParams.indexOf(" ", fInd)
             val = searchParams.substring( fInd, fInd2)
             console.log(fInd + ". startDate:" + val )
@@ -355,24 +379,30 @@ onSubmit()
   }
 
   console.info("WfService.fetchWorkFlowItems")
-  this.WfService.fetchWorkFlowItems(this.form.controls.mode.value, paramsList).subscribe((res: any) => {
-    this.dataSource.data = res;
-    this.canRenderDetails = true;
+  let mode = this.form.controls.mode.value;
 
+   if  ( (`${environment.org}` == 'SH') || mode == 'Batch')
+    {
 
-    console.info("WorkFlowItems array: " + this.dataSource.data.length  );
-    this.paginator.pageSize = this.form.controls.rowCnt.value;
+      this.WfService.fetchWorkFlowItems(mode, paramsList).subscribe(
+        (res: WorkFlowEntry[]) => {
+            this.dataSource.data = res;
+            this.canRenderDetails = true;
+            console.info("WorkFlowItems array: " + this.dataSource.data.length  );
+            this.paginator.pageSize = this.form.controls.rowCnt.value;
 
-   },
-              err => {
-                console.error("WF call failed");
-                this.dataSource.data = [];
-                this.canRenderDetails = true;
-              },
-              () => console.log('Rest request completed.')
-  );
+          },
+                  (error) => {
+                    console.error("fetchWorkFlowItems call failed");
+                    this.dataSource.data = [];
+                    this.canRenderDetails = true;
+                  },
+                  () => console.log('fetchWorkFlowItems Rest request completed.')
+      );
 
- }
+    }
+
+}
 
  inputID()
  {
@@ -463,7 +493,7 @@ onDetailsClicked(row) {
           "transaction::"+this.form.controls.transType.value +";" +
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
-          "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+          "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
           "endDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  ;
 
@@ -481,7 +511,7 @@ onHistoryClicked(row) {
           "transaction::"+this.form.controls.transType.value +";" +
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
-          "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+          "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
           "endDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  ;
 

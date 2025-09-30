@@ -84,6 +84,8 @@ export class AuthenticationService {
         {
           console.info('login currentUserValue: ' + this.currentUser );
           this.tpTransService.setcurrentUser(username, env, this);
+            this.tpService.setcurrentUser(username, env, this);
+            this.wfTransService.setcurrentUser(username, env, this);
 
         }
         return user;

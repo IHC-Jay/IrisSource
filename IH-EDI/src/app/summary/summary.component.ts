@@ -54,7 +54,7 @@ endDate ="13:30";
 
      org = `${environment.org}`;
 
- transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+ transactionTypes: string[] ;
 
 
    nyiColumns = [
@@ -147,9 +147,10 @@ endDate ="13:30";
     sessionStorage.removeItem("currentTab")
     sessionStorage.setItem("currentTab", "Batches")
 
-     if (this.org == 'SH')
+    if (this.org == 'SH')
     {
         this.transactionTypes = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+
     }
    else
     {
@@ -182,14 +183,28 @@ endDate ="13:30";
 
         let stDtStr = sessionStorage.getItem('BthTime');
 
-        if(stDtStr.toString().indexOf('1') > 1)
+       // Format: Last 90 days
+
+      if(stDtStr.toString().indexOf('1') > 1)
+      {
+        stDt = 1
+      }
+      else if(stDtStr.toString().indexOf('7') > 1)
         {
-          stDt = 1
+          stDt = 7
         }
-        if(stDtStr.toString().indexOf('7') > 1)
-          {
-            stDt = 7
-          }
+        else if(stDtStr.toString().indexOf('30') > 1)
+        {
+          stDt = 30
+        }
+        else if(stDtStr.toString().indexOf('90') > 1)
+        {
+          stDt = 90
+        }
+        else if(stDtStr.toString().indexOf('365') > 1)
+        {
+          stDt = 365
+        }
           console.info("Init from session: " +  this.currentTransType);
           console.info("Search from " + stDt + " days. " + stDtStr);
     }
@@ -212,7 +227,7 @@ endDate ="13:30";
         {
           this.searchTypeString =  sessionStorage.getItem("searchTypeString");
           console.info('no query params, session: ' + this.searchTypeString);
-          if (this.searchTypeString === null || this.searchTypeString.length == 0)
+          if (this.searchTypeString === null || this.searchTypeString.length == 0 || this.searchTypeString.indexOf("sumStartDtTm::") < 0)
             {
               console.info('no query params')
               this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
@@ -232,7 +247,7 @@ endDate ="13:30";
             }
         }
 
-          if (this.searchTypeString !== null && this.searchTypeString.length > 0)
+          if (this.searchTypeString !== null && this.searchTypeString.length > 0 && this.searchTypeString.indexOf("sumStartDtTm::") >= 0)
           {
 
             let fInd = this.searchTypeString.indexOf("mode::") + 6;
@@ -255,7 +270,7 @@ endDate ="13:30";
             this.form.controls.disposition.setValue(val)
 
 
-            fInd = this.searchTypeString.indexOf("startDtTm::") + "startDtTm::".length;
+            fInd = this.searchTypeString.indexOf("sumStartDtTm::") + "sumStartDtTm::".length;
             let fInd2 = this.searchTypeString.indexOf(" ", fInd)
             val = this.searchTypeString.substring( fInd, fInd2)
             console.log(fInd + ". startDate:" + val )
@@ -367,7 +382,7 @@ endDate ="13:30";
       this.paramsList.push("transaction::"+this.form.controls.transType.value);
       this.paramsList.push("status::"+this.form.controls.disposition.value );
 
-      this.paramsList.push("startDtTm::" + this.startDate +" "+ this.startTm);
+      this.paramsList.push("sumStartDtTm::" + this.startDate +" "+ this.startTm);
 
       this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
@@ -977,7 +992,7 @@ onContextSettings(item: Item) {
     "summary::1;" +
     "transaction::"+this.form.controls.transType.value +";" +
     "status::"+this.form.controls.disposition.value +";" +
-    "startDtTm::" + this.startDate +" "+ this.startTm +";" +
+    "sumStartDtTm::" + this.startDate +" "+ this.startTm +";" +
     "endDtTm::" + this.endDate+" " +this.endTm +";" +
     "count::" + this.form.controls.rowCnt.value +";"  ;
 
