@@ -171,6 +171,7 @@ public initializeData()
       }
 
       let ttype ='' ;
+      console.log("TPIds: " + this.isaReceivingTpIds.length + ", " +    this.isaSendingTpIds.length);
 
       if (!this.isAddMode) {
         this.tpService.fetchTpLink(this.id)
@@ -180,10 +181,10 @@ public initializeData()
 
               for (let key in x) {
 
-
+                // console.log("SetValue " + key +": " + x[key].toString());
                 if(key === 'Ack')
                 {
-                  console.log("Ack.setValue " + x[key].toString() +": " + this.ackTypes[x[key].toString()]);
+
                   this.form.controls['Ack'].setValue(this.ackTypes[x[key].toString()]);
                 }
                 else if(key === 'Separators')
@@ -204,6 +205,7 @@ public initializeData()
                 else if(key === 'Direction')
                 {
                   this.form.controls['Direction'].setValue(x[key].toString());
+                  console.log("Direction: " + x[key].toString())
                 }
                 else if(key === 'FileName')
                 {
@@ -215,7 +217,7 @@ public initializeData()
                   ttype =x[key].toString();
 
                   this.form.controls.TransactionType.setValue(ttype);
-                  this.setTransactionType()
+
                 }
                 else if(key === 'GsReceiverId')
                 {
@@ -249,6 +251,8 @@ public initializeData()
                   console.log(key +"-- Not mapped")
                 }
               }
+              this.setTransactionType();
+
 
 
              }
@@ -269,7 +273,7 @@ public initializeData()
 
           var result = this.transactionTypes.findIndex(item => item.TransactionType  === this.transaction);
           console.info(this.transaction + '- findIndex result: ' + result );
-          if( result > 0 )
+          if( result >= 0 )
           {
             this.form.controls.TransactionType.setValue(this.transactionTypes[result].TransactionType);
             console.log("Set transaction type: " + this.transactionTypes[result].TransactionType +' , input: ' + this.transaction)
@@ -348,22 +352,25 @@ public initializeData()
 
 
       this.form.controls.TransactionTypeInfo.setValue(this.transactionTypes[result].TransactionType +", " + this.transType +", " + this.transactionTypes[result].Version);
-      console.info('TransactionTypeInfo : ' +this.form.controls['TransactionTypeInfo'].value);
+      console.info('TransactionTypeInfo : ' +this.form.controls['TransactionTypeInfo'].value +", this.isAddMode: " + this.isAddMode);
 
-      if(this.transactionTypes[result].Direction === 'IO')
+      if(this.isAddMode) // Set direction for Add mode, not Edit
       {
-        this.form.controls.Direction.setValue(this.direcTypes[1]);
-        this.form.controls.Direction.enable();
-      }
-      else
-      {
-        console.info('Set direction from Transaction type: ' + this.transactionTypes[result].Direction);
-        let index = this.direcTypes.indexOf(this.transactionTypes[result].Direction)
-        this.direcTypes.splice((index>0)?0:1, 1);
-        this.form.controls.Direction.setValue(this.transactionTypes[result].Direction);
-        // this.form.controls.Direction.disable();
+        if(this.transactionTypes[result].Direction === 'IO')
+        {
+          this.form.controls.Direction.setValue(this.direcTypes[1]);
+          this.form.controls.Direction.enable();
+        }
+        else
+        {
+          console.info('Set direction from Transaction type: ' + this.transactionTypes[result].Direction);
+          let index = this.direcTypes.indexOf(this.transactionTypes[result].Direction)
+          this.direcTypes.splice((index>0)?0:1, 1);
+          this.form.controls.Direction.setValue(this.transactionTypes[result].Direction);
+          // this.form.controls.Direction.disable();
 
-      }
+        }
+    }
 
       this.form.controls.Ack.setValue('No')
       this.form.controls.Separators.setValue('^|\\~')
@@ -376,7 +383,7 @@ public initializeData()
 
     setDirection()
     {
-      console.info('Set Direction, ID:' + this.parentTpId)
+      console.info('Set Direction, ' + this.form.controls['Direction'].value + ', ID:' + this.parentTpId + ", TP type: " + this.tpType)
       if( this.form.controls['Direction'].value === 'In')
         {
           this.sendertpIdHelp = 'Parent TPId';
@@ -394,6 +401,7 @@ public initializeData()
 
             this.gsReceivingTpIds = this.ownerTpIds;
             this.gsSendingTpIds[0] = this.parentTpId ;
+             console.info('BOTH: ' + this.ownerTpIds.length + ", " +this.parentTpId.length);
           }
           else if(this.tpType === "GS")
           {

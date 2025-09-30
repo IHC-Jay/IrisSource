@@ -60,7 +60,8 @@ export class TpIdComponent implements OnInit {
         if (row.TPID !== '')
         {
           let res = this.tpIdService.addTPID(row).subscribe((res:any) => {
-            if(res.errormessage !== "")
+
+            if(res.errormessage !== undefined && res.errormessage !== "")
             {
               alert("ERROR in adding TPID: " + res.errormessage)
               let ind = this.dataSource.data.indexOf(row)
