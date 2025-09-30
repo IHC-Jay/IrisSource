@@ -3251,12 +3251,13 @@ class AddEditComponent {
         if (_this.canRender) break;
       }
       let ttype = '';
+      console.log("TPIds: " + _this.isaReceivingTpIds.length + ", " + _this.isaSendingTpIds.length);
       if (!_this.isAddMode) {
         _this.tpService.fetchTpLink(_this.id).pipe((0,rxjs_operators__WEBPACK_IMPORTED_MODULE_4__.first)()).subscribe(x => {
           _this.form.patchValue(x);
           for (let key in x) {
+            // console.log("SetValue " + key +": " + x[key].toString());
             if (key === 'Ack') {
-              console.log("Ack.setValue " + x[key].toString() + ": " + _this.ackTypes[x[key].toString()]);
               _this.form.controls['Ack'].setValue(_this.ackTypes[x[key].toString()]);
             } else if (key === 'Separators') {
               let sepVal = x[key].toString();
@@ -3268,12 +3269,12 @@ class AddEditComponent {
               _this.form.controls['Folder'].setValue(x[key].toString());
             } else if (key === 'Direction') {
               _this.form.controls['Direction'].setValue(x[key].toString());
+              console.log("Direction: " + x[key].toString());
             } else if (key === 'FileName') {
               _this.form.controls['FileName'].setValue(x[key].toString());
             } else if (key === 'TransactionType') {
               ttype = x[key].toString();
               _this.form.controls.TransactionType.setValue(ttype);
-              _this.setTransactionType();
             } else if (key === 'GsReceiverId') {
               let val = x[key].toString();
               if (val === "") {
@@ -3294,6 +3295,7 @@ class AddEditComponent {
               console.log(key + "-- Not mapped");
             }
           }
+          _this.setTransactionType();
         });
         _this.form.controls.ParentTpId.setValue(_this.parentTpId);
       } else {
@@ -3304,7 +3306,7 @@ class AddEditComponent {
           console.info('setTransactionType search: ' + _this.transaction + ', ' + _this.transactionTypes.length);
           var result = _this.transactionTypes.findIndex(item => item.TransactionType === _this.transaction);
           console.info(_this.transaction + '- findIndex result: ' + result);
-          if (result > 0) {
+          if (result >= 0) {
             _this.form.controls.TransactionType.setValue(_this.transactionTypes[result].TransactionType);
             console.log("Set transaction type: " + _this.transactionTypes[result].TransactionType + ' , input: ' + _this.transaction);
             _this.setTransactionType();
@@ -3360,23 +3362,27 @@ class AddEditComponent {
       this.showTpIds = false;
     }
     this.form.controls.TransactionTypeInfo.setValue(this.transactionTypes[result].TransactionType + ", " + this.transType + ", " + this.transactionTypes[result].Version);
-    console.info('TransactionTypeInfo : ' + this.form.controls['TransactionTypeInfo'].value);
-    if (this.transactionTypes[result].Direction === 'IO') {
-      this.form.controls.Direction.setValue(this.direcTypes[1]);
-      this.form.controls.Direction.enable();
-    } else {
-      console.info('Set direction from Transaction type: ' + this.transactionTypes[result].Direction);
-      let index = this.direcTypes.indexOf(this.transactionTypes[result].Direction);
-      this.direcTypes.splice(index > 0 ? 0 : 1, 1);
-      this.form.controls.Direction.setValue(this.transactionTypes[result].Direction);
-      // this.form.controls.Direction.disable();
-    }
+    console.info('TransactionTypeInfo : ' + this.form.controls['TransactionTypeInfo'].value + ", this.isAddMode: " + this.isAddMode);
+    if (this.isAddMode)
+      // Set direction for Add mode, not Edit
+      {
+        if (this.transactionTypes[result].Direction === 'IO') {
+          this.form.controls.Direction.setValue(this.direcTypes[1]);
+          this.form.controls.Direction.enable();
+        } else {
+          console.info('Set direction from Transaction type: ' + this.transactionTypes[result].Direction);
+          let index = this.direcTypes.indexOf(this.transactionTypes[result].Direction);
+          this.direcTypes.splice(index > 0 ? 0 : 1, 1);
+          this.form.controls.Direction.setValue(this.transactionTypes[result].Direction);
+          // this.form.controls.Direction.disable();
+        }
+      }
     this.form.controls.Ack.setValue('No');
     this.form.controls.Separators.setValue('^|\\~');
     this.setDirection();
   }
   setDirection() {
-    console.info('Set Direction, ID:' + this.parentTpId);
+    console.info('Set Direction, ' + this.form.controls['Direction'].value + ', ID:' + this.parentTpId + ", TP type: " + this.tpType);
     if (this.form.controls['Direction'].value === 'In') {
       this.sendertpIdHelp = 'Parent TPId';
       this.receivertpIdHelp = 'TPIds for owner';
@@ -3389,6 +3395,7 @@ class AddEditComponent {
         this.isaReceivingTpIds = this.ownerTpIds;
         this.gsReceivingTpIds = this.ownerTpIds;
         this.gsSendingTpIds[0] = this.parentTpId;
+        console.info('BOTH: ' + this.ownerTpIds.length + ", " + this.parentTpId.length);
       } else if (this.tpType === "GS") {
         this.gsSendingTpIds[0] = this.parentTpId;
         this.gsReceivingTpIds = this.ownerTpIds;
@@ -4354,7 +4361,7 @@ class TpIdComponent {
       console.info('Add a TP ' + row.id);
       if (row.TPID !== '') {
         let res = this.tpIdService.addTPID(row).subscribe(res => {
-          if (res.errormessage !== "") {
+          if (res.errormessage !== undefined && res.errormessage !== "") {
             alert("ERROR in adding TPID: " + res.errormessage);
             let ind = this.dataSource.data.indexOf(row);
             this.dataSource.data.splice(ind, 1);
