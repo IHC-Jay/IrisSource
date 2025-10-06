@@ -6,6 +6,10 @@ import {TpId, TpIdColumns} from '../tradingPartners/tpIds/TpId';
 import {tpLinks} from '../tradingPartners/tpIds/tp-links/tp-links';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
 import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatIconModule } from '@angular/material/icon';
+import { MatSort, MatSortHeader } from '@angular/material/sort';
+import { MatPaginator } from '@angular/material/paginator';
+
 import {
   AUTO_STYLE,
   animate,
@@ -20,14 +24,13 @@ const DEFAULT_DURATION = 300;
   selector: 'app-search',
   templateUrl: './search.component.html',
   styleUrls: ['./search.component.css'],
-  animations: [
-    trigger('collapse', [
-      state('false', style({ height: AUTO_STYLE, visibility: AUTO_STYLE })),
-      state('true', style({ height: '0', visibility: 'hidden' })),
-      transition('false => true', animate(DEFAULT_DURATION + 'ms ease-in')),
-      transition('true => false', animate(DEFAULT_DURATION + 'ms ease-out'))
-    ])
-  ]
+ animations: [
+    trigger('tpLinkExpand', [
+      state('collapsed', style({ height: '0px', minHeight: '0' })),
+      state('expanded', style({ height: '*' })),
+      transition('expanded <=> collapsed', animate('225ms cubic-bezier(0.4, 0.0, 0.2, 1)')),
+    ]),
+  ],
 })
 
 export class SearchComponent implements OnInit {
@@ -37,10 +40,20 @@ export class SearchComponent implements OnInit {
   form!: FormGroup;
 
   canRenderDetails = false;
-  selectedTp:string = '';
+  tpLinksStr:string;
 
-  dataSource: TpId[] = [];
-  loadedPosts: tpLinks[] = [];
+  selectedTp:string[];
+  @ViewChild(MatSort) sort: MatSort;
+  @ViewChild(MatPaginator) paginator: MatTableDataSourcePaginator;
+
+
+  dataTableLabel: string[] = [];
+  dataTableKey: string[] = [];
+  tpLinksData:tpLinks[] = [];
+
+  isTableExpanded = false;
+
+   dataSource = new MatTableDataSource<any>();
 
   @ViewChild("searchTpId") focusField: ElementRef;
 
@@ -57,6 +70,16 @@ export class SearchComponent implements OnInit {
 
   async ngOnInit() {
 
+      this.dataTableLabel.push("Name");
+  this.dataTableLabel.push("TPID");
+  this.dataTableLabel.push("AliasName");
+  this.dataTableLabel.push("Links");
+
+  this.dataTableKey.push("Name");
+    this.dataTableKey.push("TPID");
+      this.dataTableKey.push("AliasName");
+      this.dataTableKey.push("Links");
+
     this.form = this.formBuilder.group({
       searchTpId: ['', Validators.required]
 
@@ -68,6 +91,57 @@ export class SearchComponent implements OnInit {
       this.focusField.nativeElement.focus();
     }
 
+    // Toggel Rows
+  toggleTableRows() {
+    this.isTableExpanded = !this.isTableExpanded;
+
+    this.dataSource.data.forEach((row: any) => {
+      row.isExpanded = this.isTableExpanded;
+    })
+  }
+
+    SelecttpLinks(nm: String) {
+    console.info("fetchtp-links: " + nm);
+    let getLnk = false;
+    this.tpLinksStr = "";  let ind = 0;
+     this.dataSource.data.forEach((row: any) => {
+
+
+              if(row.TPID == nm )
+              {
+                console.info( "Found: " + row.TPID);
+                row.isExpanded = ! row.isExpanded;
+                getLnk = true;
+              }
+            });
+            if (getLnk)
+            {
+
+              this.TradingPartnerService.fetchTpLinks(nm).subscribe(
+              tpLinksData => {
+
+                console.info(ind + ". Number of links: " + tpLinksData.length);
+                this.tpLinksData = tpLinksData;
+                /*
+                tpLinksData.forEach( (lnk: tpLinks) => {
+
+
+                  this.tpLinksStr += ind + ". " + lnk.Link + ", Direction: " +lnk.Direction + ", Version: " + lnk.Version ;
+
+
+                  ind++;
+                })
+                  */
+              },
+              error => {
+                console.error( error.message);
+                this.loading = false;
+              }
+
+              );
+            }
+  }
+
 
     onTpIdChange()
     {
@@ -76,42 +150,16 @@ export class SearchComponent implements OnInit {
 
      console.info('searchTpIdVal: ' + searchTpIdVal);
 
-    this.loadedPosts = [];
-    this.dataSource = [];
     this.collapse();
     this.loading = true;
-    this.selectedTp = '';
+
 
     this.TradingPartnerService.fetchTPforTpId(searchTpIdVal).subscribe((res: any) => {
-      if ( res.TPID !==  undefined && res.TPID !== '')
-      {
-        console.info('onTpIdChange: ' + res.TPID);
-        this.selectedTp = res.TPID;
-        var tp:TpId  = {id:'0', Name:res.Name, TPID: res.TPID, Type:'BOTH', isEdit:false, isSelected:false, User:''};
 
-        this.dataSource.push( tp);
+      this.dataSource.data = res;
 
-        this.TradingPartnerService.fetchTpLinks(res.TPID).subscribe(
-          tpLinksData => {
-            this.loadedPosts = tpLinksData;
-            this.canRenderDetails = true;
-            this.loading = false;
-          },
-          error => {
-            console.error( error.message);
-            this.loading = false;
-          }
-        );
-      }
-      else
-      {
-        console.info('fetchTPforTpId returned no row ');
-        this.selectedTp = 'Not Found'
-        var tp:TpId  = {id:'0', Name:'Not Found', TPID: searchTpIdVal, Type:'BOTH', isEdit:false, isSelected:false, User:''};
-        this.dataSource.push( tp);
-        this.canRenderDetails = true;
-        this.loading = false;
-      }
+      this.canRenderDetails = true;
+      this.loading = false;
 
     });
 

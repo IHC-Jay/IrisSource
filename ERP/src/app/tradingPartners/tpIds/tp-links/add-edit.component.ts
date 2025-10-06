@@ -32,6 +32,7 @@ export class AddEditComponent implements OnInit {
     parentTpId!: string;
     tpType: string;
     tpName:string;
+    aliasName:string;
     sendertpIdHelp: string;
     receivertpIdHelp: string;
     isAddMode: boolean = false;
@@ -119,6 +120,7 @@ public initializeData()
       this.parentTpId = this.route.snapshot.params['tpId'];
       this.tpType = this.route.snapshot.params['type'];
       this.tpName = this.route.snapshot.params['tpName'];
+      this.aliasName = this.route.snapshot.params['aliasName'];
 
        if(!this.isAddMode)
        { //edit
@@ -302,7 +304,7 @@ public initializeData()
           console.log(el +': ' + this.form.controls[el].value)
         }
       }
-      this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId, this.tpType, this.tpName ]);
+      this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId, this.tpType, this.tpName, this.aliasName ]);
 
     }
 
@@ -526,7 +528,7 @@ public initializeData()
               console.error('createUpdateTpLink status: ' + res.Status);
               if(res.Status == 'OK')
               {
-                 this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId, this.tpType, this.tpName ]);
+                 this.router.navigate(["/TradingPartners/tpIds/tp-links/" + this.parentTpId, this.tpType, this.tpName, this.aliasName ]);
                  retStr = 'OK'
               }
               else

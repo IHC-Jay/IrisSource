@@ -256,7 +256,7 @@ export class TpRestServiceComponent {
         )
         .pipe(
           map(responseData => {
-           console.info("Response")
+           console.info("Response: " + responseData.length)
            return responseData;
           }),
           catchError(errorRes => {

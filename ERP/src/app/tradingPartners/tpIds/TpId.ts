@@ -2,6 +2,7 @@ export interface TpId {
   isSelected: boolean;
   id: string;
   Name: string;
+  AliasName: string;
   TPID: string;
   Type: string;
   isEdit: boolean;
@@ -13,9 +14,16 @@ export const TpIdColumns = [
   {
     key: 'Name',
     type: 'string',
-    label: 'Trading Partner',
+    label: 'Trading Partner ID',
     required: true,
     help: 'TP Name'
+  },
+  {
+    key: 'AliasName',
+    type: 'string',
+    label: 'Alias Name',
+    required: true,
+    help: 'TPID AliasName'
   },
   {
     key: 'TPID',

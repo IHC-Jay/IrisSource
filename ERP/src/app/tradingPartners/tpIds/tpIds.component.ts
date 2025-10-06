@@ -16,6 +16,7 @@ import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.comp
 
 export class TpIdComponent implements OnInit {
   tpName: string;
+  aliasName: string;
 
   public size = 5;
   public pageNumber = 0;
@@ -44,6 +45,7 @@ export class TpIdComponent implements OnInit {
       const newRow: TpId = {
         id: '-1',
         Name: this.tpName,
+        AliasName: this.aliasName,
         TPID: '',
         Type: 'ISA',
         isEdit: true,

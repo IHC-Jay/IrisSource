@@ -45,6 +45,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   tpId:String;
   tpType:String;
   tpName:String;
+  aliasName:String;
 
   isTableExpanded = false;
 
@@ -61,7 +62,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpIdLinksList = new MatTableDataSource<tpLinks>();
 
-  displayedtpLinksColumnsList: string[] = ['Link', 'IsaSenderId', 'IsaReceiverId', 'TransactionType', 'Direction', 'actions'];
+  displayedtpLinksColumnsList: string[] = ['Link', 'IsaSenderId', 'IsaReceiverId', 'GsSenderId', 'GsReceiverId', 'TransactionType', 'Direction', 'actions'];
 
   tpLinksArray: tpLinks[] = [];
 
@@ -78,6 +79,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     this.tpId = routeParams.get('tpId');
     this.tpType = routeParams.get('Type');
     this.tpName = routeParams.get('Name');
+    this.aliasName = routeParams.get('AliasName');
     console.info("tpLink init:" + this.tpId +", " + this.tpType +", " + this.tpName);
     this.errorSub = this.tpLinksService.error.subscribe(errorMessage => {
       this.error = errorMessage;
@@ -150,14 +152,14 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   addRow()
   {
     console.info("Call add for: " + this.tpId +", " + this.tpType);
-    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-add/", this.tpId, this.tpName, this.tpType]);
+    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-add/", this.tpId, this.tpName, this.aliasName, this.tpType]);
 
   }
 
   edit(tpLink: string)
   {
     console.info("Call edit for: " + tpLink +", "+ this.tpId +", " + this.tpType);
-    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-edit/", this.tpId, tpLink, this.tpType, this.tpName]);
+    this.router.navigate( ["/TradingPartners/tpIds/tp-link/tpLink-edit/", this.tpId, tpLink, this.tpType, this.tpName, this.aliasName]);
   }
 
   delete(tpLink: string) {
