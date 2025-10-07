@@ -1,0 +1,1680 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.ErpX12utils">
+<IncludeCode>EnsEDIX12,Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>66340,50200.601606</TimeCreated>
+
+<Method name="GetTpInformation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,mode:%String="Batch",direction:%String="In",sesId:%String,checkRel:%Integer,&fullErrorMsg:%String,&tPrelationDocumentId:%String,&parentErrorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set x12DocId = x12Doc.%Id()
+	set tPrelationDocumentId = 0
+	set parentErrorMsg = ""
+	set fullErrorMsg = "OK"
+	
+	$$$TRACE( "GetTpInformation " _ x12DocId _ ", 250 bytes: " _ $E(x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10)), 1, 250) )
+	set tSC= $$$OK
+	set InterchangeSenderID ="",  InterchangeReceiverID = ""
+	if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   set x12Doc.DocType = "ERP_4010:Interchange:Group"
+		   Set tSC =x12Doc.BuildMap()
+		   	   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   set InterchangeControlVersionNum = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlVersionNum"), "<>W")
+		   set isaDocType = x12Doc.DocType
+		   
+		   if ( (InterchangeSenderID ="") ||  (InterchangeReceiverID = "") )
+		   {
+			   set fullErrorMsg = "Interchange values are empty, Invalid X12: " _ x12Doc.OutputToString()
+			   QUIT $$$ERROR($$$EnsEDIX12ErrGeneral, "Invalid X12")
+		   }
+		   $$$TRACE("GetTpInformation ISA: " _ isaDocType _", " _ InterchangeSenderID _ " -> " _InterchangeReceiverID _ " , Version: " _InterchangeControlVersionNum )
+		   
+		   try
+		   {
+		   
+			   Set k1="",tSC=1,k2=""
+			   set numGS = 0, numSTs = 0, numRecs = 0, transactionCode = 0
+			   set nxt = x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
+			   if ($$$ISERR(tSCTrans))
+			   {
+				   
+				   // Check if this is TA1
+				   set seg = x12Doc.FindSegment("TA1", .ind, .stat)
+	  				if ( ($$$ISOK(stat)) && ($IsObject(seg)))
+	  				{
+		  				set parentErrorMsg = seg.Name _ "*" _  seg.GetValueAt("4") _ "*" _ seg.GetValueAt("5")
+		  				set tpObj = ##class(IHC.ERP.TPManage.TPrelationDocument).%New()
+						 SET tpObj.x12Data = x12DocId
+						 SET tpObj.SessionId = sesId
+						 set tpObj.FileName = x12Doc.Source
+						 set tpObj.createDtTm = $ZDATETIME($HOROLOG,3, 1)
+						 set tpObj.NumOfGSs = numGS
+						 set tpObj.NumOfSTs = numSTs
+						 set tpObj.NumOfTrns = numRecs
+						 
+						 set tpObj.INTERCHANGECONTROLNUMBER = InterchangeCtrlNum
+					     set tpObj.ISARECEIVERTPID = InterchangeReceiverID
+					     set tpObj.ISASENDERTPID = InterchangeSenderID
+
+					     set tpObj.statusDetails = fullErrorMsg
+						 set tpObj.status = "Data Error"
+					     Do tpObj.%Save()
+					     $$$TRACE("Saved IHC.ERP.TPManage.TPrelationDocument: " _ tpObj.%Id())
+					     set tPrelationDocumentId = tpObj.%Id()
+		  
+	  				}
+				   QUIT
+			   }
+			    Set k1=x12Doc.NextChild(k1,nxt)
+			    while ($IsObject(k1))
+			    {
+				    set numGS = numGS + 1
+					// WRITE !, "k1: " _ k1 _ ", Doc: " _ k1.DocType 
+					
+					If ""=k1.DocType {
+						Set tDocType = k1.resolveChildDocType()
+						$$$TRACE( "resolveChildDocType k1: " _ k1 _ ", Doc: " _ tDocType)
+						Set tSC =k1.PokeDocType(tDocType)
+					}
+					
+			 		 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
+					 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
+					 set x12Version = k1.GetValueAt("GS:VersionReleaseIndustryIdenti")
+					 set groupVersion = "V" _ $ZSTRIP(x12Version, "<", "0")
+					 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
+					 set grpDocType = k1.DocType
+					// WRITE !,  "GS: " _ k1.DocType _ ", GS Sender" _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Version: " _ groupVersion
+					Do ..ReadST(x12Doc, k1, .numSTs, .numRecs, .transactionCode, .parentErrorMsg)
+					Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			    }
+			    
+			    set errorMsg = "X12 values found"
+			
+			 WRITE !, "Create IHC.ERP.TPManage.TPrelationDocument" 
+			 #dim tpObj As IHC.ERP.TPManage.TPrelationDocument;
+			 set tpObj = ##class(IHC.ERP.TPManage.TPrelationDocument).%New()
+			 
+			 SET tpObj.x12Data = x12DocId
+			 SET tpObj.SessionId = sesId
+			 set tpObj.FileName = x12Doc.Source
+			 set tpObj.createDtTm = $ZDATETIME($HOROLOG,3, 1)
+			 set tpObj.NumOfGSs = numGS
+			 set tpObj.NumOfSTs = numSTs
+			 set tpObj.NumOfTrns = numRecs
+			 set tpObj.TransactionCode = transactionCode
+		     set tpObj.ISARECEIVERTPID = InterchangeReceiverID
+		     set tpObj.ISASENDERTPID = InterchangeSenderID
+			 set tpObj.GRPRECEIVERTPID = applicationReceiversCode  
+		     set tpObj.GRPSENDERTPID = applicationSendersCode
+		     set tpObj.TransactionVersion = x12Version
+
+			 if ((transactionCode '= "999") || (checkRel = 1))
+			 {
+				  
+				 set tSC = ..ItfFindInterchageLink(isaDocType, InterchangeSenderID, InterchangeReceiverID, groupVersion, mode, direction, tpObj, .errorMsg)
+				 set fullErrorMsg = errorMsg
+				 WRITE !, "From InterchageLink "_ tSC
+				 if ($$$ISERR(tSC))
+				 {
+					 Do ..ItfFindTPIDS(InterchangeSenderID, .errorMsg)
+					 set fullErrorMsg = fullErrorMsg _ errorMsg
+					 Do ..ItfFindTPIDS(InterchangeReceiverID, .errorMsg)
+					 set fullErrorMsg = fullErrorMsg _ errorMsg
+					 set tpObj.statusDetails = fullErrorMsg
+					 set tpObj.status = "TP Relationship not found"
+					 Do tpObj.%Save()
+					 WRITE !, "IHC.ERP.TPManage.TPrelationDocument Id: " _ tpObj.%Id()
+				 }
+				 else
+				 {
+					 set tSC = ..ItfFindGroupLink(grpDocType, applicationSendersCode, applicationReceiversCode, groupVersion, mode, direction, tpObj, .errorMsg)
+					 set fullErrorMsg =  errorMsg _ ", " _ fullErrorMsg
+					 if ($$$ISERR(tSC))
+					 {
+						 set tSC1 = ..ItfFindTPIDS(applicationSendersCode, .errorMsg)
+						 if ($$$ISERR(tSC1))
+						 {
+						    set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+						 }
+						 set tSC1 = ..ItfFindTPIDS(applicationReceiversCode, .errorMsg)
+						 if ($$$ISERR(tSC1))
+						 {
+						   set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+						 }
+						 set tpObj.statusDetails = fullErrorMsg
+						 set tpObj.status = "TP GroupLink not found"
+						 Do tpObj.%Save()
+						 WRITE !, "IHC.ERP.TPManage.TPrelationDocument Id: " _ tpObj.%Id()
+					 }
+				 }
+			 }
+			 if ($$$ISOK(tSC))
+			 {
+					set fullErrorMsg = "OK" _ ", " _  fullErrorMsg
+					 set tpObj.status = "OK"
+					 set tSC = tpObj.%Save()
+					 IF $$$ISOK(tSC) {  
+		                $$$TRACE( " TPrelationDocument saved: " _ tpObj.%Oid())
+		                $$$TRACE("IHC.ERP.TPManage.TPrelationDocument Id: " _ tpObj.%Id())
+		             }
+		  			 ELSE { 
+		  			 	$$$LOGERROR("Save TPrelationDocument failed, " _ tSC)
+		  			  }
+		  
+				 
+			 }
+			 set tPrelationDocumentId = tpObj.%Id()
+		 } catch err
+		 {
+			 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Exception in GetTpInformation " _ err)
+		 }
+	 }
+	 else
+	 {
+		 $$$TRACE("Invalid doc type")
+		 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Doctype is not valid: "_ x12Doc.DocType)
+	 }
+	 $$$TRACE("GetTpInformation return: " _ tPrelationDocumentId)
+	 return tSC
+]]></Implementation>
+</Method>
+
+<Method name="IsDuplicate">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&tPrelationDocumentId:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set x12DocId = x12Doc.%Id()
+	set tPrelationDocumentId = 0
+
+	set x12Str = $E(x12Doc.OutputToString(), 1, 250) _"%"
+	$$$TRACE( "IsDuplicate " _ x12DocId _ ", 250 bytes: " _ $E(x12Doc.OutputToString("|:^~" _$CHAR(13) _$CHAR(10)), 1, 250) )
+	set tSC= $$$OK
+	set InterchangeSenderID ="",  InterchangeReceiverID = ""
+	if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   set x12Doc.DocType = "ERP_4010:Interchange:Group"
+		   Set tSC =x12Doc.BuildMap()
+		   	   
+		   set InterchangeCtrlNum = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeControlNumber"), "<>W")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+		   if ( (InterchangeSenderID ="") ||  (InterchangeReceiverID = "") )
+		   {
+			   set fullErrorMsg = "Interchange values are empty, Invalid X12: " _ x12Doc.OutputToString()
+			   QUIT $$$ERROR($$$EnsEDIX12ErrGeneral, "Invalid X12")
+		   }
+		   $$$TRACE("IsDuplicateISA: " _ InterchangeSenderID _ " -> " _InterchangeReceiverID _ " , Ctrl# " _InterchangeCtrlNum )
+		   
+		   try
+		   {
+		   
+			   Set k1="",tSC=1,k2=""
+			   set numGS = 0, numSTs = 0, numRecs = 0, transactionCode = 0
+			   set nxt = x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
+			   if ($$$ISERR(tSCTrans))
+			   {
+				   QUIT
+			   }
+			    Set k1=x12Doc.NextChild(k1,nxt)
+			    while ($IsObject(k1))
+			    {
+				    set numGS = numGS + 1
+					
+					If ""=k1.DocType {
+						Set tDocType = k1.resolveChildDocType()
+						$$$TRACE( "resolveChildDocType k1: " _ k1 _ ", Doc: " _ tDocType)
+						Set tSC =k1.PokeDocType(tDocType)
+					}
+					
+			 		 set applicationSendersCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationSendersCode") , "<>W")
+					 set applicationReceiversCode = $ZSTRIP(k1.GetValueAt("GS:ApplicationReceiversCode"), "<>W")
+					 set grpCtrlNum = $ZSTRIP(k1.GetValueAt("GS:GroupControlNumber"), "<>W")
+					
+					$$$TRACE(  "GS Sender: " _ applicationSendersCode _ " -> " _ applicationReceiversCode_ " , GS Ctrl: " _ grpCtrlNum _", GS #" _numGS)
+					Do ..ReadST(x12Doc, k1, .numSTs, .numRecs, .transactionCode, .parentErrorMsg)
+					Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+			    }
+			    
+			 set relId = 0
+			 $$$TRACE(  "ST: " _ transactionCode _", ST #: " _ numSTs _", Trns # " _ numRecs)
+			 
+			 set sqlStr=3
+  			 set sqlStr(1) = "Select ID from IHC_X12.Data" _ transactionCode _" WHERE InterchangeControlNumber = ? AND InterchangeReceiverID = ? AND InterchangeSenderID = ? " 
+			 set sqlStr(2) = " AND GroupControlNumber = ? AND  ApplicationReceiversCode = ? AND ApplicationSendersCode = ?" 
+			 set sqlStr(3) = " AND x12Data like ?"
+			 Set rs = ##class(%SQL.Statement).%ExecDirect(,.sqlStr,  InterchangeCtrlNum, InterchangeReceiverID, InterchangeSenderID, grpCtrlNum, applicationReceiversCode, applicationSendersCode, x12Str)
+			$$$TRACE(  sqlStr(1) _", " _rs.%SQLCODE )
+			While rs.%Next() {
+			
+			    	if ( rs.%SQLCODE = 0)
+			    	{
+				    	set relId = rs.%Get("ID")
+				    	QUIT
+			    	}
+			}
+			
+			IF relId '= 0 {
+			    $$$TRACE("Found X12Doc Id = " _ relId)
+			    set tPrelationDocumentId = relId  
+			    }
+			ELSE {
+			    $$$TRACE("INTERCHANGECONTROLNUMBER = "_ InterchangeCtrlNum _" AND ISARECEIVERTPID = " _ InterchangeReceiverID _" AND ISASENDERTPID = " _ InterchangeSenderID )
+				 $$$TRACE("AND GROUPCONTROLNUMBER = " _ grpCtrlNum _" AND  GRPRECEIVERTPID = " _ applicationReceiversCode _ " AND GRPSENDERTPID = " _ applicationSendersCode) 
+				 $$$TRACE("AND NumOfGSs = " _ numGS _" AND NumOfSTs = " _ numSTs _" AND NumOfTrns = " _ numRecs)
+
+			    $$$TRACE("No records found, SQLCODE=" _ rs.%SQLCODE )		    
+			}
+
+			 
+		 } catch err
+		 {
+			 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Exception in IsDuplicate: " _ err)
+		 }
+	 }
+	 else
+	 {
+		 $$$TRACE("Invalid doc type")
+		 set tSC= $$$ERROR($$$EnsEDIX12ErrGeneral, "Doctype is not valid: "_ x12Doc.DocType)
+	 }
+	 $$$TRACE("IsDuplicate return ID: " _ tPrelationDocumentId)
+	 return tSC
+]]></Implementation>
+</Method>
+
+<Method name="ReadST">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,k1:EnsLib.EDI.X12.Document,&numSTs:%Integer,&numRecs:%Integer,&transactionCode:%String,&parentErrorMsg:%String]]></FormalSpec>
+<Implementation><![CDATA[
+	Set x12Doc.FunctionalGroups(k1)=k1
+	set numRecs = 0
+	set numSTs = 0
+	set stTranCode = ""
+	set k2=""
+		If ""=k1.DocType {
+			Set tDocType = k1.resolveChildDocType()
+			Set tSC =k1.PokeDocType(tDocType)
+		}
+		set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+	
+ 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+ 		while ($IsObject(k2))
+ 		{
+			$$$TRACE( "k2: " _ k2.%Id() _", # of segs: " _ k2.SegCountGet())
+			Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+			If ""=k2.DocType {
+				Set tDocType = k2.resolveChildDocType()
+				Set tSC =k2.PokeDocType(tDocType)
+			}
+			set stTranCode = x12Doc.FunctionalGroups(k1).TransactionSets(k2).GetValueAt("ST:TransactionSetIdentifierCode",,,1)
+			set numSTs = numSTs + 1
+			set transactionCode = stTranCode
+			FOR seg=1:1:k2.SegCountGet()
+			{
+				set recType = k2.GetValueAt(seg_":0")
+				
+				if ((stTranCode = "271") &&(recType = "EB"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "270") &&(recType = "EQ"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "837") &&(recType = "CLM"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "835") &&(recType = "CLP"))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+				elseif ((stTranCode = "999") && ((recType = "IK5")|| (recType = "AK9")))
+				{
+					set numRecs = numRecs + 1
+					// $$$TRACE(stTranCode _", " _recType _", Stat: " _ k2.GetValueAt(seg_":1"))
+					if (k2.GetValueAt(seg_":1") '= "A")
+					{
+						$$$TRACE("Original record " _ x12Doc.OriginalDocId _ " has errors " _ k2.TopParentId)
+						set parentErrorMsg = parentErrorMsg _ " " _ recType _ "*" _ k2.GetValueAt(seg_":1") _ "*" _ k2.GetValueAt(seg_":2")
+					}
+				}
+				else
+				{
+					// $$$TRACE("Unknown codes: " _ stTranCode _", " _ k2.GetSegmentPath(seg) _ "- " _ seg_": " _recType)
+				}
+			}
+			Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+			// $$$TRACE("Next FunctionalGroups:" _ k2)
+ 		}
+ 		WRITE !, stTranCode _ " - STs: " _ numSTs _ ", " _ stTranCode _ " SUBMISSION records: " _ numRecs
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindGroupLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[gsDocType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ERP.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("Grp Link Not found")
+	set errorMsg = " Group Link Not found " _ senderId _ "->" _ receiverId
+	$$$TRACE( "-- Find GS Grp Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version)
+	WRITE !, "-- Find GS Interchge Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	
+
+	 &sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name
+		from IHC_ERP_TPManage.TradeLink r, 
+		IHC_ERP_TPManage.TpId gs1,
+		IHC_ERP_TPManage.TpId gs2,
+		IHC_ERP_TPManage.TransactionType tr
+		where
+		r.GsSenderId = gs1.ID
+		and r.GsReceiverId = gs2.ID
+		and R.TransactionType = tr.ID
+		and gs1.TPID = :senderId
+		and gs2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Direction = :direction
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) RETURN tsc
+   FOR { &sql(FETCH WPCursor into :id, :relNm)
+   WRITE !, "ItfFind Group Link :SQLCODE: " _ SQLCODE
+        if (SQLCODE = 0)
+        {
+	        set errorMsg = " FOUND TP Link for GS: " _ relNm _", " _ senderId _", " _ receiverId _", " _ gsDocType _", " _ version
+	        set tpObj.GrpRelationID = id
+	        set tpObj.GRPRELATIONSHIPNAME = relNm
+	        set tsc= $$$OK
+	        QUIT
+        }
+        else
+        {
+	        QUIT
+        }
+   }
+    &sql(CLOSE WPCursor)
+    
+    return tsc
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindInterchageLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[docType:%String,senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,tpObj:IHC.ERP.TPManage.TPrelationDocument,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("Interchange Link Not found")
+	set errorMsg = " Interchange Link Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	WRITE !, "-- Find ISA Interchge Link --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	
+	&sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name 
+		from IHC_ERP_TPManage.TradeLink r, 
+		IHC_ERP_TPManage.TpId t1,
+		IHC_ERP_TPManage.TpId t2,
+		IHC_ERP_TPManage.TransactionType tr
+		where
+		r.IsaSenderId = t1.ID
+		and r.IsaReceiverId = t2.ID
+		and R.TransactionType = tr.ID
+		and t1.TPID = :senderId
+		and t2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Direction = :direction
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) RETURN tsc
+   FOR 
+   { 
+   		&sql(FETCH WPCursor into :id, :relNm)
+   		WRITE !, "ItfFind InterchageLink :SQLCODE: " _ SQLCODE
+        if (SQLCODE = 0)
+        {
+	        WRITE !, id _", :" _ relNm
+	        set errorMsg = " FOUND TRADELINK for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ docType _", " _ version
+	        
+	        set tpObj.IsaRelationID = id
+	        set tpObj.ISARELATIONSHIPNAME = relNm
+	        set tsc= $$$OK
+	        QUIT
+        }
+        else
+        {
+	        QUIT
+        }
+   }
+    &sql(CLOSE WPCursor)
+    
+    return tsc
+]]></Implementation>
+</Method>
+
+<Method name="ItfFindTPIDS">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tpid:%String,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tsc= $$$ERROR("TP Not found")
+	set errorMsg = "; TP Not found: " _ tpid
+		
+	&sql(DECLARE WPCursor CURSOR FOR 
+ SELECT AliasNAME, TPID
+ FROM IHC_ERP_TPManage.TpId
+ where TPID= :tpid)
+ 
+ &sql(OPEN WPCursor)
+        QUIT:(SQLCODE'=0)
+   FOR { &sql(FETCH WPCursor into :tpNm, :TPIDSIP)
+        QUIT:SQLCODE 
+        
+        set errorMsg = "; TP found: " _ tpNm _", " _ TPIDSIP 
+        set tsc= $$$OK
+   }
+   &sql(CLOSE WPCursor)
+   WRITE !, "ItfFindTPIDS: " _ errorMsg
+   return tsc
+]]></Implementation>
+</Method>
+
+<Method name="GetSessionId">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>msgBodyId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	set sessionId = ""
+	$$$TRACE( "-- GetSessionId: " _ msgBodyId)
+	
+	try {
+	&sql(DECLARE WPCursor CURSOR FOR 
+ SELECT TOP 1 SessionId
+ FROM 	Ens.MessageHeader
+ where MessageBodyId= :msgBodyId)
+ 
+ &sql(OPEN WPCursor)
+        QUIT:(SQLCODE'=0)
+   FOR { &sql(FETCH WPCursor into :sesId)
+        QUIT:SQLCODE 
+		set sessionId = sesId
+		$$$TRACE( "-- FETCH " _ msgBodyId _", " _ sesId)
+   }
+   &sql(CLOSE WPCursor)
+   
+	} catch err
+	{
+		$$$LOGERROR("SQL error: " _ err)
+	}
+   return sessionId
+]]></Implementation>
+</Method>
+
+<Method name="Resend">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>nmSp:%String,destComp:%String,sessionId:%String,msgId:%String,headQ:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+ try {
+	 set retStr = ""
+	 $$$TRACE("Resend: " _ destComp _ ", msgId: " _ msgId)
+	 set $NAMESPACE = nmSp
+	
+	 set HeadOfQueue = 0
+	 if (headQ = "true")
+	 {
+		set HeadOfQueue = 1
+	 }
+	 set Key  = "KEY"
+	 set num = 0
+	 
+	 	
+		Set tSC=##class(Ens.MessageHeader).ResendDuplicatedMessage(msgId,.tNewHeaderId,destComp,,,HeadOfQueue)
+		If ($$$ISERR(tSC)) {
+			Set errText = $System.Status.GetErrorText(tSC)
+			set retStr =  "Error: " _ errText _ ", Ens.MessageHeader.Id: " _ tMsgId			
+		}
+		
+		Else {
+			set retStr =  "RESENT: Ens.MessageHeader.Id: " _ msgId _ ", New Id: " _ tNewHeaderId 
+			Set ^CacheTemp.ResendIDs(Key,msgId,"sc") = "OK"
+			Set ^CacheTemp.ResendIDs(Key,msgId,"new") = tNewHeaderId
+		}
+	 	
+		
+   } catch err
+	    {
+		    set retStr = "Exception: " _ err.message
+	    }
+	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="GetAckDetailsForX12DocId">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Id:%String,&retStr:%String,&contact:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+	set x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(x12Id)
+	return GetAckDetails(x12Doc, retStr , contact )
+	 } catch err
+	{
+		set retStr = x12Id _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
+	}
+]]></Implementation>
+</Method>
+
+<Method name="GetInterchageLink">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[senderId:%String,receiverId:%String,version:%String,mode:%String,direction:%String,&lnkInfo:%String,&errorMsg:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("GetInterchageLink - Sender:" _ senderId _", Receiver:" _ receiverId _", Ver: " _ version _ ", Mode:" _ mode _", Direction: " _ direction)
+	
+	set tsc= $$$ERROR("Interchange Relation Not found")
+	set onm = $NAMESPACE
+	
+	set errorMsg = " Interchange Relation Not found: "_ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction
+	$$$TRACE("-- Find ISA InterchgRelation --" _ senderId _ "->" _ receiverId _ ", Version: " _ version _ ", Mode: " _ mode _ ", Direction: " _ direction)
+	
+	&sql(DECLARE WPCursor CURSOR FOR 
+        select r.ID, r.name 
+		from IHC_ERP_TPManage.TradeLink r, 
+		IHC_ERP_TPManage.TpId t1,
+		IHC_ERP_TPManage.TpId t2,
+		IHC_ERP_TPManage.TransactionType tr
+		where
+		r.IsaSenderId = t1.ID
+		and r.IsaReceiverId = t2.ID
+		and R.TransactionType = tr.ID
+		and t1.TPID = :senderId
+		and t2.TPID = :receiverId
+		and tr.VERSION = :version
+		and r.Direction = :direction
+		AND tr.ID = R.TransactionType
+		)
+   &sql(OPEN WPCursor)
+        if (SQLCODE'=0) 
+        {
+	        $$$TRACE( "Open: " _ SQLCODE)
+        	RETURN tsc
+        }
+   FOR 
+   { 
+   		&sql(FETCH WPCursor into :id, :relNm)
+        QUIT:SQLCODE 
+        $$$TRACE( id _", :" _ relNm)
+        set errorMsg = " FOUND relationship for ISA: " _ relNm _", " _ senderId _", " _ receiverId _", " _ version
+        
+        set lnkInfo = id _"," _ relNm
+        set tsc= $$$OK
+   }
+    &sql(CLOSE WPCursor)
+    set $NAMESPACE = onm
+    return tsc
+]]></Implementation>
+</Method>
+
+<Method name="GetAckDetails">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[x12Doc:EnsLib.EDI.X12.Document,&msgTrans:%String,&msgTransVer:%String,&retStr:%String,&contact:%String,&errList:%ListOfObjects,storeRec:%Boolean=0]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	try {
+	
+    set ak9Err = "", ik3Str = "", ik4Str = "", errStr = ""
+    set retStr = "", contact= "", origSeg = ""
+    WRITE !, "GetAckDetails: " _ x12Doc.DocType _", RawContent size:" _ $L(x12Doc.RawContent) _", Inbound X12 data: " _ x12Doc.OriginalDocId
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set tSC=1
+	  set numRecs = 0
+	  set x12Doc.DocType = "ERP_4010:Interchange"
+	 
+	   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+	   
+	   if ($F(InterchangeSenderID, "HT000015-0") <1)
+	   {
+	   		set contact = ..GetContactInfo(	InterchangeSenderID)
+	   }
+	   if ($F(InterchangeReceiverID, "HT000015-0") <1)
+	   {
+	   		set contact = contact _ ..GetContactInfo(InterchangeReceiverID)
+	   }
+	   set seg = x12Doc.FindSegment("TA1", .ind, .stat)
+	   if ( ($$$ISOK(stat)) && ($IsObject(seg)))	  				
+	   {
+		   $$$TRACE("TA1") 
+		   set ta04 = seg.GetValueAt("4") 
+		   set ta05 = seg.GetValueAt("5")
+		   Do ..ItfLookup("IHC.ITF.ITFCOMMON.TA1", ta05, .retVal)
+		   set retStr = "Data Error: TA1 error" _ $CHAR(13) _$CHAR(10) _ retVal _  $CHAR(13) _$CHAR(10) _ "TA014:105:" _ ta04 _":" _ ta05
+	   }
+	   else
+	   {
+		set errList = ##class(%ListOfObjects).%New()
+		 		
+		set GSCounter = x12Doc.ChildCount
+		for gsInt=1:1:GSCounter
+    	{ 
+        	#dim individualGroup As EnsLib.EDI.X12.Document
+        	set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+			WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  	
+		  	FOR stInd=1:1:individualGroup.ChildCount
+		  
+		  	{
+			  			
+				set ik3Str = "", ik4Str="", errNum = 1, segNum=0, segErrCode = 0, segErrStr ="", x12Data = ""
+				set errDet = ""
+				
+				set isaGsInfo = "ACK for ISA: "  _ InterchangeSenderID _" -> " _ InterchangeReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum _ ": Group CtrlNum: " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+				$$$TRACE( isaGsInfo)
+				  
+				#dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  	set STRecord=individualGroup.getNthChild(stInd,2)
+			  	
+			  	set STRecord.DocType = "ERP_4010:999"
+			  
+
+				  WRITE !, gsInt _". " _ stInd _ "- Parse999::: ST Segement CountGet: " _ STRecord.SegCountGet() 
+				  set akStr = "", ikStr = "", stNum = 0, firstAK2 = 1, refTransType = ""
+				  set refTransType = ""
+				  FOR ind=1:1:STRecord.SegCountGet()
+				  {
+						set numRecs = numRecs + 1
+						
+						
+						set segPath = STRecord.GetSegmentPath(ind, .stat)	
+		  				set segVal = STRecord.GetValueAt(segPath,, .stat)
+		  				set recType = STRecord.GetValueAt(segPath_":0")
+		  				// WRITE !, segPath _": " _ segVal
+		  	
+						if (recType = "AK2")
+						{
+							set msgTrans = STRecord.GetValueAt(segPath_":1")
+							set stNum = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+							set refTransType = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							WRITE !, "Ak2: " _ refTransType _", " _ stNum
+						}
+						
+						if (recType = "IK3")
+						{
+							
+							 if (ikStr '= "")
+							 {
+								 WRITE !, "IK3 - Create IHC.ITF.ITFCOMMON.X12ErrorDetails: " _ segNum
+								 set errDet = ##class(IHC.ITF.ITFCOMMON.X12ErrorDetails).%New()
+								
+									Do errList.Insert(errDet)
+									set errDet.stNum = stNum
+									set errDet.segNum = segNum
+									set errDet.x12Data = "TBD" // x12Data
+									set errDet.segErrCode = segErrCode
+									set errDet.segErrStr = ikStr
+									set ikStr = ""
+							 }
+							set segNum = 	$PIECE(segVal, x12Doc.ElementSeparator , 3)
+							if ($PIECE(segVal, x12Doc.ElementSeparator , 4) > 0)
+							{
+								set ikStr = ikStr _ $CHAR(13) _ " Loop: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _", "
+							}
+							set ikStr = ikStr _ $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							set segErrCode = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+							Do ..ItfLookup("IHC.ITF.Process.Bpl.IK3Values", segErrCode, .retVal)
+						  	
+						  	
+						  	set segVal = ..GetFullSegment(x12Doc.OriginalDocId, segNum, stNum)
+						  	WRITE !, segNum _", " _ stNum _ ": " _ segVal
+						  	
+						  	set ikStr = ikStr _ ": " _ retVal // _ " Segment Data: " _ segVal
+			  				WRITE !, "IK3 -" _ 	ikStr				
+							
+							
+						}
+						elseif (recType = "IK4")
+						{
+							WRITE !, "IK4 - Create IHC.ITF.ITFCOMMON.X12ErrorDetails: " _ segNum
+							set errDet = ##class(IHC.ITF.ITFCOMMON.X12ErrorDetails).%New()
+						
+							Do errList.Insert(errDet)
+							
+							set errDet.stNum = stNum
+							set errDet.segNum = segNum
+							set errDet.x12Data = "TBD" // x12Data
+							set errDet.segErrCode = segErrCode
+							set errDet.segErrStr = ikStr
+							
+							set ik4Err = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+							Do ..ItfLookup("IHC.ITF.Process.Bpl.IK4Values", ik4Err, .retVal)
+							set errDet.eleErrCode = ik4Err
+							set errDet.eleErrStr = retVal
+							set errDet.eleNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							
+							set errNum = errNum + 1
+							set ikStr = ""
+						}
+						elseif (recType = "IK5")
+						{
+							WRITE !, "Type of errors: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3)
+							
+						}
+						
+						elseif (recType = "AK9")
+						{
+							set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg3Val, .retVal)
+						  	set ak9Err = "Functional Group Response: " _ seg3Val _" (" _ retVal _"): # Transaction Sets: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ": # Received: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": # Accept: " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+						  	
+						}					
+					   
+					}
+		  		}
+    		 }
+		    }
+		    set retStr = ak9Err
+		    
+		    // Store to WF table
+		    if (storeRec)
+	    	{
+		    	$$$TRACE( "Store error in IHC_ITF_ITFCOMMON_X12.WorkFlow")
+		    	for i=1:1: errList.Count()
+			  	{
+				  $$$TRACE( "Segment # " _errList.GetAt(i).segNum _", " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _", Error: " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """")
+				  WRITE "errList: Segment # " _errList.GetAt(i).segNum _", " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _", Error: " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  	}
+			  
+			 
+			  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+			  set x12Data = x12Doc.OutputToString()
+			  set origX12id = x12Doc.OriginalDocId
+			  WRITE !, InterchangeReceiverID _", " _ InterchangeSenderID _", " _ x12Doc.OriginalDocId
+			  WRITE !, "msgTrans: " _ msgTrans
+			  set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm,  OrigX12Id) " _
+			  " values (?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, InterchangeReceiverID, InterchangeSenderID, msgTrans,  "New", "Data", retStr, "System", dtTm,  origX12id)
+			  $$$TRACE( "SQL code: " _ rset.%SQLCODE)
+			  if (rset.%SQLCODE < 0)
+			  {
+				  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
+
+			  set id = rset.%ROWID
+			  $$$TRACE( $NAMESPACE _ " - Inserted to  WorkFlow. ID: " _ id )
+			  WRITE !, "WorkFlow ID: " _ id _", " _ msgTrans 
+			  set obj = ##class(IHC.ITF.ITFCOMMON.X12.WorkFlow).%OpenId(id)
+			  if ($IsObject(obj))
+			  {
+			      WRITE !, "Insert errList #" _ errList.Count() 
+			      
+			      
+ 				  WRITE !, errList.GetAt(i).segNum _";segErrCode " _ errList.GetAt(i).segErrCode _"; segErrStr " _  errList.GetAt(i).segErrStr _"; eleNum " _ errList.GetAt(i).eleNum _"; eleErrCode " _  errList.GetAt(i).eleErrCode
+
+ 			      WRITE !, errList.GetAt(i).eleErrStr _"; x12Data  " _ errList.GetAt(i).x12Data 
+ 
+				  $$$TRACE( "Insert errList #" _ errList.Count() )
+				  
+					  for i=1:1: errList.Count()
+					  {
+						 if ($IsObject(errList.GetAt(i)))
+				  		 {
+					  		 WRITE !, errList.GetAt(i).segNum
+						  		set stat = obj.ErrList.Insert(errList.GetAt(i))
+						  		$$$TRACE( "insert segNum: " _ errList.GetAt(i).segNum _": " _ stat)
+				  		 }
+						  //
+					  }
+					  set stat = obj.%Save()
+					  $$$TRACE( " ErrList.Count: " _ obj.ErrList.Count())
+					  WRITE !, "IHC.ITF.ITFCOMMON.X12.WorkFlow ErrList.Count: " _ obj.ErrList.Count() _" Save: " _ stat
+				  
+				  
+				  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  }
+	    	}
+	    }
+	    else
+	    {
+		    $$$TRACE( "Not EnsLib.EDI.X12.Document")
+	    }
+	    
+	    
+      
+    } catch err
+	{
+		set retStr = x12Doc _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
+	}
+   return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetFullSegment">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Id:%String,segNum:%String,stNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set x12Doc = ##class(EnsLib.EDI.X12.Document).%OpenId(x12Id)
+  set segRec = ""
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set k1="",tSC=1,k2=""
+	  set numRecs = 0
+	 
+		
+	   Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    while ($IsObject(k1))
+	    {
+		    			
+			Set x12Doc.FunctionalGroups(k1)=k1
+			If ""=k1.DocType {
+				Set tDocType = k1.resolveChildDocType()
+				Set tSC =k1.PokeDocType(tDocType)
+			}
+			set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+	
+	 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+	 		while ($IsObject(k2))
+	 		{
+				
+				Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+				If ""=k2.DocType {
+					Set tDocType = k2.resolveChildDocType()
+					Set tSC =k2.PokeDocType(tDocType)
+				}
+				
+				set ak9Err = "", ik3Str = "", ik4Str = ""
+				FOR seg=1:1:k2.SegCountGet()
+				{
+					set numRecs = numRecs + 1
+					if (numRecs = segNum)
+					{
+						set segRec = k2.GetValueAt(seg)
+						QUIT
+					}
+				}
+					
+				Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))			
+
+	 		}
+ 		
+			Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    }
+ }
+ return segRec
+]]></Implementation>
+</Method>
+
+<Method name="GetFullSegmentFromX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,segNum:%String,stNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+ 
+  set segRec = ""
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set k1="",tSC=1,k2=""
+	  set numRecs = 0
+	 
+		
+	   Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    while ($IsObject(k1))
+	    {
+		    			
+			Set x12Doc.FunctionalGroups(k1)=k1
+			If ""=k1.DocType {
+				Set tDocType = k1.resolveChildDocType()
+				Set tSC =k1.PokeDocType(tDocType)
+			}
+			set tSC = x12Doc.FunctionalGroups(k1).BuildMap()
+	
+	 		Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
+	 		while ($IsObject(k2))
+	 		{
+				
+				Set x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
+				If ""=k2.DocType {
+					Set tDocType = k2.resolveChildDocType()
+					Set tSC =k2.PokeDocType(tDocType)
+				}
+				
+				set ak9Err = "", ik3Str = "", ik4Str = ""
+				FOR seg=1:1:k2.SegCountGet()
+				{
+					set numRecs = numRecs + 1
+					if (numRecs = segNum)
+					{
+						set segRec = k2.GetValueAt(seg)
+						QUIT
+					}
+				}
+					
+				Set k2=x12Doc.FunctionalGroups(k1).NextChild(k2,x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))			
+
+	 		}
+ 		
+			Set k1=x12Doc.NextChild(k1,x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans))
+	    }
+ }
+ return segRec
+]]></Implementation>
+</Method>
+
+<Method name="GetContactInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set tpInfo = ""
+	&SQL(Select tp.Name, ContactName,  ContactPhone,  ContactEmail  into :nm, :cont, :ph,:em  
+	FROM IHC_ERP_TPManage.TradingPartner tp, 
+    IHC_ERP_TPManage.TpId tid where tid.tpId =:tpId AND tid.TPFK = tp.ID)
+
+	if SQLCODE = 0
+	{
+		set tpInfo = "Company: " _ nm _ ", Name: " _ cont _ ", Phone #: " _ ph _", Email: " _ em  _ $CHAR(13) _$CHAR(10)
+	}
+	else
+	{
+		Set tpInfo = "GetContactInfo, TPID: " _ tpId _", error: " _ SQLCODE
+	}
+	  
+	return tpInfo
+]]></Implementation>
+</Method>
+
+<Method name="getControlNumber">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ConfigName:%String,sender:%String,receiver:%String,transType:%String=""</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	set ctrlNum = 1
+	set ctlNm = $ZSTRIP(ConfigName, "<>W")_","_$ZSTRIP(sender, "<>W")_","_$ZSTRIP(receiver, "<>W")_","_$ZSTRIP(transType, "<>W")
+	
+	if ($DATA(^[$NAMESPACE]X12ControlNumber(ctlNm)) '= 0)
+	{
+		SET ctrlNum = $INCREMENT(^[$NAMESPACE]X12ControlNumber(ctlNm))
+	}
+	set ^[$NAMESPACE]X12ControlNumber(ctlNm) = ctrlNum
+	return ctrlNum
+]]></Implementation>
+</Method>
+
+<Method name="GetTpLinkInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tpId:%String,transactionSet:%String,version:%String,mode:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set retStr = ""
+	 Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT lnk.ID, lnk.NAME, lnk.SNIP " _
+ "FROM IHC_ERP_TPManage.TradeLink lnk, IHC_ERP_TPManage.TpId tp, IHC_ERP_TPManage.TransactionType tt " _
+ "where tp.ID = lnk.IsaReceiverId and tt.TransactionSetId = '"_ transactionSet _ "' AND tt.ID = lnk.TRANSTYPE " _
+ " and lnk.Mode = '" _ mode _"' and tt.VERSION = '"_ version _ "' AND tp.TPID = '" _ tpId _ "' " )
+		
+	While rs.%Next() {
+		set nm = rs.%Get("NAME")
+		set id = rs.%Get("ID")
+		// $$$TRACE("TP Link: " _ nm _", Id: " _ id)	
+				
+		Set tpLink = ##class(IHC.ERP.TPManage.TradeLink).%OpenId(id)
+		if ($IsObject(tpLink))
+		{
+		 set retStr = tpLink.Routing _ "#" _id _"#" _ rs.%Get("SNIP")
+		 
+		 
+		 Set tSet="",tId=""
+			For {
+				Set tSet = tpLink.customProp.GetNext(.tId)
+				Quit:""=tId
+				if (tSet.Key = "BatchingMode835")
+				{
+					set retStr = retStr _ "#" _tSet.Value
+					
+					QUIT
+				}
+			}
+			
+		}
+		else
+		{
+		 $$$TRACE( "IHC.ERP.TPManage.TradeLink - Not an object")
+		}
+	}
+	$$$TRACE("TP Link for " _ tpId _ ": " _ ", Return: " _ retStr)
+	return retStr
+]]></Implementation>
+</Method>
+
+<Method name="InsertTPerror">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tSC:%Status</FormalSpec>
+<Implementation><![CDATA[
+	If $$$ISERR(tSC)
+    {
+        
+        set msgTrans ="277"
+        set msgTransVer ="XX277"
+        set dtTm = $ZDATETIME($HOROLOG,3, 1)
+        
+        set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+	  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+	  " values (?,?,?,?,?,?,?,?,?,?,?)"
+	  #dim rset As %SQL.StatementResult
+	  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+	  WRITE "SQL code: " _ rset.%SQLCODE
+	  if (rset.%SQLCODE < 0)
+	  {
+		  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+	  }
+			  
+	 set tSC1 = ..ItfFindTPIDS(applicationSendersCode, .errorMsg)
+	 if ($$$ISERR(tSC1))
+	 {
+	    set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+	 }
+	 set tSC1 = ..ItfFindTPIDS(applicationReceiversCode, .errorMsg)
+	 if ($$$ISERR(tSC1))
+	 {
+	   set fullErrorMsg = errorMsg _ ", " _  fullErrorMsg
+	 }
+	 set tpObj.statusDetails = fullErrorMsg
+	 set tpObj.status = "TP Relationship not found"
+}
+]]></Implementation>
+</Method>
+
+<Method name="GenerateIsaGs">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>target:EnsLib.EDI.X12.Document,lnkNum:%Integer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ConfigName = "AutoIsaGs"
+ set ctrlVerNum = "00401"
+ set lnkObj = ##class(IHC.ERP.TPManage.TradeLink).%OpenId(lnkNum)
+ // WRITE !, lnkObj.NAME
+ set transSubType = ""
+ 
+
+ if ('$IsObject(lnkObj))
+ {
+	 $$$LOGERROR("Link not found: " _ lnkNum)
+	 QUIT $$$ERROR($$$EnsErrGeneral , "Link not found: " _ lnkNum)
+ }
+ 
+
+ Set curDTM=$ZDATETIME($HOROLOG,8, 1)
+ 
+ set ctrlNum = ..getControlNumber(ConfigName, lnkObj.IsaSenderId.TPID, lnkObj.IsaReceiverId.TPID, lnkObj.TransactionType.Name)
+  
+ set isaCtrlNum =  "0" _ ctrlNum
+ FOR i=$L(isaCtrlNum )+1:1:9
+  {
+    set isaCtrlNum =  "0" _ isaCtrlNum 
+  }
+  
+  set isaSender = lnkObj.IsaSenderId.TPID
+  FOR i=$L(isaSender )+1:1:15
+  {
+    set isaSender =  isaSender _ " "
+  }
+  
+  set isaReceiver = lnkObj.IsaReceiverId.TPID
+  FOR i=$L(isaReceiver )+1:1:15
+  {
+    set isaReceiver =  isaReceiver _ " "
+  }
+  
+  set functionalGroupHeader = $CASE(lnkObj.TransactionType.Name, "810":"IN","850":"PO","852": "PD", "867": "PT",:"UN")
+ 
+ 
+ 
+ set target.Separators = $SELECT($L(lnkObj.Separators) = 3:sepStr, 1:"|~^")
+ 
+ set target.DocType = "ERP_4010:Interchange:Group:" _ lnkObj.TransactionType 
+ 
+ // Interchange Control Header (ISA) values
+ Do target.SetValueAt("00","ISA:AuthorizationInformationQual","set","")
+ Do target.SetValueAt("          ", "ISA:AuthorizationInformation","set","")
+ Do target.SetValueAt("          ", "ISA:SecurityInformation","set","")
+ Do target.SetValueAt("00","ISA:SecurityInformationQualifier","set","")
+ Do target.SetValueAt(lnkObj.IsaSenderId.TPFK.InterchangeIdQualifier,"ISA:InterchangeIDQualifier","set","")
+ Do target.SetValueAt(isaSender,"ISA:InterchangeSenderID","set","")
+ Do target.SetValueAt(lnkObj.IsaReceiverId.TPFK.InterchangeIdQualifier,"ISA:InterchangeIDQualifier2","set","")
+ Do target.SetValueAt(isaReceiver,"ISA:InterchangeReceiverID","set","")
+ Do target.SetValueAt($E(curDTM,3,8),"ISA:InterchangeDate","set","")
+ Do target.SetValueAt($E($REPLACE(curDTM,":",""),10,13),"ISA:InterchangeTime","set","")
+ Do target.SetValueAt(ctrlVerNum,"ISA:InterchangeControlVersionNum","set","")	
+ Do target.SetValueAt(isaCtrlNum,"ISA:InterchangeControlNumber","set","")
+ Do target.SetValueAt("0","ISA:AcknowledgmentRequested","set","")
+ Do target.SetValueAt("P","ISA:UsageIndicator","set","")
+ Do target.SetValueAt("U","ISA:InterchangeControlStandardsI","set","")
+ 
+ 
+ Do target.SetValueAt("1","IEA:NumberofIncludedFunctionalGr","set","")
+ Do target.SetValueAt(isaCtrlNum,"IEA:InterchangeControlNumber","set","")	
+ 
+ // New Functional Group
+
+ Set target.FunctionalGroups(1)=##class(Ens.X12.FunctionSet).X12NewFunctionalGroup(target,"Group")
+ Do target.FunctionalGroups(1).SetValueAt(functionalGroupHeader,"GS:FunctionalIdentifierCode", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt(lnkObj.GsSenderId.TPID,"GS:ApplicationSendersCode","set","") 
+ Do target.FunctionalGroups(1).SetValueAt(lnkObj.GsReceiverId.TPID,"GS:ApplicationReceiversCode","set","")
+ Do target.FunctionalGroups(1).SetValueAt($E(curDTM,1,8),"GS:Date","set","")
+ Do target.FunctionalGroups(1).SetValueAt($E($REPLACE(curDTM,":",""),10,13),"GS:Time","set","")
+ 
+ Do target.FunctionalGroups(1).SetValueAt(ctrlNum,"GS:GroupControlNumber", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt(ctrlNum,"GE:GroupControlNumber", "set","") 
+ 
+ Do target.FunctionalGroups(1).SetValueAt("X","GS:ResponsibleAgencyCode", "set","") 
+ Do target.FunctionalGroups(1).SetValueAt("004010","GS:VersionReleaseIndustryIdenti", "set","") 
+ 
+ // New TransactionSet
+ Set target.FunctionalGroups(1).TransactionSets(1) = ##class(Ens.X12.FunctionSet).X12NewTransactionSet(target.FunctionalGroups(1), lnkObj.TransactionType.Name)
+
+ Do target.FunctionalGroups(1).TransactionSets(1).SetValueAt(lnkObj.TransactionType.Name,"ST:TransactionSetIdentifierCode","set","")
+ Do target.FunctionalGroups(1).TransactionSets(1).SetValueAt("0001","ST:TransactionSetControlNumber","set","")
+ QUIT $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CompleteSets">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>target:EnsLib.EDI.X12.Document</FormalSpec>
+<Implementation><![CDATA[
+ // Complete the Transaction Set and Functional Group Loops
+ Set tSC1=target.FunctionalGroups(1).TransactionSets(1).SetValueAt(##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1).TransactionSets(1),1),"ST","set","") 
+ Set target.FunctionalGroups(1)=##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target.FunctionalGroups(1),1)
+ set temp = ##class(Ens.X12.FunctionSet).X12CompleteTrailerAndReturnClear(target,0)
+]]></Implementation>
+</Method>
+
+<Method name="Parse999">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,origMsg:EnsLib.EDI.X12.Document</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set x12Doc.DocType = "ERP_4010:Interchange:Group"
+   
+   set errStr = ""
+   if (x12Doc.%Extends("EnsLib.EDI.X12.Document"))
+	 {
+		   Set tSC =x12Doc.BuildMap()
+		   
+		   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+		   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+		   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		   
+	      /// $$$TRACE( "Parse999::: 999 for: "  _ ISA SenderID _" -> " _ ReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum)
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		  
+		  set isaGsInfo = "ACK for ISA: "  _ InterchangeSenderID _" -> " _ InterchangeReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum _ ": Group CtrlNum: " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+		  // WRITE !, x12Doc.ElementSeparator  _", " _ x12Doc.ComponentSeparator 
+		  set STRecord=individualGroup.getNthChild(1,2)
+		  set transType = STRecord.GetValueAt("1:1",, .stat)
+		  			
+		  set STRecord.DocType = "ERP_4010:" _ transType
+		  // $$$TRACE( "Parse999::: ST: " _  transType_ ", CountGet: " _ STRecord.SegCountGet() )
+		  set akStr = "", ikStr = "", stNum = 0, firstAK2 = 1
+		  set refTransType = ""
+		  FOR ind=1:1:STRecord.SegCountGet()
+		  {
+			  
+			set segPath = STRecord.GetSegmentPath(ind, .stat)	
+		  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+		  	// WRITE !, ind _". " _ segPath _"= " _ segVal
+		  	
+		  	if ($FIND(segVal,"AK2") = 4)
+		  	{
+  			  	set refTransType = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+  			  	
+			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkTransSetlLookup", refTransType, .retVal)
+			  	set stNum = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	
+				set akStr = refTransType _" (" _ retVal _"): TransactionSet CtrlNum: " _ stNum
+				  	
+		  	}
+		  	elseif ($FIND(segVal,"IK5") = 4)
+		  	{
+  			  	set seg2Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+  			  	if (seg2Val '= "A")
+  			  	{
+				  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg2Val, .retVal)
+				  	set ik5Str = $CHAR(13) _  " => " _ retVal _  " (" _ seg2Val _")"
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 3) '= "") {
+					   	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  		Do ..ItfLookup("IHC.ITF.Process.Bpl.AkErrorLookup", seg3Val, .retVal)
+				  		set ik5Str = ik5Str _ ": Error: "  _ retVal _" ("  _  seg3Val  _")"
+				  	}	
+				  	if (ikStr '= "")
+				  	{
+				  	   set ik5Str = ik5Str _ ": Details:" _ ikStr 
+				  	}
+				  	if (firstAK2 = 1)
+				  	{
+				  		set errStr = errStr _ isaGsInfo  _ $CHAR(13) _ akStr _" " _ ik5Str _" # "
+				  		set firstAK2 = 0
+				  	}
+				  	else
+				  	{
+					  	set errStr = errStr _ $CHAR(13) _ akStr _" " _ ik5Str _" # "
+				  	}		  					
+  			  	}
+				  	
+				set akStr = "", ikStr = ""
+		  	}
+		  	elseif ($FIND(segVal,"IK3") = 4)
+		  	{		   
+		  	    set segNum = 	$PIECE(segVal, x12Doc.ElementSeparator , 3)
+				set ikStr = ikStr _ $CHAR(13) _ " Loop: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": Segment Num: " _ segNum _": " _ $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				Do ..ItfLookup("IHC.ITF.Process.Bpl.IK3Values", $PIECE(segVal, x12Doc.ElementSeparator , 5), .retVal)
+			  	
+			  	
+			  	set segVal = ..GetSegment(origMsg, segNum, stNum)
+			  	
+			  	set ikStr = ikStr _ ": " _ retVal _". Inbound " _ refTransType _ " Segment Data: " _ segVal
+				
+		  	}
+		  	elseif ($FIND(segVal,"IK4") = 4)
+		  	{		   	
+				 
+				Do ..ItfLookup("IHC.ITF.Process.Bpl.IK4Values", $PIECE(segVal, x12Doc.ElementSeparator , 4), .retVal)
+				set eleData = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+			  	set ikStr = ikStr _ ": Element Position: " _ $PIECE(segVal, x12Doc.ElementSeparator , 2) _ ": Error: " _ retVal _ ": Element Data: " _ $SELECT(0=$L(eleData):"<NULL>", 1: eleData)
+
+		  	}
+		  	elseif ($FIND(segVal,"AK9") = 4)
+		  	{
+  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+  			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg3Val, .retVal)
+			  	set ak9Str = "Functional Group Response: " _ seg3Val _" (" _ retVal _"): # Transaction Sets: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ": # Received: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": # Accept: " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+			  	if (errStr = "")
+			  	{
+				  	set errStr = ak9Str
+			  	}
+				
+		  	}
+		  }
+	 }
+	 return errStr _"; " _ ak9Str
+]]></Implementation>
+</Method>
+
+<Method name="GetSegment">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,segInd:%Integer,stCtrlNum:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set GSnum = 1, STnum = 1, retStr = "Segment: " _ segInd _" not found"
+	
+  if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+  {
+  	  	
+ 	set GSCounter = x12Doc.ChildCount
+       set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+        		
+          set segX12Data = ""
+          if ( GSnum <= GSCounter)
+          { 
+            set individualGroup = x12Doc.getNthChild(GSnum,2)
+            set individualGroup.DocType = "ERP_4010:Group"
+	        
+	        
+	        set STCounter = individualGroup.ChildCount 
+	       
+	        #dim individualST As EnsLib.EDI.X12.Document
+	         
+	        while ( STnum <= STCounter)
+	        { 
+	        	set individualST = individualGroup.getNthChild(STnum)
+	        	set x12StCtrlNum = $PIECE(individualST.OutputToString(), individualST.ElementSeparator, 3)
+	        	// $$$TRACE( "ST. " _ STnum _ ", Transaction: " _ $PIECE(individualST.OutputToString(), individualST.ElementSeparator, 2) _", Ctrl# " _ x12StCtrlNum)
+	        	if ( (stCtrlNum = x12StCtrlNum ) && (segInd <= individualST.SegCount))
+	        	{
+		        	return individualST.GetValueAt(segInd)
+	        	}
+	        	Do $INCREMENT(STnum)
+	        }
+          }
+  }
+  return retStr
+]]></Implementation>
+</Method>
+
+<Method name="StoreWF">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,origX12Doc:EnsLib.EDI.X12.Document,origX12id:%String,storeRec:%Boolean=0</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set msgTrans ="", msgTransVer ="", retStr="", contact="" //  errList As %ListOfObjects, 
+	
+	try {
+	
+    set ak9Err = "", ik3Str = "", ik4Str = "", errStr = ""
+    set retStr = "", contact= "", origSeg = ""
+    $$$TRACE( "GetAckDetails: " _ x12Doc.DocType _", RawContent size:" _ $L(x12Doc.RawContent) _", Inbound X12 data: " _ $L(origX12Doc.RawContent))
+  if (x12Doc.%IsA("EnsLib.EDI.X12.Document"))
+  {	    
+	  Set tSC=1
+	  set numRecs = 0
+	  set x12Doc.DocType = "ERP_4010:Interchange"
+	 
+	   set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	   set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	   set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+	   
+	   if ($F(InterchangeSenderID, "HT000015-0") <1)
+	   {
+	   		set contact = ..GetContactInfo(	InterchangeSenderID)
+	   }
+	   if ($F(InterchangeReceiverID, "HT000015-0") <1)
+	   {
+	   		set contact = contact _ ..GetContactInfo(InterchangeReceiverID)
+	   }
+	   set seg = x12Doc.FindSegment("TA1", .ind, .stat)
+	   if ( ($$$ISOK(stat)) && ($IsObject(seg)))	  				
+	   {
+		   $$$TRACE("TA1") 
+		   set ta04 = seg.GetValueAt("4") 
+		   set ta05 = seg.GetValueAt("5")
+		   Do ..ItfLookup("IHC.ITF.ITFCOMMON.TA1", ta05, .retVal)
+		   set retStr = "Data Error: TA1 error" _ $CHAR(13) _$CHAR(10) _ retVal _  $CHAR(13) _$CHAR(10) _ "TA014:105:" _ ta04 _":" _ ta05
+	   }
+	   else
+	   {
+		set errList = ##class(%ListOfObjects).%New()
+		 		
+		set GSCounter = x12Doc.ChildCount
+		for gsInt=1:1:GSCounter
+    	{ 
+        	#dim individualGroup As EnsLib.EDI.X12.Document
+        	set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+			WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  	
+		  	FOR stInd=1:1:individualGroup.ChildCount
+		  
+		  	{
+			  			
+				set ik3Str = "", ik4Str="", errNum = 1, segNum=0, segErrCode = 0, segErrStr ="", x12Data = ""
+				set errDet = ""
+				
+				set isaGsInfo = "ACK for ISA: "  _ InterchangeSenderID _" -> " _ InterchangeReceiverID _ ": CtrlNum: " _ InterchangeCtrlNum _ ": Group CtrlNum: " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+				$$$TRACE( isaGsInfo)
+				  
+				#dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  	set STRecord=individualGroup.getNthChild(stInd,2)
+			  	
+			  	set STRecord.DocType = "ERP_4010:999"
+			  
+
+				  WRITE !, gsInt _". " _ stInd _ "- Parse999::: ST Segement CountGet: " _ STRecord.SegCountGet() 
+				  set akStr = "", ikStr = "", stNum = 0, firstAK2 = 1, refTransType = ""
+				  set refTransType = ""
+				  FOR ind=1:1:STRecord.SegCountGet()
+				  {
+						set numRecs = numRecs + 1
+						
+						
+						set segPath = STRecord.GetSegmentPath(ind, .stat)	
+		  				set segVal = STRecord.GetValueAt(segPath,, .stat)
+		  				set recType = STRecord.GetValueAt(segPath_":0")
+		  				// WRITE !, segPath _": " _ segVal _", " _ recType
+		  	
+						if (recType = "AK2")
+						{
+							set msgTrans = STRecord.GetValueAt(segPath_":1")
+							set stNum = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+							set refTransType = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							WRITE !, "Ak2: " _ refTransType _", " _ stNum
+						}
+						
+						if (recType = "IK3")
+						{
+							
+							 if (ikStr '= "")
+							 {
+								 WRITE !, "IK3 - Create IHC.ITF.ITFCOMMON.X12ErrorDetails: " _ segNum
+								 set errDet = ##class(IHC.ITF.ITFCOMMON.X12ErrorDetails).%New()
+								
+									Do errList.Insert(errDet)
+									set errDet.stNum = stNum
+									set errDet.segNum = segNum
+									set errDet.x12Data = "TBD" // x12Data
+									set errDet.segErrCode = segErrCode
+									set errDet.segErrStr = ikStr
+									set ikStr = ""
+							 }
+							set segNum = 	$PIECE(segVal, x12Doc.ElementSeparator , 3)
+							if ($PIECE(segVal, x12Doc.ElementSeparator , 4) > 0)
+							{
+								set ikStr = ikStr _ $CHAR(13) _ " Loop: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _", "
+							}
+							set ikStr = ikStr _ $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							set segErrCode = $PIECE(segVal, x12Doc.ElementSeparator , 5)
+							Do ..ItfLookup("IHC.ITF.Process.Bpl.IK3Values", segErrCode, .retVal)
+						  	
+						  	
+						  	set segVal = ..GetFullSegmentFromX12(origX12Doc, segNum, stNum)
+						  	WRITE !, segNum _", " _ stNum _ ": " _ segVal
+						  	
+						  	set ikStr = ikStr _ ": " _ retVal // _ " Segment Data: " _ segVal
+			  				WRITE !, "IK3 -" _ 	ikStr				
+							
+							
+						}
+						elseif (recType = "IK4")
+						{
+							WRITE !, "IK4 - Create IHC.ITF.ITFCOMMON.X12ErrorDetails: " _ segNum
+							set errDet = ##class(IHC.ITF.ITFCOMMON.X12ErrorDetails).%New()
+						
+							Do errList.Insert(errDet)
+							
+							set errDet.stNum = stNum
+							set errDet.segNum = segNum
+							set errDet.x12Data = "TBD" // x12Data
+							set errDet.segErrCode = segErrCode
+							set errDet.segErrStr = ikStr
+							
+							set ik4Err = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+							Do ..ItfLookup("IHC.ITF.Process.Bpl.IK4Values", ik4Err, .retVal)
+							set errDet.eleErrCode = ik4Err
+							set errDet.eleErrStr = retVal
+							set errDet.eleNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+							
+							set errNum = errNum + 1
+							set ikStr = ""
+						}
+						elseif (recType = "IK5")
+						{
+							WRITE !, "Type of errors: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3)
+							
+						}
+						
+						elseif (recType = "AK9")
+						{
+							set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  			  	Do ..ItfLookup("IHC.ITF.Process.Bpl.AkCodeLookup", seg3Val, .retVal)
+						  	set ak9Err = "Functional Group Response: " _ seg3Val _" (" _ retVal _"): # Transaction Sets: " _ $PIECE(segVal, x12Doc.ElementSeparator , 3) _ ": # Received: " _ $PIECE(segVal, x12Doc.ElementSeparator , 4) _ ": # Accept: " _ $PIECE(segVal, x12Doc.ElementSeparator , 5)
+						  	
+						}					
+					   
+					}
+		  		}
+    		 }
+		    }
+		    set retStr = ak9Err
+		    
+		    // Store to WF table
+		    if (storeRec)
+	    	{
+		    	$$$TRACE( "Store error in IHC_ITF_ITFCOMMON_X12.WorkFlow")
+		    	for i=1:1: errList.Count()
+			  	{
+				  $$$TRACE( "Segment # " _errList.GetAt(i).segNum _", " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _", Error: " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """")
+				  WRITE "errList: Segment # " _errList.GetAt(i).segNum _", " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _", Error: " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  	}
+			  
+			 
+			  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+			  set x12Data = x12Doc.OutputToString()
+			  
+			  WRITE !, InterchangeReceiverID _", " _ InterchangeSenderID _", " _ origX12id
+			  WRITE !, "msgTrans: " _ msgTrans
+			  set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm,  OrigX12Id) " _
+			  " values (?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, InterchangeReceiverID, InterchangeSenderID, msgTrans,  "New", "Data", retStr, "System", dtTm,  origX12id)
+			  $$$TRACE( "SQL code: " _ rset.%SQLCODE)
+			  if (rset.%SQLCODE < 0)
+			  {
+				  return $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
+
+			  set id = rset.%ROWID
+			  $$$TRACE( $NAMESPACE _ " - Inserted to  WorkFlow. ID: " _ id )
+			  WRITE !, "WorkFlow ID: " _ id _", " _ msgTrans 
+			  set obj = ##class(IHC.ITF.ITFCOMMON.X12.WorkFlow).%OpenId(id)
+			  if ($IsObject(obj))
+			  {
+			      WRITE !, "Insert errList #" _ errList.Count() 
+			      
+			      
+ 				  WRITE !, errList.GetAt(i).segNum _";segErrCode " _ errList.GetAt(i).segErrCode _"; segErrStr " _  errList.GetAt(i).segErrStr _"; eleNum " _ errList.GetAt(i).eleNum _"; eleErrCode " _  errList.GetAt(i).eleErrCode
+
+ 			      WRITE !, errList.GetAt(i).eleErrStr _"; x12Data  " _ errList.GetAt(i).x12Data 
+ 
+				  $$$TRACE( "Insert errList #" _ errList.Count() )
+				  
+					  for i=1:1: errList.Count()
+					  {
+						 if ($IsObject(errList.GetAt(i)))
+				  		 {
+					  		 WRITE !, errList.GetAt(i).segNum
+						  		set stat = obj.ErrList.Insert(errList.GetAt(i))
+						  		$$$TRACE( "insert segNum: " _ errList.GetAt(i).segNum _": " _ stat)
+				  		 }
+						  //
+					  }
+					  set stat = obj.%Save()
+					  $$$TRACE( " ErrList.Count: " _ obj.ErrList.Count())
+					  WRITE !, "IHC.ITF.ITFCOMMON.X12.WorkFlow ErrList.Count: " _ obj.ErrList.Count() _" Save: " _ stat
+				  
+				  
+				  WRITE !, "Segment # " _errList.GetAt(i).segNum _" " _ errList.GetAt(i).segErrStr _", Element # " _ errList.GetAt(i).eleNum _" " _ errList.GetAt(i).eleErrStr _". X12= "_ errList.GetAt(i).x12Data _" ->" _ """" _ $PIECE(errList.GetAt(i).x12Data, "*", errList.GetAt(i).eleNum+1)_ """"
+			  }
+	    	}
+	    }
+	    else
+	    {
+		    $$$TRACE( "Not EnsLib.EDI.X12.Document")
+	    }
+	    
+	    
+      
+    } catch err
+	{
+		set retStr = x12Doc _ " Exception: code: " _ err.Code _ ",  location: " _ err.Location
+	}
+   return retStr
+]]></Implementation>
+</Method>
+
+<Method name="ItfLookup">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tableNm:%String,key:%String,&retVal:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set $NAMESPACE = "PAYER"
+	set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(tableNm, key, .retVal)
+			  	
+	set $NAMESPACE = "EDIPAYER"
+	return stat
+]]></Implementation>
+</Method>
+
+<Method name="SplitX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document</FormalSpec>
+<ReturnType>%ListOfDataTypes</ReturnType>
+<Implementation><![CDATA[
+	set mylist=##class(%ListOfDataTypes).%New()
+	
+   if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+   {
+	  set sep = x12Doc.SegmentTerminator
+
+	 	set GSnum = 1
+	 	set GSCounter = x12Doc.ChildCount
+       
+  		// WRITE !,  " GS ChildCount " _ GSCounter
+          set segX12Data = ""
+          while ( GSnum <= GSCounter)
+          { 
+            #dim individualGroup As EnsLib.EDI.X12.Document = x12Doc.getNthChild(GSnum,2)
+            set individualGroup.DocType = "ERP_4010:Group"
+            
+	        Do individualGroup.SetValueAt("1", "GE:1")
+	        
+	        set STCounter = individualGroup.ChildCount 
+	        
+	        #dim individualST As EnsLib.EDI.X12.Document
+	        set STnum = 1
+	        while ( STnum <= STCounter)
+	        { 
+	        	set individualST = individualGroup.getNthChild(STnum)
+	        	set transType = individualST.GetValueAt("ST:1")
+	        	set individualST.DocType = "ERP_4010:" _ transType
+	        	Do individualST.BuildMap()
+	        	if $$$ISERR(individualST.BuildMapStatus)
+	        	{
+	        		$$$LOGERROR( "BuildMapStatus: failed" )
+	        		set errStr = ""
+		        	Do $system.Status.DecomposeStatus(individualST.BuildMapStatus,.err,"-d")
+	  				For i=1:1:err { set errStr = errStr _", " _ err(i) }
+	  				Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"X12 data error. " _ errStr)
+  					
+	        	}
+	        	else
+	        	{
+		        	
+		        	set indX12 = x12Doc.GetValueAt("ISA") _ sep _ individualGroup.GetValueAt("GS")_ sep
+	  
+		        	set indX12 = indX12 _ individualST.OutputToString()
+		        	
+		        	set indX12 = indX12 _  individualGroup.GetValueAt("GE")_ sep _ x12Doc.GetValueAt("IEA")_ sep
+		        	
+		        	do mylist.Insert(indX12)
+		        	$$$TRACE(mylist.Count() _ ". Create X12 for : " _ transType)
+	        	}
+		        Do $INCREMENT(STnum)
+	        	
+          	} 
+          	Do $INCREMENT(GSnum) 
+          }
+  }
+  return mylist
+]]></Implementation>
+</Method>
+</Class>
+</Export>
