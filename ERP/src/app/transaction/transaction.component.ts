@@ -215,6 +215,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         }
 
 
+    // this.transactionsSearchColumns.push({key: 'Sender', type: 'text', label: 'sender', transactionCode: 'All', detail: 'NA'});
 
     this.TransactionService.fetchTransactionFields(0).subscribe((res: any) => {
     this.transactionsSearchColumns = [];
@@ -266,8 +267,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
             console.info('Transaction search for: ' + this.currentTransType);
             this.onSearchTransactions();
-            this.form.controls.searchValue.setValue("");
-            this.form.controls.searchField.setValue(this.dataTableLabel[0]);
+            // this.form.controls.searchValue.setValue("");
+            this.form.controls.searchField.setValue(this.transactionsSearchColumns[0].label);
             this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
 
           }
@@ -371,9 +372,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
         console.info("Data rows with sorted array: " + this.dataSource.data.length);
 
-        this.loading = false;
 
         this.setControls();
+        this.loading = false;
 
 
         });
@@ -417,37 +418,41 @@ addSearch() {
 
       if(this.searchFieldVal === "")
       {
-        alert("Search column is NULL");
+        alert("Search Field is NULL");
       }
-      let  sVal = ""
-      for (var item of this.searchColumns)
-        {
-          if(item.label === this.searchFieldVal)
+      else
+      {
+        let  sVal = ""
+        console.log("Search for " +this.searchFieldVal)
+        for (var item of this.searchColumns)
           {
-            sVal = item.key
-            break;
+            if(item.label === this.searchFieldVal)
+            {
+              sVal = item.key
+              break;
+            }
           }
-        }
-        if(sVal === "")
-        {
-          alert("Value is NULL");
-        }
-
-
-          let srchStr = this.form.controls.searchCndition.value
-          if (srchStr === 'Contains')
+          if(sVal === "")
           {
-            srchStr = '['
+            alert("Search Field is NULL");
           }
 
-          if(this.searchString !== "")
-          {
-            this.searchString += " AND " + sVal + srchStr  + " '" + this.searchValue +"'";
-          }
-          else
-          {
-            this.searchString =  sVal + " " + srchStr + " '" + this.searchValue +"'";
-          }
+
+            let srchStr = this.form.controls.searchCndition.value
+            if (srchStr === 'Contains')
+            {
+              srchStr = '['
+            }
+
+            if(this.searchString !== "")
+            {
+              this.searchString += " AND " + sVal + srchStr  + " '" + this.searchValue +"'";
+            }
+            else
+            {
+              this.searchString =  sVal + " " + srchStr + " '" + this.searchValue +"'";
+            }
+    }
 
     }
 
