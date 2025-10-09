@@ -9,7 +9,7 @@ export const tabLinks: Link[] = [
     {name:'Trading Partners', link:"/TradingPartners"},
     {name:'Search TPID', link:"/search"},
     {name:'Dashboard', link:"/dashboard"},
-    {name:'Batches', link:"/summary"},
+    {name:'Transmissions', link:"/summary"},
     {name:'Transactions', link:"/transaction"},
     {name:'Work Flow', link:"/workflow"}
   ];

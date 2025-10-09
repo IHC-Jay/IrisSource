@@ -8,6 +8,7 @@ import { EventListenerFocusTrapInertStrategy } from '@angular/cdk/a11y';
 import { tpLinks } from './tp-links';
 import { CreateNoteComponent } from './create-note/create-note.component';
 import { SingleNoteComponent } from './single-note/single-note.component';
+import { environment } from '../../../../environments/environment';
 
 export class TransTypes
 {
@@ -45,14 +46,17 @@ export class AddEditComponent implements OnInit {
 
     sendingTpIds = [];
     ackTypes:string[] = ["Error","Always","Never"];
-    direcTypes:string[] =["In", "Out"];
+    direcTypes:string[]
+
+
+
     modeTypes:string[] = ["Batch","RT"];
     routingTypes:string[];
 
     receivingTpIds = [];
     ownerTpIds = [];
     canRender = false;
-    transaction: string;
+    transaction: string = "";
     sub:any;
     customProp: KVP[] = [];
 
@@ -97,6 +101,16 @@ public initializeData()
 
     async ngOnInit() {
       console.info("AddEditComponent ngOnInit");
+
+      if (`${environment.org}` == 'SH')
+  {
+
+      this.direcTypes=["In", "Out"];
+  }
+  else
+  {
+    this.direcTypes=["Out", "In"];
+  }
 
       let arr =  this.route.snapshot.paramMap.keys
 
@@ -270,14 +284,19 @@ public initializeData()
 
       }
       else{
-        if(this.transaction !== undefined)
+        if(this.transaction === 'undefined')
+        {
+          console.info('setTransactionSetId search is undefined');
+
+        }
+        else if(this.transaction !== "")
         {
 
           // Search
           console.info('setTransactionSetId search: ' + this.transaction + ', ' + this.transactionTypes.length);
 
           var result = this.transactionTypes.findIndex(item => (item.TransactionSetId + '(' +	item.VERSION +')') === this.transaction);
-          console.info(this.transaction + '- result: ' + result +"=>" + this.transactionTypes[result].NAME);
+          console.info(this.transaction + '- result: ' + result);
           if( result > 0 )
           {
             this.form.controls.TransType.setValue(this.transactionTypes[result].NAME);
@@ -339,13 +358,29 @@ public initializeData()
           this.batchMode = false;
           this.ackTypes = ["Error","Never"];
           this.form.controls.Routing.setValue('RT');
-          this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket"];
+           if (`${environment.org}` == 'SH')
+          {
+            this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket"];
+          }
+          else{
+            this.routingTypes = ["NA"];
+          }
           this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
       else {
         this.batchMode = true;
         this.ackTypes = ["Error","Always","Never"];
-        this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
+        if (`${environment.org}` == 'SH')
+        {
+
+            this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
+        }
+        else
+        {
+            this.routingTypes = ["R1","UhinProvConnBatch","NA","SelectHealth", "BitBucket"];
+        }
+
+
         this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
       if(this.isAddMode)

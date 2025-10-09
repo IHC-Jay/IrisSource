@@ -35,7 +35,7 @@ const appRoutes: Routes = [
   {path: 'transaction/transaction-settings', component: TransactionSettingsComponent, canActivate: [AuthGuard], title: 'Settings'},
   {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard], title: 'Transaction Details'},
   {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard] , title: 'WorkFlow'},
-  {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard] , title: 'Batches'},
+  {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard] , title: 'Transmissions'},
   {path: 'dashboard', component: DashBoardComponent, canActivate: [AuthGuard], title: 'Dashboard'},
   {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard] , title: 'WF Details'},
   {path: 'workflow/workflowHistory', component: WorkflowHistoryComponent, canActivate: [AuthGuard], title: 'WF History'}

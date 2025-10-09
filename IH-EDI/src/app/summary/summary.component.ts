@@ -143,9 +143,9 @@ endDate ="13:30";
 
   ngOnInit()
   {
-    console.info("ngOnInit Batches");
+    console.info("ngOnInit Transmissions");
     sessionStorage.removeItem("currentTab")
-    sessionStorage.setItem("currentTab", "Batches")
+    sessionStorage.setItem("currentTab", "Transmissions")
 
     if (this.org == 'SH')
     {
