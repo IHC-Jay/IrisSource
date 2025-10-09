@@ -1,0 +1,570 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.X12.StoreEdiX12DataWithProperty">
+<Description>
+Main class to store X12 data in Tables: IHC_X12.Data*</Description>
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>66582,33367.780905</TimeCreated>
+
+<Property name="overrideProp">
+<Type>IHC.ITF.ITFCOMMON.DStruc.StoreX12</Type>
+</Property>
+
+<Method name="Process">
+<Implementation><![CDATA[
+#dim streamContainer As Ens.StreamContainer =  ..overrideProp.streamContainer
+#dim stat As %String = "Processed" 
+#dim receiptDtTm As %DateTime = "" 
+#dim direction As %String = "Inbound"
+
+ if (..overrideProp.SessionID = "")
+ {
+	 $$$LOGERROR("Seesion ID is null")
+ }
+ 
+	
+	#dim source As EnsLib.EDI.X12.Document
+	$$$TRACE("ProcessStreamContainer " _ streamContainer.OriginalFilename _" - Stream size: " _ streamContainer.Stream.Size)
+	Do streamContainer.Stream.Rewind()
+	if (receiptDtTm = "")
+	{
+		set mId = ..overrideProp.%Id()
+	  	&SQL(select ID into hId from Ens.MessageHeader where MessageBodyId = :mId)
+	  	$$$TRACE("MessageBodyId = " _mId _", MessageHeader ID: " _ hId)
+	  	set hm = ##class(Ens.MessageHeader).%OpenId(hId)
+	  	set receiptDtTm = hm.TimeCreated
+	  	$$$TRACE("TimeCreated: " _ hm.TimeCreated)
+	}
+	if (..overrideProp.status '= "")
+	{
+		set stat = ..overrideProp.status
+	}
+	if (..overrideProp.direction '= "")
+	{
+		set direction =  $CASE(..overrideProp.direction, "In":  "Inbound","Out":"Outbound",:..overrideProp.direction)
+	}
+	
+	set source = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(streamContainer.Stream, .tSC)
+ 	
+ 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		 return ..ProcessX12Doc(source, streamContainer.OriginalFilename, stat, receiptDtTm, direction )
+	}
+	else
+	{
+		$$$LOGERROR("ImportFromLibraryStream failed " _ tSC _", EnsLib.EDI.X12.Document: " _ source )
+		return "0"
+	}
+]]></Implementation>
+</Method>
+
+<Method name="ProcessX12Doc">
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,fileName:%String="",stat:%String="Processed",receiptDtTm:%DateTime="",direction:%String="Inbound"</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+		  Set tSC =x12Doc.BuildMap()
+		  if ($$$ISERR( tSC ))
+		  {
+			  $$$TRACE("Invalid DocType")
+			  QUIT
+		  }
+		  $$$TRACE( "X12 Child count:" _ x12Doc.ChildCount)
+		  if (x12Doc.ChildCount = 0)
+		  {
+			  
+			  QUIT
+		  }
+		  
+		  #dim individualGroup As EnsLib.EDI.X12.Document 
+		  set individualGroup = x12Doc.getNthChild(1,2)
+		 
+		  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+		  set STRecord=individualGroup.getNthChild(1,2)
+			  
+		  set transType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)	
+		  
+		  $$$TRACE( "ProcessX12Doc: " _ transType _": " _ fileName)
+		  
+		  if (receiptDtTm = "")
+		  {
+		  	set receiptDtTm = $ZDATETIME($HOROLOG,3, 1)
+		  }
+		  
+		  if (transType [ "837")
+		  {	   	  
+		  		return ..Process837(x12Doc, transType, fileName, stat, receiptDtTm, direction)
+		  }
+		  
+		  else
+		  {
+			  $$$LOGERROR("Unknown transaction type: " _ transType)
+		  }
+]]></Implementation>
+</Method>
+
+<Method name="Process837">
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,transType:%String,fileName:%String,stat:%String,receiptDtTm:%DateTime,direction:%String="Inbound"</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set sId = ..overrideProp.SessionID
+	set cnt = 0
+	set fNm = ##class(%File).GetFilename(fileName)
+	$$$TRACE("Process837: " _ sId _", " _ fNm)
+	
+	if (sId '= "")
+	{
+		&SQL(Select count(*) into :cnt FROM IHC_X12.Data837 where SessionId = :sId and FileName = :fNm)
+	}
+
+	if (cnt > 0)
+	{
+		$$$TRACE("IHC.X12.Data837 #" _ cnt _ " rows exists, update status")
+		&SQL(UPDATE IHC_X12.Data837 set status = :stat where SessionId = :sId and FileName = :fNm)
+		RETURN "UPDATED " _ cnt
+	}
+
+	set elObj = ##class(IHC.X12.Data837).%New()
+	#dim elObjSub As IHC.X12.Data837;
+			   
+	set elObjSub = $$$NULLOREF // 22, 2000B
+	if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+	 {
+		WRITE !, "Create global: X12Data" _ transType
+	 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+	 }	  
+	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm, direction ) 
+	
+	set parentId = "", objCnt =0
+	set GSCounter = x12Doc.ChildCount
+	for gsInt=1:1:GSCounter
+    { 
+        #dim individualGroup As EnsLib.EDI.X12.Document
+        set individualGroup = x12Doc.getNthChild(gsInt,2)
+
+		$$$TRACE( "GS: " _ gsInt _", # of STs: " _ individualGroup.ChildCount)
+	
+		  
+		  //set parentId = ""
+		  FOR stInd=1:1:individualGroup.ChildCount
+		  {
+			  #dim STRecord As EnsLib.EDI.X12.Document 
+		  
+			  set STRecord=individualGroup.getNthChild(stInd,2)		  
+				
+			  set STRecord.DocType = "HIPAA_5010:" _ transType
+			  if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
+		 		 {
+					WRITE !, "Create global: X12Data" _ transType
+				 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+		 		 }
+			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+			  
+			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  set segX12Data = "", subCnt = 0
+			  			  
+	  		  set entityType = ""
+	  		  set newClm = 0, newSub = 0
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {
+				  
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	
+			  	
+			  	if ($FIND(segVal,"CLM") = 4)
+			  	{
+				  	
+				  	// WRITE !, "-- CLM --"
+				  	if (newClm = 1)
+				  	{
+					  	if ($IsObject(elObjSub))
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elObjSub.X12DataParentId = parentId
+						  	set elObjSub.x12Data = segX12Data
+						  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+						  	if (elObjSub.Patient = "")
+						  	{
+							  	set elObjSub.Patient = elObjSub.Subscriber
+							  	set elObjSub.PatientId = elObjSub.SubscriberId
+							  	set elObjSub.PatientGender = elObjSub.SubscriberGender
+							  	set elObjSub.PatientDOB = elObjSub.SubscriberDOB
+						  	}
+						  	if (elObjSub.RenderingProvider = "")
+						  	{
+							  	set elObjSub.RenderingProvider = elObjSub.BillingProvider
+							  	set elObjSub.RenderingProviderNpi = elObjSub.BillingProviderNpi
+							  	set elObjSub.RenderingProviderTaxId = elObjSub.BillingProviderTaxId
+						  	}
+					  	
+					  		Do elObjSub.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		$$$TRACE( "CLM IHC.X12.Data837 ID: " _ elObjSub.%Id())
+					  		set elObjSub = elObj.%ConstructClone()
+					  					  		
+					  	}
+				  	}
+				  	
+				  	set elObjSub.ClaimId = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	set elObjSub.ClaimAmount = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  		
+
+					set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment
+					
+					
+					set elObjSub.SeqNum = objCnt
+					set newClm = 1
+				  				  	
+			  	}
+			  	elseif ($FIND(segVal,"BHT") = 4)
+			  	{
+				  	set elObj.BhtId = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 7)
+				  	if (seg1Val '= "")
+				  	{
+				  		Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.Bht6Lookup", seg1Val, .retVal)
+
+				  		set elObj.BhtPurpose = retVal 
+				  		
+				  		WRITE !, segVal _" - " _ retVal
+				  	}
+			  	}
+			  	elseif (($FIND(segVal,"REF") = 4))
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) = "D9")
+				  	{
+					  	set elObjSub.ClearinghouseTraceNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
+					  	
+				  	}
+				  	elseif ($PIECE(segVal, x12Doc.ElementSeparator , 2) = "EI")
+				  	{					  	
+					  	set elObjSub.BillingProviderTaxId = $PIECE(segVal, x12Doc.ElementSeparator , 3) 
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"DTP") = 4)
+			  	{
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.DTPLookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "472") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "434") 
+				  	{
+				  		set elObjSub.ServiceDate = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	
+			  	
+			  	elseif ($FIND(segVal,"DMG") = 4)
+			  	{
+				  	if (entityType = "Subscriber")
+				  	{
+				  	set elObjSub.SubscriberDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.SubscriberGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	elseif (entityType = "Patient")
+				  	{
+				  	set elObjSub.PatientDOB = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	set elObjSub.PatientGender = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+			  	}
+			  	elseif ($FIND(segVal,"NM1") = 4)
+			  	{
+				  	
+				  	set seg1Val = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.NM1lookup", seg1Val, .retVal)
+				  	
+				  	if (seg1Val = "40")
+				  	{
+					  	set elObj.Receiver = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "41")
+				  	{
+					  	set elObj.Submitter = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "85")
+				  	{
+					  	set elObj.BillingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	set elObj.BillingProviderNpi = $PIECE(segVal, x12Doc.ElementSeparator , 10) 
+				  	}
+				  	
+				  	if (seg1Val = "PR")
+				  	{
+					  	set elObjSub.Payer = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	}
+				  	if (seg1Val = "IL")
+				  	{
+					  	set elObjSub.Subscriber = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	set elObjSub.SubscriberId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Subscriber"
+				  	}
+				  	if (seg1Val = "QC")
+				  	{
+					  	set elObjSub.Patient = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	set elObjSub.PatientId = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+					  	set entityType = "Patient"
+				  	}
+				  	if ( (seg1Val = "82") || (seg1Val = "71")) // Rendering or Attending
+				  	{
+					  	
+					  	set elObjSub.RenderingProvider = $PIECE(segVal, x12Doc.ElementSeparator , 5) _ " " _ $PIECE(segVal, x12Doc.ElementSeparator , 4)
+					  	set elObjSub.RenderingProviderNpi = $PIECE(segVal, x12Doc.ElementSeparator , 10)
+				  	}
+				  	
+			  	}
+			  	elseif ($FIND(segVal,"HI") = 3)
+			  	{
+				  	if ($PIECE(segVal, x12Doc.ElementSeparator , 2) [ "ABK")
+				  	{
+					 	set elObjSub.DiagnosisCode = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  	}
+					   	
+			  	}
+			  
+			  	
+			  	elseif ($FIND(segVal,"ST") = 3)
+			  	{
+				  	set elObj.TransactionSetControlNumber = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+			  	}
+			  	elseif ($FIND(segVal,"SE") = 3) 
+			  	{
+				   	
+					Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					set elObjSub.X12DataParentId = parentId
+					set elObjSub.x12Data = segX12Data
+					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  
+					if (elObjSub.Patient = "")
+				  	{
+					  	set elObjSub.Patient = elObjSub.Subscriber
+					  	set elObjSub.PatientId = elObjSub.SubscriberId
+					  	set elObjSub.PatientGender = elObjSub.SubscriberGender
+					  	set elObjSub.PatientDOB = elObjSub.SubscriberDOB
+				  	}
+				  	if (elObjSub.RenderingProvider = "")
+				  	{
+					  	set elObjSub.RenderingProvider = elObjSub.BillingProvider
+					  	set elObjSub.RenderingProviderNpi = elObjSub.BillingProviderNpi
+					  	set elObjSub.RenderingProviderTaxId = elObjSub.BillingProviderTaxId
+				  	}
+						  		
+				  	set stat = elObjSub.%Save()
+				  	set newSub = 0, newClm = 0
+				  	Do $INCREMENT(objCnt)
+				  	WRITE !, "-- SE Save -- " _ stat _", Id: " _ elObjSub.%Id() _", Parent: " _ parentId
+				  	set elObjSub = elObj.%ConstructClone()
+				  	
+			  	}
+			  	
+			  	elseif ($FIND(segVal,"HL") = 3)
+			  	{
+				  	// WRITE !, " -- HL -- " _ segVal _", Id: " _ elObj.%Id() _", HL-1: " _ $PIECE(segVal, x12Doc.ElementSeparator , 2) 
+	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
+				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
+				  	if (seg3Val = 22)
+				  	{
+					  	
+					  	if (newSub = 1)
+					  	{
+						  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+						  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+						  	set elObjSub.X12DataParentId = parentId
+						  	set elObjSub.x12Data = segX12Data
+						  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+						  	if (elObjSub.Patient = "")
+						  	{
+							  	set elObjSub.Patient = elObjSub.Subscriber
+							  	set elObjSub.PatientId = elObjSub.SubscriberId
+							  	set elObjSub.PatientGender = elObjSub.SubscriberGender
+							  	set elObjSub.PatientDOB = elObjSub.SubscriberDOB
+						  	}
+						  	if (elObjSub.RenderingProvider = "")
+						  	{
+							  	set elObjSub.RenderingProvider = elObjSub.BillingProvider
+							  	set elObjSub.RenderingProviderNpi = elObjSub.BillingProviderNpi
+							  	set elObjSub.RenderingProviderTaxId = elObjSub.BillingProviderTaxId
+						  	}
+					  		Do elObjSub.%Save()
+					  		Do $INCREMENT(objCnt)
+					  		WRITE !, "SUB IHC.X12.Data837 ID: " _ elObjSub.%Id()
+					  		set elObjSub = elObj.%ConstructClone()
+					  	}
+					  	set elObjSub = elObj.%ConstructClone()
+					  	set newSub = 1, newClm = 0
+					  	set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+				  					  		
+				  	}
+				  	
+				  	elseif ( (elObj.%Id() = "") &&($PIECE(segVal, x12Doc.ElementSeparator , 2) = 1) ) // First HL, parent
+				  	{
+				  		  set stat = elObj.%Save()
+				  		  if $$$ISERR(stat)
+				  		  {
+				  		  	WRITE !, "Claim save: " _ stat
+				  		  	DO $System.Status.DisplayError(stat)
+				  		  	return $$$OK
+				  		  }
+				  		  Do $INCREMENT(objCnt)
+						  set parentId = elObj.%Id()
+						  WRITE !, " Parent IHC.X12.Data837 ID: " _ elObj.%Id()					   				  
+						  
+
+						  set elObjSub = $$$NULLOREF
+						  set elObjSub = elObj.%ConstructClone()
+						  set newSub = 0, newClm = 0
+						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+			  		}
+			  	}
+			  	
+			  	else
+			  	{
+				  	// WRITE !, "      ***** Not stored: " _ segVal
+			  	}
+			  	if ($FIND(segVal,"CLM") '= 4)
+			  	{
+			  		set segX12Data = segX12Data _ segVal _ STRecord.SegmentTerminator // Append data
+			  	}
+			  }
+		  }
+		  set elObj.SeqNum = objCnt - 1
+		  Do elObj.%Save()
+		  
+     }
+	 WRITE !, " --- Processing complete: IHC.X12.Data837, Claim, # rows:" _ objCnt
+	 return elObj.%Id()
+]]></Implementation>
+</Method>
+
+<Method name="InitFirstObject">
+<FormalSpec>elObj:IHC.X12.SharedData,x12Doc:EnsLib.EDI.X12.Document,fileName:%String="",stat,receiptDtTm,direction:%String</FormalSpec>
+<Implementation><![CDATA[
+	  set InterchangeCtrlNum = x12Doc.GetValueAt("ISA:InterchangeControlNumber")
+	  
+	  set InterchangeSenderID = ..overrideProp.interchangeSenderID
+	  if (InterchangeSenderID = "")
+	  {
+	  	set InterchangeSenderID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	  }
+	  set InterchangeReceiverID = ..overrideProp.interchangeReceiverID
+	  if (InterchangeReceiverID = "")
+	  {
+	  	set InterchangeReceiverID = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	  }
+
+	  set mmId = $EXTRACT($ZDATE($HOROLOG, 8), 1, 6)
+	   
+	  set elObj.FileName = ##class(%File).GetFilename(fileName)
+	  set elObj.MonthPartition = mmId
+	  set elObj.SessionID = ..overrideProp.SessionID
+	  
+	  set elObj.InterchangeControlNumber = InterchangeCtrlNum
+	  set elObj.InterchangeDateTime = $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeDate"), "<>W") _ $ZSTRIP(x12Doc.GetValueAt("ISA:InterchangeTime"), "<>W")
+	  set elObj.InterchangeReceiverID = InterchangeReceiverID
+	  set elObj.InterchangeReceiverName = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTpName(InterchangeReceiverID)
+	  set elObj.InterchangeSenderID = InterchangeSenderID	  
+	   
+	  set elObj.InterchangeSenderName = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTpName(InterchangeSenderID)
+	  set elObj.Direction = direction
+	  if (x12Doc.ChildCount > 0)
+	  {
+
+		  #dim individualGroup As EnsLib.EDI.X12.Document 
+		  set individualGroup = x12Doc.getNthChild(1,2)
+
+		  set isaGsInfo =  InterchangeSenderID _" -> " _ InterchangeReceiverID _ ", ControlNumbers: " _ InterchangeCtrlNum _", " _ individualGroup.GetValueAt("GS:GroupControlNumber")
+	      $$$TRACE( isaGsInfo _ ", # of STs: " _ individualGroup.ChildCount) 
+  		  
+		  set elObj.GroupControlNumber = individualGroup.GetValueAt("GS:GroupControlNumber")
+		  set elObj.ApplicationReceiversCode = individualGroup.GetValueAt("GS:ApplicationReceiversCode")
+		  set elObj.ApplicationSendersCode = individualGroup.GetValueAt("GS:ApplicationSendersCode")
+		  set elObj.VersionReleaseIndustryIdenti =  individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti")
+	  }
+	  set elObj.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+	  set elObj.ReceiptDtTm = receiptDtTm
+	  set elObj.Status = stat
+		  
+		  
+	  if (##class(%File).GetFileSize(fileName)  > 3641143) // Property x12Data As %String(MAXLEN = 3641144);
+	  {
+		  
+		  Set stream=##class(%FileCharacterStream).%New()
+		  // Set stream.Filename=flNm
+		  set elObj.x12DataStream = stream
+		   
+	  }
+	  else
+	  {
+	      set elObj.x12Data = x12Doc.OutputToString(,.stat,)
+	      if (stat '= 1)
+	      {
+		      $$$TRACE( " --- The length of the document is greater than the maximum string length ---")
+	      }
+	      else
+	      {
+		      $$$TRACE( "Inbound X12 length: " _ $L(elObj.x12Data))
+	      }
+	  }
+	  
+	  
+	   
+	   /// Create 999 by calling X12BatchReply, Update 3 fields from 999 
+	   	  #dim rep As EnsLib.EDI.X12.Document = ##class(Ens.X12.FunctionSet).X12BatchReply(x12Doc,, "SNIP", 2)
+	   	  if ( ($ISOBJECT(rep)) && (rep.%Extends("EnsLib.EDI.X12.Document")) )
+  		  {	  
+  		  	  set repStr = rep.OutputToString()
+  		  	  if ($L(repStr) > 1)
+  		  	  {
+	  		  	  $$$TRACE( "X12BatchReply: " _ repStr)
+	  		  	  
+				  set ak9Pos = $FIND(repStr, "AK9")
+				  set batchReply = $E(repStr, ak9Pos, ($FIND(repStr, $E(rep.Separators, 4), ak9Pos) - 2))
+				  
+				  if (batchReply '= "")
+				  {
+					  $$$TRACE(   batchReply _" Seg sep: " _ $E(rep.Separators, 4) _", Ele Sep " _ rep.ElementSeparator)
+					  set fifthStr = $PIECE(batchReply, rep.ElementSeparator , 5) 
+					  // WRITE !, "Accepted: " _ $NUMBER($REPLACE(fifthStr, $E(rep.Separators, 4), ""),"I")
+					  set elObj.TransactionsStatus = $PIECE(batchReply, rep.ElementSeparator , 2)
+					  set elObj.TransactionsReceived = $NUMBER($PIECE(batchReply, rep.ElementSeparator , 4),"I")
+					  set elObj.TransactionsAccepted = $NUMBER($REPLACE(fifthStr, $E(rep.Separators, 4), ""),"I")
+					  
+					  $$$TRACE( "Transactions values from AK9: " _ elObj.TransactionsStatus _", Received: " _ elObj.TransactionsReceived _", TransactionsAccepted: " _ elObj.TransactionsAccepted)
+				  }
+  		  	  }
+  		  	  else
+  		  	  {
+	  		  	  $$$TRACE( "Invalid X12BatchReply")
+  		  	  }
+			  
+  		  }
+  		  else
+  		  {
+	  		  $$$TRACE( "X12BatchReply failed ") 
+  		  }
+]]></Implementation>
+</Method>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DataLocation>^IHC.ITF.IT9108.StoreEdiX121D46D</DataLocation>
+<DefaultData>StoreEdiX12DataWithPropertyDefaultData</DefaultData>
+<IdLocation>^IHC.ITF.IT9108.StoreEdiX121D46D</IdLocation>
+<IndexLocation>^IHC.ITF.IT9108.StoreEdiX121D46I</IndexLocation>
+<StreamLocation>^IHC.ITF.IT9108.StoreEdiX121D46S</StreamLocation>
+<Data name="StoreEdiX12DataWithPropertyDefaultData">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>overrideProp</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
