@@ -22,7 +22,6 @@ export const TpIdColumns = [
     key: 'AliasName',
     type: 'string',
     label: 'Alias Name',
-    required: true,
     help: 'TPID AliasName'
   },
   {

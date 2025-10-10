@@ -153,7 +153,7 @@ public initializeData()
           IsaSenderId: ['', Validators.required],
           IsaReceiverId: ['', Validators.required],
           Folder: [''],
-          FileName: ['%Partner%TransactionType%DtTm%MsgId.txt']
+          FileName: ['%Partner_%TransactionType_%DtTm_%MsgId.xml']
 
       });
       this.initializeData();
@@ -369,6 +369,17 @@ public initializeData()
           let index = this.direcTypes.indexOf(this.transactionTypes[result].Direction)
           this.direcTypes.splice((index>0)?0:1, 1);
           this.form.controls.Direction.setValue(this.transactionTypes[result].Direction);
+
+          if( this.form.controls['Direction'].value === 'In')
+          {
+            this.form.controls.FileName.setValue('%Partner_%TransactionType_%DtTm_%MsgId.xml');
+          }
+          else
+          {
+            this.form.controls.FileName.setValue('%Partner_%TransactionType_%DtTm_%MsgId.txt');
+          }
+
+
           // this.form.controls.Direction.disable();
 
         }
