@@ -87,50 +87,6 @@ X12 - Create a new batch containing only those child documents which pass valida
 <Default><![CDATA[-NextOperation,-TargetConfigMask,ContinueAfterTPError:Additional,ContinueAfterValidationError:Additional,SourceFlagsLookup:Additional, TargetMasksLookup:Additional, Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VERSION?targets=1&productionName=@productionId},Mode:Additional,Direction:Additional,CreateNewBatches:Additional,X12StoreTargetConfigName:Additional,AckTargetConfigName:Acknowledgement]]></Default>
 </Parameter>
 
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>ValidateX12DocumentDefaultData</DefaultData>
-<Data name="ValidateX12DocumentDefaultData">
-<Subscript>"ValidateX12Document"</Subscript>
-<Value name="1">
-<Value>AckTargetConfigNames</Value>
-</Value>
-<Value name="2">
-<Value>Direction</Value>
-</Value>
-<Value name="3">
-<Value>DuplicateCheck</Value>
-</Value>
-<Value name="4">
-<Value>CreateNewBatches</Value>
-</Value>
-<Value name="5">
-<Value>Mode</Value>
-</Value>
-<Value name="6">
-<Value>Version</Value>
-</Value>
-<Value name="7">
-<Value>AckTargetConfigName</Value>
-</Value>
-<Value name="8">
-<Value>SourceFlagsLookup</Value>
-</Value>
-<Value name="9">
-<Value>TargetMasksLookup</Value>
-</Value>
-<Value name="10">
-<Value>X12StoreTargetConfigName</Value>
-</Value>
-<Value name="11">
-<Value>ContinueAfterTPError</Value>
-</Value>
-<Value name="12">
-<Value>ContinueAfterValidationError</Value>
-</Value>
-</Data>
-</Storage>
-
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -221,9 +177,14 @@ BPL Definition</Description>
 </property>
 <property name='storeX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
 <property name='continueProcess' type='%Boolean' initialexpression='1' instantiate='0' />
+<property name='ackConnUnknownTP' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
 </context>
-<sequence xend='200' yend='4350' >
-<scope xpos='200' ypos='250' xend='200' yend='4250' >
+<sequence xend='200' yend='4250' >
+<scope xpos='200' ypos='250' xend='200' yend='4150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -298,7 +259,7 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='4000' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3900' >
 <true>
 <code name='Print file name' xpos='470' ypos='800' >
 <![CDATA[
@@ -320,7 +281,7 @@ BPL Definition</Description>
        set overrideSenderTP = "", overrideReceiverTP = ""
        
        DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.sourceFlagsLookup, process.%PrimaryRequestHeader.SourceConfigName, .retVal) 
-       $$$TRACE("Flags from: " _ context.sourceFlagsLookup _"::: " _ retVal)
+       $$$TRACE("Flags from: " _ context.sourceFlagsLookup _", for: " _ process.%PrimaryRequestHeader.SourceConfigName _ " ::: " _ retVal)
        
        // Example:
        // DupCheck:no;UseISA:no;OverrideSenderTP:R035208; OverrideReceiverTP:HT15000-001
@@ -348,6 +309,12 @@ BPL Definition</Description>
         {
             set context.duplicateCheck = $zconvert($PIECE(kv, ":", 2), "u")
         }
+        elseif ($zconvert(kv, "l") [ "ackconnunknowntp")
+        {
+           //AckConnUnknownTP:Bitbucket
+           set context.ackConnUnknownTP = $PIECE(kv, ":", 2)
+        }
+        
         else
         {
           $$$LOGERROR("Invalid value: " _ kv)
@@ -378,10 +345,10 @@ BPL Definition</Description>
  
    ]]]]><![CDATA[>
 </code>
-<if name='duplicateCheck = "Yes"' condition='context.duplicateCheck = "YES"' xpos='470' ypos='1000' xend='470' yend='1250' >
+<if name='duplicateCheck = "Yes"' condition='context.duplicateCheck &gt;= 1' xpos='470' ypos='1000' xend='470' yend='1250' >
 <true>
 <code name='Check for Duplicate' xpos='605' ypos='1150' >
-<![CDATA[  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).IsDuplicate(context.inXmlDoc, .tPrelationDocumentId ) 
+<![CDATA[  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).IsDuplicate(context.inXmlDoc, .tPrelationDocumentId, context.duplicateCheck ) 
 
    $$$TRACE("IsDuplicate: " _ tSC  _", tPrelationDocumentId: " _ tPrelationDocumentId)
    if (($$$ISOK(tSC)) &&  (tPrelationDocumentId > 0))
@@ -479,7 +446,7 @@ BPL Definition</Description>
                $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
    }]]]]><![CDATA[>
 </code>
-<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1550' xend='470' yend='2200' >
+<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1550' xend='470' yend='2100' >
 <true>
 <trace value='"PerformSNIPValidation, SNIP: " _ context.tpLinkObj.SNIP' xpos='470' ypos='1700' />
 <assign name="continueProcess" property="context.continueProcess" value="1" action="set" xpos='470' ypos='1800' />
@@ -495,8 +462,8 @@ BPL Definition</Description>
   
   $$$LOGERROR( "Insert TP error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID )
 	             
-	            set msgTrans ="270"
-	            set msgTransVer ="005010X279A1"
+	            set msgTrans = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTransTypeFromVersion(context.version)
+	            
 	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
 	            set str = $E(context.inXmlDoc.OutputToString(), 1, 5000)
 	            
@@ -511,12 +478,12 @@ BPL Definition</Description>
 			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
 			  if (rset.%SQLCODE < 0)
 			  {
-			  $$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+			  $$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ context.version _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
 				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
 			  }
 			  else
 			  {
-			   $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
+			   $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
 			  }
   ]]]]><![CDATA[>
 </code>
@@ -541,10 +508,9 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<trace name='Done' value='"Stored the TP error into the WF table"' xpos='740' ypos='2000' />
-<code name='ContinueAfterTPError' xpos='740' ypos='2100' >
+<code name='ContinueAfterTPError' xpos='740' ypos='2000' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ContinueAfterTPError",.configValue)
- if ( ($$$ISOK(pstatus)) || (configValue = "Yes"))
+ if ( ($$$ISOK(pstatus)) && (configValue = "Yes"))
  {
      set context.continueProcess = 1
       set context.tpLinkObj.SNIP = 1
@@ -558,18 +524,18 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2300' xend='470' yend='3900' >
+<if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2200' xend='470' yend='3800' >
 <true>
-<code name='X12 Validate Document' xpos='605' ypos='2450' >
+<code name='X12 Validate Document' xpos='740' ypos='2350' >
 <![CDATA[  set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(context.inXmlDoc, context.tpLinkObj.SNIP, "All")
   $$$TRACE("PerformSNIPValidation, SNIP: " _ context.tpLinkObj.SNIP _ " returned: " _ tSc)
   ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='605' ypos='2550' xend='605' yend='2800' >
+<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='740' ypos='2450' xend='740' yend='2700' >
 <true>
-<code name='ContinueAfterValidationError' xpos='740' ypos='2700' >
+<code name='ContinueAfterValidationError' xpos='875' ypos='2600' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ContinueAfterValidationError",.configValue)
- if ( ($$$ISOK(pstatus)) || (configValue = "Yes"))
+ if ( ($$$ISOK(pstatus)) && (configValue = "Yes"))
  {
      set context.continueProcess = 1
  }
@@ -580,12 +546,12 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<if name='continueProcess' condition='context.continueProcess' xpos='605' ypos='2900' xend='605' yend='3800' >
+<if name='continueProcess' condition='context.continueProcess' xpos='740' ypos='2800' xend='740' yend='3700' >
 <true>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1145' ypos='3050' xend='1145' yend='3500' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1280' ypos='2950' xend='1280' yend='3400' >
 <true>
-<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1415' ypos='3200' />
-<code name='Send Ack?' xpos='1415' ypos='3300' >
+<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1550' ypos='3100' />
+<code name='Send Ack?' xpos='1550' ypos='3200' >
 <![CDATA[ $$$TRACE( "Return ACKs- ISA:" _ context.tpLinkObj.ISAAck _", GS: " _ context.tpLinkObj.GSAck _", ST: " _ context.tpLinkObj.STAck _", SNIP: " _ context.tpLinkObj.SNIP)
 	if ( context.tpLinkObj.GSAck [ "ALWAYS")
 	{
@@ -615,7 +581,7 @@ BPL Definition</Description>
 		$$$TRACE( "ST Ack is ALWAYS, Send 277CA")
 	}]]]]><![CDATA[>
 </code>
-<code name='Send X12 messages to next components' xpos='1415' ypos='3400' >
+<code name='Send X12 messages to next components' xpos='1550' ypos='3300' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -635,8 +601,8 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='Out' value='context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1145' ypos='3200' />
-<code name='Route X12 using targetMasksLookup' xpos='1145' ypos='3300' >
+<trace name='Out' value='context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1280' ypos='3100' />
+<code name='Route X12 using targetMasksLookup' xpos='1280' ypos='3200' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
  {
@@ -662,12 +628,20 @@ BPL Definition</Description>
    
     try
     {
-      DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing, .retVal) 
-      $$$TRACE("Flags from: " _ context.targetMasksLookup _", " _ retVal)
+      set retVal = ""
+      DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.interchangeReceiverID , .retVal) 
+      set tpName = context.interchangeReceiverID
+      $$$TRACE(context.interchangeReceiverID  - ": Flags from: " _ context.targetMasksLookup _", " _ retVal)
+      if (retVal = "")
+      {
+          DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.interchangeSenderID , .retVal)
+          set tpName = context.interchangeSenderID 
+      }
    
       if (retVal '= "")
       {
-        set compName = $PIECE(retVal, ":", 1) _ context.tpLinkObj.Routing _ $PIECE(retVal, ":", 2) 
+        // Sample value from lookup: Out-:-File-AUTOAGENT
+        set compName = $PIECE(retVal, ":", 1) _ tpName _ $PIECE(retVal, ":", 2) 
    
  
         set x12StCon = ##class(Ens.StreamContainer).%New()
@@ -693,7 +667,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='Update X12 data' xpos='1145' ypos='3600' >
+<code name='Update X12 data' xpos='1280' ypos='3500' >
 <![CDATA[
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StoreTargetConfigName",.configValue)
   
@@ -714,30 +688,42 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<trace name='Continue processing X12' value='"Sent to next component for processing"' xpos='1145' ypos='3700' />
+<trace name='Continue processing X12' value='"Sent to next component for processing"' xpos='1280' ypos='3600' />
 </true>
 <false>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='605' ypos='3050' xend='605' yend='3500' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='740' ypos='2950' xend='740' yend='3400' >
 <true>
-<code name='Send NACK' xpos='875' ypos='3200' >
+<code name='Send NACK' xpos='1010' ypos='3100' >
 <![CDATA[  if ( tpLinkObj.GSAck [ "ERROR")
   {
 	
 	$$$TRACE( " ---> Send 999 to " _ context.tpLinkObj.Routing)
 	set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "Errors", "SNIP", context.tpLinkObj.SNIP, "All") 
-	  if ($IsObject(reply))
-	  {
-		 $$$TRACE( reply.OutputToString() )
-	  }
-	  /* Check if the reply is 999 or TA1 */
+	
+	if ($IsObject(reply))
+		  {
+		   // Operation types:
+                         // EnsLib.FTP.PassthroughOperation
+                         // EnsLib.File.PassthroughOperation
+                         
+                          set x12StCon = ##class(Ens.StreamContainer).%New()
+                          set str = ##class(%Stream.GlobalCharacter).%New()
+                          set oStat = reply.OutputToLibraryStream(str)
+			
+                          set x12StCon.Stream = str
+                          set x12StCon.OriginalFilename = context.FileName
+	 	
+		 	Set tSC1=process.SendRequestAsync(context.ackTargetConfigNames _ context.tpLinkObj.Routing, x12StCon)
+	                $$$TRACE("Sent Ack as stream to Process: " _ context.ackTargetConfigName _ context.tpLinkObj.Routing _ ", status: " _ tSC1)
+	
+	
+		  }
+	
 	  
-	  Set tSC1=process.SendRequestAsync(context.ackTargetConfigNames _ context.tpLinkObj.Routing, reply)
-	  $$$TRACE("Send NAck to Process: " _ context.ackTargetConfigNames _ context.tpLinkObj.Routing _ ", status: " _ tSC1)
-	          
   }
   ]]]]><![CDATA[>
 </code>
-<code name='Create Success batch' xpos='875' ypos='3300' >
+<code name='Create Success batch' xpos='1010' ypos='3200' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"CreateNewBatches",.configValue)
   if (configValue = "Yes")
   {
@@ -765,11 +751,11 @@ BPL Definition</Description>
   }
 ]]]]><![CDATA[>
 </code>
-<trace name='To Inbound data error WF' value='"X12 validation failed inbound X12, Send to WF"' xpos='875' ypos='3400' />
+<trace name='To Inbound data error WF' value='"X12 validation failed inbound X12, Send to WF"' xpos='1010' ypos='3300' />
 </true>
 <false>
-<trace name='To Outbound error WF' value='"X12 validation failed in outgoing X12, Send to WF"' xpos='605' ypos='3200' />
-<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='605' ypos='3300' >
+<trace name='To Outbound error WF' value='"X12 validation failed in outgoing X12, Send to WF"' xpos='740' ypos='3100' />
+<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='740' ypos='3200' >
 <![CDATA[ $$$TRACE("set reportWF,  origX12Doc: " _  context.inXmlDoc.%Id())
  
  set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "Errors", "SNIP", context.tpLinkObj.SNIP, "All") 
@@ -786,7 +772,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='Update X12 data' xpos='605' ypos='3600' >
+<code name='Update X12 data' xpos='740' ypos='3500' >
 <![CDATA[
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StoreTargetConfigName",.configValue)
   
@@ -810,6 +796,34 @@ BPL Definition</Description>
 </false>
 </if>
 </true>
+<false>
+<trace value='"TP Error continueProcess is set to No, send NACK"' xpos='470' ypos='2350' />
+<code name='Send NACK' xpos='470' ypos='2450' >
+<![CDATA[  	
+	$$$TRACE( " ---> Send 999 to " _ context.ackConnUnknownTP )
+	set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "Errors", "SNIP", context.tpLinkObj.SNIP, "All") 
+	
+	if ($IsObject(reply))
+		  {
+		          
+                          set x12StCon = ##class(Ens.StreamContainer).%New()
+                          set str = ##class(%Stream.GlobalCharacter).%New()
+                          set oStat = reply.OutputToLibraryStream(str)
+			
+                          set x12StCon.Stream = str
+                          set x12StCon.OriginalFilename = context.FileName
+	 	
+		 	Set tSC1=process.SendRequestAsync(context.ackConnUnknownTP, x12StCon)
+	                $$$TRACE("Sent Ack as stream to Process: " _ context.ackTargetConfigName _ context.tpLinkObj.Routing _ ", status: " _ tSC1)
+	
+	
+		  }
+	
+	  $$$TRACE("Send NAck to Process: " _ ackConnUnknownTP  _ ", status: " _ tSC1)
+	          
+]]]]><![CDATA[>
+</code>
+</false>
 </if>
 </true>
 <false>
@@ -820,7 +834,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='4100' xend='200' yend='350' >
+<catchall xpos='200' ypos='4000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
@@ -834,5 +848,44 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ValidateX12DocumentDefaultData</DefaultData>
+<Data name="ValidateX12DocumentDefaultData">
+<Structure>listnode</Structure>
+<Subscript>"ValidateX12Document"</Subscript>
+<Value name="1">
+<Value>AckTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>X12StoreTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>Direction</Value>
+</Value>
+<Value name="4">
+<Value>SourceFlagsLookup</Value>
+</Value>
+<Value name="5">
+<Value>TargetMasksLookup</Value>
+</Value>
+<Value name="6">
+<Value>Mode</Value>
+</Value>
+<Value name="7">
+<Value>ContinueAfterTPError</Value>
+</Value>
+<Value name="8">
+<Value>ContinueAfterValidationError</Value>
+</Value>
+<Value name="9">
+<Value>Version</Value>
+</Value>
+<Value name="10">
+<Value>CreateNewBatches</Value>
+</Value>
+</Data>
+</Storage>
 </Class>
 </Export>
