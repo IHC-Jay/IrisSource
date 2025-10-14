@@ -374,12 +374,13 @@ This request creates Trading Partner X12 ID</Description>
 	
 	Set sc = cm.%Save()
 	
-	
+	set ^webService("NewTpId Save") = "stat "_ sc _ "@" _ $ZDATETIME($HOROLOG,3, 1)	
 	do result.%Set("Status",$s($$$ISERR(sc):$system.Status.GetOneErrorText(sc),1:"OK"))
 	if ($$$ISOK(sc)) {
 		do result.%Set("id", cm.%Id())
 	}
 	do result.%Set("Operation", "NewTpId")
+	do result.%Set("errormessage", "")
 	do result.%Set("TPID", cm.TPID)
 	do result.%Set("TPFK", cm.TPFK.Name)
 	
@@ -460,7 +461,8 @@ The method arguments hold values for:<br/>
 			"CreatedDtTM": (tp.CreatedDtTM),
 			"LastmodDtTM":   		(tp.LastmodDtTM),
 			"Type":        (tp.Type),
-			"TPFK": (tp.TPFK.Name)
+			"TPFK": (tp.TPFK.Name),
+			"AliasName" : (tp.AliasName)
 		}
 		Do ..%SetStatusCode(200)
 		return obj
@@ -586,10 +588,10 @@ The method arguments hold values for:<br/>
 <Implementation><![CDATA[
    set implArr = []
 	set ^webService("TpIdsForTP") = name	
-	&sql(DECLARE WPCursor CURSOR FOR SELECT tpid.ID, tpid.TPID, tpid.Type
-	INTO :id, :tpid, :type
+	&sql(DECLARE WPCursor CURSOR FOR SELECT tpid.ID, tpid.TPID, tpid.Type, tpId.AliasName
+	INTO :id, :tpid, :type, :aliasName
 	from IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid
-	where tpid.TPFK = tp.ID and tp.Name = :name order by tp.Name)
+	where tpid.TPFK = tp.ID and tp.Name = :name order by tpId.AliasName, tpid.TPID)
 		
 	&sql(OPEN WPCursor)
     if (SQLCODE'=0) {
@@ -609,7 +611,8 @@ The method arguments hold values for:<br/>
 				"id": (id),
 			"TPID":        (tpid),
 			"Type":        (type),
-			"Name": (name)	
+			"Name": (name),
+			"AliasName": (aliasName)	
 		})
         }
         else {
@@ -689,6 +692,7 @@ Helper methods</Description>
 	set cm.LastmodDtTM = dtTm
 	set cm.LastmodID = obj.User
 	set cm.CreateID = obj.User
+	set cm.AliasName = obj.AliasName
 
 	return $$$OK
 ]]></Implementation>
@@ -703,7 +707,7 @@ Helper methods</Description>
 		
 	Set cm.TPID = obj.TPID	
 	set cm.Type = obj.Type
-	
+	set cm.AliasName = obj.AliasName
 	set cm.LastmodDtTM = $ZDATETIME($HOROLOG,3, 1)
 	set cm.LastmodID = obj.User
 	return $$$OK
@@ -968,7 +972,7 @@ The method arguments hold values for:<br/>
 		where (tpid.ID = lnk.IsaSenderId 
 		OR		tpid.ID = lnk.IsaReceiverId 
 		OR		tpid.ID = lnk.GsSenderId 
-		OR		tpid.ID = lnk.IsaReceiverId) 
+		OR		tpid.ID = lnk.GsReceiverId) 
 		
 		AND TPID = :TPID AND tt.ID = lnk.TransactionType order by lnk.Name)
 	&sql(OPEN WPCursor)
@@ -1196,9 +1200,10 @@ The method arguments hold values for:<br/>
 <Implementation><![CDATA[
     
 	Do ..%SetStatusCode(200)
+	set implArr = []
 	Set obj = {}
 	Set tp = 0
-	set sqlStr = "select tp.ID, tpid.TPID FROM IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid  where TPFK = tp.ID and tpid.TPID like '%" _ tpid _"%'"
+	set sqlStr = "select tp.ID, tpid.TPID, tpid.AliasName FROM IHC_ERP_TPManage.TradingPartner tp, IHC_ERP_TPManage.TpId tpid  where TPFK = tp.ID and tpid.TPID like '%" _ tpid _"%' ORDER By tpid.AliasName"
 	Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
 	While rs.%Next() 
 	{
@@ -1207,6 +1212,7 @@ The method arguments hold values for:<br/>
 		{			
 			Set tp = ##class(IHC.ERP.TPManage.TradingPartner).%OpenId(id)
 			set TPID = rs.%Get("TPID")
+			set AliasName = rs.%Get("AliasName")
 	
 			If '$IsObject(tp) {
 				Set obj = {
@@ -1220,6 +1226,7 @@ The method arguments hold values for:<br/>
 					"id": (tp.%Id()),
 					"Name": 		(tp.Name),
 					"TPID": (TPID),
+					"AliasName": (AliasName),
 					"CommunicationContact":        (tp.CommunicationContact),
 					"BusinessContact		":   		(tp.BusinessContact		),
 					"Folder":      (tp.Folder),
@@ -1229,13 +1236,14 @@ The method arguments hold values for:<br/>
 					"PartnerInterchangeIdQualifier":      (tp.PartnerInterchangeIdQualifier),
 					"Notes": (tp.Notes)
 				}
+				Do implArr.%Push(obj)
 				
 		
 			}
-			return obj
+			// return implArr
 		}
 	}
-	return obj
+	return implArr
 ]]></Implementation>
 </Method>
 
