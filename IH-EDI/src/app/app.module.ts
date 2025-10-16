@@ -153,7 +153,7 @@ import {
     ] })
 export class AppModule {
 
-public cors = require('cors');
+public cors =''; // require('cors');
 
 
  }

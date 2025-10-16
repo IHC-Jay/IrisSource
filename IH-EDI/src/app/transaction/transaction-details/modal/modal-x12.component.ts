@@ -6,9 +6,10 @@ import {MAT_DIALOG_DATA, MatDialogRef}  from '@angular/material/dialog';
 
 
 @Component({
-  selector: 'app-modal-x12',
-  templateUrl: './modal-x12.component.html',
-  styleUrls: ['./modal-x12.component.css']
+    selector: 'app-modal-x12',
+    templateUrl: './modal-x12.component.html',
+    styleUrls: ['./modal-x12.component.css'],
+    standalone: false
 })
 
 export class Modalx12Component {

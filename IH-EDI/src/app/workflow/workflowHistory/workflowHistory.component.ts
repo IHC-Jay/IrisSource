@@ -17,9 +17,10 @@ import { MatSort, MatSortHeader } from '@angular/material/sort';
 import {WfHistory} from './WfHistory';
 
 @Component({
-  selector: 'app-workflowHistory',
-  templateUrl: './workflowHistory.component.html',
-  styleUrls: ['./workflowHistory.component.css']
+    selector: 'app-workflowHistory',
+    templateUrl: './workflowHistory.component.html',
+    styleUrls: ['./workflowHistory.component.css'],
+    standalone: false
 })
 
 

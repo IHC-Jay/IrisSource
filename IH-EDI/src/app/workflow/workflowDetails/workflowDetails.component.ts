@@ -18,9 +18,10 @@ import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import {x12err} from './WfDetails';
 
 @Component({
-  selector: 'app-workflowDetails',
-  templateUrl: './workflowDetails.component.html',
-  styleUrls: ['./workflowDetails.component.css']
+    selector: 'app-workflowDetails',
+    templateUrl: './workflowDetails.component.html',
+    styleUrls: ['./workflowDetails.component.css'],
+    standalone: false
 })
 
 

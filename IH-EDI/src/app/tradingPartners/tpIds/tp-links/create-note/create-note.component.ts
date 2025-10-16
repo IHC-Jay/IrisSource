@@ -2,9 +2,10 @@ import { Component, EventEmitter, Output } from '@angular/core';
 import { KVP } from '../add-edit.component';
 
 @Component({
-  selector: 'app-create-note',
-  templateUrl: './create-note.component.html',
-  styleUrls: ['./create-note.component.css']
+    selector: 'app-create-note',
+    templateUrl: './create-note.component.html',
+    styleUrls: ['./create-note.component.css'],
+    standalone: false
 })
 export class CreateNoteComponent {
   @Output() newNoteSender = new EventEmitter<KVP>();

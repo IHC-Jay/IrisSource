@@ -10,9 +10,10 @@ import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/materi
 
 
 @Component({
-  selector: 'app-copyTP',
-  templateUrl: './copyTP.component.html',
-  styleUrls: ['./copyTP.component.css']
+    selector: 'app-copyTP',
+    templateUrl: './copyTP.component.html',
+    styleUrls: ['./copyTP.component.css'],
+    standalone: false
 })
 
 

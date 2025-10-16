@@ -46,9 +46,10 @@ import {
 } from '@angular/material/dialog';
 
 @Component({
-  selector: 'app-transaction-settings',
-  templateUrl: './transaction-settings.component.html',
-  styleUrls: ['./transaction-settings.component.css']
+    selector: 'app-transaction-settings',
+    templateUrl: './transaction-settings.component.html',
+    styleUrls: ['./transaction-settings.component.css'],
+    standalone: false
 })
 
 

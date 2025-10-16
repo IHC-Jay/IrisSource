@@ -3,9 +3,10 @@ import { KVP } from '../add-edit.component';
 import { tpLinks } from '../tp-links';
 
 @Component({
-  selector: 'app-single-note',
-  templateUrl: './single-note.component.html',
-  styleUrls: ['./single-note.component.css']
+    selector: 'app-single-note',
+    templateUrl: './single-note.component.html',
+    styleUrls: ['./single-note.component.css'],
+    standalone: false
 })
 export class SingleNoteComponent {
   @Input() customProp: KVP[];

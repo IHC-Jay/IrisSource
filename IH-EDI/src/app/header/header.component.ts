@@ -21,9 +21,10 @@ const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
 
 @Component({
-  selector: 'app-header',
-  templateUrl: './header.component.html',
-  styleUrls: ['./header.component.css']
+    selector: 'app-header',
+    templateUrl: './header.component.html',
+    styleUrls: ['./header.component.css'],
+    standalone: false
 })
 
 

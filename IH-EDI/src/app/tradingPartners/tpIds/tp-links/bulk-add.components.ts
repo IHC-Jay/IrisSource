@@ -8,9 +8,11 @@ import { bulkTpLinks } from './bulk-tp-links';
 import { environment } from '../../../../environments/environment';
 
 @Component(
-  {  selector: 'bulk-add',
-     templateUrl: './bulk-add.components.html',
-     styleUrls: ['./bulk-add.components.css'],
+  {
+    selector: 'bulk-add',
+    templateUrl: './bulk-add.components.html',
+    styleUrls: ['./bulk-add.components.css'],
+    standalone: false
 })
 
 

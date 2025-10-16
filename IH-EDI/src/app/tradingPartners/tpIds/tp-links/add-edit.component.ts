@@ -25,9 +25,11 @@ export class KVP {
 }
 
 @Component(
-  {  selector: 'add-edit',
-     templateUrl: './add-edit.component.html',
-     styleUrls: ['./add-edit.component.css'],
+  {
+    selector: 'add-edit',
+    templateUrl: './add-edit.component.html',
+    styleUrls: ['./add-edit.component.css'],
+    standalone: false
 })
 
 

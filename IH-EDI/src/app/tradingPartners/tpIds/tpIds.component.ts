@@ -9,9 +9,10 @@ import { TpId, TpIdColumns } from './TpId';
 import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.component';
 
 @Component({
-  selector: 'app-tpIds',
-  templateUrl: './tpIds.component.html',
-  styleUrls: ['./tpIds.component.css']
+    selector: 'app-tpIds',
+    templateUrl: './tpIds.component.html',
+    styleUrls: ['./tpIds.component.css'],
+    standalone: false
 })
 
 export class TpIdComponent implements OnInit {

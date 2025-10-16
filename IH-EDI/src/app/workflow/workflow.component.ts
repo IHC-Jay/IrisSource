@@ -13,9 +13,10 @@ import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { environment } from '../../environments/environment';
 
 @Component({
-  selector: 'app-workflow',
-  templateUrl: './workflow.component.html',
-  styleUrls: ['./workflow.component.css']
+    selector: 'app-workflow',
+    templateUrl: './workflow.component.html',
+    styleUrls: ['./workflow.component.css'],
+    standalone: false
 })
 export class WorkflowComponent implements OnInit {
 

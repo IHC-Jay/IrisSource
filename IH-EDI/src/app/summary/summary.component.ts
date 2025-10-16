@@ -28,9 +28,10 @@ import { DialogRef } from '@angular/cdk/dialog';
 import { environment } from '../../environments/environment';
 
 @Component({
-  selector: 'app-summary',
-  templateUrl: './summary.component.html',
-  styleUrls: ['./summary.component.css']
+    selector: 'app-summary',
+    templateUrl: './summary.component.html',
+    styleUrls: ['./summary.component.css'],
+    standalone: false
 })
 
 

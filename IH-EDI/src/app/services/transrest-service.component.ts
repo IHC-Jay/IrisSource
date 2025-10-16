@@ -31,8 +31,9 @@ import {User} from '../login/user';
 @Injectable({ providedIn: 'root' })
 
 @Component({
-  selector: 'app-rest-service',
-  templateUrl: './rest-service.component.html'
+    selector: 'app-rest-service',
+    templateUrl: './rest-service.component.html',
+    standalone: false
 })
 
 export class TransRestServiceComponent {

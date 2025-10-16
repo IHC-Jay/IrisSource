@@ -2,9 +2,10 @@ import {Component, Inject, Optional, ViewChild} from '@angular/core';
 import { MatDialogModule, MatDialogRef, MAT_DIALOG_DATA } from '@angular/material/dialog';
 
 @Component({
-  selector: 'app-list-confirm-dialog',
-  templateUrl: './list-confirm-dialog.component.html',
-  styleUrls: ['./list-confirm-dialog.component.css']
+    selector: 'app-list-confirm-dialog',
+    templateUrl: './list-confirm-dialog.component.html',
+    styleUrls: ['./list-confirm-dialog.component.css'],
+    standalone: false
 })
 
 

@@ -29,9 +29,10 @@ export interface filterOption{
 }
 
 @Component({
-  selector: 'app-tradingPartners',
-  templateUrl: './tradingPartners.component.html',
-  styleUrls: ['./tradingPartners.component.css']
+    selector: 'app-tradingPartners',
+    templateUrl: './tradingPartners.component.html',
+    styleUrls: ['./tradingPartners.component.css'],
+    standalone: false
 })
 
 
