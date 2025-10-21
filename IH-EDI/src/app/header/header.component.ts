@@ -17,6 +17,7 @@ import {MatBadgeModule} from '@angular/material/badge';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
 import { environment } from '../../environments/environment';
 
+
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
 
@@ -275,7 +276,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                         sessionStorage.setItem(res[ind].Key, res[ind].Value);
                         console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
                       }
-                      
+
 
                       if(res[ind].Key === 'Page')
                         {
@@ -328,7 +329,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                   }
 
                 }
-                
+
 
                 // Auto logout
 

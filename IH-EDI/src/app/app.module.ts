@@ -72,7 +72,7 @@ import {DashBoardComponent} from './dashboard/dashboard.component'
 import { WorkflowComponent } from './workflow/workflow.component';
 import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
 import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component';
-import { NgChartsModule } from 'ng2-charts';
+
 
 import { MatSnackBarModule } from '@angular/material/snack-bar';
 
@@ -140,7 +140,7 @@ import {
         MatNativeDateModule,
         MatDatepickerModule,
         AngularSplitModule,
-        MatCardModule, MatRadioModule, NgChartsModule,
+        MatCardModule, MatRadioModule,
         MatTreeModule,
         CdkDrag,
         CdkDropList,

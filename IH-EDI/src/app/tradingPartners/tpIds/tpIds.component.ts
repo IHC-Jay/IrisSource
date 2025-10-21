@@ -7,7 +7,7 @@ import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { TpId, TpIdColumns } from './TpId';
 import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.component';
-
+import { MatIconModule } from '@angular/material/icon';
 @Component({
     selector: 'app-tpIds',
     templateUrl: './tpIds.component.html',

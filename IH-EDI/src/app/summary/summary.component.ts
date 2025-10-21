@@ -26,6 +26,7 @@ import { catchError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { DialogRef } from '@angular/cdk/dialog';
 import { environment } from '../../environments/environment';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
     selector: 'app-summary',
@@ -106,7 +107,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       mode: '',
       direction: '',
       additional: '',
-      startDate : "2023-01-12",    
+      startDate : "2023-01-12",
       startTm : "13:30",
       endDate: "2023-01-12",
       endTm : "13:30"
@@ -155,7 +156,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
     {
         this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
     }
-    
+
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['', Validators.required],
@@ -166,22 +167,22 @@ export class SummaryComponent implements OnInit, AfterViewInit {
     });
     let stDt = 1;
 
-    
+
     this.formFields.currentTransType = ''
 
     this.sub = this.route.queryParams.subscribe(params => {
 
       if(params !== undefined)
-      { 
+      {
         if(params["sumConfig"] !== undefined)
         {
           // Defaults to '' if no query param provided.
 
           let jsonString = params["sumConfig"]
           console.info("SumConfig from queryParams: " + jsonString);
-          this.formFields = JSON.parse(jsonString);        
+          this.formFields = JSON.parse(jsonString);
         }
-          
+
       }
     });
 
@@ -193,7 +194,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
 
           let jsonString = sessionStorage.getItem('sumConfig')
           console.info("SumConfig from sessionStorage: " + jsonString);
-          this.formFields = JSON.parse(jsonString);        
+          this.formFields = JSON.parse(jsonString);
         }
     }
     if (this.formFields.currentTransType == '')
@@ -234,7 +235,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
             console.info("Init from session: " +  this.formFields.currentTransType);
             console.info("Search from " + stDt + " days. " + stDtStr);
       }
-    
+
       console.info('Set valid date time')
       this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
       let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
@@ -246,7 +247,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       this.formFields.startTm = tmVal
       console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
 
-      
+
       this.nowDt = new Date(new Date().getTime());
       mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
       dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
@@ -259,9 +260,9 @@ export class SummaryComponent implements OnInit, AfterViewInit {
     this.form.controls.transType.setValue(this.formFields.currentTransType)
     this.form.controls.disposition.setValue(this.formFields.disposition)
     this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
- 
+
     this.clearSearch();
-        
+
     this.SummaryService.fetchTransactionFields().subscribe((res: any) => {
     this.summarysFields = [];
 
@@ -333,7 +334,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       this.paramsList.push("endDtTm::" + this.formFields.endDate+" " +this.formFields.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
 
-     
+
       console.info("onSearchSummary count: " +this.form.controls.rowCnt.value)
       console.info("SearchSummarys Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
       console.info("SearchSummarys Start# " +  this.formFields.startDate + ", " + this.formFields.startTm );
@@ -390,7 +391,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
         }
       }
       this.formFields.disposition = this.form.controls.disposition.value
-     
+
       if(staticSearchStr.length > 3)
       {
           staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
@@ -477,7 +478,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
        }
 
        else if(this.form.controls.transType.value === '837I'){
-       
+
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ")
         this.SummaryService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
@@ -489,7 +490,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
 
       }
       else if(this.form.controls.transType.value === '837D'){
-        
+
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ")
         this.SummaryService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
@@ -902,7 +903,7 @@ onContextMenuNew(item: Item) {
     this.sumUserFlds += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value, 
+      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
         'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
        ));
     const newTab = window.open(url, '_blank');

@@ -25,6 +25,7 @@ import { Modalx12Component } from './transaction-details/modal/modal-x12.compone
 import { MatDialog } from '@angular/material/dialog';
 import { DialogRef } from '@angular/cdk/dialog';
 import { environment } from '../../environments/environment';
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
     selector: 'app-transaction',
@@ -101,7 +102,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   searchColumns= this.transactionsFields.slice();
 
   sub:any;
-  
+
   selDropdownList = [];
 
   allDropdownList = [];
@@ -188,12 +189,12 @@ export class TransactionComponent implements OnInit, AfterViewInit {
             if (jsonString !== null)
             {
               console.info("TransConfig from session: " + jsonString);
-              this.formFields = JSON.parse(jsonString); 
+              this.formFields = JSON.parse(jsonString);
               console.info('Parsed Object:', this.formFields);
             }
             else
             {
-              this.formFields.currentTransType =  params['transaction'] || '';            
+              this.formFields.currentTransType =  params['transaction'] || '';
               this.transUserFlds = params['transUserFlds'];
             }
             this.additionalSearchStr = params['additionalSearch'] || '';
@@ -205,9 +206,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
               this.fileName = val
 
           }
-      
+
       }
-    });  
+    });
 
     if(this.formFields.currentTransType === '')
     {
@@ -218,7 +219,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
           let jsonString = sessionStorage.getItem('transConfig')
           console.info("SumConfig from sessionStorage: " + jsonString);
-          this.formFields = JSON.parse(jsonString);        
+          this.formFields = JSON.parse(jsonString);
         }
 
     }
@@ -231,7 +232,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       {
 
         this.formFields.currentTransType = sessionStorage.getItem('TranType');
-        
+
 
         this.form.controls.transType.setValue(this.formFields.currentTransType);
 
@@ -274,7 +275,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       this.formFields.startTm = tmVal
       console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
 
-      
+
       this.nowDt = new Date(new Date().getTime());
       mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
       dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
@@ -287,7 +288,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     this.form.controls.transType.setValue(this.formFields.currentTransType)
     this.form.controls.disposition.setValue(this.formFields.disposition)
     this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
- 
+
 
     if (this.formFields.currentTransType !== '')
     {
@@ -298,7 +299,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     else{
         this.clearSearch();
     }
-       
+
 
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
@@ -1019,9 +1020,9 @@ onContextMenuSame(item: Item) {
    const jsonString = JSON.stringify(this.formFields);
    this.transUserFlds += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transConfig': jsonString, 
+      {queryParams: { ID:  item.ID, 'transConfig': jsonString,
          'transaction': this.form.controls.transType.value,
-         'additionalSearch': this.staticSearchStr, 
+         'additionalSearch': this.staticSearchStr,
          'searchTypeString': this.transUserFlds } }
        );
 

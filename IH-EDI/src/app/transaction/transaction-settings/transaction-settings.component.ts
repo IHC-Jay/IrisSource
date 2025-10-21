@@ -24,7 +24,7 @@ import { MatFormField } from '@angular/material/form-field';
 import {Link, tabLinks} from '../../header/Links';
 import { environment } from '../../../environments/environment';
 import { ListConfirmDialogComponent } from '../../list-confirm-dialog/list-confirm-dialog.component';
-
+import { MatIconModule } from '@angular/material/icon';
 
 import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 
@@ -110,7 +110,7 @@ searchTypeString:string = "";
       modeString: "Batch"
   }
 
-  
+
   currentTransType = '270';
   sub:any;
   value = 'Clear me';

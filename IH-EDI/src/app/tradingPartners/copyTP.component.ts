@@ -7,7 +7,7 @@ import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
-
+import { MatIconModule } from '@angular/material/icon';
 
 @Component({
     selector: 'app-copyTP',

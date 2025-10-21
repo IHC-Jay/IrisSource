@@ -15,7 +15,7 @@ import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { catchError } from 'rxjs';
 
 import { MatDialog } from '@angular/material/dialog';
-
+import { MatIconModule } from '@angular/material/icon';
 
 
 @Component({

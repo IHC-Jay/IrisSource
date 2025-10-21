@@ -16,6 +16,7 @@ import { TpId } from '../TpId';
 import { TradingPartner } from '../../TradingPartner';
 import { MatDialog } from '@angular/material/dialog';
 import { ConfirmDialogComponent } from '../../../confirm-dialog/confirm-dialog.component';
+import { MatIconModule } from '@angular/material/icon';
 
 @Injectable({
   providedIn: 'root'

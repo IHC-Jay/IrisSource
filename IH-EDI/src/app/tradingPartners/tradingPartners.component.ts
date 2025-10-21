@@ -15,6 +15,7 @@ import { MatFormField } from '@angular/material/form-field';
 
 import {UtilService} from '../services/utilService';
 import { environment } from '../../environments/environment';
+import { MatIconModule } from '@angular/material/icon';
 
 export interface TpFilter {
   name:string;
