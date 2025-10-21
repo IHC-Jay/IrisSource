@@ -105,7 +105,12 @@ searchTypeString:string = "";
   @ViewChild("dispTransType") dispTransType: ElementRef;
   @ViewChild("dispMode") dispMode: ElementRef;
 
-  modeString = "Batch";
+  formFields = {
+      rowCnt: '',
+      modeString: "Batch"
+  }
+
+  
   currentTransType = '270';
   sub:any;
   value = 'Clear me';
@@ -238,9 +243,9 @@ searchTypeString:string = "";
       // Defaults to '' if no query param provided.
 
       this.currentTransType =  params['transaction'] || '';
-      this.modeString = params['mode'];
+      this.formFields.modeString = params['mode'];
       this.form.controls.dispTransType.setValue(this.currentTransType);
-      this.form.controls.dispMode.setValue(this.modeString)
+      this.form.controls.dispMode.setValue(this.formFields.modeString)
 
       this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
@@ -303,7 +308,7 @@ searchTypeString:string = "";
   modeChange(evt: any)
   {
     console.info("Mode: " + this.form.controls.dispMode.value)
-    this.modeString = this.form.controls.dispMode.value
+    this.formFields.modeString = this.form.controls.dispMode.value
 
   }
 
@@ -335,10 +340,10 @@ transactionChange(evt: any)
 
   if (this.currentTransType === "835" || this.currentTransType.indexOf("837") == 0 || this.currentTransType === "277CA")
   {
-      this.modeString = "Batch";
+      this.formFields.modeString = "Batch";
       this.showMode = 0
 
-      this.form.controls.dispMode.setValue(this.modeString)
+      this.form.controls.dispMode.setValue(this.formFields.modeString)
   }
   else
   {
@@ -435,9 +440,9 @@ ngAfterViewInit()
 resetSettings()
 {
 
-   this.TransactionService.saveUserSettings('All', this.form.controls.dispTransType.value, this.modeString).subscribe((res: any) => {
+   this.TransactionService.saveUserSettings('All', this.form.controls.dispTransType.value, this.formFields.modeString).subscribe((res: any) => {
 
-         this.openSnackBar(this.form.controls.dispTransType.value +", " + this.modeString, "Default Settings copied. Display # "+ res.DisplayCount + ", Search # " + res.SearchCount);
+         this.openSnackBar(this.form.controls.dispTransType.value +", " + this.formFields.modeString, "Default Settings copied. Display # "+ res.DisplayCount + ", Search # " + res.SearchCount);
 
    });
 

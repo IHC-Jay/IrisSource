@@ -258,14 +258,24 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                 }
                 else
                 {
+                  let jsonString= ""
 
                   for(let ind = 0; ind < res.length; ind++)
                     {
                       if (res[ind].Key !== undefined)
                       {
+                        if (jsonString.length === 0)
+                        {
+                          jsonString = '{"' + res[ind].Key + '":"' + res[ind].Value +'"'
+                        }
+                        else {
+                          jsonString += ',"' + res[ind].Key + '":"' + res[ind].Value +'"'
+
+                        }
                         sessionStorage.setItem(res[ind].Key, res[ind].Value);
                         console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
                       }
+                      
 
                       if(res[ind].Key === 'Page')
                         {
@@ -281,6 +291,12 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                         }
 
                     }
+                    jsonString += "}"
+                      console.log('JSON string:' + jsonString)
+
+                      let parsedObject = JSON.parse(jsonString);
+                      sessionStorage.setItem('UserConfig', jsonString)
+
                     if (sessionStorage.getItem('Logoff') !== undefined && sessionStorage.getItem('Logoff') !== null)
                     {
                         this.loginForm.controls.logoutTime.setValue(sessionStorage.getItem('Logoff'));
@@ -312,6 +328,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                   }
 
                 }
+                
 
                 // Auto logout
 

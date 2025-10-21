@@ -363,25 +363,6 @@ onContextMenuSame(item: Item) {
 
 }
 
-onContextSettings(item: Item) {
-
-    console.log("call onContextSettings")
-    this.searchTypeString = "mode::Batch;" +
-    "dashboard::1;" +
-    "transaction::"+this.currentTransType +";" +
-    "status::Processed;" +
-    "startDtTm::" + this.startDate +" "+ this.startTm +";" +
-    "endDtTm::" + this.endDate+" " +this.endTm +";" +
-    "count::25;"  ;
-
-
-   this.searchTypeString += ";sameWindow::true";
-      this.router.navigate(["/dashboard/dashboard-settings/"],
-      {queryParams: {'dashboard':1, 'transaction': this.currentTransType, 'mode': 'Batch', 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString  } }
-       );
-
-}
-
 
 public chartClicked(e:any):void {
   console.log(e);

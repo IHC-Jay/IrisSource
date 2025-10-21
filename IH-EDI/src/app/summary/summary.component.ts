@@ -41,13 +41,19 @@ export class SummaryComponent implements OnInit, AfterViewInit {
   contextMenuPosition = { x: '0px', y: '0px' };
   @ViewChild(MatMenuTrigger)
   contextMenu: MatMenuTrigger;
+  @ViewChild(MatSort) sort: MatSort;
+  @ViewChild(MatPaginator) paginator: MatPaginator;
+
+  @ViewChild(MatSort) set matSort(sort: MatSort) {
+    if (!this.dataSource.sort) {
+      console.debug("Set sort in ViewChild")
+      this.dataSource.sort = sort;
+    }
+  }
 
   nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
-startDate = "2023-01-12";
-endDate ="13:30";
-  startTm = "13:30";
-  endTm= "2023-01-12";
+
   paramsList: string[];
 
     maxCount = ["10", "25", "50", "100", "200"];
@@ -71,8 +77,6 @@ endDate ="13:30";
   loading:boolean = false;
   searchSummary:boolean = false;
 
-  public size = 5;
-  public pageNumber = 0;
   form!: FormGroup;
   dataTableLabel: string[] = [];
   dataTableKey: string[] = [];
@@ -83,16 +87,6 @@ endDate ="13:30";
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
 
   dataSource = new MatTableDataSource<any>;
-
-  @ViewChild(MatSort) sort: MatSort;
-  @ViewChild(MatPaginator) paginator: MatPaginator;
-
-  @ViewChild(MatSort) set matSort(sort: MatSort) {
-    if (!this.dataSource.sort) {
-      console.debug("Set sort in ViewChild")
-      this.dataSource.sort = sort;
-    }
-  }
 
   summarysFields= [
     {
@@ -105,16 +99,20 @@ endDate ="13:30";
 
   searchColumns= this.summarysFields.slice();
 
-  @ViewChild("rowCnt") rowCnt: ElementRef;
-  @ViewChild("transType") transType: ElementRef;
-  @ViewChild("displayCols") displayCols: ElementRef;
-  @ViewChild("disposition") disposition: ElementRef;
+  formFields = {
+      rowCnt: '',
+      currentTransType: '',
+      disposition: '',
+      mode: '',
+      direction: '',
+      additional: '',
+      startDate : "2023-01-12",    
+      startTm : "13:30",
+      endDate: "2023-01-12",
+      endTm : "13:30"
+  };
 
-
-  additionalsearchString = "";
-  searchTypeString = "";
-  currentTransType = '';
-  currentMode = '';
+  sumUserFlds = "";
   sub:any;
 
   selDropdownList = [];
@@ -157,9 +155,7 @@ endDate ="13:30";
     {
         this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
     }
-    this.currentTransType = this.transactionTypes[0];
-
-
+    
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['', Validators.required],
@@ -168,155 +164,104 @@ endDate ="13:30";
       direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
     });
-    let stDt = 30;
+    let stDt = 1;
 
-    console.log('sessionStorage TranType: ' + sessionStorage.getItem('TranType'))
-
-    if (sessionStorage.getItem('TranType') !== undefined && sessionStorage.getItem('TranType') !== null)
-    {
-
-        this.currentTransType = sessionStorage.getItem('TranType');
-        this.form.controls.transType.setValue(this.currentTransType);
-
-        this.form.controls.rowCnt.setValue(sessionStorage.getItem('DispCnt'));
-        this.form.controls.mode.setValue(sessionStorage.getItem('Mode'));
-        this.currentMode = this.form.controls.mode.value;
-
-        let stDtStr = sessionStorage.getItem('BthTime');
-
-       // Format: Last 90 days
-
-      if(stDtStr.toString().indexOf('1') > 1)
-      {
-        stDt = 1
-      }
-      else if(stDtStr.toString().indexOf('7') > 1)
-        {
-          stDt = 7
-        }
-        else if(stDtStr.toString().indexOf('30') > 1)
-        {
-          stDt = 30
-        }
-        else if(stDtStr.toString().indexOf('90') > 1)
-        {
-          stDt = 90
-        }
-        else if(stDtStr.toString().indexOf('365') > 1)
-        {
-          stDt = 365
-        }
-          console.info("Init from session: " +  this.currentTransType);
-          console.info("Search from " + stDt + " days. " + stDtStr);
-    }
-
-
-    this.currentTransType = ''
+    
+    this.formFields.currentTransType = ''
 
     this.sub = this.route.queryParams.subscribe(params => {
 
-      if(params !== undefined && params.summary !== undefined)
+      if(params !== undefined)
+      { 
+        if(params["sumConfig"] !== undefined)
         {
           // Defaults to '' if no query param provided.
 
-          this.currentTransType =  params['transaction'] || '';
-          this.additionalsearchString = params['additionalSearch'] || '';
-          this.searchTypeString = params['searchTypeString'];
-
+          let jsonString = params["sumConfig"]
+          console.info("SumConfig from queryParams: " + jsonString);
+          this.formFields = JSON.parse(jsonString);        
         }
-        else
-        {
-          this.searchTypeString =  sessionStorage.getItem("searchTypeString");
-          console.info('no query params, session: ' + this.searchTypeString);
-          if (this.searchTypeString === null || this.searchTypeString.length == 0 || this.searchTypeString.indexOf("sumStartDtTm::") < 0)
-            {
-              console.info('no query params')
-              this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
-              let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-              this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-              let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-              tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-              this.startTm = tmVal
-              this.endTm= tmVal
-              console.info("Time: " + tmVal)
-              this.nowDt = new Date(new Date().getTime());
-              mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-              this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-            }
-        }
-
-          if (this.searchTypeString !== null && this.searchTypeString.length > 0 && this.searchTypeString.indexOf("sumStartDtTm::") >= 0)
-          {
-
-            let fInd = this.searchTypeString.indexOf("mode::") + 6;
-            let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". MODE:" + val )
-            this.form.controls.mode.setValue(val)
-
-            fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". transType:" + val )
-            if (val == "")
-              {
-                val = "270"
-              }
-            this.form.controls.transType.setValue(val)
-
-            fInd = this.searchTypeString.indexOf("status::") + "status::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". disposition:" + val )
-            this.form.controls.disposition.setValue(val)
-
-
-            fInd = this.searchTypeString.indexOf("sumStartDtTm::") + "sumStartDtTm::".length;
-            let fInd2 = this.searchTypeString.indexOf(" ", fInd)
-            val = this.searchTypeString.substring( fInd, fInd2)
-            console.log(fInd + ". startDate:" + val )
-            this.startDate = val
-
-            let fInd3 = this.searchTypeString.indexOf(";", fInd2)
-            val = this.searchTypeString.substring( fInd2+1, fInd3)
-            console.log(fInd + ". startTm:" + val )
-            this.startTm = val
-
-
-            fInd = this.searchTypeString.indexOf("endDtTm::") + "endDtTm::".length;
-            fInd2 = this.searchTypeString.indexOf(" ", fInd)
-            val = this.searchTypeString.substring( fInd, fInd2)
-            console.log(fInd + ". endDate:" + val )
-            this.endDate = val
-
-            fInd3 = this.searchTypeString.indexOf(";", fInd2)
-            val = this.searchTypeString.substring( fInd2+1, fInd3)
-            console.log(fInd + ". endTm:" + val )
-            this.endTm = val
-
-            fInd = this.searchTypeString.indexOf("count::") + "count::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". rowCnt:" + val )
-            this.form.controls.rowCnt.setValue(val)
-
-            let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-            tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-            this.endTm= tmVal
-
-
-            if (this.additionalsearchString !== '')
-            {
-              console.log('set search controls, ' + this.searchSummary);
-              this.searchSummary = true;
-            }
-            else{
-              this.clearSearch();
-            }
-          }
-
+          
+      }
     });
 
+    if (this.formFields.currentTransType == '')
+    {
+      if(sessionStorage.getItem('sumConfig') !== undefined && sessionStorage.getItem('sumConfig') !== null)
+        {
+          // Defaults to '' if no query param provided.
 
+          let jsonString = sessionStorage.getItem('sumConfig')
+          console.info("SumConfig from sessionStorage: " + jsonString);
+          this.formFields = JSON.parse(jsonString);        
+        }
+    }
+    if (this.formFields.currentTransType == '')
+    {
+      // Check UserConfig
+      this.formFields.currentTransType = this.transactionTypes[0];
+      this.formFields.disposition = this.dispositions[0];
+
+      console.log('sessionStorage UserConfig: ' + sessionStorage.getItem('UserConfig'))
+
+      if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
+      {
+
+          this.formFields.currentTransType = sessionStorage.getItem('TranType');
+          this.formFields.rowCnt = sessionStorage.getItem('DispCnt');
+          this.formFields.mode = sessionStorage.getItem('Mode');
+
+          let stDtStr = sessionStorage.getItem('BthTime');
+
+        // Format: Last 90 days
+
+         if(stDtStr.toString().indexOf('7') > 1)
+          {
+            stDt = 7
+          }
+          else if(stDtStr.toString().indexOf('30') > 1)
+          {
+            stDt = 30
+          }
+          else if(stDtStr.toString().indexOf('90') > 1)
+          {
+            stDt = 90
+          }
+          else if(stDtStr.toString().indexOf('365') > 1)
+          {
+            stDt = 365
+          }
+            console.info("Init from session: " +  this.formFields.currentTransType);
+            console.info("Search from " + stDt + " days. " + stDtStr);
+      }
+    
+      console.info('Set valid date time')
+      this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
+      let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+      let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+      this.formFields.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+      let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
+
+      tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+      this.formFields.startTm = tmVal
+      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+
+      
+      this.nowDt = new Date(new Date().getTime());
+      mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+      dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+      this.formFields.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+      this.formFields.endTm= tmVal
+      console.info("End Time: " + this.formFields.endDate + ", " + this.formFields.endTm);
+    }
+
+    this.form.controls.mode.setValue(this.formFields.mode)
+    this.form.controls.transType.setValue(this.formFields.currentTransType)
+    this.form.controls.disposition.setValue(this.formFields.disposition)
+    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+ 
+    this.clearSearch();
+        
     this.SummaryService.fetchTransactionFields().subscribe((res: any) => {
     this.summarysFields = [];
 
@@ -340,12 +285,12 @@ endDate ="13:30";
           this.usrSearchColumns.push(...res);
           console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-          if(this.currentTransType !== '')
+          if(this.formFields.currentTransType !== '')
             {
 
-            this.transactionChange(this.currentTransType);
+            this.transactionChange(this.formFields.currentTransType);
 
-            console.info('Summary search for: ' + this.currentTransType);
+            console.info('Summary search for: ' + this.formFields.currentTransType);
             this.onSearchSummary();
             }
             else
@@ -383,23 +328,20 @@ endDate ="13:30";
       this.paramsList.push("transaction::"+this.form.controls.transType.value);
       this.paramsList.push("status::"+this.form.controls.disposition.value );
 
-      this.paramsList.push("sumStartDtTm::" + this.startDate +" "+ this.startTm);
+      this.paramsList.push("startDtTm::" + this.formFields.startDate +" "+ this.formFields.startTm);
 
-      this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
+      this.paramsList.push("endDtTm::" + this.formFields.endDate+" " +this.formFields.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
 
-      if(this.additionalsearchString !== "")
-      {
-        this.paramsList.push("sql::" + this.additionalsearchString);
-      }
+     
       console.info("onSearchSummary count: " +this.form.controls.rowCnt.value)
       console.info("SearchSummarys Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
-      console.info("SearchSummarys Start# " +  this.startDate + ", " + this.startTm );
-      console.info("SearchSummarys End# " +  this.endDate  + ", " + this.endTm );
+      console.info("SearchSummarys Start# " +  this.formFields.startDate + ", " + this.formFields.startTm );
+      console.info("SearchSummarys End# " +  this.formFields.endDate  + ", " + this.formFields.endTm );
 
-      if (this.form.controls.transType.value === '' && this.currentTransType !== '')
+      if (this.form.controls.transType.value === '' && this.formFields.currentTransType !== '')
       {
-        this.form.controls.transType.setValue(this.currentTransType);
+        this.form.controls.transType.setValue(this.formFields.currentTransType);
       }
 
 
@@ -430,33 +372,41 @@ endDate ="13:30";
 
             if(fGrp.controls.fld.value === val)
               {
-                console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
-                staticSearchStr += " AND " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'"
+                console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'");
+
+                if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
+                  {
+                      staticSearchStr += " AND " + tabCol[ind] + " LIKE '" + fGrp.controls.newFldValue.value + "'"
+                  }
+                  else
+                  {
+                    staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                  }
+
               }
           };
 
 
         }
       }
-      if(this.additionalsearchString.length > 0)
-        {
-          console.info("additionalsearchString: " + this.additionalsearchString)
-          staticSearchStr = staticSearchStr + " AND " + this.additionalsearchString
-
-        }
+      this.formFields.disposition = this.form.controls.disposition.value
+     
       if(staticSearchStr.length > 3)
       {
           staticSearchStr = staticSearchStr.replace('AND','') // Remove first AND
+          staticSearchStr = staticSearchStr.replaceAll('%','%25') //send a literal '%' character, it needs to be encoded as %25.%
           this.paramsList.push("sql::" + staticSearchStr);
       }
       this.paramsList.push("summary::1");
 
-      this.searchTypeString = "";
+      this.sumUserFlds = "";
       this.paramsList.forEach( val => {
-        this.searchTypeString += val +";";
+        this.sumUserFlds += val +";";
        });
 
-      sessionStorage.setItem("searchTypeString", this.searchTypeString)
+      sessionStorage.setItem("sumUserFlds", this.sumUserFlds);
+      const jsonString = JSON.stringify(this.formFields);
+      sessionStorage.setItem("sumConfig", jsonString);
 
       if(this.form.controls.transType.value === '270')
       {
@@ -527,10 +477,7 @@ endDate ="13:30";
        }
 
        else if(this.form.controls.transType.value === '837I'){
-        if(this.additionalsearchString.length > 0)
-        {
-          this.additionalsearchString = " AND " + this.additionalsearchString
-        }
+       
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ")
         this.SummaryService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
@@ -542,10 +489,7 @@ endDate ="13:30";
 
       }
       else if(this.form.controls.transType.value === '837D'){
-        if(this.additionalsearchString.length > 0)
-        {
-          this.additionalsearchString = " AND " + this.additionalsearchString
-        }
+        
         this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ")
         this.SummaryService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
          this.dataSource.data = res;
@@ -636,6 +580,7 @@ onRowCnt()
       {
         console.info('Set paginator.pageSize: ' + this.form.controls.rowCnt.value)
         this.paginator.pageSize = this.form.controls.rowCnt.value;
+        this.formFields.rowCnt =  this.form.controls.rowCnt.value;
         this.dataSource.paginator = this.paginator
 }
 
@@ -643,7 +588,6 @@ clearSearch()
     {
       this.canRenderDetails = false;
       this.searchSummary = false;
-      this.additionalsearchString = "";
       console.info('clearSearch fields');
     }
 
@@ -691,14 +635,13 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info("In transactionChange: currentTransType: " + this.currentTransType)
-  if(this.form.controls.transType.value !== this.currentTransType &&
-    this.form.controls.mode.value !== this.currentMode)
+  console.info("In transactionChange: chnage from: " + this.formFields.currentTransType +" to " + this.form.controls.transType.value)
+  if(this.form.controls.transType.value !== this.formFields.currentTransType &&
+    this.form.controls.mode.value !== this.formFields.mode)
   {
     this.clearSearch();
   }
-  this.currentTransType = this.form.controls.transType.value;
-  this.currentMode = this.form.controls.mode.value;
+  this.formFields.currentTransType = this.form.controls.transType.value;
 
   this.readCustomFlds();
 
@@ -866,8 +809,8 @@ onStDateChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.startDate = newValue;
-  console.log('Input value changed:', newValue +", " + this.startDate);
+  this.formFields.startDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.startDate);
 }
 
 onStTimeChange(event: Event)
@@ -876,8 +819,8 @@ onStTimeChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.startTm = newValue;
-  console.log('Input value changed:', newValue +", " + this.startTm);
+  this.formFields.startTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.startTm);
 }
 onEndDateChange(event: Event)
 {
@@ -885,8 +828,8 @@ onEndDateChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.endDate = newValue;
-  console.log('Input value changed:', newValue +", " + this.endDate);
+  this.formFields.endDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.endDate);
 }
 onEndTimeChange(event: Event)
 {
@@ -894,13 +837,13 @@ onEndTimeChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.endTm = newValue;
-  console.log('Input value changed:', newValue +", " + this.endTm);
+  this.formFields.endTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.endTm);
 }
 
 exportData()
 {
-  let fileName = "DataExport-" + this.currentTransType   + "-" + this.startDate + "To" + this.endDate + ".csv"
+  let fileName = "DataExport-" + this.formFields.currentTransType   + "-" + this.formFields.startDate + "To" + this.formFields.endDate + ".csv"
   let data = ""
 
   this.dataTableLabel.forEach(element => {
@@ -941,23 +884,26 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 onContextMenuNew(item: Item) {
   console.log("Click on Action id: " + item.rowId);
 
+  // Convert the object to a JSON string
+  const jsonString = JSON.stringify(this.formFields);
 
     console.log(item.FileName);
     sessionStorage.removeItem("currentTab")
     sessionStorage.setItem("currentTab", "Transactions");
 
-    this.searchTypeString = "";
+    this.sumUserFlds = "";
     this.paramsList.forEach( val => {
-      this.searchTypeString += val +";";
+      this.sumUserFlds += val +";";
       console.log(val);
      });
 
     let additionalsearchString = "FileName='"+item.FileName +"'";
 
-    this.searchTypeString += ";sameWindow::false";
+    this.sumUserFlds += ";sameWindow::false";
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transaction': this.form.controls.transType.value, 'additionalSearch': additionalsearchString, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value, 
+        'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -970,37 +916,20 @@ onContextMenuNew(item: Item) {
 
 onContextMenuSame(item: Item) {
 
-  this.searchTypeString = "";
+  this.sumUserFlds = "";
   sessionStorage.removeItem("currentTab")
   sessionStorage.setItem("currentTab", "Transactions");
+  const jsonString = JSON.stringify(this.formFields);
 
   this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
+    this.sumUserFlds += val +";";
    });
-   this.additionalsearchString = "FileName='"+item.FileName +"'";
+   let additionalsearchString = "FileName='"+item.FileName +"'";
 
-   this.searchTypeString += ";sameWindow::true";
+   this.sumUserFlds += ";sameWindow::true";
       this.router.navigate(["/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString } }
-       );
-
-}
-
-onContextSettings(item: Item) {
-
-    console.log("call onContextSettings")
-    this.searchTypeString = "mode::" + this.form.controls.mode.value +";" +
-    "summary::1;" +
-    "transaction::"+this.form.controls.transType.value +";" +
-    "status::"+this.form.controls.disposition.value +";" +
-    "sumStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-    "endDtTm::" + this.endDate+" " +this.endTm +";" +
-    "count::" + this.form.controls.rowCnt.value +";"  ;
-
-
-   this.searchTypeString += ";sameWindow::true";
-      this.router.navigate(["/summary/summary-settings/"],
-      {queryParams: {'summary':1, 'transaction': this.form.controls.transType.value, 'mode': this.form.controls.mode.value, 'additionalSearch': this.additionalsearchString, 'searchTypeString': this.searchTypeString  } }
+      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
+         'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
        );
 
 }

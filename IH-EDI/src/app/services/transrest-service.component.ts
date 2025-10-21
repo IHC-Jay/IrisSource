@@ -1046,7 +1046,7 @@ fetchConfiguration() {
 
 createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : Number)
 {
-  let dateFormat = require('dateformat');
+  // let dateFormat = require('dateformat');
   let dte = new Date();
 
   let url = this.batchTransUrl

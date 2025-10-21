@@ -5,7 +5,7 @@ import {TradingPartner} from '../tradingPartners/TradingPartner';
 import {TpId, TpIdColumns} from '../tradingPartners/tpIds/TpId';
 import {tpLinks} from '../tradingPartners/tpIds/tp-links/tp-links';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
-import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatTableDataSource } from '@angular/material/table';
 import {
   AUTO_STYLE,
   animate,

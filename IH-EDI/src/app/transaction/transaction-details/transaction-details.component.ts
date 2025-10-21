@@ -31,6 +31,7 @@ export class TransactionDetailComponent {
   ak1CtrlNum:string;
   ak1ver:string;
   additionalSearchStr:string;
+  transConfigJsonString:string;
   searchTypeString:string;
   transaction:string;
   x12Data:string;
@@ -55,6 +56,7 @@ export class TransactionDetailComponent {
       this.transaction = ''+params['transaction'] || '0';
       this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
+      this.transConfigJsonString = params['transConfig'];
       console.log('Query params ID: ', this.ID + ', trans: ' + this.transaction + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
       if (this.searchTypeString.indexOf("Batch") > 0)
       {
@@ -76,7 +78,7 @@ export class TransactionDetailComponent {
           || Number.parseInt(item.TransactionCode) == 1)
           {
             this.displayedColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
-            console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
+            // console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
           }
 
         }
@@ -245,7 +247,7 @@ export class TransactionDetailComponent {
       {
         queryParams: { transaction: this.transaction,
           'additionalSearch': this.additionalSearchStr,
-          'searchTypeString': this.searchTypeString }
+          'searchTypeString': this.searchTypeString, 'transConfig': this.transConfigJsonString}
     }
 
        );

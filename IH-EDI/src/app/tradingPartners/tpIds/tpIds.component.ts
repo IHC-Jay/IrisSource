@@ -2,7 +2,7 @@ import { Component, OnInit, ViewChild } from '@angular/core';
 import { ActivatedRoute, RouteReuseStrategy } from '@angular/router';
 
 import {TpRestServiceComponent} from '../../services/tprest-service.component';
-import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatTableDataSource } from '@angular/material/table';
 import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { TpId, TpIdColumns } from './TpId';

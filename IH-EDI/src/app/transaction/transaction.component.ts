@@ -43,10 +43,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
-startDate = "2023-01-12";
-endDate ="13:30";
-  startTm = "13:30";
-  endTm= "2023-01-12";
+
   paramsList: string[];
 
     maxCount = ["10", "25", "50", "100", "200"];
@@ -103,20 +100,8 @@ endDate ="13:30";
 
   searchColumns= this.transactionsFields.slice();
 
-  @ViewChild("rowCnt") rowCnt: ElementRef;
-  @ViewChild("transType") transType: ElementRef;
-  @ViewChild("displayCols") displayCols: ElementRef;
-  @ViewChild("disposition") disposition: ElementRef;
-
-
-  staticSearchStr = "";
-  additionalSearchStr = "";
-  searchTypeString = "";
-  currentTransType = '';
-  currentMode = '';
   sub:any;
-  fileName:string="";
-
+  
   selDropdownList = [];
 
   allDropdownList = [];
@@ -125,6 +110,26 @@ endDate ="13:30";
 
   usrSearchColumns: SearchColumns[] = [];
   usrDisplayColumns: DisplayColumns[] = [];
+
+  formFields = {
+      rowCnt: '',
+      currentTransType: '',
+      disposition: 'Processed',
+      mode:'',
+      currentMode: '',
+      direction: '',
+      additional: '',
+      startDate : "2023-01-12",
+      endDate :"13:30",
+      startTm : "13:30",
+      endTm: "2023-01-12"
+  }
+
+  staticSearchStr = "";
+  additionalSearchStr = "";
+  transUserFlds = "";
+  fileName:string="";
+
 
   constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
@@ -154,7 +159,7 @@ endDate ="13:30";
     {
         this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
     }
-    this.currentTransType = this.transactionTypes[0];
+    this.formFields.currentTransType = '';
 
     sessionStorage.removeItem("currentTab")
     sessionStorage.setItem("currentTab", "Transactions")
@@ -169,169 +174,131 @@ endDate ="13:30";
       additional:this.formBuilder.array([this.createinitForm()])
     });
 
-    let stDt = 30;
-
-
-    if (sessionStorage.getItem('TranType') !== undefined && sessionStorage.getItem('TranType') !== null)
-    {
-
-      this.currentTransType = sessionStorage.getItem('TranType');
-      this.form.controls.transType.setValue(this.currentTransType);
-
-      this.form.controls.rowCnt.setValue(sessionStorage.getItem('DispCnt'));
-      this.form.controls.mode.setValue(sessionStorage.getItem('Mode'));
-      this.currentMode = this.form.controls.mode.value;
-
-      let stDtStr = sessionStorage.getItem('TranTime');
-
-      // Format: Last 90 days
-
-      if(stDtStr.toString().indexOf('1') > 1)
-      {
-        stDt = 1
-      }
-      else if(stDtStr.toString().indexOf('7') > 1)
-        {
-          stDt = 7
-        }
-        else if(stDtStr.toString().indexOf('30') > 1)
-        {
-          stDt = 30
-        }
-        else if(stDtStr.toString().indexOf('90') > 1)
-        {
-          stDt = 90
-        }
-        else if(stDtStr.toString().indexOf('365') > 1)
-        {
-          stDt = 365
-        }
-        console.info("Init from session: " +  this.currentTransType + ", Search from " + stDt + " days. " + stDtStr)
-    }
-
+    let stDt = 1;
 
     this.sub = this.route.queryParams.subscribe(params => {
 
-      if(params !== undefined && params.transaction !== undefined )
+      if(params !== undefined)
+      {
+          // From Summary Tab
+          if(params['transConfig'] !== undefined )
+          {
+            // Defaults to '' if no query param provided.
+            let jsonString = params['transConfig']
+            if (jsonString !== null)
+            {
+              console.info("TransConfig from session: " + jsonString);
+              this.formFields = JSON.parse(jsonString); 
+              console.info('Parsed Object:', this.formFields);
+            }
+            else
+            {
+              this.formFields.currentTransType =  params['transaction'] || '';            
+              this.transUserFlds = params['transUserFlds'];
+            }
+            this.additionalSearchStr = params['additionalSearch'] || '';
+            console.info("Query params, additionalSearchStr: " + this.additionalSearchStr +", " + this.formFields.currentTransType +", " + this.transUserFlds)
+
+            let fInd = this.additionalSearchStr.indexOf("FileName=") + "FileName=".length;
+              let val = this.additionalSearchStr.substring( fInd)
+              console.log(fInd + ". FileName:" + val )
+              this.fileName = val
+
+          }
+      
+      }
+    });  
+
+    if(this.formFields.currentTransType === '')
+    {
+        // Set in Search
+        if(sessionStorage.getItem('transConfig') !== undefined && sessionStorage.getItem('transConfig') !== null)
         {
           // Defaults to '' if no query param provided.
 
-          this.currentTransType =  params['transaction'] || '';
-          this.additionalSearchStr = params['additionalSearch'] || '';
-          this.searchTypeString = params['searchTypeString'];
-          console.info("no query params, additionalSearchStr: " + this.additionalSearchStr)
-
-          let fInd = this.additionalSearchStr.indexOf("FileName=") + "FileName=".length;
-            let val = this.additionalSearchStr.substring( fInd)
-            console.log(fInd + ". FileName:" + val )
-            this.fileName = val
-
-        }
-        else
-        {
-
-          this.searchTypeString =  sessionStorage.getItem("searchTypeString");
-
-          if (this.searchTypeString === null || this.searchTypeString.length == 0 || this.searchTypeString.indexOf("tranStartDtTm::") < 0)
-            {
-              console.info('no query params, session: ' + this.searchTypeString);
-              this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
-              let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-              this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-              let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-              tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-              this.startTm = tmVal
-              this.endTm= tmVal
-              console.info("Time: " + tmVal)
-              this.nowDt = new Date(new Date().getTime());
-              mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-              this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-            }
+          let jsonString = sessionStorage.getItem('transConfig')
+          console.info("SumConfig from sessionStorage: " + jsonString);
+          this.formFields = JSON.parse(jsonString);        
         }
 
-          if (this.searchTypeString !== null && this.searchTypeString.length > 0 && this.searchTypeString.indexOf("tranStartDtTm::") >= 0)
+    }
+
+    if(this.formFields.currentTransType === '')
+    {
+
+      console.log('sessionStorage UserConfig: ' + sessionStorage.getItem('UserConfig'))
+      if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
+      {
+
+        this.formFields.currentTransType = sessionStorage.getItem('TranType');
+        
+
+        this.form.controls.transType.setValue(this.formFields.currentTransType);
+
+        this.form.controls.rowCnt.setValue(sessionStorage.getItem('DispCnt'));
+        this.form.controls.mode.setValue(sessionStorage.getItem('Mode'));
+        this.formFields.currentMode = this.form.controls.mode.value;
+
+        let stDtStr = sessionStorage.getItem('TranTime');
+
+        // Format: Last 90 days
+
+        if(stDtStr.toString().indexOf('7') > 1)
           {
-
-            console.info('Get query params, session: ' + this.searchTypeString);
-
-            let fInd = this.searchTypeString.indexOf("mode::") + 6;
-            let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". MODE:" + val )
-            this.form.controls.mode.setValue(val)
-
-            fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". transType:" + val )
-            if (val == "")
-              {
-                val = sessionStorage.getItem('TranType')
-              }
-              if (val == "")
-                {
-                  val = this.transactionTypes[0];
-                }
-
-
-            this.form.controls.transType.setValue(val)
-
-            fInd = this.searchTypeString.indexOf("status::") + "status::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". disposition:" + val )
-
-            this.form.controls.disposition.setValue(val)
-
-
-            fInd = this.searchTypeString.indexOf("tranStartDtTm::") + "tranStartDtTm::".length;
-            let fInd2 = this.searchTypeString.indexOf(" ", fInd)
-            val = this.searchTypeString.substring( fInd, fInd2)
-            console.log(fInd + ". startDate:" + val )
-            this.startDate = val
-
-            let fInd3 = this.searchTypeString.indexOf(";", fInd2)
-            val = this.searchTypeString.substring( fInd2+1, fInd3)
-            console.log(fInd + ". startTm:" + val )
-            this.startTm = val
-
-
-            fInd = this.searchTypeString.indexOf("endDtTm::") + "endDtTm::".length;
-            fInd2 = this.searchTypeString.indexOf(" ", fInd)
-            val = this.searchTypeString.substring( fInd, fInd2)
-            console.log(fInd + ". endDate:" + val )
-            this.endDate = val
-
-            fInd3 = this.searchTypeString.indexOf(";", fInd2)
-            val = this.searchTypeString.substring( fInd2+1, fInd3)
-            console.log(fInd + ". endTm:" + val )
-            this.endTm = val
-
-            fInd = this.searchTypeString.indexOf("count::") + "count::".length;
-            val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". rowCnt:" + val )
-            this.form.controls.rowCnt.setValue(val)
-
-
-            let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-            tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-            this.endTm= tmVal
-
-            if (this.staticSearchStr !== '')
-            {
-              console.info('Set custom search:' + this.staticSearchStr);
-            }
-            this.updateCustomFlds()
-
-              this.searchTransaction = true;
+            stDt = 7
           }
-          else{
-              this.clearSearch();
+          else if(stDtStr.toString().indexOf('30') > 1)
+          {
+            stDt = 30
           }
+          else if(stDtStr.toString().indexOf('90') > 1)
+          {
+            stDt = 90
+          }
+          else if(stDtStr.toString().indexOf('365') > 1)
+          {
+            stDt = 365
+          }
+          console.info("Init from session: " +  this.formFields.currentTransType + ", Search from " + stDt + " days. " + stDtStr)
+      }
 
 
+     console.info('Set valid date time')
+      this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
+      let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+      let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
+      this.formFields.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
+      let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
 
-    });
+      tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
+      this.formFields.startTm = tmVal
+      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+
+      
+      this.nowDt = new Date(new Date().getTime());
+      mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
+      dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
+      this.formFields.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
+      this.formFields.endTm= tmVal
+      console.info("End Time: " + this.formFields.endDate + ", " + this.formFields.endTm);
+    }
+
+    this.form.controls.mode.setValue(this.formFields.mode)
+    this.form.controls.transType.setValue(this.formFields.currentTransType)
+    this.form.controls.disposition.setValue(this.formFields.disposition)
+    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+ 
+
+    if (this.formFields.currentTransType !== '')
+    {
+        this.updateCustomFlds()
+
+        this.searchTransaction = true;
+    }
+    else{
+        this.clearSearch();
+    }
+       
 
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
@@ -357,12 +324,12 @@ endDate ="13:30";
           this.usrSearchColumns.push(...res);
           console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-          if(this.currentTransType !== '')
+          if(this.formFields.currentTransType !== '')
             {
 
-            this.transactionChange(this.currentTransType);
+            this.transactionChange(this.formFields.currentTransType);
 
-            console.info('Transaction search for: ' + this.currentTransType);
+            console.info('Transaction search for: ' + this.formFields.currentTransType);
             this.onSearchTransactions();
             }
             else
@@ -400,20 +367,19 @@ endDate ="13:30";
       this.paramsList.push("transaction::"+this.form.controls.transType.value);
       this.paramsList.push("status::"+this.form.controls.disposition.value );
 
-      this.paramsList.push("tranStartDtTm::" + this.startDate +" "+ this.startTm);
-
-      this.paramsList.push("endDtTm::" + this.endDate+" " +this.endTm );
+      this.paramsList.push("startDtTm::" + this.formFields.startDate+" " +this.formFields.startTm );
+      this.paramsList.push("endDtTm::" + this.formFields.endDate+" " +this.formFields.endTm );
       this.paramsList.push("count::" + this.form.controls.rowCnt.value);
 
 
       console.info("onSearchTransactions count: " +this.form.controls.rowCnt.value)
       console.info("SearchTransactions Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
-      console.info("SearchTransactions Start# " +  this.startDate + ", " + this.startTm );
-      console.info("SearchTransactions End# " +  this.endDate  + ", " + this.endTm );
+      console.info("SearchTransactions Start# " +  this.formFields.startDate + ", " + this.formFields.startTm );
+      console.info("SearchTransactions End# " +  this.formFields.endDate  + ", " + this.formFields.endTm );
 
-      if (this.form.controls.transType.value === '' && this.currentTransType !== '')
+      if (this.form.controls.transType.value === '' && this.formFields.currentTransType !== '')
       {
-        this.form.controls.transType.setValue(this.currentTransType);
+        this.form.controls.transType.setValue(this.formFields.currentTransType);
       }
 
 
@@ -449,7 +415,14 @@ endDate ="13:30";
               if(fGrp.controls.fld.value === val)
                 {
                   console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
-                  this.staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                  if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
+                  {
+                      this.staticSearchStr += " AND " + tabCol[ind] + " LIKE '" + fGrp.controls.newFldValue.value + "'"
+                  }
+                  else
+                  {
+                    this.staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                  }
                 }
             };
 
@@ -482,15 +455,18 @@ endDate ="13:30";
       if(this.staticSearchStr.length > 3)
       {
         this.staticSearchStr = this.staticSearchStr.replace('AND','') // Remove first AND
+        this.staticSearchStr = this.staticSearchStr.replaceAll('%','%25') //send a literal '%' character, it needs to be encoded as %25.%
           this.paramsList.push("sql::" + this.staticSearchStr);
       }
 
-      this.searchTypeString = "";
+      this.transUserFlds = "";
       this.paramsList.forEach( val => {
-        this.searchTypeString += val +";";
+        this.transUserFlds += val +";";
        });
 
-      sessionStorage.setItem("searchTypeString", this.searchTypeString)
+      sessionStorage.setItem("transUserFlds", this.transUserFlds)
+      const jsonString = JSON.stringify(this.formFields);
+      sessionStorage.setItem("transConfig", jsonString);
 
 
       if(this.form.controls.transType.value === '270')
@@ -748,15 +724,15 @@ transactionChange(evt: any)
   this.allDropdownList= [];
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info("In transactionChange: currentTransType: " + this.currentTransType)
+  console.info("In transactionChange: currentTransType: " + this.formFields.currentTransType)
   this.additionalSearchStr = ''
-  if(this.form.controls.transType.value !== this.currentTransType &&
-    this.form.controls.mode.value !== this.currentMode)
+  if(this.form.controls.transType.value !== this.formFields.currentTransType &&
+    this.form.controls.mode.value !== this.formFields.currentMode)
   {
     this.clearSearch();
   }
-  this.currentTransType = this.form.controls.transType.value;
-  this.currentMode = this.form.controls.mode.value;
+  this.formFields.currentTransType = this.form.controls.transType.value;
+  this.formFields.currentMode = this.form.controls.mode.value;
 
   this.readCustomFlds();
 
@@ -923,8 +899,8 @@ onStDateChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.startDate = newValue;
-  console.log('Input value changed:', newValue +", " + this.startDate);
+  this.formFields.startDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.startDate);
 }
 
 onStTimeChange(event: Event)
@@ -933,8 +909,8 @@ onStTimeChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.startTm = newValue;
-  console.log('Input value changed:', newValue +", " + this.startTm);
+  this.formFields.startTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.startTm);
 }
 onEndDateChange(event: Event)
 {
@@ -942,8 +918,8 @@ onEndDateChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.endDate = newValue;
-  console.log('Input value changed:', newValue +", " + this.endDate);
+  this.formFields.endDate = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.endDate);
 }
 onEndTimeChange(event: Event)
 {
@@ -951,13 +927,13 @@ onEndTimeChange(event: Event)
   // Get the new input value
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
-  this.endTm = newValue;
-  console.log('Input value changed:', newValue +", " + this.endTm);
+  this.formFields.endTm = newValue;
+  console.log('Input value changed:', newValue +", " + this.formFields.endTm);
 }
 
 exportData()
 {
-  let fileName = "DataExport-" + this.currentTransType   + "-" + this.startDate + "To" + this.endDate + ".csv"
+  let fileName = "DataExport-" + this.formFields.currentTransType   + "-" + this.formFields.startDate + "To" + this.formFields.endDate + ".csv"
   let data = ""
 
   this.dataTableLabel.forEach(element => {
@@ -1014,14 +990,16 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 onContextMenuNew(item: Item) {
   // alert('Click on Action 1 ' + item.ID);
 
-    this.searchTypeString = "";
+    this.transUserFlds = "";
   this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
+    this.transUserFlds += val +";";
    });
-   this.searchTypeString += ";sameWindow::false";
+   this.transUserFlds += ";sameWindow::false";
+   const jsonString = JSON.stringify(this.formFields);
 
        const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
+         'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
@@ -1034,35 +1012,21 @@ onContextMenuNew(item: Item) {
 
 onContextMenuSame(item: Item) {
 
-  this.searchTypeString = "";
+  this.transUserFlds = "";
   this.paramsList.forEach( val => {
-    this.searchTypeString += val +";";
+    this.transUserFlds += val +";";
    });
-   this.searchTypeString += ";sameWindow::true";
+   const jsonString = JSON.stringify(this.formFields);
+   this.transUserFlds += ";sameWindow::true";
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString } }
+      {queryParams: { ID:  item.ID, 'transConfig': jsonString, 
+         'transaction': this.form.controls.transType.value,
+         'additionalSearch': this.staticSearchStr, 
+         'searchTypeString': this.transUserFlds } }
        );
 
 }
 
-onContextSettings(item: Item) {
-
-    console.log("call onContextSettings")
-    this.searchTypeString = "mode::" + this.form.controls.mode.value +";" +
-    "transaction::"+this.form.controls.transType.value +";" +
-    "transaction::"+this.form.controls.transType.value +";" +
-    "status::"+this.form.controls.disposition.value +";" +
-    "tranStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-    "endDtTm::" + this.endDate+" " +this.endTm +";" +
-    "count::" + this.form.controls.rowCnt.value +";"  ;
-
-
-   this.searchTypeString += ";sameWindow::true";
-      this.router.navigate(["/transaction/transaction-settings/"],
-      {queryParams: {'transaction': this.form.controls.transType.value, 'mode': this.form.controls.mode.value, 'additionalSearch': this.staticSearchStr, 'searchTypeString': this.searchTypeString  } }
-       );
-
-}
 
 applyFilter(event: Event) {
   const filterValue = (event.target as HTMLInputElement).value;
