@@ -102,7 +102,7 @@ searchTypeString:string = "";
 
 
   @ViewChild("cngfDispCnt") cngfDispCnt: ElementRef;
-  @ViewChild("dispTransType") dispTransType: ElementRef;
+
   @ViewChild("dispMode") dispMode: ElementRef;
 
   formFields = {
@@ -110,14 +110,13 @@ searchTypeString:string = "";
       modeString: "Batch"
   }
 
-
-  currentTransType = '270';
   sub:any;
   value = 'Clear me';
   showMode = 1
   showCngfMode = 1
 
   cngfTranType = "835"
+  dispTransType = "";
   cngfMode = "Batch";
   private _snackBar = inject(MatSnackBar);
 
@@ -154,24 +153,35 @@ searchTypeString:string = "";
     {
         this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
     }
-    this.currentTransType = this.transactionTypes[0];
+    this.dispTransType = '';
+
+    //
+    if(sessionStorage.getItem('transConfig') !== undefined && sessionStorage.getItem('transConfig') !== null)
+    {
+          // Defaults to '' if no query param provided.
+
+          let jsonString = sessionStorage.getItem('transConfig')
+          console.info("SumConfig from sessionStorage: " + jsonString);
+          let formFields = JSON.parse(jsonString);
+          this.dispTransType = formFields.currentTransType;
+          this.form.controls.dispTransType.setValue(this.dispTransType)
+    }
 
     if (this.searchTypeString !== null)
     {
       let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
-            let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
-            console.log(fInd + ". transType:" + val )
-            this.form.controls.dispTransType.setValue(val)
-            this.currentTransType = val;
+            this.dispTransType = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+            console.log(fInd + ". transType:" + this.dispTransType )
+            this.form.controls.dispTransType.setValue(this.dispTransType)
 
              fInd = this.searchTypeString.indexOf("mode::") + 6;
-             val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
+             let val = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
             console.log(fInd + ". MODE:" + val )
             this.form.controls.dispMode.setValue(val);
     }
 
     this.TransactionService.fetchConfiguration().subscribe((res: any) => {
-      console.info("Configuration array : " + res.length);
+      console.info("Configuration array : " + res.length +", DispTransType: " + this.dispTransType);
       if (res.length == 1)
       {
           console.log('No Setting')
@@ -189,9 +199,14 @@ searchTypeString:string = "";
             }
             else if('TranType' === res[ind].Key)
               {
+                this.cngfTranType = res[ind].Value
+                this.form.controls.cngfTranType.setValue(this.cngfTranType)
 
-                this.form.controls.cngfTranType.setValue(res[ind].Value)
-
+                if (this.dispTransType === '')
+                {
+                  this.dispTransType = res[ind].Value
+                  this.form.controls.dispTransType.setValue(this.dispTransType)
+                }
               }
               else if('Mode' === res[ind].Key)
                 {
@@ -233,71 +248,68 @@ searchTypeString:string = "";
           }
       }
 
-    });
-
-
-    this.sub = this.route.queryParams.subscribe(params => {
-
-      if(params !== undefined && params.transaction !== undefined)
-        {
-      // Defaults to '' if no query param provided.
-
-      this.currentTransType =  params['transaction'] || '';
-      this.formFields.modeString = params['mode'];
-      this.form.controls.dispTransType.setValue(this.currentTransType);
-      this.form.controls.dispMode.setValue(this.formFields.modeString)
-
-      this.additionalSearchStr = params['additionalSearch'];
-      this.searchTypeString = params['searchTypeString'];
-      console.log('Query params trans: ' + this.currentTransType + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
-
-
-      }
-    });
-    if (this.currentTransType == '')
-      {
-        this.currentTransType = this.transactionTypes[0];
-
-        this.form.controls.dispTransType.setValue(this.currentTransType);
-      }
-
-
 
     this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
-    this.allTransactionsFields = [];
+      this.allTransactionsFields = [];
 
-      for (var item of res)
-      {
-        // console.info("Push transactionsSearchColumns: " + item.Key)
-          this.allTransactionsFields.push({key: item.Key,
-            type: item.Type, label: item.Label, transactionCode: item.TransactionCode, order: item.Order,
-          checked:'false'});
-      }
-      console.info("All TransactionsFields: " + this.allTransactionsFields.length);
+        for (var item of res)
+        {
+          // console.info("Push transactionsSearchColumns: " + item.Key)
+            this.allTransactionsFields.push({key: item.Key,
+              type: item.Type, label: item.Label, transactionCode: item.TransactionCode, order: item.Order,
+            checked:'false'});
+        }
+        console.info("All TransactionsFields: " + this.allTransactionsFields.length);
 
-      console.info("Fetch Display, Search Columns. ");
+        console.info("Fetch Display, Search Columns. ");
 
-      this.TransactionService.fetchDisplayColumns("Default" , "Transactions").subscribe((res: any) => {
-        this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
-        this.usrDisplayColumns.push(...res);
-        console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
+        this.TransactionService.fetchDisplayColumns("Default" , "Transactions").subscribe((res: any) => {
+          this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
+          this.usrDisplayColumns.push(...res);
+          console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
 
 
 
-        this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
-          this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
-          this.usrSearchColumns.push(...res);
-          console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
+          this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+            this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
+            this.usrSearchColumns.push(...res);
+            console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
 
-          if(this.currentTransType !== '')
-          {
+            if(this.dispTransType !== '')
+            {
 
-          this.transactionChange(this.currentTransType);
+            this.transactionChange(this.dispTransType);
 
-          }
+            }
+          });
         });
       });
 
+
+      this.sub = this.route.queryParams.subscribe(params => {
+
+        if(params !== undefined && params.transaction !== undefined)
+          {
+        // Defaults to '' if no query param provided.
+
+        this.dispTransType =  params['transaction'] || '';
+        this.formFields.modeString = params['mode'];
+        this.form.controls.dispTransType.setValue(this.dispTransType);
+        this.form.controls.dispMode.setValue(this.formFields.modeString)
+
+        this.additionalSearchStr = params['additionalSearch'];
+        this.searchTypeString = params['searchTypeString'];
+        console.log('Query params trans: ' + this.dispTransType + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
+
+
+        }
+      });
+      if (this.dispTransType == '')
+      {
+        this.dispTransType = this.transactionTypes[0];
+
+        this.form.controls.dispTransType.setValue(this.dispTransType);
+      }
     });
 
   }
@@ -336,9 +348,9 @@ transactionChange(evt: any)
   this.allDispFields=[];
   this.allSearchFields=[];
 
-  this.currentTransType = this.form.controls.dispTransType.value;
+  this.dispTransType = this.form.controls.dispTransType.value;
 
-  if (this.currentTransType === "835" || this.currentTransType.indexOf("837") == 0 || this.currentTransType === "277CA")
+  if (this.dispTransType === "835" || this.dispTransType.indexOf("837") == 0 || this.dispTransType === "277CA")
   {
       this.formFields.modeString = "Batch";
       this.showMode = 0
@@ -585,7 +597,7 @@ saveConfig()
       }
       this.router.navigate([tabLinks[ind].link],
           {
-          queryParams: { transaction: this.currentTransType,
+          queryParams: { transaction: this.dispTransType,
           'additionalSearch': this.additionalSearchStr,
           'searchTypeString': this.searchTypeString }
           }
@@ -603,10 +615,10 @@ saveConfig()
 toTransactions()
   {
 
-      console.log('To Transactions: ' + this.currentTransType + "= " + this.searchTypeString + "/" + this.additionalSearchStr);
+      console.log('To Transactions: ' + this.dispTransType + "= " + this.searchTypeString + "/" + this.additionalSearchStr);
       this.router.navigate(["/transaction/"],
       {
-        queryParams: { transaction: this.currentTransType,
+        queryParams: { transaction: this.dispTransType,
           'additionalSearch': this.additionalSearchStr,
           'searchTypeString': this.searchTypeString }
     }
@@ -642,7 +654,7 @@ toTransactions()
         try
         {
           let data = [];
-          data.push(this.currentTransType)
+          data.push(this.dispTransType)
 
           this.TransactionService.fetchUsersWithSettings().subscribe((res: any) => {
             console.info("Users array : " + res.length);
@@ -673,7 +685,7 @@ toTransactions()
                             if (confirm.event === 'Save')
                             {
 
-                              this.TransactionService.saveUserSettings(confirm.data, this.currentTransType, '').subscribe((res: any) => {
+                              this.TransactionService.saveUserSettings(confirm.data, this.dispTransType, '').subscribe((res: any) => {
 
                                 this.openSnackBar( res.Transaction + ' Settings from ' + res.From + " To " + res.To, "Display # "+ res.DisplayCount + ", Search # " + res.SearchCount + " " + confirm.event +"d. ");
 

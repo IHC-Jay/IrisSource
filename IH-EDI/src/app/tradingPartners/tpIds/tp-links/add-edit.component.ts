@@ -45,9 +45,11 @@ export class AddEditComponent implements OnInit {
     showTpIds: boolean = false;
     submitted = false;
     transaction835:boolean = false;
+    routeVal:string ='';
 
     sendingTpIds = [];
-    ackTypes:string[] = ["Error","Always","Never"];
+    ackTypes:string[] = ["ERROR","ALWAYS","NEVER"];
+    snipValues:string[] = ["0","1","2"];
     direcTypes:string[]
 
 
@@ -197,18 +199,32 @@ public initializeData()
                 else if(key === 'ISAAck')
                 {
                   this.form.controls['ISAAck'].setValue(x[key].toString());
+                  if (this.form.controls['ISAAck'].value == "")
+                  {
+                    this.form.controls['ISAAck'].setValue('NEVER')
+                  }
                 }
                 else if(key === 'GSAck')
                 {
                   this.form.controls['GSAck'].setValue(x[key].toString());
+                  if (this.form.controls['GSAck'].value == "")
+                  {
+                    this.form.controls['GSAck'].setValue('NEVER')
+                  }
                 }
                 else if(key === 'STAck')
                 {
                   this.form.controls['STAck'].setValue(x[key].toString());
+                  if (this.form.controls['STAck'].value == "")
+                  {
+                    this.form.controls['STAck'].setValue('NEVER')
+                  }
                 }
                 else if(key === 'Routing')
                 {
-                  this.form.controls['Routing'].setValue(x[key].toString());
+                  this.routeVal = x[key].toString()
+                  this.form.controls['Routing'].setValue(this.routeVal);
+
                 }
                 else if(key === 'Direction')
                 {
@@ -337,9 +353,9 @@ public initializeData()
 
         for (let el in this.form.controls) {
           if (this.form.controls[el].errors) {
-            console.log(el +" - not initialized")
+            alert(el +" - not initialized, is required")
           }
-     }
+        }
 
         // stop here if form is invalid
         if (this.form.invalid) {
@@ -352,46 +368,48 @@ public initializeData()
         this.createUpdateTpLink(this.isAddMode);
 
     }
+
     setRtBatch()
     {
-      console.info('setRtBatch: ' + this.form.controls['Mode'].value);
+      console.info('setRtBatch: ' + this.form.controls['Mode'].value + ", isAddMode: " + this.isAddMode);
+       console.info("Routing: " + this.form.controls.Routing.value)
       if(this.form.controls['Mode'].value === 'RT')
       {
           this.batchMode = false;
-          this.ackTypes = ["Error","Never"];
-          this.form.controls.Routing.setValue('RT');
+          this.ackTypes = ["ERROR","NEVER"];
+
            if (`${environment.org}` == 'SH')
           {
-            this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket"];
+            this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket", "NA"];
           }
           else{
             this.routingTypes = ["NA"];
           }
-          this.form.controls.Routing.setValue(this.routingTypes[0]);
+
       }
       else {
         this.batchMode = true;
-        this.ackTypes = ["Error","Always","Never"];
+        this.ackTypes = ["ERROR","ALWAYS","NEVER"];
         if (`${environment.org}` == 'SH')
         {
 
-            this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
+            this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket", "NA"];
         }
         else
         {
-            this.routingTypes = ["R1","UhinProvConnBatch","NA","SelectHealth", "BitBucket"];
+            this.routingTypes = ["R1","UhinProvConnBatch","UhinBatch", "SelectHealth", "BitBucket", "NA"];
         }
 
 
-        this.form.controls.Routing.setValue(this.routingTypes[0]);
+
       }
       if(this.isAddMode)
       {
         this.form.controls.ISAAck.setValue(this.ackTypes[0]);
         this.form.controls.GSAck.setValue(this.ackTypes[0]);
         this.form.controls.STAck.setValue(this.ackTypes[0]);
-        this.form.controls.SNIP.setValue('1')
-        // this.form.controls.Direction.setValue(this.direcTypes[0]);
+        this.form.controls.SNIP.setValue('1');
+        this.form.controls.Routing.setValue(this.routingTypes[0]);
       }
     }
 

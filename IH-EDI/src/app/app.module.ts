@@ -6,7 +6,6 @@ import { Routes, RouterModule } from '@angular/router';
 import { formatDate} from '@angular/common'
 
 import { AppComponent } from './app.component';
-import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { MatPaginatorModule } from '@angular/material/paginator';
 
 import { MatTableModule } from '@angular/material/table';
@@ -114,8 +113,8 @@ import {
         MatSortModule,
         MatPaginatorModule
     ],
-    bootstrap: [AppComponent], imports: [BrowserModule,
-        BrowserAnimationsModule,
+    bootstrap: [AppComponent], imports: [
+      BrowserModule,
         MatMenuModule,
         MatTableModule,
         MatPaginatorModule,

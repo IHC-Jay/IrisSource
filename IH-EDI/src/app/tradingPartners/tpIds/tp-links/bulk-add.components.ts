@@ -24,9 +24,10 @@ export class BulkAddComponents implements OnInit {
     submitted = false;
     tpType = `${environment.tpType}`;
 
-    BatchackTypes:string[] = ["Error","Always", "Never"];
-    RTackTypes = ["Never","Error"];
+    BatchackTypes:string[] = ["ERROR","ALWAYS","NEVER"];
+    RTackTypes = ["ERROR","NEVER"];
     modeTypes:string[] = ["Batch","RT"];
+    snipValues:string[] = ["0","1","2"];
     routingTypes:string[] =  ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket"];
     ownerTpIds = [];
     canRender = false;

@@ -51,6 +51,7 @@ export class WorkflowDetailsComponent implements OnInit {
   submitted = false;
   rowClicked:number;
   separator:string;
+  dataError:boolean;
 
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
@@ -285,6 +286,17 @@ getX12()
 
       if (index > -1) { //if found
         this.statusTypes.splice(index, 1);
+      }
+      if(this.errArray.length > 0)
+      {
+        this.dataError = true;
+      }
+      else
+      {
+        this.dataError = false;
+        this.errArray.push({'Num': 1, 'Segment': '-', 'Error' : "TP Error"});
+        this.errorDataSource.data = this.errArray;
+
       }
 
     });

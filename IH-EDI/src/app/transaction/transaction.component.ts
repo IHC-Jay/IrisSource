@@ -188,7 +188,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
             let jsonString = params['transConfig']
             if (jsonString !== null)
             {
-              console.info("TransConfig from session: " + jsonString);
+              console.info("TransConfig from queryParams: " + jsonString);
               this.formFields = JSON.parse(jsonString);
               console.info('Parsed Object:', this.formFields);
             }
