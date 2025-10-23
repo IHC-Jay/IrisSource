@@ -5,7 +5,7 @@ import {TradingPartner} from '../tradingPartners/TradingPartner';
 import {TpId, TpIdColumns} from '../tradingPartners/tpIds/TpId';
 import {tpLinks} from '../tradingPartners/tpIds/tp-links/tp-links';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
-import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatTableDataSource } from '@angular/material/table';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { MatPaginator } from '@angular/material/paginator';
@@ -24,6 +24,7 @@ const DEFAULT_DURATION = 300;
   selector: 'app-search',
   templateUrl: './search.component.html',
   styleUrls: ['./search.component.css'],
+    standalone: false,
  animations: [
     trigger('tpLinkExpand', [
       state('collapsed', style({ height: '0px', minHeight: '0' })),
@@ -44,7 +45,7 @@ export class SearchComponent implements OnInit {
 
   selectedTp:string[];
   @ViewChild(MatSort) sort: MatSort;
-  @ViewChild(MatPaginator) paginator: MatTableDataSourcePaginator;
+  @ViewChild(MatPaginator) paginator: MatPaginator;
 
 
   dataTableLabel: string[] = [];

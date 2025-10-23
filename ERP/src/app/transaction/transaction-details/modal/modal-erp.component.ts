@@ -8,7 +8,8 @@ import {MAT_DIALOG_DATA, MatDialogRef}  from '@angular/material/dialog';
 @Component({
   selector: 'app-modal-erp',
   templateUrl: './modal-erp.component.html',
-  styleUrls: ['./modal-erp.component.css']
+  styleUrls: ['./modal-erp.component.css'],
+    standalone: false
 })
 
 export class ModalErpComponent {

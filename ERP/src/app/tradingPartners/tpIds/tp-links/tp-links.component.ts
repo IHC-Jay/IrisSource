@@ -1,7 +1,7 @@
 
 import { Component, OnInit, OnDestroy, ViewChild, Inject } from '@angular/core';
 import { animate, state, style, transition, trigger } from '@angular/animations';
-import { MatTableModule, MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatTableModule, MatTableDataSource } from '@angular/material/table';
 import { Router, ActivatedRoute } from '@angular/router';
 import { map } from 'rxjs/operators';
 import { Subscription } from 'rxjs';
@@ -25,6 +25,7 @@ import { ConfirmDialogComponent } from '../../../confirm-dialog/confirm-dialog.c
   selector: 'app-tp-links',
   templateUrl: './tp-links.component.html',
   styleUrls: ['./tp-links.component.css'],
+    standalone: false,
   animations: [
     trigger('tpLinkExpand', [
       state('collapsed', style({ height: '0px', minHeight: '0' })),
@@ -58,7 +59,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   private errorSub: Subscription;
 
   @ViewChild(MatSort) sort: MatSort;
-  @ViewChild(MatPaginator) paginator: MatTableDataSourcePaginator;
+  @ViewChild(MatPaginator) paginator: MatPaginator;
 
   tpIdLinksList = new MatTableDataSource<tpLinks>();
 

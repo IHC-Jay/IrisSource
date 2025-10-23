@@ -1,16 +1,17 @@
 // app.module.ts
 
-import { NgModule } from '@angular/core';
+import { NgModule, Component, inject } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { Routes, RouterModule } from '@angular/router';
 import { formatDate} from '@angular/common'
 
 import { AppComponent } from './app.component';
-import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
+
 import { MatPaginatorModule } from '@angular/material/paginator';
 
 import { MatTableModule } from '@angular/material/table';
 import { MatListModule } from '@angular/material/list';
+import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatSort, MatSortModule } from '@angular/material/sort';
@@ -48,46 +49,41 @@ import {AuthInterceptor} from './login/auth-interceptor';
 import {ErrorInterceptor} from './login/error.interceptor';
 
 import { TransactionDetailComponent } from './transaction/transaction-details/transaction-details.component';
-import { NgMultiSelectDropDownModule } from 'ng-multiselect-dropdown';
+
 import {MatExpansionModule, MatExpansionPanel} from '@angular/material/expansion';
 import { ModalErpComponent } from './transaction/transaction-details/modal/modal-erp.component';
 import { ModalHelperService } from './transaction/transaction-details/modal/modal-helper.service';
 
 import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
-
 import { AngularSplitModule } from 'angular-split';
-import { WorkflowComponent } from './workflow/workflow.component';
-import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
+import { NgMultiSelectDropDownModule } from 'ng-multiselect-dropdown';
 
 @NgModule({ declarations: [
-        AppComponent,
+AppComponent,
         HeaderComponent,
         TpRestServiceComponent,
         TransRestServiceComponent,
         TradingPartnersComponent,
-        AddEditTP,
         ConfirmDialogComponent,
         TpIdComponent,
         tpLinksComponent,
         AddEditComponent,
         SearchComponent,
         TransactionComponent,
-        ModalErpComponent,
-        TransactionDetailComponent,
-        WorkflowComponent,
-        WorkflowDetailsComponent
+        TransactionDetailComponent
     ],
     exports: [
         MatTableModule,
         MatSortModule,
         MatPaginatorModule
+
     ],
-    bootstrap: [AppComponent], imports: [BrowserModule,
-        BrowserAnimationsModule,
+    bootstrap: [AppComponent],
+    imports: [
+BrowserModule,
         MatMenuModule,
         MatTableModule,
-        MatPaginatorModule,
         MatListModule,
         MatButtonModule,
         MatTabsModule,
@@ -103,14 +99,14 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
         MatFormFieldModule,
         MatInputModule,
         MatTooltipModule,
-        NgMultiSelectDropDownModule.forRoot(),
         MatExpansionModule,
         MatNativeDateModule,
         MatDatepickerModule,
-        AngularSplitModule,
-        MatCardModule,
-        MatRadioModule,
-        ], providers: [
+        MatCardModule, MatRadioModule,
+        MatPaginatorModule, AngularSplitModule,
+        NgMultiSelectDropDownModule.forRoot()
+        ],
+        providers: [
         { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },
         ModalHelperService,
@@ -118,7 +114,7 @@ import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetai
     ] })
 export class AppModule {
 
-public cors = require('cors');
+public cors = ''; // require('cors');
 
 
  }

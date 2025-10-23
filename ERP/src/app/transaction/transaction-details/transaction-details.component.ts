@@ -14,7 +14,8 @@ import { DialogRef } from '@angular/cdk/dialog';
 @Component({
   selector: 'app-transaction-details',
   templateUrl: './transaction-details.component.html',
-  styleUrls: ['./transaction-details.component.css']
+  styleUrls: ['./transaction-details.component.css'],
+    standalone: false
 })
 export class TransactionDetailComponent {
 

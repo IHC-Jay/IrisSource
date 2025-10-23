@@ -5,7 +5,7 @@ import { forkJoin, Observable, of } from 'rxjs';
 import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
-import { MatTableDataSource, MatTableDataSourcePaginator } from '@angular/material/table';
+import { MatTableDataSource } from '@angular/material/table';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
@@ -28,7 +28,8 @@ export interface filterOption{
 @Component({
   selector: 'app-tradingPartners',
   templateUrl: './tradingPartners.component.html',
-  styleUrls: ['./tradingPartners.component.css']
+  styleUrls: ['./tradingPartners.component.css'],
+    standalone: false
 })
 
 

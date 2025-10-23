@@ -14,6 +14,8 @@ import { TradingPartner } from './TradingPartner';
   {  selector: 'add-edit',
      templateUrl: './add-edit.TP.html',
      styleUrls: ['./add-edit.TP.css'],
+
+    standalone: false
 })
 
 

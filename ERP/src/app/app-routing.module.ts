@@ -11,8 +11,7 @@ import {AddEditComponent} from './tradingPartners/tpIds/tp-links/add-edit.compon
 import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
 import {TransactionDetailComponent} from './transaction/transaction-details/transaction-details.component';
-import { WorkflowComponent } from './workflow/workflow.component';
-import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
+
 import { AddEditTP } from './tradingPartners/add-edit.TP';
 
 
@@ -27,8 +26,6 @@ const appRoutes: Routes = [
   {path: 'search', component: SearchComponent, canActivate: [AuthGuard]},
   {path: 'transaction', component: TransactionComponent, canActivate: [AuthGuard]},
   {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard]},
-  {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard]},
-  {path: 'workflow/workflowDetails', component: WorkflowDetailsComponent, canActivate: [AuthGuard]}
 ];
 
 @NgModule({

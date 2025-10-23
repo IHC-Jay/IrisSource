@@ -6,7 +6,7 @@ import { map } from "rxjs/operators";
 import { User } from "../login/user";
 import {TpRestServiceComponent} from './tprest-service.component';
 import {TransRestServiceComponent} from './transrest-service.component';
-import { environment } from "src/environments/environment";
+import { environment } from "../../environments/environment";
 
 
 @Injectable({ providedIn: "root" })

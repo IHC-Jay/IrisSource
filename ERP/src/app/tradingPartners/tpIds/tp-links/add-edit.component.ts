@@ -23,6 +23,7 @@ export class TransactionTypes
   {  selector: 'add-edit',
      templateUrl: './add-edit.component.html',
      styleUrls: ['./add-edit.component.css'],
+    standalone: false
 })
 
 
@@ -127,7 +128,6 @@ public initializeData()
           this.id = this.route.snapshot.params['tpLink'];
        }
 
-        // From Workflow
         this.sub = this.route.queryParams
         .subscribe(params => {
 

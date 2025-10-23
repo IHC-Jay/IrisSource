@@ -12,6 +12,7 @@ import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { Router, ActivatedRoute } from '@angular/router';
 import {MatSelectModule} from '@angular/material/select';
+import { MatSelect, MatSelectChange } from '@angular/material/select';
 import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
 
 import {MatNativeDateModule} from '@angular/material/core';
@@ -19,11 +20,13 @@ import {MatDatepickerModule} from '@angular/material/datepicker';
 import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import {MatRadioModule} from '@angular/material/radio';
+import { FormsModule,ReactiveFormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-transaction',
   templateUrl: './transaction.component.html',
-  styleUrls: ['./transaction.component.css']
+  styleUrls: ['./transaction.component.css'],
+    standalone: false
 })
 
 

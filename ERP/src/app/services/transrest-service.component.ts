@@ -13,8 +13,6 @@ import { Inject } from "@angular/core";
 
 import {ERPRequest} from '../transaction/ERPRequest'
 
-import {WorkFlowEntry} from '../workflow/WorkFlowEntry';
-import { transition } from '@angular/animations';
 
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
 
@@ -27,7 +25,8 @@ import { AuthenticationService } from './authentication.service';
 
 @Component({
   selector: 'app-rest-service',
-  templateUrl: './rest-service.component.html'
+  templateUrl: './rest-service.component.html',
+    standalone: false
 })
 
 export class TransRestServiceComponent {
@@ -310,8 +309,6 @@ deleteDisplayColumns(dispCol: DisplayColumnsArray)
 
 createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : Number, partnerName: string, isaOrSt: string)
 {
-  let dateFormat = require('dateformat');
-  let dte = new Date();
 
 
   let dtTm = "";
@@ -367,116 +364,10 @@ createRestUrl(tranType: string, searchStr: string, searchType: string, maxCnt : 
   console.log('ERP URL: ' + url);
   return url;
 }
-m
-fetchWorkFlowItems(searchStr: string, statType: string, errType: string, maxCnt : Number) {
-  console.log('Fetch WF entries ' + searchStr +", " + statType + ", " + maxCnt + " for " + this.currentUser);
 
-  let url = this.rtTransUrl  + "WorkFlowEntries?searchStr=" + errType +"&TransType=" + searchStr + "&ErrorType=" + statType +"&userNm="+ this.currentUser+ "&count="+maxCnt;
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    )
-
-    .pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchWorkFlowEntries catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
 
 }
 
-
-fetchWorkFlowEntry(searchStr: string) {
-  console.log('Fetch WF Entry with Auth for '+ this.currentUser );
-
-  let url = this.rtTransUrl  + 'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    )
-
-    .pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In fetchWorkFlowEntry catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-
-
-updateWorkFlowItem(id: string, status: string) {
-  console.log('Update WF Entry with Auth as ' + this.currentUser);
-
-  let url = this.rtTransUrl  + 'UpdateWorkFlowEntry?id=' + id +"&status=" + status+"&userNm="+ this.currentUser;
-
-  return this.http2
-    .get<{ [key: string]: WorkFlowEntry }>(
-      url
-    )
-
-    .pipe(
-      map(responseData => {
-        console.info(responseData);
-
-        const WorkFlowEntriesArray: WorkFlowEntry[] = [];
-        for (const key in responseData) {
-          if (responseData.hasOwnProperty(key)) {
-            WorkFlowEntriesArray.push({ ...responseData[key], id: responseData[key].id });
-          }
-        }
-        console.info('return WF array: ' + WorkFlowEntriesArray.length );
-        return WorkFlowEntriesArray;
-
-
-      }),
-
-      catchError(errorRes => {
-        // Send to analytics server
-        console.error('In updateWorkFlowEntry catchError: ' + errorRes);
-        return errorRes;
-      })
-    );
-
-}
-
-}
 
 
 
