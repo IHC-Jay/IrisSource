@@ -1,0 +1,538 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst">
+<Description>
+Business process for Medicaid Inst</Description>
+<ClassType>persistent</ClassType>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
+<TimeCreated>67302,55252.066832444</TimeCreated>
+
+<Property name="ClaimsStatusSetTargetConfigName">
+<Description>
+Target operation that calls SHSP_MEDICAID_CLM_STS_SET and gets the number of batch counts. </Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Sh-Claims-Xml-Jdbc-STSSETMEDICAID"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="ClaimsShXmlTargetConfigName">
+<Description>
+Target operation that calls gets raw Oracle XML file</Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Sh-Claims-Xml-Jdbc-MEDICAID"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="ClaimsOraXmlFileTargetConfigName">
+<Description>
+Target Operation to archive the Oracle XML file</Description>
+<Type>%String</Type>
+<InitialExpression>"Out-Sh-Claims-Xml-File-MEDICAID"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="ClaimsStatusUpdateTargetConfigName">
+<Description>
+Target operation that calls TPDS.PK_MEDICAID_INST_CLMS_MGR.SHSP_MEDICAID_JOB_STS_UPD and to update the claim status </Description>
+<Type>%String</Type>
+<InitialExpression>"Op-Sh-Claims-Xml-Jdbc-STATUSUPDATEMEDICAID"</InitialExpression>
+<Parameter name="MAXLEN" value="500"/>
+</Property>
+
+<Property name="OraArchiveFilePath">
+<Description>
+Archive Oracle XML file path</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="EdiX12FilePath">
+<Description>
+X12-837i file path</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="ErrorFilePath">
+<Description>
+Archive Error file path</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Property name="ResponseFilePath">
+<Description>
+Response file path</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="200"/>
+</Property>
+
+<Parameter name="SETTINGS">
+<Default>ClaimsStatusSetTargetConfigName:Additional,ClaimsShXmlTargetConfigName:Additional,ClaimsOraXmlFileTargetConfigName:Additional,ClaimsStatusUpdateTargetConfigName:Additional,OraArchiveFilePath:Additional,EdiX12FilePath:Additional,ErrorFilePath:Additional, ResponseFilePath:Additional,-TargetConfigNames,-NextOperation,-TargetConfigMask</Default>
+</Parameter>
+
+<Method name="createAndSendResponse">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[retCode:%String,retDesc:%String,scheduleId:%String,destinationFilePath:%String,&process1:IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tmpStatus AS %Status=$$$OK
+	
+	set tRequest = ##class(Ens.StreamContainer).%New("")	 
+	 set tStream = ##class(%Stream.GlobalCharacter).%New("")
+	 set respStr = "<AppResponse><ReturnCode>"_retCode_"</ReturnCode><ReturnDesc>"_retDesc_"</ReturnDesc></AppResponse>"	 
+	 do tStream.Write(respStr)	 
+	 set tRequest.Stream = tStream	 
+	 	  	 	  
+	 set claimsOraXmlFileTargetConfigName=##class(Ens.Director).GetItemSettingValue(process1.%ConfigName,"Host","ClaimsOraXmlFileTargetConfigName",.pstatus)
+	 set reqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(tRequest.Stream)
+ 	 set reqObj.DestinationFileName = scheduleId_".xml"
+	 set reqObj.DestinationFilePath = destinationFilePath
+	 try{
+ 	 	set tmpStatus = process1.SendRequestSync(claimsOraXmlFileTargetConfigName,reqObj)
+ 	 	if ($$$ISOK(tmpStatus)){
+	 	 	$$$TRACE("Response file sent..."_reqObj.DestinationFileName )
+ 	 		set tmpStatus = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process1.%ConfigName, retDesc)
+ 	 	}
+	 }catch(ex){
+		 Set tmpStatus = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process1.%ConfigName,"Unable to write to file path :"_destinationFilePath_"Error:"_ex)   			 
+	 }
+ 	  
+   quit tmpStatus
+]]></Implementation>
+</Method>
+
+<Method name="ClaimStatusUpdate">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tStatus:%String,guid:%String,scheId:%String,batchNum:%String,fileName:%String,&process1:IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tmpStatus AS %Status=$$$OK
+	
+	try{
+		set claimsStatusUpdateTargetConfigName=##class(Ens.Director).GetItemSettingValue(process1.%ConfigName,"Host","ClaimsStatusUpdateTargetConfigName",.pstatus) 
+		set clmUpdateStatusReqObj = ##class(IHC.ITF.Request.ShspMedicareJobStsUpdate).%New()
+		set clmUpdateStatusReqObj.pFileGuid = guid
+    	set clmUpdateStatusReqObj.pBatchNumber = batchNum
+    	set clmUpdateStatusReqObj.pFileName = fileName
+     	if ('tStatus) {
+	 		 set isFileSent="15" 
+	 	}else{
+			 set isFileSent="14" 
+	 	}
+	 	set clmUpdateStatusReqObj.pJobStatus = isFileSent
+  	 	$$$TRACE(" Before SHSP_MEDICAID_JOB_STS_UPD call...")
+     	set tmpStatus=process1.SendRequestSync(claimsStatusUpdateTargetConfigName,clmUpdateStatusReqObj,.dbResponse)
+  	 	$$$TRACE(" After SHSP_MEDICAID_JOB_STS_UPD call-status : "_tmpStatus)
+	}catch(ex){
+		$$$TRACE("$$$Inside update status catch....")	
+		set errText = $System.Status.GetOneStatusText(ex)	
+		set retDesc = "Error while calling the SP -- SHSP_MEDICAID_JOB_STS_UPD, Failed to update the claim status of 837I. BatchCount: ["_batchNum_"]"_errText	
+		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse("8",retDesc,scheId, fileName,.process1)    	 	 			  
+	}
+  	 
+	quit tmpStatus
+]]></Implementation>
+</Method>
+
+<XData name="BPL">
+<Description>
+BPL Definition</Description>
+<XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
+<Data><![CDATA[
+<process language='objectscript' request='Ens.Request' height='3200' width='2555' >
+<context>
+<property name='claimsStatusSetTargetConfigName' type='%String' initialexpression='"Op-Sh-Claims-Xml-Jdbc-STATUSUPDATEMEDICAID"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='claimsShXmlTargetConfigName' type='%String' initialexpression='"Op-Sh-Claims-Xml-Jdbc-MEDICAID"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='claimsOraXmlFileTargetConfigName' type='%String' initialexpression='"Out-Sh-Claims-Xml-File-MEDICAID"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='oraArchiveFilePath' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='errorFilePath' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='responseFilePath' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='ediX12FilePath' type='%String' initialexpression='""' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='batchCount' type='%String' instantiate='0' />
+<property name='batchNum' type='%String' instantiate='0' />
+<property name='guId' type='%String' instantiate='0' />
+<property name='stream' type='%Stream.GlobalCharacter' instantiate='0' />
+<property name='claimStatusUpdateRequest' type='IHC.ITF.Request.ShspMedicareJobStsUpdate' instantiate='1' />
+<property name='claimsStatusUpdateTargetConfigName' type='%String' initialexpression='"Op-Sh-Claims-Xml-Jdbc-STATUSUPDATEMEDICAID"' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='100' />
+</parameters>
+</property>
+<property name='StreamList' type='%ListOfDataTypes' instantiate='1' />
+<property name='provInd' type='%Integer' instantiate='0' />
+<property name='x12Doc' type='EnsLib.EDI.X12.Document' instantiate='1' />
+<property name='dtTm' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hlIndex' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='l2AIndex' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='yymmdd' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='hhmin' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='curDate' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='curTime' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='schedId' type='%String' initialexpression='""' instantiate='0' />
+<property name='fileName' type='%String' initialexpression='""' instantiate='0' />
+<property name='numSuccessBatchCounts' type='%String' initialexpression='"0"' instantiate='0' />
+<property name='numErrBatchCounts' type='%String' initialexpression='"0"' instantiate='0' />
+<property name='startDate' type='%String' initialexpression='""' instantiate='0' />
+<property name='endDate' type='%String' initialexpression='""' instantiate='0' />
+<property name='returnCode' type='%String' initialexpression='""' instantiate='0' />
+<property name='returnDesc' type='%String' initialexpression='""' instantiate='0' />
+<property name='errMsg' type='%String' initialexpression='""' instantiate='0' />
+<property name='xmlDoc' type='SH.Medicaid.Inst.MedicaidInstituitionalFile' instantiate='1' />
+<property name='isXmlResponse' type='%String' initialexpression='"3"' instantiate='0' />
+<property name='controlNum' type='%String' initialexpression='""' instantiate='0' />
+</context>
+<sequence xend='200' yend='1850' >
+<scope xpos='200' ypos='250' xend='200' yend='1750' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<annotation><![CDATA[BPL for calling Extract SP]]]]><![CDATA[></annotation>
+</trace>
+<code name='Check ReplyCodeActions' xpos='200' ypos='450' >
+<annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
+<![CDATA[  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ReplyCodeActions",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = "")){
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ReplyCodeActions found")   	
+ }
+ ]]]]><![CDATA[>
+</code>
+<code name='Trace MaxError' xpos='200' ypos='550' >
+<annotation><![CDATA[Trace MaxError]]]]><![CDATA[></annotation>
+<![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
+ $$$TRACE("Max Errors: " _ maxErr)
+]]]]><![CDATA[>
+</code>
+<code name='initializeTargetsAndFilePaths' xpos='200' ypos='650' >
+<![CDATA[ 
+ set context.claimsStatusSetTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ClaimsStatusSetTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("SetClaimsStatusSetTargetConfigName " _ context.claimsStatusSetTargetConfigName) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ClaimsStatusSetTargetConfigName found.")   	
+ }
+ 
+ set context.claimsStatusUpdateTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ClaimsStatusUpdateTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("SetClaimsStatusUpdateTargetConfigName " _ context.claimsStatusUpdateTargetConfigName) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No claimsStatusUpdateTargetConfigName found.")   	
+ } 
+ 
+ set context.claimsShXmlTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ClaimsShXmlTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("ClaimsShXmlTargetConfigName: " _ context.claimsShXmlTargetConfigName) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ClaimsShXmlTargetConfigName found.")   	
+ }
+ 
+ set context.claimsOraXmlFileTargetConfigName=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ClaimsOraXmlFileTargetConfigName",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("ClaimsOraXmlFileTargetConfigName: " _ context.claimsOraXmlFileTargetConfigName) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ClaimsOraXmlFileTargetConfigName found.")   	
+ }
+ 
+ set context.oraArchiveFilePath=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","OraArchiveFilePath",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("OraArchiveFilePath: " _ context.oraArchiveFilePath) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No OraArchiveFilePath found.")   	
+ }
+ 
+ set context.ediX12FilePath=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","EdiX12FilePath",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("EdiX12FilePath: " _ context.ediX12FilePath) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No EdiX12FilePath found.")   	
+ }
+ 
+ set context.errorFilePath=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ErrorFilePath",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("ErrorFilePath: " _ context.errorFilePath) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ErrorFilePath found.")   	
+ }
+ 
+ set context.responseFilePath=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","ResponseFilePath",.pstatus)
+ if ($$$ISOK(pstatus)){
+ 	$$$TRACE("ResponseFilePath: " _ context.responseFilePath) 	
+ }else{
+	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No ResponseFilePath found.")   	
+ }
+ 
+ 
+]]]]><![CDATA[>
+</code>
+<code name='CallClaimStatusSetStoreProc' xpos='200' ypos='850' >
+<![CDATA[ 
+	 set clmStsSetReqObj = ##class(IHC.ITF.Request.ShMedicaidClmStsSetRequest).%New()  
+	 set clmStsSetReqObj.pStartDt= request.GetValueAt("FromDate")
+	 set clmStsSetReqObj.pEndDt= request.GetValueAt("ToDate")
+	 set clmStsSetReqObj.pBatchSize = request.GetValueAt("P1")
+	 set clmStsSetReqObj.pFileGuid = $System.Util.CreateGUID()
+	 set clmStsSetReqObj.pRunAdhoc= request.GetValueAt("P2")
+	 set clmStsSetReqObj.pRunType= request.GetValueAt("P3")
+	 set context.guId = clmStsSetReqObj.pFileGuid
+	 set context.schedId = request.GetValueAt("ScheduleId")
+	 set context.startDate = clmStsSetReqObj.pStartDt
+	 set context.endDate = clmStsSetReqObj.pEndDt
+	 
+	 $$$TRACE(" Begin SHSP_MEDICAID_CLM_STS_SET stored procedure call ... ")
+	set tStatus=process.SendRequestSync(context.claimsStatusSetTargetConfigName,clmStsSetReqObj,.clmStsSetResponse)
+  	$$$TRACE(" After SHSP_MEDICAID_CLM_STS_SET stored procedure call ... ")
+  	if ($$$ISOK(tStatus)){
+       $$$TRACE(" Batch Count: "_clmStsSetResponse.StringValue)  
+       set context.batchCount = clmStsSetResponse.StringValue
+       if (context.batchCount=0){
+	    set returnDesc = "Batch count is 0. Skipping the trigger file request.."
+	    set context.errMsg = context.errMsg_returnDesc
+		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicaid).createAndSendResponse("0",returnDesc,context.schedId, context.responseFilePath,.process)	
+       }
+   	}else{
+	   	set errText = $System.Status.GetOneStatusText(tStatus)	
+	   	set errTxt = "Medicaid 837i Claims Process failed to create Medicaid837i file due to following error for date range : "_clmStsSetReqObj.pStartDt_" - "_clmStsSetReqObj.pEndDt_" for Process GUID  ["_context.guId_"]. Error Details : "_errText
+	   	set context.errMsg = context.errMsg_errTxt
+		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcStsSetMedicaid).createAndSendResponse("8",context.errMsg,context.schedId, context.errorFilePath,.process)		
+		
+  	}  	
+]]]]><![CDATA[>
+</code>
+<code name='Get Date Time' xpos='200' ypos='850' >
+<![CDATA[  
+	set dt = $ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")
+	set context.yymmdd = $E(dt,3,8)
+	set context.hhmin = $E(dt,9,12)
+	set context.curDate = $E(dt,1,8)
+	set context.curTime = $E(dt,9,14)]]]]><![CDATA[>
+</code>
+<if condition='(context.batchCount&gt;0)' xpos='200' ypos='950' xend='200' yend='1500' >
+<true>
+<assign property="context.batchNum" value="0" action="set" xpos='335' ypos='1100' />
+<assign property="isXmlResponse" value="&quot;3&quot;" action="set" xpos='335' ypos='1200' />
+<while condition='context.batchNum &lt; context.batchCount' xpos='335' ypos='1300' xend='200' yend='1000' >
+<code name='CallClaimMedicaidGenXml' xpos='200' ypos='250' >
+<![CDATA[ 
+		set clmMedicaidGenXmlRequest = ##class(IHC.ITF.Request.ShMedicaidClmGenXmlRequest).%New()  
+		set clmMedicaidGenXmlRequest.pFileGuid = context.guId
+		set clmMedicaidGenXmlRequest.pBatchNumber = context.batchNum +1
+		$$$TRACE(" Begin SHSP_MEDICAID_CLM_GEN_XML stored procedure call(INST) for batch count... "_clmMedicaidGenXmlRequest.pBatchNumber)
+		set tStatus=process.SendRequestSync(context.claimsShXmlTargetConfigName,clmMedicaidGenXmlRequest,.clmXmlResponse)
+  		$$$TRACE(" After SHSP_MEDICAID_CLM_GEN_XML stored procedure call(INST) ... "_tStatus)  
+  		if (tStatus) {
+  			$$$TRACE(" XML Response file size: "_clmXmlResponse.Size)
+  			if (clmXmlResponse.Size=0){
+	  			set returnDesc = "XML returned from Oracle SP is 0 bytes. Skipping the trigger file request.."
+				set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse("4",returnDesc,context.schedId, context.errorFilePath,.process)	  				
+  			}
+  			set fileReqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(clmXmlResponse) 
+  			set fileReqObj.DestinationFilePath= context.oraArchiveFilePath
+  			set fileReqObj.DestinationFileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_clmMedicaidGenXmlRequest.pBatchNumber_".837.XML"
+  			set context.fileName = fileReqObj.DestinationFileName 
+  			set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,fileReqObj)	  
+	  		$$$TRACE(" Oracle Raw XML File sent status: "_tStatus)	  		
+	  		if (tStatus=$$$OK){
+		  		Set fileStream = ##class(%FileCharacterStream).%New()
+				Set fStatus = fileStream.FilenameSet(context.oraArchiveFilePath_"/"_context.fileName)
+				Set tReader=##class(%XML.Reader).%New()
+				Set tSC=tReader.OpenStream(fileStream)
+				if $$$ISERR(tSC){
+					set returnDesc = "Failed to get XML file from Oracle SP call. Skipping the trigger file request.."
+					set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse("4",returnDesc,context.schedId, context.errorFilePath,.process)	  				
+		  			set context.numErrBatchCounts =  context.numErrBatchCounts +1
+	 				set context.batchNum = context.batchNum + 1
+				}else{
+					Set elementName = "MedicaidInstituitionalFile"
+					set className = "SH.Medicaid.Inst.MedicaidInstituitionalFile"
+					Do tReader.Correlate(elementName,className)
+					set tCount = 0
+					set sc = $$$OK
+					While tReader.Next(.tRequest,.sc) {
+						Set tCount=tCount+1
+						set context.xmlDoc = tRequest
+						$$$TRACE(" sc status :"_sc)			
+					}
+					$$$TRACE(" sc status(1) :"_sc)	
+					If $$$ISERR(sc){
+						Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Unable to create XML objects "_sc)   			 
+					}		
+					set context.isXmlResponse= "1"
+					$$$TRACE(" isXmlResponse: "_context.isXmlResponse)
+				}
+	  		}else{
+		  		set returnDesc = "Failed to get XML file from Oracle SP call. Skipping the trigger file request.."
+		  		set context.errMsg = context.errMsg_returnDesc
+		  		set status = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse("4",returnDesc,context.schedId, context.errorFilePath,.process)	  				
+		  		set context.numErrBatchCounts =  context.numErrBatchCounts +1
+	 			set context.batchNum = context.batchNum + 1
+
+	  		}	
+  		}else{
+	  		set fileName = "HT000004-002_"_$zstrip($ZDATETIME($ZTIMESTAMP,3,1,2), "*P")_"_HT000015-300_"_clmMedicaidGenXmlRequest.pBatchNumber_".837.xml.log"	  		
+	  		set errText = $SYSTEM.Status.GetOneErrorText(tStatus)  	 		
+  	 		s pStream = ##class(%Stream.GlobalCharacter).%New()
+			do pStream.Write(errText)
+			set tRequest = ##class(Ens.StreamContainer).%New(pStream)	 
+			set fileReqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(tRequest.Stream) 
+  			set fileReqObj.DestinationFilePath= context.errorFilePath
+  			set fileReqObj.DestinationFileName = fileName
+  			set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,fileReqObj)  			
+  			set context.numErrBatchCounts =  context.numErrBatchCounts +1
+	 		set context.isXmlResponse = "3"
+	 		$$$TRACE( " isXmlResponse : "_context.isXmlResponse)
+	 		set context.batchNum = context.batchNum + 1	 
+
+	  	}
+			
+	]]]]><![CDATA[>
+</code>
+<if condition='(context.isXmlResponse="1")' xpos='200' ypos='350' xend='200' yend='900' >
+<true>
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.ShClaimsXmlToShJdbcMedicaidInst' source='context.xmlDoc' target='response' xpos='200' ypos='500' >
+<annotation><![CDATA[Translates Medicaid Inst Claims To X12]]]]><![CDATA[></annotation>
+</transform>
+<code name='Check X12 response' xpos='200' ypos='600' >
+<![CDATA[ 
+	 set tRequest = ##class(Ens.StreamContainer).%New("")	 
+	 Set tStream=##Class(%Library.GlobalCharacterStream).%New()
+	 Set pStatus = response.OutputToLibraryStream(tStream)
+     set tRequest.Stream = tStream	 
+     set reqObj =##class(IHC.ITF.ITFCOMMON.Request.FileIO).%New(tRequest.Stream) 	 
+     set reqObj.DestinationFilePath= context.ediX12FilePath
+     set creationTime = $zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
+     set reqObj.DestinationFileName = "HT000004-002_"_$E(creationTime,3,$L(creationTime)-4)_"_HT000015-200_"_context.controlNum_".837.x223.x12" 
+     set tStatus = process.SendRequestSync(context.claimsOraXmlFileTargetConfigName,reqObj)	  
+	 $$$TRACE(" EDI X12 837I File sent status: "_tStatus)
+	 set updStatus = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).ClaimStatusUpdate(tStatus,context.guId,context.schedId,context.batchNum+1,reqObj.DestinationFileName,.process)		
+	 if (updStatus='$$$OK){
+		 set context.errMsg = "Claim status update failed.."_$SYSTEM.Status.GetOneErrorText(updStatus)
+		 set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse("8",context.errMsg,context.schedId, context.errorFilePath,.process)		
+		 set context.numErrBatchCounts =  context.numErrBatchCounts +1
+	 }else{
+		 set context.numSuccessBatchCounts =  context.numSuccessBatchCounts +1
+		 $$$TRACE(" Batch count ["_(context.batchNum+1)_"] successful.")   
+	 }
+	 set context.batchNum = context.batchNum + 1
+    ]]]]><![CDATA[>
+</code>
+</true>
+</if>
+</while>
+
+<code name='PrepareResponse' xpos='200' ypos='1050' >
+<![CDATA[    
+	$$$TRACE( " Preapring the Response ...." )
+    set processBatchCounts = context.numSuccessBatchCounts+context.numErrBatchCounts
+    if (processBatchCounts = context.numSuccessBatchCounts){
+	    set context.returnCode = "0"
+		set context.returnDesc = "MedicaidInst Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ processBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts
+		set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.responseFilePath,.process)	
+	}else{
+		set context.returnCode = "2"
+		set context.returnDesc = "MedicaidInst Claims Process is complete for date range : "_context.startDate_" - "_context.endDate_". Total Number of batches - "_ processBatchCounts_". Number of Successful batches - "_context.numSuccessBatchCounts_" . Number of Failed batches - "_context.numErrBatchCounts_" Error:"_context.errMsg
+		set status1 = ##class(IHC.ITF.Process.Bpl.ShClaimsXmlToShJdbcMedicaidInst).createAndSendResponse(context.returnCode,context.returnDesc,context.schedId, context.errorFilePath,.process)	
+	}
+	$$$TRACE( context.returnDesc )
+	
+		
+]]]]><![CDATA[>
+</code>
+
+</true>
+</if>
+<faulthandlers>
+<catchall xpos='200' ypos='1600' xend='200' yend='350' >
+<code name='Call ProcessError' xpos='200' ypos='250' >
+<annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
+<![CDATA[ 
+	Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
+]]]]><![CDATA[>
+</code>
+</catchall>
+</faulthandlers>
+</scope>
+</sequence>
+</process>
+]]></Data>
+</XData>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ShClaimsXmlToShJdbcMedicaidInstDefaultData</DefaultData>
+<Data name="ShClaimsXmlToShJdbcMedicaidInstDefaultData">
+<Subscript>"ShClaimsXmlToShJdbcMedicaidInst"</Subscript>
+<Value name="1">
+<Value>ClaimsStatusSetTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>ClaimsShXmlTargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>ClaimsOraXmlFileTargetConfigName</Value>
+</Value>
+<Value name="4">
+<Value>ClaimsStatusUpdateTargetConfigName</Value>
+</Value>
+<Value name="5">
+<Value>OraArchiveFilePath</Value>
+</Value>
+<Value name="6">
+<Value>EdiX12FilePath</Value>
+</Value>
+<Value name="7">
+<Value>ErrorFilePath</Value>
+</Value>
+<Value name="8">
+<Value>ResponseFilePath</Value>
+</Value>
+</Data>
+</Storage>
+</Class>
+</Export>
