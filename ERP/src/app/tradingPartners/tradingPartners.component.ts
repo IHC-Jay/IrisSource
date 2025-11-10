@@ -6,7 +6,7 @@ import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
 import { MatTableDataSource } from '@angular/material/table';
-import { MatPaginator } from '@angular/material/paginator';
+import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
