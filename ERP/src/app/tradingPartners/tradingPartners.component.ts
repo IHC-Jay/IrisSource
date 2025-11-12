@@ -12,6 +12,7 @@ import { MatSort, MatSortHeader } from '@angular/material/sort';
 import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
+import { PageEvent } from '@angular/material/paginator';
 
 export interface TpFilter {
   name:string;
@@ -36,8 +37,9 @@ export interface filterOption{
 
 export class TradingPartnersComponent implements OnInit, AfterViewInit {
 
-  public size = 5;
-  public pageNumber = 0;
+  public pageSize = 25;
+  public pageIndex = 0;
+
   searchText:string;
   ifSelect:boolean = false;
   ifAdd:boolean = false;
@@ -219,5 +221,12 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       this.router.navigate(["/TradingPartners/tp-add/"]);
     }
 
+
+    handlePageEvent(e: PageEvent) {
+    this.pageSize = e.pageSize;
+    this.pageIndex = e.pageIndex;
+    // Logic to fetch/update data based on new pageSize and pageIndex
+    console.log('Page event:', e);
+  }
 
   }

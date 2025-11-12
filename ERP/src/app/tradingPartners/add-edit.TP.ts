@@ -3,10 +3,10 @@ import { Router, ActivatedRoute, RouteConfigLoadEnd } from '@angular/router';
 import { AbstractControlOptions, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { first } from 'rxjs/operators';
 import { FormsModule, ReactiveFormsModule, FormGroupDirective } from '@angular/forms';
-import { TpRestServiceComponent } from '../services/tprest-service.component';
 import { EventListenerFocusTrapInertStrategy } from '@angular/cdk/a11y';
-import { TradingPartnersComponent } from './tradingPartners.component';
 
+import { TpRestServiceComponent } from '../services/tprest-service.component';
+import { TradingPartnersComponent } from './tradingPartners.component';
 import { TradingPartner } from './TradingPartner';
 
 
@@ -55,7 +55,7 @@ public initializeData()
 }
 
     async ngOnInit() {
-      console.info("AddEditComponent ngOnInit");
+      console.info("AddEditTP ngOnInit");
 
       const routeParams = this.route.snapshot.paramMap;
       this.id = routeParams.get('tpNm');
@@ -94,6 +94,7 @@ public initializeData()
 
               for (let key in x) {
 
+                console.info(key +": " + x[key].toString());
 
                 if(key === 'Name')
                 {
@@ -139,7 +140,7 @@ public initializeData()
                   }
 
                 else{
-                  console.log(key +"-- Not mapped")
+                  console.log(key +"-- Not mapped - " + this.form.controls['Name'].value)
                 }
               }
              }
@@ -161,9 +162,9 @@ public initializeData()
     {
 
       for (let el in this.form.controls) {
-        if (this.form.controls[el].value) {
+
           console.log(el +': ' + this.form.controls[el].value)
-        }
+
       }
       this.router.navigate(["/TradingPartners/"]);
     }

@@ -370,7 +370,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         this.TransactionService.fetchERPtransactions(staticSearchStr, this.searchTypeString,  this.form.controls.isaOrSt.value, rowCnt, this.tradingPartnerString).subscribe((res: any) => {
 
         this.dataSource.data = res;
-        this.canRenderDetails = true;
+
         this.dataSource.sort = this.sort;
 
         console.info("Data rows with sorted array: " + this.dataSource.data.length);
@@ -378,6 +378,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
         this.setControls();
         this.loading = false;
+        this.canRenderDetails = true;
 
 
         });

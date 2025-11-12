@@ -4,7 +4,7 @@ import { NgModule, Component, inject } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { Routes, RouterModule } from '@angular/router';
 import { formatDate} from '@angular/common'
-
+ import { CommonModule } from '@angular/common';
 import { AppComponent } from './app.component';
 
 import { MatPaginatorModule } from '@angular/material/paginator';
@@ -40,7 +40,7 @@ import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 
 import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
-import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import { FormsModule, FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { AddEditComponent } from './tradingPartners/tpIds/tp-links/add-edit.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { SearchComponent } from './search/search.component';
@@ -69,6 +69,8 @@ AppComponent,
         TpIdComponent,
         tpLinksComponent,
         AddEditComponent,
+        ModalErpComponent,
+        AddEditTP,
         SearchComponent,
         TransactionComponent,
         TransactionDetailComponent
@@ -81,7 +83,8 @@ AppComponent,
     ],
     bootstrap: [AppComponent],
     imports: [
-BrowserModule,
+      CommonModule,
+      BrowserModule,
         MatMenuModule,
         MatTableModule,
         MatListModule,

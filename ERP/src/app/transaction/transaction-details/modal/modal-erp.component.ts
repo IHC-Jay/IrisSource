@@ -3,6 +3,7 @@ import { SelectionModel } from '@angular/cdk/collections';
 import {ModalHelperService} from './modal-helper.service';
 
 import {MAT_DIALOG_DATA, MatDialogRef}  from '@angular/material/dialog';
+import { MatInputModule } from '@angular/material/input';
 
 
 @Component({
@@ -22,6 +23,7 @@ export class ModalErpComponent {
   save = () => this.modalHelperService.save(this.erpData, this.fileName);
   filter = () => this.modalHelperService.filter();
   sort = () => this.modalHelperService.sort();
+
   masterToggle = (selection, dataSource) => this.modalHelperService.masterToggle(selection, dataSource);
   isAllSelected = (selection, dataSource) => this.modalHelperService.isAllSelected(selection, dataSource);
 
@@ -34,6 +36,9 @@ export class ModalErpComponent {
     this.erpData = data[0];
     this.fileName = data[1];
 
+  }
+onCloseClick(): void {
+    this.dialogRef.close(); // Closes the dialog without returning data
   }
 
 }
