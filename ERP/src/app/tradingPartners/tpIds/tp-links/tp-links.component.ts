@@ -11,11 +11,14 @@ import { Injectable } from '@angular/core';
 import * as _ from 'lodash';
 import { MatPaginator } from '@angular/material/paginator';
 import { MatSort, MatSortHeader } from '@angular/material/sort';
+import {MatPaginatorModule} from '@angular/material/paginator';
+
 import { RouterLinkWithHref } from '@angular/router';
 import { TpId } from '../TpId';
 import { TradingPartner } from '../../TradingPartner';
 import { MatDialog } from '@angular/material/dialog';
 import { ConfirmDialogComponent } from '../../../confirm-dialog/confirm-dialog.component';
+import { PageEvent } from '@angular/material/paginator';
 
 @Injectable({
   providedIn: 'root'
@@ -38,8 +41,8 @@ import { ConfirmDialogComponent } from '../../../confirm-dialog/confirm-dialog.c
 
 export class tpLinksComponent implements OnInit, OnDestroy {
 
-  public size = 5;
-  public pageNumber = 0;
+  public pageSize = 5;
+  public pageIndex = 0;
 
 
   tpIdToLink:String;
@@ -206,6 +209,12 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   }
 
+    handlePageEvent(e: PageEvent) {
+    this.pageSize = e.pageSize;
+    this.pageIndex = e.pageIndex;
+    // Logic to fetch/update data based on new pageSize and pageIndex
+    console.log('Page event:', e);
+  }
 
 }
 

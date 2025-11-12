@@ -7,6 +7,7 @@ import { MatPaginator, MatPaginatorModule } from '@angular/material/paginator';
 import { MatDialog } from '@angular/material/dialog';
 import { TpId, TpIdColumns } from './TpId';
 import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.component';
+import { PageEvent } from '@angular/material/paginator';
 
 @Component({
   selector: 'app-tpIds',
@@ -19,8 +20,10 @@ export class TpIdComponent implements OnInit {
   tpName: string;
   aliasName: string;
 
-  public size = 5;
-  public pageNumber = 0;
+
+
+  public pageSize = 5;
+  public pageIndex = 0;
 
   displayedColumns: string[] = TpIdColumns.map((col) => col.key);
   columnsSchema: any = TpIdColumns;
@@ -175,5 +178,12 @@ export class TpIdComponent implements OnInit {
     this.dataSource.paginator.firstPage();
   }
 }
+
+ handlePageEvent(e: PageEvent) {
+    this.pageSize = e.pageSize;
+    this.pageIndex = e.pageIndex;
+    // Logic to fetch/update data based on new pageSize and pageIndex
+    console.log('Page event:', e);
+  }
 
 }

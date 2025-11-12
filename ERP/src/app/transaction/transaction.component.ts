@@ -14,6 +14,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import {MatSelectModule} from '@angular/material/select';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import {DisplayColumns, DisplayColumnsArray} from './DisplayColumns'
+import { PageEvent } from '@angular/material/paginator';
 
 import {MatNativeDateModule} from '@angular/material/core';
 import {MatDatepickerModule} from '@angular/material/datepicker';
@@ -57,8 +58,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   loading:boolean = false;
   searchTransaction:boolean = false;
   submitted = false;
-  public size = 5;
-  public pageNumber = 0;
+  public pageSize = 5;
+  public pageIndex = 0;
   form!: FormGroup;
   dataTableLabel: string[] = [];
   dataTableKey: string[] = [];
@@ -735,6 +736,13 @@ onContextMenuSame(item: Item) {
        );
 
 }
+
+ handlePageEvent(e: PageEvent) {
+    this.pageSize = e.pageSize;
+    this.pageIndex = e.pageIndex;
+    // Logic to fetch/update data based on new pageSize and pageIndex
+    console.log('Page event:', e);
+  }
 
 }
 
