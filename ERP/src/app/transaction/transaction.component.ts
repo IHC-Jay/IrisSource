@@ -58,7 +58,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   loading:boolean = false;
   searchTransaction:boolean = false;
   submitted = false;
-  public pageSize = 5;
+  public pageSize = 25;
   public pageIndex = 0;
   form!: FormGroup;
   dataTableLabel: string[] = [];

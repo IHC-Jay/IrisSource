@@ -22,7 +22,7 @@ export class TpIdComponent implements OnInit {
 
 
 
-  public pageSize = 5;
+  public pageSize = 25;
   public pageIndex = 0;
 
   displayedColumns: string[] = TpIdColumns.map((col) => col.key);

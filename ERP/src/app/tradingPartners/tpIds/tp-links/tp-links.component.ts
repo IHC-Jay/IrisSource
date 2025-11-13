@@ -41,7 +41,7 @@ import { PageEvent } from '@angular/material/paginator';
 
 export class tpLinksComponent implements OnInit, OnDestroy {
 
-  public pageSize = 5;
+  public pageSize = 25;
   public pageIndex = 0;
 
 
