@@ -43,7 +43,7 @@ export class AddEditComponent implements OnInit {
     submitted = false;
 
     ackTypes:string[] = ["No","Yes"];
-    direcTypes:string[] =["In", "Out"];
+    direcTypes:string[];
 
 
     isaReceivingTpIds = [];
@@ -191,6 +191,7 @@ public initializeData()
                 }
                 else if(key === 'Separators')
                 {
+
                     let sepVal = x[key].toString()
                     if (sepVal === "")
                     {
@@ -198,6 +199,7 @@ public initializeData()
                     }
 
                     this.form.controls['Separators'].setValue(sepVal);
+                    console.log("Separators: " + key +": " + sepVal);
                 }
                 else if(key === 'Folder')
                   {
@@ -383,10 +385,11 @@ public initializeData()
           // this.form.controls.Direction.disable();
 
         }
+        this.form.controls.Ack.setValue('No')
+        this.form.controls.Separators.setValue('^|\\~')
     }
 
-      this.form.controls.Ack.setValue('No')
-      this.form.controls.Separators.setValue('^|\\~')
+      //
 
       this.setDirection();
 
