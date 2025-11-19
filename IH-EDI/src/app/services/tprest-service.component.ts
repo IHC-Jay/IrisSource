@@ -8,7 +8,7 @@ import { Subject, throwError } from 'rxjs';
 import { TradingPartner } from '../tradingPartners/TradingPartner';
 import { TpId } from '../tradingPartners/tpIds/TpId';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
-import { bulkTpLinks } from '../tradingPartners/tpIds/tp-links/bulk-tp-links';
+import { bulkTpLinks } from '../tradingPartners/tpIds/tp-links/addEdit-links/bulk-tp-links';
 
 import { environment } from '../../environments/environment';
 

@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Output } from '@angular/core';
-import { KVP } from '../add-edit.component';
+import { KVP } from '../addEdit-links/add-edit.TpLink';
 
 @Component({
     selector: 'app-create-note',

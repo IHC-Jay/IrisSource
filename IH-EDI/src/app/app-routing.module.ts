@@ -10,8 +10,8 @@ import { BrowserModule } from '@angular/platform-browser';
 import { ReactiveFormsModule } from '@angular/forms';
 
 import {AddEditTP} from './tradingPartners/add-edit.TP';
-import {AddEditComponent} from './tradingPartners/tpIds/tp-links/add-edit.component';
-import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
+import {AddEditTpLink} from './tradingPartners/tpIds/tp-links/addEdit-links/add-edit.TpLink';
+import {BulkAddLinksComponent} from './tradingPartners/tpIds/tp-links/addEdit-links/bulk-add.components';
 import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
 import {TransactionDetailComponent} from './transaction/transaction-details/transaction-details.component';
@@ -32,9 +32,9 @@ const appRoutes: Routes = [
   {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard] , title: 'TPID'},
   {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard] , title: 'TP Links'},
   {path: 'TradingPartners/tpIds/tp-links/:tpId/:tpName', component: tpLinksComponent, canActivate: [AuthGuard] , title: 'TP Links'},
-  {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard] , title: 'TP Add'},
-  {path: 'TradingPartners/tpIds/tp-links/tp-bulkAdd/:tp', component: BulkAddComponents, canActivate: [AuthGuard] , title: 'TP Add'},
-  {path: 'TradingPartners/tpIds/tp-links/tp-edit/:tpId/:tpLink', component: AddEditComponent, canActivate: [AuthGuard], title: 'TP Link'},
+  {path: 'TradingPartners/tpIds/tp-links/add-edit/tp-add/:tpId/:tpName', component: AddEditTpLink, canActivate: [AuthGuard] , title: 'TP Link Add'},
+  {path: 'TradingPartners/tpIds/tp-links/add-edit/tp-bulkAdd/:tpId/:tpName', component: BulkAddLinksComponent, canActivate: [AuthGuard] , title: 'TP Link Add'},
+  {path: 'TradingPartners/tpIds/tp-links/add-edit/tp-edit/:tpId/:tpName/:tpLink', component: AddEditTpLink, canActivate: [AuthGuard], title: 'TP Link'},
   {path: 'search', component: SearchComponent, canActivate: [AuthGuard], title: 'TP Search'},
   {path: 'transaction', component: TransactionComponent, canActivate: [AuthGuard], title: 'Transactions'},
   {path: 'transaction/transaction-settings', component: TransactionSettingsComponent, canActivate: [AuthGuard], title: 'Settings'},

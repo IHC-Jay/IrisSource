@@ -162,11 +162,17 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   addRow()
   {
     console.info("Call add for: " + this.tpId);
-    this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-add/" + this.tpId] );
+    this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-add/" + this.tpId +"/" + this.tpName] );
   }
+
   bulkRow()
   {
-    this.router.navigate(["/TradingPartners/tpIds/tp-links/tp-bulkAdd/" + this.tpId] );
+    this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-bulkAdd/" + this.tpId +"/" + this.tpName] );
+  }
+
+  editRow(tpLink: string)
+  {
+    this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-edit/" +  this.tpId +"/" + this.tpName +"/" + tpLink] );
   }
 
   delete(tpLink: string) {

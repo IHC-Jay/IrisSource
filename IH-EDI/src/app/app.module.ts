@@ -45,13 +45,13 @@ import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import  {AddEditTP} from './tradingPartners/add-edit.TP';
-import { AddEditComponent } from './tradingPartners/tpIds/tp-links/add-edit.component';
+import { AddEditTpLink } from './tradingPartners/tpIds/tp-links/addEdit-links/add-edit.TpLink';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
 import {AuthInterceptor} from './login/auth-interceptor';
 import {ErrorInterceptor} from './login/error.interceptor';
-import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
+import {BulkAddLinksComponent} from './tradingPartners/tpIds/tp-links/addEdit-links/bulk-add.components';
 import {SingleNoteComponent} from './tradingPartners/tpIds/tp-links/single-note/single-note.component';
 import {CreateNoteComponent} from './tradingPartners/tpIds/tp-links/create-note/create-note.component';
 import { TransactionDetailComponent } from './transaction/transaction-details/transaction-details.component';
@@ -95,10 +95,10 @@ import {
         TpIdComponent,
         AddEditTP,
         tpLinksComponent,
-        AddEditComponent,
+        AddEditTpLink,
         SearchComponent,
         TransactionComponent,
-        BulkAddComponents,
+        BulkAddLinksComponent,
         SingleNoteComponent,
         CreateNoteComponent,
         Modalx12Component,

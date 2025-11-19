@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, Output } from '@angular/core';
-import { KVP } from '../add-edit.component';
+import { KVP } from '../addEdit-links/add-edit.TpLink';
 import { tpLinks } from '../tp-links';
 
 @Component({
