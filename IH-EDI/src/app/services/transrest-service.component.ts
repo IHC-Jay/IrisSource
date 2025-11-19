@@ -342,7 +342,7 @@ fetchClaimStatusResp(mode: string, searchArr: string[]) {
 
 
 fetchClaimPayment(mode: string, searchArr: string[]) {
-  console.debug('fetchClaimPayment ')
+
 
   let url = this.batchTransUrl + 'ClaimPayment?searchStr=' + searchArr;
 
@@ -350,6 +350,7 @@ fetchClaimPayment(mode: string, searchArr: string[]) {
   {
      url = this.rtTransUrl + 'ClaimPayment?searchStr=' + searchArr;
   }
+  console.info('fetchClaimPayment ' + url)
 
   return this.http2
     .get<{ [key: string]: TransactionData }>(

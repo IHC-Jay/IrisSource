@@ -8,6 +8,8 @@ import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { BrowserModule } from '@angular/platform-browser';
 import { ReactiveFormsModule } from '@angular/forms';
+
+import {AddEditTP} from './tradingPartners/add-edit.TP';
 import {AddEditComponent} from './tradingPartners/tpIds/tp-links/add-edit.component';
 import {BulkAddComponents} from './tradingPartners/tpIds/tp-links/bulk-add.components';
 import { SearchComponent } from './search/search.component';
@@ -24,9 +26,12 @@ import {DashBoardComponent} from './dashboard/dashboard.component';
 const appRoutes: Routes = [
   {path: '/', component: HeaderComponent},
   {path: 'TradingPartners', component: TradingPartnersComponent, canActivate: [AuthGuard] , title: 'Trading Partners'},
+  {path: 'TradingPartners/tp-add/:tpNm', component: AddEditTP, canActivate: [AuthGuard]},
+  {path: 'TradingPartners/tp-add', component: AddEditTP, canActivate: [AuthGuard]},
   {path: 'TradingPartners/copyTP', component: copyTPComponent, canActivate: [AuthGuard] , title: 'Copy TP'},
   {path: 'TradingPartners/tpIds/:tpId', component: TpIdComponent, canActivate: [AuthGuard] , title: 'TPID'},
   {path: 'TradingPartners/tpIds/tp-links/:tpId', component: tpLinksComponent, canActivate: [AuthGuard] , title: 'TP Links'},
+  {path: 'TradingPartners/tpIds/tp-links/:tpId/:tpName', component: tpLinksComponent, canActivate: [AuthGuard] , title: 'TP Links'},
   {path: 'TradingPartners/tpIds/tp-links/tp-add/:tp', component: AddEditComponent, canActivate: [AuthGuard] , title: 'TP Add'},
   {path: 'TradingPartners/tpIds/tp-links/tp-bulkAdd/:tp', component: BulkAddComponents, canActivate: [AuthGuard] , title: 'TP Add'},
   {path: 'TradingPartners/tpIds/tp-links/tp-edit/:tpId/:tpLink', component: AddEditComponent, canActivate: [AuthGuard], title: 'TP Link'},

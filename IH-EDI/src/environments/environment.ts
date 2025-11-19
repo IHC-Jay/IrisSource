@@ -25,7 +25,8 @@ export const environment = {
   rtUatWFUrl:'',
 
   tpType:'',
-  logo:''
+  logo:'',
+  allowedEnvironments: []
 
 };
 

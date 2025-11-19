@@ -24,7 +24,8 @@ export const environment = {
   rtUatWFUrl:'',
 
   tpType: 'Payer',
-  logo:'ih-rco.jpg'
+  logo:'ih-rco.jpg',
+  allowedEnvironments: ['DEV', 'QA', 'UAT', 'PROD']
 
 };
 

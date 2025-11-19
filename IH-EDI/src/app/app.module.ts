@@ -44,6 +44,7 @@ import {MatTreeModule} from '@angular/material/tree';
 import { MatDialogModule } from '@angular/material/dialog';
 import { TpIdComponent } from './tradingPartners/tpIds/tpIds.component';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
+import  {AddEditTP} from './tradingPartners/add-edit.TP';
 import { AddEditComponent } from './tradingPartners/tpIds/tp-links/add-edit.component';
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { SearchComponent } from './search/search.component';
@@ -92,6 +93,7 @@ import {
         ConfirmDialogComponent,
         ListConfirmDialogComponent,
         TpIdComponent,
+        AddEditTP,
         tpLinksComponent,
         AddEditComponent,
         SearchComponent,

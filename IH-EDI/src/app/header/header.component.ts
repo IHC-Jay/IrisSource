@@ -59,6 +59,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   selectedMenu:string = 'tradingPartner'
 
+  allowedEnvironments: string[] = `${environment.allowedEnvironments}`.split(',');
 
   selectedLnkIndex = new FormControl(3);
   prevLnkIndex = 0;
@@ -94,9 +95,11 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
           password: ['', Validators.required],
-          env: ['DEV', Validators.required],
+          env: [this.allowedEnvironments[0], Validators.required],
           logoutTime: ['60', Validators.required]
       });
+
+
 
 
       // get return url from route parameters or default to '/'

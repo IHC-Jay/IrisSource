@@ -73,27 +73,40 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     {
 
       sessionStorage.removeItem("currentTab")
-      sessionStorage.setItem("currentTab", "Trading Partners")
+      sessionStorage.setItem("currentTab", "Trading Partners");
+      let continueOn = true;
+      if (sessionStorage.getItem("NewTpId") != null && sessionStorage.getItem("Operation") != null)
+      {
+         console.info("TradingPartnersComponent ngOnInit" + sessionStorage.getItem("NewTpId") + ", " + sessionStorage.getItem("Operation") );
+         if (sessionStorage.getItem("Operation") == "tp-add")
+         {
+            this.router.navigate(["/TradingPartners/tp-add/"]);
+            continueOn = false ;
+         }
+      }
+      if(continueOn)
+      {
 
-      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
-        this.dataSource.data = res;
+        this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+          this.dataSource.data = res;
 
-        this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
+          this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
 
-        this.dataSourceFilters.filterPredicate = function (record,filter) {
-          debugger;
-          var map = new Map(JSON.parse(filter));
-          let isMatch = false;
-          for(let [key,value] of map){
-            isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
-            if(!isMatch) return false;
+          this.dataSourceFilters.filterPredicate = function (record,filter) {
+            debugger;
+            var map = new Map(JSON.parse(filter));
+            let isMatch = false;
+            for(let [key,value] of map){
+              isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
+              if(!isMatch) return false;
+            }
+            return isMatch;
           }
-          return isMatch;
-        }
 
 
 
-      });
+        });
+      }
 
 
     }
@@ -113,21 +126,26 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     }
 
     addRow() {
-      const newRow: TradingPartner = {
-        id: '-1',
-        Name: '',
-        TPID:'',
-        TPtype: this.tpType,
-        ContactName: '',
-        ContactPhone: '',
-        ContactEmail: '',
-        isEdit: true,
-        isSelected: false,
-        User:''
-      };
-      this.dataSource.data = [newRow, ...this.dataSource.data];
-      this.ifSelect = true;
-      this.ifAdd = true;
+      console.info("Call add for: " );
+      this.router.navigate(["/TradingPartners/tp-add/"]);
+    }
+
+    editTp(row: TradingPartner) {
+      console.info('edit  TP: ' + row.id +", " + row.Name);
+      this.router.navigate(["/TradingPartners/tp-add/" + row.Name],
+
+      {
+        queryParams: {
+          'id': row.id,
+          'tradingPartner': row.Name,
+          'tpId'  : row.TPID,
+          'tpType': row.TPtype,
+          'contactName': row.ContactName, 'contactEmail': row.ContactEmail, 'contactPhone': row.ContactPhone
+        }
+    }
+
+       );
+
     }
 
     editRow(row: TradingPartner) {
@@ -160,6 +178,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       }
       this.ifAdd = false;
     }
+
     cancelRow(row: TradingPartner)
     {
       row.isEdit = false;

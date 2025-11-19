@@ -45,6 +45,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
   bulkInsert = false;
   tpIdToLink:String;
   tpId:String;
+  tpName:string;
 
   isTableExpanded = false;
 
@@ -76,7 +77,8 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     console.info("ngOnInit tpLinksService.fetchTpLinks");
     const routeParams = this.route.snapshot.paramMap;
     this.tpId = routeParams.get('tpId');
-    console.info("tpLink init:" + this.tpId);
+    this.tpName = routeParams.get('tpName');
+    console.info("tpLink init:" + this.tpName + ", " + this.tpId);
     this.errorSub = this.tpLinksService.error.subscribe(errorMessage => {
       this.error = errorMessage;
     });
@@ -102,6 +104,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     this.tpLinksService.fetchTpLinks(this.tpId).subscribe(
       tpLinksData => {
         this.isFetching = false;
+
         this.loadedPosts = tpLinksData;
         this.tpIdLinksList.data = this.loadedPosts;
         console.info("tpIdLinksList: " + this.tpIdLinksList.data.length)
@@ -131,6 +134,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
     this.tpIdLinksList.data.forEach((row: any) => {
       row.isExpanded = this.isTableExpanded;
+      // console.info("toggleTableRows: " + row.isExpanded);
     })
   }
 

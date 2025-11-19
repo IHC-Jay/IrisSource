@@ -53,6 +53,8 @@ export class WorkflowDetailsComponent implements OnInit {
   separator:string;
   dataError:boolean;
 
+  tpId:string;
+
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
   errorDataSource = new MatTableDataSource<any>();
@@ -86,6 +88,9 @@ export class WorkflowDetailsComponent implements OnInit {
   isSelected: boolean = true;
 
   sub:any;
+
+  tpCreate:boolean = false;
+
   ID:string;
   selectedRow: number = -1;
   errSelectedRow:  number = -1;
@@ -176,7 +181,14 @@ getX12()
         let x12DataLns = res[0].X12.split("~")
         this.separator = res[0].X12.substr(3, 1)
         console.log("Sep: " + this.separator)
-        this.errorStr = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + (String)(res[0].Error).replaceAll(";", "\n") + "\n" ;
+        let wfErr = (String)(res[0].Error).replaceAll(";", "\n");
+        let tpInd = wfErr.indexOf("TP Not found:")
+        if (tpInd >=0)
+        {
+          this.tpCreate = true;
+          this.tpId = wfErr.substring(tpInd + "TP Not found:".length).trim();
+        }
+        this.errorStr = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
         this.wfCurrentStat = res[0].Status;
         this.x12Array.splice(0, this.x12Array.length)
         let segNum = 0
@@ -337,7 +349,21 @@ getX12()
   this.getX12();
  }
 
- toWorkFlow()
+
+ toTpCreate()
+  {
+
+      console.log('To TP create: ' );
+
+      sessionStorage.setItem("NewTpId", this.tpId);
+      sessionStorage.setItem("Operation", "tp-add");
+      sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Trading Partners");
+
+      this.router.navigate(["/TradingPartners"]);
+  }
+
+  toWorkFlow()
   {
 
       console.log('To WorkFlow: ' );
@@ -349,7 +375,6 @@ getX12()
 
        );
   }
-
   SelectNextError(lnNum:string)
   {
    for(var ind=this.selectedRow+1; ind < this.x12Array.length; ind++){

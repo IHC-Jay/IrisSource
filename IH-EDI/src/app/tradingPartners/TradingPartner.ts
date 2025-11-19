@@ -1,4 +1,4 @@
-export interface TradingPartner {
+export class TradingPartner {
   isSelected: boolean;
   id: string;
   Name: string;

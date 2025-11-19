@@ -1,4 +1,4 @@
-export interface TpId {
+export class TpId {
   isSelected: boolean;
   id: string;
   Name: string;
@@ -13,7 +13,7 @@ export const TpIdColumns = [
   {
     key: 'Name',
     type: 'string',
-    label: 'Description',
+    label: 'TP Name',
     required: true,
     help: 'TP Name'
   },

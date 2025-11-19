@@ -57,14 +57,14 @@ export class TpIdComponent implements OnInit {
     editRow(row: TpId) {
 
       if (row.id === '-1') {
-        console.info('Add a TP ' + row.id);
+        console.info('Add a TPID ' + row.id);
         if (row.TPID !== '')
         {
           let res = this.tpIdService.addTPID(row).subscribe((res) => {
             row.isEdit = false;
             row.id = res.id;
             row.isEdit = false;
-            console.info('Added TP: ' + row.TPID +", ID: " + row.id);
+            console.info('Added TP: ' + row.TPID +", ID: " + res.id);
           });
 
         }
