@@ -52,7 +52,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   isLogin:boolean=false;
   collapsed = true;
 
-  logo = '../../assets/' + `${environment.logo}`;
+  logo =`${environment.logo}`;
 
   @ViewChild("username") focusField: ElementRef;
   @ViewChild("tabGrp", { static: false }) tabGrp: MatTabGroup;
