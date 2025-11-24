@@ -24,7 +24,7 @@ export const environment = {
   batchUatWFUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/BatchWorkFlow/',
   rtUatWFUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/RtWorkFlow/',
   tpType: 'Provider',
-  logo: 'sh_logo.jpg',
+  logo: '../assets/sh_logo.jpg',
 
   allowedEnvironments: ['DEV', 'QA']
 
