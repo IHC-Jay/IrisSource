@@ -220,7 +220,7 @@ fetchEligibilityBenefitResponses(mode: string, searchArr: string[]) {
 }
 
 fetchClaims(mode: string, searchArr: string[]) {
-  console.log('Fetch Claim with Auth ' );
+
   const ClaimArray: TransactionData[] = [];
   let url = this.batchTransUrl + 'Claims?searchStr=' + searchArr;
 
@@ -228,6 +228,8 @@ fetchClaims(mode: string, searchArr: string[]) {
   {
      url = this.rtTransUrl + 'Claims?searchStr=' + searchArr;
   }
+
+  console.log('Fetch Claim with Auth ' + url);
 
   return this.http2
     .get<{ [key: string]: TransactionData }>(

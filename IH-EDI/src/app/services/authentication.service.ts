@@ -18,7 +18,7 @@ export class AuthenticationService {
               private usrTransService: TransRestServiceComponent,  private wfTransService: WfRestServiceComponent
     ) {
 
-      console.info('In AuthenticationService constructor ' + tpService +", " + tpTransService);
+      console.info('In AuthenticationService constructor ');
 
 
         this.currentUserSubject = new BehaviorSubject<User>(
@@ -31,10 +31,10 @@ export class AuthenticationService {
         {
           if(user !== null)
           {
-            console.info('Set User: ' + user.username);
-            this.tpTransService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
-            this.tpService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
-            this.wfTransService.setcurrentUser(user.username, sessionStorage.getItem("env"), this);
+
+            this.tpTransService.setcurrentUser(user.username, user.environment, this);
+            this.tpService.setcurrentUser(user.username, user.environment, this);
+            this.wfTransService.setcurrentUser(user.username, user.environment, this);
           }
           else{
             console.info('User object not initialized');
