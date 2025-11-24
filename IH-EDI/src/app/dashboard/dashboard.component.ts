@@ -16,7 +16,7 @@ import { catchError } from 'rxjs';
 
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
-
+import { environment } from '../../environments/environment';
 
 @Component({
     selector: 'app-dashboard',
@@ -325,7 +325,7 @@ onContextMenuNew(item: Item) {
     }
 
     this.searchTypeString += ";sameWindow::false";
-       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
+       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/transaction/"],
       {queryParams: {  'transaction': this.currentTransType,  'searchTypeString': this.searchTypeString } }
        ));
     const newTab = window.open(url, '_blank');

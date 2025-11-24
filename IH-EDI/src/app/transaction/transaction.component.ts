@@ -998,10 +998,11 @@ onContextMenuNew(item: Item) {
    this.transUserFlds += ";sameWindow::false";
    const jsonString = JSON.stringify(this.formFields);
 
-       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/transaction-details/"],
+       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/transaction/transaction-details/"],
       {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
          'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
        ));
+       console.log("Open in new tab URL: " + url);
     const newTab = window.open(url, '_blank');
     if(newTab) {
         newTab.opener = null;

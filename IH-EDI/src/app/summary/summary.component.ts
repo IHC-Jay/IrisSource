@@ -902,7 +902,7 @@ onContextMenuNew(item: Item) {
 
     this.sumUserFlds += ";sameWindow::false";
 
-       const url = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
+       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` +"/transaction/"],
       {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
         'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
        ));
