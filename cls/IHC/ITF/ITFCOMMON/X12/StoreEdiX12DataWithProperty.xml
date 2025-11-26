@@ -17,12 +17,8 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 #dim stat As %String = "Processed" 
 #dim receiptDtTm As %DateTime = "" 
 #dim direction As %String = "Inbound"
+ set sId = "" 
 
- if (..overrideProp.SessionID = "")
- {
-	 $$$LOGERROR("Seesion ID is null")
- }
- 
 	
 	#dim source As EnsLib.EDI.X12.Document
 	$$$TRACE("ProcessStreamContainer " _ streamContainer.OriginalFilename _" - Stream size: " _ streamContainer.Stream.Size)
@@ -30,12 +26,17 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	if (receiptDtTm = "")
 	{
 		set mId = ..overrideProp.%Id()
-	  	&SQL(select ID into hId from Ens.MessageHeader where MessageBodyId = :mId)
+	  	&SQL(select ID, SessionId into hId, sId from Ens.MessageHeader where MessageBodyId = :mId)
 	  	$$$TRACE("MessageBodyId = " _mId _", MessageHeader ID: " _ hId)
 	  	set hm = ##class(Ens.MessageHeader).%OpenId(hId)
-	  	set receiptDtTm = hm.TimeCreated
-	  	$$$TRACE("TimeCreated: " _ hm.TimeCreated)
+	  	set receiptDtTm = ##class(%Library.UTC).ConvertUTCtoLocal(hm.TimeCreated)
+	  	$$$TRACE("TimeCreated UTCtoLocal: " _ hm.TimeCreated _" -> " _ receiptDtTm)
 	}
+	if (..overrideProp.SessionID = "")
+ 	{
+		 $$$TRACE("Session ID is null")
+		 set ..overrideProp.SessionID = sId
+ 	}
 	if (..overrideProp.status '= "")
 	{
 		set stat = ..overrideProp.status
@@ -110,8 +111,21 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	set sId = ..overrideProp.SessionID
-	set cnt = 0
-	set fNm = ##class(%File).GetFilename(fileName)
+	set cnt = 0, fNm = "", destFile = ""
+	
+	if (fileName '= "")
+	{
+		set fNm = ##class(%File).GetFilename(fileName)
+	}
+	else
+	{
+		set fNm = ##class(%File).GetFilename(..overrideProp.fileName)
+	}
+	if (..overrideProp.destinationFileName '= "")
+	{
+		set destFile = ##class(%File).GetFilename(..overrideProp.destinationFileName)
+	}
+	
 	$$$TRACE("Process837: " _ sId _", " _ fNm)
 	
 	if (sId '= "")
@@ -122,7 +136,18 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	if (cnt > 0)
 	{
 		$$$TRACE("IHC.X12.Data837 #" _ cnt _ " rows exists, update status")
-		&SQL(UPDATE IHC_X12.Data837 set status = :stat where SessionId = :sId and FileName = :fNm)
+		if (destFile '= "")
+		{
+			&SQL(UPDATE IHC_X12.Data837 set status = :stat, DestinationFileName = :destFile 
+			where SessionId = :sId and FileName = :fNm)
+		}
+		else
+		{
+			&SQL(UPDATE IHC_X12.Data837 set status = :stat
+			where SessionId = :sId and FileName = :fNm)
+
+		}
+			
 		RETURN "UPDATED " _ cnt
 	}
 
