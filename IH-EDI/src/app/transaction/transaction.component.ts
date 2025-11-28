@@ -50,6 +50,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected"];
 
+    rightClickMenu: string[] = ['Open in New Tab', 'Open in Same Window'] ;
+
    org = `${environment.org}`;
 
   transactionTypes: string[] ;
@@ -913,6 +915,7 @@ onStTimeChange(event: Event)
   this.formFields.startTm = newValue;
   console.log('Input value changed:', newValue +", " + this.formFields.startTm);
 }
+
 onEndDateChange(event: Event)
 {
 
@@ -922,6 +925,7 @@ onEndDateChange(event: Event)
   this.formFields.endDate = newValue;
   console.log('Input value changed:', newValue +", " + this.formFields.endDate);
 }
+
 onEndTimeChange(event: Event)
 {
 
@@ -978,54 +982,80 @@ exportData()
 onContextMenu(event: MouseEvent, row:any, ind: number) {
   event.preventDefault();
 
-  console.log( ind +'. Row clicked: ' + row.ID );
+  console.log( ind +'. Row clicked: ' + row.ID +", " + row.FileName);
+
+  if (row.Status === 'Processed')
+  {
+     if(this.rightClickMenu.indexOf('WorkFlow') >= 0)
+     {
+        console.log('Remove WorkFlow from rightClickMenu: ' + this.rightClickMenu.indexOf('WorkFlow') );
+        this.rightClickMenu.splice(this.rightClickMenu.indexOf('WorkFlow'),1);
+     }
+  }
+  else
+  {
+    if(this.rightClickMenu.indexOf('WorkFlow') < 0)
+     {
+        this.rightClickMenu.push('WorkFlow');
+     }
+  }
+
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={ID: row.ID, rowId: ind};
+  let item: Item ={ID: row.ID, rowId: ind, sessionId: row.SessionID};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
 }
 
-onContextMenuNew(item: Item) {
-  // alert('Click on Action 1 ' + item.ID);
 
-    this.transUserFlds = "";
-  this.paramsList.forEach( val => {
-    this.transUserFlds += val +";";
-   });
-   this.transUserFlds += ";sameWindow::false";
-   const jsonString = JSON.stringify(this.formFields);
-
-       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
-         'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
-       ));
-       console.log("Open in new tab URL: " + url);
-    const newTab = window.open(url, '_blank');
-    if(newTab) {
-        newTab.opener = null;
-    }
-
-
-
-}
-
-onContextMenuSame(item: Item) {
+handleContextMenu(item: Item, menu: string)  {
+  console.log('Click on Action 2 ' + item.ID +", " + menu);
 
   this.transUserFlds = "";
   this.paramsList.forEach( val => {
     this.transUserFlds += val +";";
    });
    const jsonString = JSON.stringify(this.formFields);
-   this.transUserFlds += ";sameWindow::true";
+   if (menu === 'WorkFlow')
+   {
+      console.log('Item: ' + item.ID +", " + item.sessionId );
+
+
+     this.router.navigate(["/workflow/workflowDetails/"],
+         {queryParams: { sessionID:  (item.sessionId),  searchParams:  "TBD" } }
+      );
+
+
+   }
+   else if (menu === 'Open in Same Window')
+   {
+      this.transUserFlds += ";sameWindow::true";
+
       this.router.navigate(["/transaction/transaction-details/"],
       {queryParams: { ID:  item.ID, 'transConfig': jsonString,
          'transaction': this.form.controls.transType.value,
          'additionalSearch': this.staticSearchStr,
          'searchTypeString': this.transUserFlds } }
        );
+      }
+      else
+      {
+        this.transUserFlds += ";sameWindow::false";
+
+        const jsonString = JSON.stringify(this.formFields);
+
+            const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/transaction/transaction-details/"],
+            {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
+              'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
+            ));
+            console.log("Open in new tab URL: " + url);
+          const newTab = window.open(url, '_blank');
+          if(newTab) {
+              newTab.opener = null;
+          }
+      }
 
 }
 
@@ -1044,5 +1074,6 @@ applyFilter(event: Event) {
 export interface Item {
   ID: number;
   rowId: number;
+  sessionId: string;
 }
 

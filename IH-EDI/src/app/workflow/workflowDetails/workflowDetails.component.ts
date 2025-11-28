@@ -132,30 +132,41 @@ export class WorkflowDetailsComponent implements OnInit {
     this.sub = this.route
     .queryParams
     .subscribe(searchParams => {
-      // Defaults to 0 if no query param provided.
-      this.ID = ''+searchParams['ID'] || '0';
-      this.searchParams = searchParams['searchParams'];
 
-      let fInd = this.searchParams.indexOf("status::") + "status::".length;
-      let val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
-      console.log(fInd + ". statusType:" + val )
-      this.wfStatus = val
+      if (searchParams['sessionID'] !== undefined && searchParams['sessionID'] !== null)
+      {
+        console.log("sessionID query sessionID provided!")
+        this.getX12( 'ID=&SessionID=' + searchParams['sessionID']);
+      }
+      else
+      {
 
-      fInd = this.searchParams.indexOf("mode::") + "mode::".length;
-       val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
-      console.log(fInd + ". mode:" + val )
-      this.wfMode = val
+            // Defaults to 0 if no query param provided.
+            this.ID = ''+searchParams['ID'] || '0';
+            this.searchParams = searchParams['searchParams'];
 
-      fInd = this.searchParams.indexOf("transaction::") + "transaction::".length;
-      val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
-      console.log(fInd + ". transaction:" + val )
-      this.transTypeStr = val;
+            let fInd = this.searchParams.indexOf("status::") + "status::".length;
+            let val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
+            console.log(fInd + ". statusType:" + val )
+            this.wfStatus = val
 
+            fInd = this.searchParams.indexOf("mode::") + "mode::".length;
+            val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
+            console.log(fInd + ". mode:" + val )
+            this.wfMode = val
 
+            fInd = this.searchParams.indexOf("transaction::") + "transaction::".length;
+            val = this.searchParams.substring( fInd, this.searchParams.indexOf(";", fInd))
+            console.log(fInd + ". transaction:" + val )
+            this.transTypeStr = val;
 
-      console.log('Query params ID: ', this.ID + ', params: ' + this.searchParams );
+            console.log('Query params ID: ', this.ID + ', params: ' + this.searchParams );
+
+            this.getX12("ID=" + this.ID +'&SessionID=');
+      }
+
     });
-    this.getX12();
+
 
   }
   get f() { return this.form.controls; }
@@ -167,12 +178,12 @@ export class WorkflowDetailsComponent implements OnInit {
 }
 
 
-getX12()
+getX12(searchStr: string = "")
 {
   this.canRenderDetails = false;
-  console.log("Call service for " +this.ID +", ", this.wfStatus);
+  console.log("Call service for " +searchStr);
 
-    this.WfService.fetchWorkFlowEntry(this.wfMode, "ID=" + this.ID ).subscribe((res: any) => {
+    this.WfService.fetchWorkFlowEntry(this.wfMode, searchStr ).subscribe((res: any) => {
 
       console.log("# of records: " + res.length)
 
@@ -188,7 +199,7 @@ getX12()
           this.tpCreate = true;
           this.tpId = wfErr.substring(tpInd + "TP Not found:".length).trim();
         }
-        this.errorStr = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
+        this.errorStr = "Workflow ID: " + res[0].ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
         this.wfCurrentStat = res[0].Status;
         this.x12Array.splice(0, this.x12Array.length)
         let segNum = 0
@@ -346,7 +357,7 @@ getX12()
  clickChkBox()
  {
   this.checked = !this.checked;
-  this.getX12();
+  this.getX12("ID=" + this.ID +'&SessionID=');
  }
 
 
