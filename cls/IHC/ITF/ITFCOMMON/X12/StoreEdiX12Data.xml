@@ -79,6 +79,47 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="StoreX12Object">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:IHC.ITF.ITFCOMMON.DStruc.StoreX12</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("Store DStruc.StoreX12: " _ obj.interchangeSenderID _" - " _ obj.interchangeReceiverID)
+	set st = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12DataWithProperty).%New()
+	set st.overrideProp= obj
+	Do st.Process()
+]]></Implementation>
+</Method>
+
+<Method name="ProcessDStrucStoreX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>obj:IHC.ITF.ITFCOMMON.DStruc.StoreX12</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set sessionId = obj.SessionID
+	set flNm = obj.streamContainer.OriginalFilename
+	set stat = obj.status
+	set direc = obj.direction
+	set mId = obj.%Id()
+	
+	&SQL(select ID into hId from Ens.MessageHeader where MessageBodyId = :mId)
+	$$$TRACE("MessageBodyId = " _mId _", MessageHeader: " _hId)
+	#dim hm As Ens.MessageHeader = ##class(Ens.MessageHeader).%OpenId(hId)
+	set receiptDtTm = ##class(%Library.UTC).ConvertUTCtoLocal(hm.TimeCreated)
+	
+	set source = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(obj.streamContainer.Stream, .tSC)
+ 	
+ 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		 return ..ProcessX12Doc(source, flNm, stat, receiptDtTm, direc, sessionId )
+	}
+	else
+	{
+		$$$LOGERROR("ImportFromLibraryStream failed " _ tSC _", EnsLib.EDI.X12.Document: " _ source )
+		return "0"
+	}
+]]></Implementation>
+</Method>
+
 <Method name="ProcessStreamContainer">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>streamContainer:Ens.StreamContainer,stat:%String="Processed",receiptDtTm:%DateTime="",direction:%String="Inbound"</FormalSpec>
@@ -92,7 +133,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	{
 		set mId = streamContainer.%Id()
 	  	&SQL(select ID into hId from Ens.MessageHeader where MessageBodyId = :mId)
-	  	$$$TRACE("MessageBodyId = " _mId)
+	  	$$$TRACE("MessageBodyId = " _mId _", MessageHeader: " _hId)
 	  	#dim hm As Ens.MessageHeader = ##class(Ens.MessageHeader).%OpenId(hId)
 	  	set receiptDtTm = ##class(%Library.UTC).ConvertUTCtoLocal(hm.TimeCreated)
 	  	set sessionId = hm.SessionId
@@ -135,17 +176,6 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	 {
 		 WRITE !, "ImportFromLibraryStream failed " _tSC _ ", filesize: " _ fileStream.Size
 	 }
-]]></Implementation>
-</Method>
-
-<Method name="StoreX12Object">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>obj:IHC.ITF.ITFCOMMON.DStruc.StoreX12</FormalSpec>
-<Implementation><![CDATA[
-	$$$TRACE("Store DStruc.StoreX12: " _ obj.interchangeSenderID _" - " _ obj.interchangeReceiverID)
-	set st = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12DataWithProperty).%New()
-	set st.overrideProp= obj
-	Do st.Process()
 ]]></Implementation>
 </Method>
 
@@ -204,6 +234,33 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		  {
 		  	set receiptDtTm = $ZDATETIME($HOROLOG,3, 1)
 		  }
+		  set cnt = 0
+		  
+		  if (sessionId '= "")
+			{
+				set sqlStr = "Select count(*) As CNT FROM IHC_X12.Data" _ transType _ " where SessionId = " _ sessionId 
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set cnt = rs.%Get("CNT")
+					$$$TRACE(sqlStr _ ": " _ cnt) 
+					
+ 				}
+			}
+
+			if (cnt > 0)
+			{
+				$$$TRACE("IHC.X12.Data" _ transType _ " #" _ cnt _ " rows exists, update status")
+				
+				set sqlStr = "UPDATE IHC_X12.Data" _ transType _ "  set status = '" _ stat  _"'"
+					_" where SessionId = " _ sessionId 
+
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": " _ rs.%SQLCODE)
+					
+				RETURN "UPDATED " _ cnt
+			}
 		  
 		  if (transType = "835")
 		  {	   	  
@@ -801,10 +858,11 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	set elObj = ##class(IHC.X12.Data270).%New()
 	Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm, direction, sessionId ) 
 	if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
-		 		 {
-					WRITE !, "Create global: X12Data" _ transType
-				 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
-		 		 }
+	 {
+		WRITE !, "Create global: X12Data" _ transType
+	 	set ^ItfGlobalX12IdKey("X12Data" _ transType) = 1
+	 }
+	 
 	set parentId = "", objCnt =0
 	set GSCounter = x12Doc.ChildCount
 	for gsInt=1:1:GSCounter
@@ -813,7 +871,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
         set individualGroup = x12Doc.getNthChild(gsInt,2)
 
 
-		  WRITE !, "# of STs: " _ individualGroup.ChildCount
+		  $$$TRACE( "Process270 # of STs: " _ individualGroup.ChildCount)
 		  set parentId = "", objCnt =0, elClmObj = $$$NULLOREF // 2100
 		  FOR stInd=1:1:individualGroup.ChildCount
 		  {
@@ -825,7 +883,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  set STRecord.DocType = "HIPAA_5010:" _ transType
 			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
 			  
-			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  $$$TRACE(  "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() )
 			  set segX12Data = "", subCnt = 0
 			  			  
 	  		  set elObjSub = $$$NULLOREF, hlVal = ""
@@ -915,9 +973,9 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					  	set elObjSub.X12DataParentId = parentId
 					  	set elObjSub.x12Data = segX12Data
 					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
-				  		Do elObjSub.%Save()
+				  		set stat = elObjSub.%Save()
 				  		Do $INCREMENT(objCnt)
-				  		WRITE !, "IHC.X12.Data270 ID: " _ elObjSub.%Id()
+				  		$$$TRACE(  "IHC.X12.Data270 ID: " _ elObjSub.%Id() _", Status: " _ stat)
 				  					  		
 				  	}
 				  	elseif( (elObj.Payer '= "") && (elObj.Provider '= ""))
@@ -961,8 +1019,9 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					set elObjSub.X12DataParentId = parentId
 					set elObjSub.x12Data = segX12Data
 					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)  	
-				  	Do elObjSub.%Save()
+				  	set stat = elObjSub.%Save()
 				  	Do $INCREMENT(objCnt)
+				  	$$$TRACE(  "IHC.X12.Data270 ID: " _ elObjSub.%Id() _", Status: " _ stat)
 			  	}
 			  	
 			  	else
@@ -976,9 +1035,10 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  }
 		  }
 		  set elObj.SeqNum = objCnt - 1
-		  Do elObj.%Save()
+		  set stat = elObj.%Save()
+		  $$$TRACE(  "IHC.X12.Data270 ID: " _ elObj.%Id() _", Status: " _ stat)
     }
-	WRITE !, " --- Processing complete: IHC.X12.Data270, EligibilityRequest, # rows:" _ objCnt
+	$$$TRACE( " --- Processing complete: IHC.X12.Data270, EligibilityRequest, # rows:" _ objCnt)
 	return elObj.%Id()
 ]]></Implementation>
 </Method>
@@ -1004,7 +1064,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
         #dim individualGroup As EnsLib.EDI.X12.Document
         set individualGroup = x12Doc.getNthChild(gsInt,2)
 
-	  WRITE !, "# of STs: " _ individualGroup.ChildCount
+	  $$$TRACE( "Process271 # of STs: " _ individualGroup.ChildCount)
 		  set parentId = "", objCnt =0, elClmObj = $$$NULLOREF 
 		  FOR stInd=1:1:individualGroup.ChildCount
 		  {
@@ -1015,7 +1075,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  set STRecord.DocType = "HIPAA_5010:" _ transType
 			  set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
 			  
-			  WRITE !, "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() 
+			  $$$TRACE( "ST: " _  transType_ ", Seg Count: " _ STRecord.SegCountGet() )
 			  set segX12Data = "", subCnt = 0
 			  			  
 	  		  set elObjSub = $$$NULLOREF, hlVal = ""
@@ -1174,7 +1234,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		  set elObj.SeqNum = objCnt - 1
 		  Do elObj.%Save()
     }
-	WRITE !, " --- Processing complete: IHC.X12.Data271, EligibilityResponse, # rows:" _ objCnt
+	$$$TRACE( " --- Processing complete: IHC.X12.Data271, EligibilityResponse, # rows:" _ objCnt)
 	return elObj.%Id()
 ]]></Implementation>
 </Method>
@@ -2125,7 +2185,14 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	  set elObj.InterchangeReceiverName = ..GetTpName(InterchangeReceiverID)
 	  set elObj.InterchangeSenderID = InterchangeSenderID
 	  set elObj.InterchangeSenderName = ..GetTpName(InterchangeSenderID)
-	  set elObj.Direction = direction
+	  if ( $zconvert(direction, "u")  [ "IN")
+	  {
+	  	  set elObj.Direction = "Inbound"
+	  }
+	  else
+	  {
+		  set elObj.Direction = "Outbound"
+	  }
 	  set elObj.SessionID = sessionId
 	  if (x12Doc.ChildCount > 0)
 	  {
