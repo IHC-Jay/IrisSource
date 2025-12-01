@@ -122,6 +122,9 @@ export class WorkflowDetailsComponent implements OnInit {
   {
     console.info("ngOnInit");
 
+     sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Work Flow");
+
     this.form = this.formBuilder.group({
       statusType: ['', Validators.required]
     });

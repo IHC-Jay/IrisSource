@@ -1021,11 +1021,18 @@ handleContextMenu(item: Item, menu: string)  {
    if (menu === 'WorkFlow')
    {
       console.log('Item: ' + item.ID +", " + item.sessionId );
+      sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Work Flow");
 
 
-     this.router.navigate(["/workflow/workflowDetails/"],
+      const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
          {queryParams: { sessionID:  (item.sessionId),  searchParams:  "TBD" } }
-      );
+      ));
+      console.log("Open in new tab URL: " + url);
+          const newTab = window.open(url, '_blank');
+          if(newTab) {
+              newTab.opener = null;
+          }
 
 
    }
