@@ -59,6 +59,8 @@ export class SummaryComponent implements OnInit, AfterViewInit {
 
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected"];
+    rightClickMenu: string[] = ['Transactions in Same Tab', 'Transactions in New Tab'] ;
+
 
      org = `${environment.org}`;
 
@@ -874,12 +876,56 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
   console.log( row.FileName +'. Row clicked: ' + row.ID );
 
+  if (row.Status === 'Processed')
+  {
+     if(this.rightClickMenu.indexOf('WorkFlow') >= 0)
+     {
+        console.log('Remove WorkFlow from rightClickMenu: ' + this.rightClickMenu.indexOf('WorkFlow') );
+        this.rightClickMenu.splice(this.rightClickMenu.indexOf('WorkFlow'),1);
+     }
+  }
+  else
+  {
+    if(this.rightClickMenu.indexOf('WorkFlow') < 0)
+     {
+        this.rightClickMenu.push('WorkFlow');
+     }
+  }
+
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={rowId: row.ID, FileName: row.FileName};
+  let item: Item ={rowId: row.ID, FileName: row.FileName, sessionId: row.SessionID};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
+}
+
+handleContextMenu(item: Item, menu: string)  {
+
+
+  if (menu === 'WorkFlow')
+   {
+      console.log('Item: ' + item.FileName +", " + item.sessionId );
+
+      sessionStorage.removeItem("currentTab")
+      sessionStorage.setItem("currentTab", "Work Flow");
+
+      const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
+         {queryParams: { sessionID:  (item.sessionId),  searchParams:  item.FileName } }
+      ));
+      console.log("Open in new tab URL: " + url);
+          const newTab = window.open(url, '_blank');
+          if(newTab) {
+              newTab.opener = null;
+          }
+   }
+   else if (menu === this.rightClickMenu[0])
+   {
+    this.onContextMenuSame(item)
+   }
+   else{
+    this.onContextMenuNew(item)
+   }
 }
 
 onContextMenuNew(item: Item) {
@@ -949,5 +995,6 @@ applyFilter(event: Event) {
 export interface Item {
   FileName: string;
   rowId: number;
+  sessionId: string;
 }
 

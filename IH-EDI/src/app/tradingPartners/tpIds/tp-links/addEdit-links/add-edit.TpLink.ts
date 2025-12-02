@@ -88,11 +88,15 @@ public initializeData()
 
   this.tpService.fetchOwnerTpIds().subscribe((res: any) => {
 
-    res.forEach((entry) => {
+    if (this.ownerTpIds.length <= 0)
+    {
 
-     this.ownerTpIds.push(entry.TPID);
+        res.forEach((entry) => {
 
-    });
+        this.ownerTpIds.push(entry.TPID);
+
+        });
+    }
 
 
   console.info("2. fetchTransactionTypes");
@@ -104,41 +108,21 @@ public initializeData()
  });
 }
 
-    async ngOnInit() {
-      console.info("AddEditComponent ngOnInit");
+    async ngOnInit()
+    {
+      console.info("AddEditTpLink ngOnInit");
 
       if (`${environment.org}` == 'SH')
-  {
+      {
 
-      this.direcTypes=["In", "Out"];
-  }
-  else
-  {
-    this.direcTypes=["Out", "In"];
-  }
+          this.direcTypes=["In", "Out"];
+      }
+      else
+      {
+        this.direcTypes=["Out", "In"];
+      }
 
-      let arr =  this.route.snapshot.paramMap.keys
-
-        this.parentTpId = this.route.snapshot.params['tpId'];
-        this.tpName = this.route.snapshot.params['tpName'];
-        this.tpLinkNm = this.route.snapshot.params['tpLink'];
-
-        // From Workflow
-        this.sub = this.route.queryParams
-        .subscribe(params => {
-
-          this.transaction = ''+params['transaction']
-        });
-
-
-        this.isAddMode = !this.tpLinkNm;
-        console.info('Get TP for: ' + this.tpLinkNm +", parent: " + this.parentTpId);
-        if( this.isAddMode)
-        {
-          this.parentTpId = this.route.snapshot.params['tpId'];
-          console.info("Get parent: " + this.parentTpId);
-        }
-        this.form = this.formBuilder.group({
+       this.form = this.formBuilder.group({
           ParentTpId: [''],
           Link: ['', Validators.required],
           TransType: ['', Validators.required],
@@ -160,6 +144,47 @@ public initializeData()
           customProp: [''],
           Active: ['']
       });
+
+
+      // From Workflow
+      if (sessionStorage.getItem("NewTpRelId") !== null) {
+          let inpStr = sessionStorage.getItem("NewTpRelId") || '';
+          console.info('Set TPID: ' + inpStr);
+
+          // HT000015-001->HT006748-001, Version: V5010X279A1, Mode: Batch, Direction: In
+          this.parentTpId =inpStr.substring(0, inpStr.indexOf('->'));
+          let receiverId = inpStr.substring(inpStr.indexOf('->') + 2, inpStr.indexOf(', Version:'));
+          this.tpLinkNm = ""
+          this.transaction = inpStr.substring(inpStr.indexOf('Version:') + 9, inpStr.indexOf(', Mode:')).trim();
+          console.info('TPIDs: ' + this.parentTpId +", " + receiverId +", Transaction: " + this.transaction);
+          this.isAddMode = true;
+          this.form.controls.IsaReceiverId.setValue(receiverId);
+          this.form.controls.GsSenderId.setValue(this.parentTpId);
+          this.form.controls.IsaSenderId.setValue(this.parentTpId);
+          this.form.controls.GsReceiverId.setValue(receiverId);
+          this.ownerTpIds.push(this.parentTpId);
+          this.ownerTpIds.push(receiverId);
+       }
+       else {
+
+        this.parentTpId = this.route.snapshot.params['tpId'];
+        this.tpName = this.route.snapshot.params['tpName'];
+        this.tpLinkNm = this.route.snapshot.params['tpLink'];
+
+        this.sub = this.route.queryParams
+        .subscribe(params => {
+          this.transaction = ''+params['transaction']
+        });
+
+        this.isAddMode = !this.tpLinkNm;
+
+        if( this.isAddMode)
+        {
+          this.parentTpId = this.route.snapshot.params['tpId'];
+          console.info("Get parent: " + this.parentTpId);
+        }
+      }
+
       this.initializeData();
 
 
@@ -304,43 +329,51 @@ public initializeData()
 
       }
       else{
-        if(this.transaction === 'undefined')
-        {
-          console.info('setTransactionSetId search is undefined');
-
-        }
-        else if(this.transaction !== "")
-        {
-
-          // Search
-          console.info('setTransactionSetId search: ' + this.transaction + ', ' + this.transactionTypes.length);
-
-          var result = this.transactionTypes.findIndex(item => (item.TransactionSetId + '(' +	item.VERSION +')') === this.transaction);
-          console.info(this.transaction + '- result: ' + result);
-          if( result > 0 )
+          if(this.transaction === 'undefined')
           {
-            this.form.controls.TransType.setValue(this.transactionTypes[result].NAME);
-            console.log("Set transaction type: " + this.transactionTypes[result].NAME +' , input: ' + this.transaction)
+            console.info('setTransactionSetId search is undefined');
 
-            this.setTransactionSetId();
+          }
+          else if(this.transaction !== "")
+          {
+            if (sessionStorage.getItem("NewTpRelId") !== null) {
+              this.transactionTypes.forEach( item => {
+                if( (item.VERSION.indexOf(this.transaction)) >= 0)
+                {
+                  console.info(this.transaction + '- found: ' + item.NAME );
+                  this.form.controls.TransType.setValue(item.NAME);
+                  console.log("Set transaction type: " + item.NAME +' , input: ' + this.transaction)
+                  this.setTransactionSetId();
+                }
+              });
+            }
+          }
+          else
+          {
+            // Search
+            console.info('setTransactionSetId search: ' + this.transaction + ', ' + this.transactionTypes.length);
+
+            var result = this.transactionTypes.findIndex(item => (item.TransactionSetId + '(' +	item.VERSION +')') === this.transaction);
+            console.info(this.transaction + '- result: ' + result);
+            if( result > 0 )
+            {
+              this.form.controls.TransType.setValue(this.transactionTypes[result].NAME);
+              console.log("Set transaction type: " + this.transactionTypes[result].NAME +' , input: ' + this.transaction)
+
+              this.setTransactionSetId();
+            }
           }
         }
-      }
-
-
     }
-/*
-    ngAfterViewInit()
-    {
-      console.info('nfAfter: ' + this.form.controls['Link'].value)
-    }
-*/
+
     // convenience getter for easy access to form fields
     get f() { return this.form.controls; }
 
     onCancel()
     {
       console.info('On Cancel, got back to: ' + this.parentTpId);
+      sessionStorage.removeItem("TpOperation");
+      sessionStorage.removeItem("NewTpRelId");
       for (let el in this.form.controls) {
         if (this.form.controls[el].value) {
           console.log(el +': ' + this.form.controls[el].value)

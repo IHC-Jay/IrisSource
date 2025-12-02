@@ -53,7 +53,8 @@ export class WorkflowDetailsComponent implements OnInit {
   separator:string;
   dataError:boolean;
 
-  tpId:string;
+  tpId:string="";
+  tpRelId:string="";
 
   canRenderDetails = false;
   dataSource = new MatTableDataSource<any>();
@@ -92,6 +93,7 @@ export class WorkflowDetailsComponent implements OnInit {
   tpCreate:boolean = false;
 
   ID:string;
+  fileName:string;
   selectedRow: number = -1;
   errSelectedRow:  number = -1;
 
@@ -139,6 +141,7 @@ export class WorkflowDetailsComponent implements OnInit {
       if (searchParams['sessionID'] !== undefined && searchParams['sessionID'] !== null)
       {
         console.log("sessionID query sessionID provided!")
+        this.fileName = searchParams['searchParams'];
         this.getX12( 'ID=&SessionID=' + searchParams['sessionID']);
       }
       else
@@ -202,7 +205,22 @@ getX12(searchStr: string = "")
           this.tpCreate = true;
           this.tpId = wfErr.substring(tpInd + "TP Not found:".length).trim();
         }
-        this.errorStr = "Workflow ID: " + res[0].ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
+        else{
+          let tpInd = wfErr.indexOf("Relation Not found:")
+          if (tpInd >=0)
+          {
+            this.tpCreate = true;
+            this.tpRelId = wfErr.substring(tpInd + "TRelation Not found:".length).trim();
+          }
+        }
+        if (this.fileName == undefined || this.fileName == null || this.fileName == ''  )
+        {
+          this.errorStr = "Workflow ID: " + res[0].ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
+        }
+        else
+        {
+            this.errorStr = "Workflow ID: " + res[0].ID + ", Filename:" + this.fileName + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
+        }
         this.wfCurrentStat = res[0].Status;
         this.x12Array.splice(0, this.x12Array.length)
         let segNum = 0
@@ -367,10 +385,19 @@ getX12(searchStr: string = "")
  toTpCreate()
   {
 
-      console.log('To TP create: ' );
+      console.log('To TP create: ' + this.tpId +", " + this.tpRelId  );
+      if (this.tpId !== "")
+      {
+      sessionStorage.setItem("TpOperation", "tp-add");
+        sessionStorage.setItem("NewTpId", this.tpId);
+      }
+      else if (this.tpRelId !== "")
+      {
+        sessionStorage.setItem("TpOperation", "tpLink-add");
+        sessionStorage.setItem("NewTpRelId", this.tpRelId);
+      }
 
-      sessionStorage.setItem("NewTpId", this.tpId);
-      sessionStorage.setItem("Operation", "tp-add");
+
       sessionStorage.removeItem("currentTab")
       sessionStorage.setItem("currentTab", "Trading Partners");
 

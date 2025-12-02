@@ -75,12 +75,17 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       sessionStorage.removeItem("currentTab")
       sessionStorage.setItem("currentTab", "Trading Partners");
       let continueOn = true;
-      if (sessionStorage.getItem("NewTpId") != null && sessionStorage.getItem("Operation") != null)
+      if (sessionStorage.getItem("TpOperation") != null)
       {
-         console.info("TradingPartnersComponent ngOnInit" + sessionStorage.getItem("NewTpId") + ", " + sessionStorage.getItem("Operation") );
-         if (sessionStorage.getItem("Operation") == "tp-add")
+         console.info("TradingPartnersComponent ngOnInit" + sessionStorage.getItem("NewTpId") + ", " + sessionStorage.getItem("TpOperation") );
+         if (sessionStorage.getItem("TpOperation") == "tp-add")
          {
             this.router.navigate(["/TradingPartners/tp-add/"]);
+            continueOn = false ;
+         }
+         else if (sessionStorage.getItem("TpOperation") == "tpLink-add")
+         {
+            this.router.navigate(["TradingPartners/tpIds/tp-links/add-edit/tp-add/WF/TPID" ]);
             continueOn = false ;
          }
       }

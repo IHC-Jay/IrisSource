@@ -150,7 +150,7 @@ public initializeData()
 
       }
       sessionStorage.removeItem("NewTpId")
-      sessionStorage.removeItem("Operation");
+      sessionStorage.removeItem("TpOperation");
 
       this.router.navigate(["/TradingPartners/"]);
     }

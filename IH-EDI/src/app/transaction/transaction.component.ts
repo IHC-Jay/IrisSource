@@ -1024,7 +1024,6 @@ handleContextMenu(item: Item, menu: string)  {
       sessionStorage.removeItem("currentTab")
       sessionStorage.setItem("currentTab", "Work Flow");
 
-
       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
          {queryParams: { sessionID:  (item.sessionId),  searchParams:  "TBD" } }
       ));
