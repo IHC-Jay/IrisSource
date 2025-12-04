@@ -66,6 +66,7 @@ import {MatNativeDateModule} from '@angular/material/core';
 import { MatDatepickerModule, MatDatepicker, MatDateRangePicker} from '@angular/material/datepicker';
 
 import { AngularSplitModule } from 'angular-split';
+import { BaseChartDirective  } from 'ng2-charts';
 
 import {SummaryComponent} from './summary/summary.component'
 import {DashBoardComponent} from './dashboard/dashboard.component'
@@ -146,6 +147,7 @@ import {
         CdkDrag,
         CdkDropList,
         MatSnackBarModule,
+        BaseChartDirective,
         CdkDropListGroup], providers: [
         { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
         { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true },

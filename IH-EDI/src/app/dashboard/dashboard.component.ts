@@ -17,6 +17,9 @@ import { catchError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { environment } from '../../environments/environment';
+import { BaseChartDirective } from 'ng2-charts';
+import { Chart, registerables, ChartOptions, ChartType, ChartDataset, LabelItem } from 'chart.js';
+
 
 @Component({
     selector: 'app-dashboard',
@@ -26,21 +29,26 @@ import { environment } from '../../environments/environment';
 })
 
 
+
 export class DashBoardComponent implements OnInit {
 
-
-  public barChartOptions:any = {
-    scaleShowVerticalLines: false,
-    responsive: true
+  barChartOptions: ChartOptions = {
+    responsive: true,
+    scales: {
+      x: { stacked: false },
+      y: {
+        beginAtZero: true
+      }
+    }
   };
 
-    public mbarChartLabels:string[] = [];
+    public mbarChartLabels:LabelItem[] = [];
 
-    public barChartType:string = 'bar';
+    public barChartType:ChartType = 'bar';
     public barChartLegend:boolean = true;
 
 
-  public barChartData:any[] = [];
+  public barChartData:ChartDataset[] = [];
 
 
   contextMenuPosition = { x: '0px', y: '0px' };
@@ -56,7 +64,6 @@ export class DashBoardComponent implements OnInit {
 
   paramsList: string[];
 
-  loading:boolean = false;
   searchDashBoard:boolean = false;
 
 
@@ -78,6 +85,7 @@ export class DashBoardComponent implements OnInit {
   constructor(private DashBoardService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
       tpId: new FormControl();
+      Chart.register(...registerables);
 
   }
 
@@ -87,6 +95,11 @@ export class DashBoardComponent implements OnInit {
   ngOnInit()
   {
     console.info("ngOnInit");
+
+     this.form = this.formBuilder.group({
+      transType: ['' ],
+      mode:['RealTime']
+    });
 
 
     this.currentTransType = ''
@@ -148,8 +161,6 @@ export class DashBoardComponent implements OnInit {
       }
 
 
-      this.loading = true;
-
       let staticSearchStr = "";
 
 
@@ -187,7 +198,7 @@ export class DashBoardComponent implements OnInit {
             let lable = "", prevLab = ""
             let lastProc = [];
             let transCount = [];
-
+            let barEntries = [];
 
 
             res.forEach( (element, index) => {
@@ -195,16 +206,19 @@ export class DashBoardComponent implements OnInit {
               lable = element.Transaction
               lastProc.push(element.LastProcessed)
 
+
               if (lable !== prevLab)
                 {
 
                   if(transCount.length > 0)
                   {
-                    this.barChartData.push ( {data: transCount, label:  prevLab});
+                    barEntries.push ( {data: transCount, label:  prevLab});
                   }
                   prevLab = lable;
                   transCount = [];
                 }
+
+
 
               if(this.mbarChartLabels.indexOf(element.Days) < 0)
               {
@@ -213,42 +227,55 @@ export class DashBoardComponent implements OnInit {
                 this.dataTableKey.push(element.Days);
               }
 
+
               transCount.push(element.Count);
+              console.info("Labels: " + lable +", " + prevLab + ", count: " + element.Count + ", " + transCount.length);
 
               if ( (index+1) == res.length)
               {
-                this.barChartData.push ( {data: transCount, label:  lable});
+                barEntries.push ( {data: transCount, label:  lable});
               }
 
             });
+            this.barChartData = [...barEntries];
+
 
             this.barChartData.forEach((chartEle, index) => {
-              console.info("Barchart label: " + chartEle.label +", " + chartEle.data +", " + lastProc[index]);
-              console.info(this.dataTableLabel[1] +": " + chartEle.data[0])
+              console.info(index + ". Barchart label: " + chartEle.label +", " + chartEle.data +", " + lastProc[index] + "," + this.dataTableLabel[1] +": " + chartEle.data[0])
 
-              this.dataSource.data.push(
-                {
-                  [this.dataTableLabel[0]]:[chartEle.label],
-                  [this.dataTableLabel[1]]:lastProc[index],
-                  [this.dataTableLabel[2]]:chartEle.data[0],
-                  [this.dataTableLabel[3]]:chartEle.data[0],
-                  [this.dataTableLabel[4]]:chartEle.data[1],
-                  [this.dataTableLabel[5]]:chartEle.data[2],
-                  [this.dataTableLabel[6]]:chartEle.data[3]
-                }
-                );
+              if (chartEle.label === undefined || chartEle.label === null || chartEle.label.length === 0)
+              {
+                console.info("Skip empty label")
+              }
+              else
+              {
+
+                this.dataSource.data.push(
+                  {
+                    [this.dataTableLabel[0]]:[chartEle.label],
+                    [this.dataTableLabel[1]]:lastProc[index],
+                    [this.dataTableLabel[2]]:chartEle.data[0],
+                    [this.dataTableLabel[3]]:chartEle.data[0],
+                    [this.dataTableLabel[4]]:chartEle.data[1],
+                    [this.dataTableLabel[5]]:chartEle.data[2],
+                    [this.dataTableLabel[6]]:chartEle.data[3]
+                  }
+                  );
+              }
 
 
 
             });
+
 
 
               this.canRenderDetails = true;
 
+              console.info("barChartData length: " + this.barChartData.length);
+              console.info("mbarChartLabels length: " + this.mbarChartLabels.length);
+              console.info("dataTableLabel length: " + this.dataTableLabel.length);
+              console.info("dataTableKey length: " + this.dataTableKey.length);
 
-
-
-            this.loading = false;
 
             }),
 
@@ -369,7 +396,7 @@ public chartClicked(e:any):void {
 }
 
 public chartHovered(e:any):void {
-  // console.log(e);
+   // console.log(e);
 }
 
 }
