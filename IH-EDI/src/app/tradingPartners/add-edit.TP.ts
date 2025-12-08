@@ -28,6 +28,7 @@ export class AddEditTP implements OnInit {
 
     isAddMode!: boolean;
     loading = false;
+    createLink: boolean = false;
 
     submitted = false;
 
@@ -36,6 +37,7 @@ export class AddEditTP implements OnInit {
     row: TradingPartner = new TradingPartner();
 
     tpType = `${environment.tpType}`;
+    orgType = `${environment.orgType}`;
     tpId: string = '';
     tradingPartner: string = '';
 
@@ -100,6 +102,12 @@ public initializeData()
         this.tpId = sessionStorage.getItem("NewTpId") || '';
         this.form.controls['TpId'].setValue(this.tpId);
         console.info('Set TPID: ' + this.tpId);
+
+         if (sessionStorage.getItem("TpOperation").indexOf("tpLink-add") >= 0)
+         {
+            this.createLink = true;
+         }
+
       }
 
       this.sub = this.route.queryParams.subscribe(params => {
@@ -176,6 +184,11 @@ public initializeData()
         this.createUpdateTradingPartner(this.isAddMode);
         this.loading = false;
 
+        if (this.createLink)
+         {
+            this.router.navigate(["TradingPartners/tpIds/tp-links/add-edit/tp-add/WF/TPID" ]);
+         }
+
 
     }
 
@@ -239,6 +252,11 @@ public initializeData()
 
     openSnackBar(message: string, action: string) {
     this._snackBar.open(message, action, {duration:3000});
+  }
+
+  onSubmitCreateLinks() {
+
+    this.onSubmit()
   }
 
 

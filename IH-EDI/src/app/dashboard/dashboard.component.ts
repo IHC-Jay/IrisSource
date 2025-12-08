@@ -219,7 +219,6 @@ export class DashBoardComponent implements OnInit {
                 }
 
 
-
               if(this.mbarChartLabels.indexOf(element.Days) < 0)
               {
                 this.mbarChartLabels.push(element.Days)

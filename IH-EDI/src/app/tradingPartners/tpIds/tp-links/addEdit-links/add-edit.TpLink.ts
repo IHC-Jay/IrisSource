@@ -162,8 +162,9 @@ public initializeData()
           this.form.controls.GsSenderId.setValue(this.parentTpId);
           this.form.controls.IsaSenderId.setValue(this.parentTpId);
           this.form.controls.GsReceiverId.setValue(receiverId);
-          this.ownerTpIds.push(this.parentTpId);
+
           this.ownerTpIds.push(receiverId);
+          this.ownerTpIds.push(this.parentTpId);
        }
        else {
 

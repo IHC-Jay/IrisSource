@@ -5,6 +5,7 @@
 export const environment = {
   production: true,
   org:'',
+  orgType:'',
 
   tpDevUrl:'TradingPartner',
   rtDevTransUrl:'Transaction',

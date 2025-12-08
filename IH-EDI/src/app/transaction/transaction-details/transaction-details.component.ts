@@ -77,7 +77,7 @@ export class TransactionDetailComponent {
           ( (Number.isNaN(item.TransactionCode) === true) && Number.parseInt(item.TransactionCode) ===  Number.parseInt(this.transaction) )
           || Number.parseInt(item.TransactionCode) == 1)
           {
-            this.displayedColumns.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
+            this.displayedColumns.push({key: item.Key, type: item.Type, label: item.TransactionLabel, transactionCode: item.TransactionCode});
             // console.log(Number.isNaN(item.TransactionCode) + ", Display: " + item.TransactionCode +" ===  " + this.transaction +" || " + item.TransactionCode +": " + item.Key)
           }
 

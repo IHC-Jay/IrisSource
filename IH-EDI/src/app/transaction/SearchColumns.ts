@@ -4,6 +4,7 @@ export interface SearchColumns  {
   key: string;
   Setting: string;
   Mode: string;
+  DispType: string;
 }
 
 export interface SearchColumnsArray {

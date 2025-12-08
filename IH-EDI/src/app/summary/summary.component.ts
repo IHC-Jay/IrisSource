@@ -66,6 +66,11 @@ export class SummaryComponent implements OnInit, AfterViewInit {
 
  transactionTypes: string[] ;
 
+   pageLength= 25;
+   pageIndex = 1;
+   pageSize = 25;
+   @ViewChild('dataPaginator') dataPaginator: MatPaginator;
+
 
    nyiColumns = [
     {
@@ -73,9 +78,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       item_text: 'Not Implemented'
     }];
 
-    transSearchFlds: string[] =[];
-    transSearchLbls: string[] =[];
-
+  transSearchStructArr: customSearchStruct[] =[];
 
   loading:boolean = false;
   searchSummary:boolean = false;
@@ -199,6 +202,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
           this.formFields = JSON.parse(jsonString);
         }
     }
+
     if (this.formFields.currentTransType == '')
     {
       // Check UserConfig
@@ -210,11 +214,16 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
       {
 
-          this.formFields.currentTransType = sessionStorage.getItem('TranType');
-          this.formFields.rowCnt = sessionStorage.getItem('DispCnt');
-          this.formFields.mode = sessionStorage.getItem('Mode');
+          let parsedObject = JSON.parse(sessionStorage.getItem('UserConfig'));
 
-          let stDtStr = sessionStorage.getItem('BthTime');
+          console.info("Init from session UserConfig: " + parsedObject.TranType +", " + parsedObject.DispCnt +", " + parsedObject.Mode);
+
+
+          this.formFields.currentTransType = parsedObject.TranType
+          this.formFields.rowCnt = parsedObject.DispCnt;
+          this.formFields.mode = parsedObject.Mode;
+          this.pageSize = parsedObject.DispCnt;
+          let stDtStr = parsedObject.BthTime;
 
         // Format: Last 90 days
 
@@ -271,7 +280,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       for (var item of res)
       {
         // console.info("Push summarysSearchColumns: " + item.Key)
-          this.summarysFields.push({key: item.Key, type: item.Type, label: item.Label, summaryCode: item.TransactionCode});
+          this.summarysFields.push({key: item.Key, type: item.Type, label: item.TransmissionLabel, summaryCode: item.TransactionCode});
 
            // console.info(item.Key +": " + item.Label)
 
@@ -283,7 +292,8 @@ export class SummaryComponent implements OnInit, AfterViewInit {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
-        this.SummaryService.fetchSearchColumns().subscribe((res: any) => {
+
+        this.SummaryService.fetchSearchColumns('Default', "Summary").subscribe((res: any) => {
           this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
           this.usrSearchColumns.push(...res);
           console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
@@ -352,8 +362,6 @@ export class SummaryComponent implements OnInit, AfterViewInit {
       const formArr = this.form.get('additional') as FormArray;
       let staticSearchStr = "";
 
-      let customFlds:string[] = this.transSearchLbls;
-      let tabCol:string[] =this.transSearchFlds;
 
       // Get values for static search
 
@@ -371,23 +379,24 @@ export class SummaryComponent implements OnInit, AfterViewInit {
             console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
           }
 
-          for (let [ind, val] of customFlds.entries()) {
+          for (let [ind, val] of this.transSearchStructArr.entries()) {
 
-            if(fGrp.controls.fld.value === val)
-              {
-                console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'");
-
-                if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
+              if(fGrp.controls.fld.value === val.label
+                && val.transactionCode === this.form.controls.transType.value
+              )
+                {
+                  console.info("transSearchStructArr " + ind + ": " + val.transactionCode +", " + val.label + ", " + val.key + " = '" + fGrp.controls.newFldValue.value + "'")
+                  if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
                   {
-                      staticSearchStr += " AND " + tabCol[ind] + " LIKE '" + fGrp.controls.newFldValue.value + "'"
+                      staticSearchStr += " AND " + val.key + " LIKE '" + fGrp.controls.newFldValue.value + "'"
                   }
                   else
                   {
-                    staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                    staticSearchStr += " AND " + val.key + "='" + fGrp.controls.newFldValue.value + "'"
                   }
+                }
+            };
 
-              }
-          };
 
 
         }
@@ -761,9 +770,6 @@ transactionChange(evt: any)
 
   console.info('Add search group')
   const formArr = this.form.get('additional') as FormArray
-  this.transSearchFlds =[]
-  this.transSearchLbls = []
-
 
 
 
@@ -777,8 +783,7 @@ transactionChange(evt: any)
           {
             console.info(tran.label + ": " + element.key +", " + element.TransactionCode +", " + element.Mode);
             formArr.push(this.createCustomFlds(tran.label));
-            this.transSearchFlds.push(element.key);
-            this.transSearchLbls.push(tran.label);
+            this.transSearchStructArr.push({label: tran.label, key: element.key, transactionCode: element.TransactionCode});
             break;
           }
 
@@ -856,9 +861,24 @@ exportData()
 
   this.dataSource.data.forEach(element => {
     this.dataTableKey.forEach(col => {
-    data +=element[col] + ",";
+
+    let elementValue:string = element[col].toString();
+
+    console.info("element: " + elementValue);
+
+     if (elementValue !== null && elementValue !== '' && elementValue.indexOf(",") >= 0)
+    {
+      data +='"' + elementValue + '",';
+    }
+    else
+    {
+      data += elementValue + ",";
+    }
+
     });
+
     data += "\n";
+
   });
 
   let param: string[] = [ data, fileName];
@@ -990,6 +1010,17 @@ applyFilter(event: Event) {
   }
 }
 
+onPaginateChange(event: any)
+  {
+    console.log("onPaginateChange: " + event.pageIndex +", pageSize: " + event.pageSize );
+
+    this.dataPaginator.pageIndex =  event.pageIndex
+
+    this.pageIndex =  this.dataPaginator.pageIndex;
+    this.pageSize = this.dataPaginator.pageSize;
+
+  }
+
 }
 
 export interface Item {
@@ -998,3 +1029,8 @@ export interface Item {
   sessionId: string;
 }
 
+export interface customSearchStruct {
+  key: string;
+  label: string;
+  transactionCode: string;
+}

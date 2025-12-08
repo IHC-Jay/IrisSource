@@ -24,6 +24,7 @@ export class BulkAddLinksComponent implements OnInit {
 
     submitted = false;
     tpType = `${environment.tpType}`;
+    orgType = `${environment.orgType}`;
 
     BatchackTypes:string[] = ["ERROR","ALWAYS","NEVER"];
     RTackTypes = ["ERROR","NEVER"];

@@ -5,6 +5,7 @@
 export const environment = {
   production: true,
   org:'RCO',
+  orgType: 'Provider',
   tpDevUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRestProv/TpManage/',
   rtDevTransUrl: '',
   batchDevTransUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRestProv/BatchTransactions/',

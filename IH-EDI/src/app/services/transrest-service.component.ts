@@ -665,14 +665,14 @@ deleteDisplayColumns(setting: string, mode: string, transaction:string)
 
 }
 
-fetchSearchColumns() {
+fetchSearchColumns(setting: string, dispType: string) {
 
   if(this.currentUser === '')
   {
     this.getCurrentUser()
   }
 
-  let url = this.batchTransUrl + 'SearchColumns?userNm=' +  this.currentUser;
+  let url = this.batchTransUrl + 'SearchColumns?userNm=' +  this.currentUser +"&setting=" + setting +"&dispType=" + dispType;
 
   console.log('Fetch SearchColumns from  ' + url);
   return this.http2

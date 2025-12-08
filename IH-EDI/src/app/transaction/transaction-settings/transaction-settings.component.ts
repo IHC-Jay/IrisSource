@@ -161,13 +161,15 @@ searchTypeString:string = "";
           // Defaults to '' if no query param provided.
 
           let jsonString = sessionStorage.getItem('transConfig')
-          console.info("SumConfig from sessionStorage: " + jsonString);
+
           let formFields = JSON.parse(jsonString);
+          console.info("transConfig from sessionStorage: " + formFields.currentTransType +", Mode: " + formFields.mode);
           this.dispTransType = formFields.currentTransType;
           this.form.controls.dispTransType.setValue(this.dispTransType)
+          this.form.controls.dispMode.setValue(formFields.mode)
     }
 
-    if (this.searchTypeString !== null)
+    if (this.dispTransType === '')
     {
       let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
             this.dispTransType = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))
@@ -256,7 +258,7 @@ searchTypeString:string = "";
         {
           // console.info("Push transactionsSearchColumns: " + item.Key)
             this.allTransactionsFields.push({key: item.Key,
-              type: item.Type, label: item.Label, transactionCode: item.TransactionCode, order: item.Order,
+              type: item.Type, label: item.TransactionLabel, transactionCode: item.TransactionCode, order: item.Order,
             checked:'false'});
         }
         console.info("All TransactionsFields: " + this.allTransactionsFields.length);
@@ -270,7 +272,7 @@ searchTypeString:string = "";
 
 
 
-          this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+          this.TransactionService.fetchSearchColumns("Default", "Transactions").subscribe((res: any) => {
             this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
             this.usrSearchColumns.push(...res);
             console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
@@ -524,7 +526,7 @@ saveSettings(setting: string)
         TransactionCode: this.form.controls.dispTransType.value,
         key:  key,
         Setting: setting,
-        Mode:this.form.controls.dispMode.value}
+        Mode:this.form.controls.dispMode.value, DispType: 'Transactions'}
       );
 
 
@@ -590,22 +592,6 @@ saveConfig()
       sessionStorage.setItem("currentTab", tabLinks[ind].name)
 
       this.openSnackBar('Configuration', 'Saved' );
-     /**
-      if (ind >= tabLinks.length)
-      {
-        ind = 3
-      }
-      this.router.navigate([tabLinks[ind].link],
-          {
-          queryParams: { transaction: this.dispTransType,
-          'additionalSearch': this.additionalSearchStr,
-          'searchTypeString': this.searchTypeString }
-          }
-        );
-        **/
-
-
-
 
   });
 

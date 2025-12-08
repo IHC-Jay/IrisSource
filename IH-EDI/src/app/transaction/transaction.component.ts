@@ -55,6 +55,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
    org = `${environment.org}`;
 
   transactionTypes: string[] ;
+   pageLength= 25;
+   pageIndex = 1;
+   pageSize = 25;
+   @ViewChild('dataPaginator') dataPaginator: MatPaginator;
 
 
    nyiColumns = [
@@ -63,8 +67,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       item_text: 'Not Implemented'
     }];
 
-    transSearchFlds: string[] =[];
-    transSearchLbls: string[] =[];
+     transSearchStructArr: customSearchStruct[] =[];
 
 
   loading:boolean = false;
@@ -220,7 +223,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
           // Defaults to '' if no query param provided.
 
           let jsonString = sessionStorage.getItem('transConfig')
-          console.info("SumConfig from sessionStorage: " + jsonString);
+          console.info("transConfig from sessionStorage: " + jsonString);
           this.formFields = JSON.parse(jsonString);
         }
 
@@ -232,17 +235,21 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       console.log('sessionStorage UserConfig: ' + sessionStorage.getItem('UserConfig'))
       if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
       {
+        let parsedObject = JSON.parse(sessionStorage.getItem('UserConfig'));
 
-        this.formFields.currentTransType = sessionStorage.getItem('TranType');
+        console.info("Init from session UserConfig: " + parsedObject.TranType +", " + parsedObject.DispCnt +", " + parsedObject.Mode);
 
+
+        this.formFields.currentTransType = parsedObject.TranType;
+        this.formFields.currentMode = parsedObject.Mode
+        this.formFields.rowCnt = parsedObject.DispCnt;
 
         this.form.controls.transType.setValue(this.formFields.currentTransType);
+        this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+        this.form.controls.mode.setValue(this.formFields.currentMode);
 
-        this.form.controls.rowCnt.setValue(sessionStorage.getItem('DispCnt'));
-        this.form.controls.mode.setValue(sessionStorage.getItem('Mode'));
-        this.formFields.currentMode = this.form.controls.mode.value;
-
-        let stDtStr = sessionStorage.getItem('TranTime');
+        this.pageSize = parsedObject.DispCnt;
+        let stDtStr = parsedObject.TranTime;
 
         // Format: Last 90 days
 
@@ -310,10 +317,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       for (var item of res)
       {
         // console.info("Push transactionsSearchColumns: " + item.Key)
-          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.Label, transactionCode: item.TransactionCode});
-
-           // console.info(item.Key +": " + item.Label)
-
+          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.TransactionLabel, transactionCode: item.TransactionCode});
       }
       console.info("transactions Fields: " + this.transactionsFields.length);
       console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
@@ -321,8 +325,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       this.TransactionService.fetchDisplayColumns("Default", "Transactions").subscribe((res: any) => {
         this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
         this.usrDisplayColumns.push(...res);
+
         console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
-        this.TransactionService.fetchSearchColumns().subscribe((res: any) => {
+        this.TransactionService.fetchSearchColumns("Default", "Transactions").subscribe((res: any) => {
           this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
           this.usrSearchColumns.push(...res);
           console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
@@ -388,9 +393,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       this.loading = true;
       const formArr = this.form.get('additional') as FormArray;
-      //
-      let customFlds:string[] = this.transSearchLbls;
-      let tabCol:string[] =this.transSearchFlds;
+
 
 
       if (this.additionalSearchStr === '')
@@ -413,18 +416,22 @@ export class TransactionComponent implements OnInit, AfterViewInit {
               console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
             }
 
-            for (let [ind, val] of customFlds.entries()) {
 
-              if(fGrp.controls.fld.value === val)
+
+            for (let [ind, val] of this.transSearchStructArr.entries()) {
+
+              if(fGrp.controls.fld.value === val.label
+                && val.transactionCode === this.form.controls.transType.value
+              )
                 {
-                  console.info(ind + ": " + val + ", " + tabCol[ind] + " = '" + fGrp.controls.newFldValue.value + "'")
+                  console.info("transSearchStructArr " + ind + ": " + val.transactionCode +", " + val.label + ", " + val.key + " = '" + fGrp.controls.newFldValue.value + "'")
                   if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
                   {
-                      this.staticSearchStr += " AND " + tabCol[ind] + " LIKE '" + fGrp.controls.newFldValue.value + "'"
+                      this.staticSearchStr += " AND " + val.key + " LIKE '" + fGrp.controls.newFldValue.value + "'"
                   }
                   else
                   {
-                    this.staticSearchStr += " AND " + tabCol[ind] + "='" + fGrp.controls.newFldValue.value + "'"
+                    this.staticSearchStr += " AND " + val.key + "='" + fGrp.controls.newFldValue.value + "'"
                   }
                 }
             };
@@ -441,17 +448,22 @@ export class TransactionComponent implements OnInit, AfterViewInit {
           {
             let fGrp = formArr.at(i) as FormGroup
 
-             for (let [ind, val] of customFlds.entries()) {
+             for (let [ind, val] of this.transSearchStructArr.entries()) {
 
-              if (this.additionalSearchStr.indexOf(tabCol[ind]) >= 0 && val ===  fGrp.controls.fld.value )
+              if (this.additionalSearchStr.indexOf(val.key) >= 0
+                 && val.label ===  fGrp.controls.fld.value
+                 && val.transactionCode === this.form.controls.transType.value)
               {
                 let usrVal =  this.staticSearchStr.substring(this.staticSearchStr.indexOf("=") + 1)
-                console.info('Set: ' + tabCol[ind] + " = '" + usrVal + "', " + val);
+                console.info('transSearchStructArr Set: '+ val.transactionCode +", " + val.key + " = '" + usrVal + "', " + val.label);
 
                 fGrp.controls.newFldValue.setValue(usrVal.replaceAll("'",""));
                 break;
               }
              }
+
+
+
           }
       }
 
@@ -677,20 +689,21 @@ private clearCustomFlds() {
 private updateCustomFlds() {
 
   const formArr = this.form.get('additional') as FormArray
-  let customFlds:string[] = this.transSearchLbls;
-  let tabCol:string[] =this.transSearchFlds;
+
 
   if (formArr.length >= 1) {
     for(let i=0;i< formArr.length;i++)
     {
       let fGrp = formArr.at(i) as FormGroup
 
-      for (let [ind, val] of customFlds.entries()) {
 
-        if(fGrp.controls.fld.value === val && tabCol[ind] === 'FileName')
+
+      for (let [ind, val] of this.transSearchStructArr.entries()) {
+
+        if(fGrp.controls.fld.value === val.label && val.key === 'FileName')
           {
             fGrp.controls.newFldValue.setValue(this.fileName.replaceAll("'", ""));
-            console.info("updateCustomFlds: " + ind + ": " + tabCol[ind] + ", " + fGrp.controls.newFldValue.value)
+            console.info("transSearchStructArr updateCustomFlds: " + ind + ": " + val.key + ", " + fGrp.controls.newFldValue.value)
           }
       };
 
@@ -850,10 +863,8 @@ transactionChange(evt: any)
 
   console.info('Add search group')
   const formArr = this.form.get('additional') as FormArray
-  this.transSearchFlds =[]
-  this.transSearchLbls = []
 
-
+  this.transSearchStructArr =[];
 
 
   this.usrSearchColumns.forEach(element => {
@@ -862,12 +873,12 @@ transactionChange(evt: any)
 
         for (let tran of this.transactionsFields){
         {
-          if(tran.key == element.key)
+          if(tran.key == element.key && tran.transactionCode === this.form.controls.transType.value)
           {
-            console.info(tran.label + ": " + element.key +", " + element.TransactionCode +", " + element.Mode);
+            console.info("Push transSearchStructArr: " + tran.label + ": " + element.key +", " + element.TransactionCode +", " + element.Mode);
             formArr.push(this.createCustomFlds(tran.label));
-            this.transSearchFlds.push(element.key);
-            this.transSearchLbls.push(tran.label);
+
+            this.transSearchStructArr.push({label: tran.label, key: element.key, transactionCode: element.TransactionCode});
             break;
           }
 
@@ -941,7 +952,9 @@ exportData()
   let fileName = "DataExport-" + this.formFields.currentTransType   + "-" + this.formFields.startDate + "To" + this.formFields.endDate + ".csv"
   let data = ""
 
+
   this.dataTableLabel.forEach(element => {
+
     if (element.indexOf(",") >= 0)
     {
       data +='"' + element + '",';
@@ -952,17 +965,22 @@ exportData()
     }
   });
   data += "\n";
+  console.info("file header: " + data);
 
   this.dataSource.data.forEach(element => {
     this.dataTableKey.forEach(col => {
 
-     if (element[col].indexOf(",") >= 0)
+      let elementValue:string = element[col].toString();
+
+      console.info("element: " + elementValue);
+
+     if (elementValue !== null && elementValue !== '' && elementValue.indexOf(",") >= 0)
     {
-      data +='"' + element[col] + '",';
+      data +='"' + elementValue + '",';
     }
     else
     {
-      data +=element[col] + ",";
+      data += elementValue + ",";
     }
 
     });
@@ -1075,11 +1093,29 @@ applyFilter(event: Event) {
   }
 }
 
+onPaginateChange(event: any)
+  {
+    console.log("onPaginateChange: " + event.pageIndex +", pageSize: " + event.pageSize );
+
+    this.dataPaginator.pageIndex =  event.pageIndex
+
+    this.pageIndex =  this.dataPaginator.pageIndex;
+    this.pageSize = this.dataPaginator.pageSize;
+
+  }
+
+
 }
 
 export interface Item {
   ID: number;
   rowId: number;
   sessionId: string;
+}
+
+export interface customSearchStruct {
+  key: string;
+  label: string;
+  transactionCode: string;
 }
 

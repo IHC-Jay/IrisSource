@@ -47,6 +47,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
   ifAdd:boolean = false;
 
     tpType = `${environment.tpType}`;
+    orgType = `${environment.orgType}`;
 
 
     displayedColumns: string[] = TradingPartnerColumns.map((col) => col.key);
@@ -78,12 +79,12 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       if (sessionStorage.getItem("TpOperation") != null)
       {
          console.info("TradingPartnersComponent ngOnInit" + sessionStorage.getItem("NewTpId") + ", " + sessionStorage.getItem("TpOperation") );
-         if (sessionStorage.getItem("TpOperation") == "tp-add")
+         if (sessionStorage.getItem("TpOperation").indexOf("tp-add") >= 0)
          {
             this.router.navigate(["/TradingPartners/tp-add/"]);
             continueOn = false ;
          }
-         else if (sessionStorage.getItem("TpOperation") == "tpLink-add")
+         else if (sessionStorage.getItem("TpOperation").indexOf("tpLink-add") >= 0)
          {
             this.router.navigate(["TradingPartners/tpIds/tp-links/add-edit/tp-add/WF/TPID" ]);
             continueOn = false ;

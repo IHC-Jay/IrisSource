@@ -199,20 +199,25 @@ getX12(searchStr: string = "")
         this.separator = res[0].X12.substr(3, 1)
         console.log("Sep: " + this.separator)
         let wfErr = (String)(res[0].Error).replaceAll(";", "\n");
+
         let tpInd = wfErr.indexOf("TP Not found:")
         if (tpInd >=0)
         {
           this.tpCreate = true;
           this.tpId = wfErr.substring(tpInd + "TP Not found:".length).trim();
-        }
-        else{
-          let tpInd = wfErr.indexOf("Relation Not found:")
-          if (tpInd >=0)
+          if (this.tpId.indexOf("TP Not found:") >=0  ) // In case two TPs are missing
           {
-            this.tpCreate = true;
-            this.tpRelId = wfErr.substring(tpInd + "TRelation Not found:".length).trim();
+            this.tpId = this.tpId.substring(0, this.tpId.indexOf("TP Not found:")).trim();
           }
         }
+
+        tpInd = wfErr.indexOf("Relation Not found:")
+        if (tpInd >=0)
+        {
+          this.tpCreate = true;
+          this.tpRelId = wfErr.substring(tpInd + "TRelation Not found:".length).trim();
+        }
+
         if (this.fileName == undefined || this.fileName == null || this.fileName == ''  )
         {
           this.errorStr = "Workflow ID: " + res[0].ID + ", Filename:" + res[0].Filename + ", Status: " + this.wfStatus + "\n" + wfErr + "\n" ;
@@ -386,14 +391,21 @@ getX12(searchStr: string = "")
   {
 
       console.log('To TP create: ' + this.tpId +", " + this.tpRelId  );
+
       if (this.tpId !== "")
       {
-      sessionStorage.setItem("TpOperation", "tp-add");
+        sessionStorage.setItem("TpOperation", "tp-add");
         sessionStorage.setItem("NewTpId", this.tpId);
       }
-      else if (this.tpRelId !== "")
+      if (this.tpRelId !== "")
       {
-        sessionStorage.setItem("TpOperation", "tpLink-add");
+        if (sessionStorage.getItem("TpOperation") == null && sessionStorage.getItem("TpOperation") == "")
+        {
+            sessionStorage.setItem("TpOperation", "tpLink-add");
+        }
+        else{
+            sessionStorage.setItem("TpOperation", "tp-add;tpLink-add");
+        }
         sessionStorage.setItem("NewTpRelId", this.tpRelId);
       }
 
