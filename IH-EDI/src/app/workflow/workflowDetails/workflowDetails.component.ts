@@ -399,7 +399,7 @@ getX12(searchStr: string = "")
       }
       if (this.tpRelId !== "")
       {
-        if (sessionStorage.getItem("TpOperation") == null && sessionStorage.getItem("TpOperation") == "")
+        if (sessionStorage.getItem("TpOperation") == null || sessionStorage.getItem("TpOperation") == "")
         {
             sessionStorage.setItem("TpOperation", "tpLink-add");
         }
