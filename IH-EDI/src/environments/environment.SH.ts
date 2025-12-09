@@ -4,7 +4,7 @@
 
 export const environment = {
   production: true,
-  org: 'SH',
+  org: '/SH/',
   orgType: 'Payer',
 
   tpDevUrl: 'https://itf-webapache-dev.co.ihc.com:8443/EdiRest/TpManage/',

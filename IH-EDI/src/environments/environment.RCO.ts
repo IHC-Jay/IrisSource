@@ -26,7 +26,7 @@ export const environment = {
 
   tpType: 'Payer',
   logo:'assets/ih-rco.jpg',
-  allowedEnvironments: ['DEV', 'QA', 'UAT']
+  allowedEnvironments: [ 'QA','UAT']
 
 };
 
