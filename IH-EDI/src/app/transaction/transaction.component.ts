@@ -225,6 +225,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
           let jsonString = sessionStorage.getItem('transConfig')
           console.info("transConfig from sessionStorage: " + jsonString);
           this.formFields = JSON.parse(jsonString);
+          let nowDt = new Date(new Date().getTime());
+          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
+          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
+          this.formFields.endTm= tmVal
         }
 
     }

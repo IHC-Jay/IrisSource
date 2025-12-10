@@ -186,6 +186,12 @@ export class SummaryComponent implements OnInit, AfterViewInit {
           let jsonString = params["sumConfig"]
           console.info("SumConfig from queryParams: " + jsonString);
           this.formFields = JSON.parse(jsonString);
+
+          let nowDt = new Date(new Date().getTime());
+          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
+          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
+          this.formFields.endTm= tmVal
+
         }
 
       }
@@ -200,6 +206,10 @@ export class SummaryComponent implements OnInit, AfterViewInit {
           let jsonString = sessionStorage.getItem('sumConfig')
           console.info("SumConfig from sessionStorage: " + jsonString);
           this.formFields = JSON.parse(jsonString);
+          let nowDt = new Date(new Date().getTime());
+          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
+          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
+          this.formFields.endTm= tmVal
         }
     }
 
@@ -402,6 +412,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
         }
       }
       this.formFields.disposition = this.form.controls.disposition.value
+      this.formFields.mode = this.form.controls.mode.value
 
       if(staticSearchStr.length > 3)
       {
@@ -970,7 +981,7 @@ onContextMenuNew(item: Item) {
 
        const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` +"/transaction/"],
       {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
-        'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
+        'mode': this.form.controls.mode.value, 'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
        ));
     const newTab = window.open(url, '_blank');
     if(newTab) {
