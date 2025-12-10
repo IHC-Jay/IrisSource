@@ -338,7 +338,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
             this.transactionChange(this.formFields.currentTransType);
 
             console.info('Transaction search for: ' + this.formFields.currentTransType);
-            this.onSearchTransactions();
+            // this.onSearchTransactions();
             }
             else
             {
@@ -700,12 +700,15 @@ private updateCustomFlds() {
 
       for (let [ind, val] of this.transSearchStructArr.entries()) {
 
+        console.info("Search values: " + ind + ": " + val.key + ", " + val.label + ", " + val.transactionCode +", " + this.form.controls.transType.value )
+
         if(fGrp.controls.fld.value === val.label && val.key === 'FileName')
           {
             fGrp.controls.newFldValue.setValue(this.fileName.replaceAll("'", ""));
             console.info("transSearchStructArr updateCustomFlds: " + ind + ": " + val.key + ", " + fGrp.controls.newFldValue.value)
           }
       };
+
 
 
     }
