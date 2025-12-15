@@ -320,6 +320,8 @@ BPL Definition</Description>
       
        set context.individualST=context.stDoc.GetAt(context.STCounter)
        
+       $$$TRACE("individual ST FileName : "_ context.individualST)
+       
        /* Extract GroupID information from X12 to be used in filename */
   
         set refGroupIDpath="REF(1)"
@@ -377,6 +379,7 @@ BPL Definition</Description>
  set ENTIterator = "true"
  
  
+ 
  /* Setting message to X12 820 TransactionSet */
  
  set STRecord=context.individualST 
@@ -384,18 +387,45 @@ BPL Definition</Description>
  
  /* Define ENT segment path's for both 2000A , 2000B and next iteration of 2000B loop */
  
+ 
+ 
  set cur2000Apath="loop2000A.ENT"
  set cur2000Aind=STRecord.GetSegmentIndex(cur2000Apath,.cur2000Astatus)
    
- set cur2000Bpath="loop2000B("_i_").ENT"
- set cur2000Bind=STRecord.GetSegmentIndex(cur2000Bpath,.cur2000Bstatus)
-   
- set nxt2000Bpath="loop2000B("_(i+1)_").ENT"
- set nxt2000Bind=STRecord.GetSegmentIndex(nxt2000Bpath,.nxt2000Bstatus)
- 
+ set context.individualST=context.stDoc.GetAt(context.STCounter)  
+  set ENTpresent = STRecord.GetValueAt("loop2000B(1).ENT")
+  set sttrail = STRecord.GetValueAt("ST")
+  
+  $$$TRACE("2000B present or not, " _ENTpresent )
+  $$$TRACE("STRECORD 2000B present or not, " _context.individualST )
+   if (ENTpresent'="")
+    {
+     set cur2000Bpath="loop2000B("_i_").ENT"
+     set cur2000Bind=STRecord.GetSegmentIndex(cur2000Bpath,.cur2000Bstatus)
+     $$$TRACE("2000B path, " _cur2000Bpath) 
+     set nxt2000Bpath="loop2000B("_(i+1)_").ENT"
+     set nxt2000Bind=STRecord.GetSegmentIndex(nxt2000Bpath,.nxt2000Bstatus)
+    }
+   else
+    {
+     set cur2000Bstatus = 0
+     //set nxt2000Bstatus = 0
+     //set cur2000Bind = 0
+     //set nxt2000Bind = 0
+     
+     
+     
+     
+    }
+  
+  
+  
+  
  /* Capture the closing segment(SE) of Transaction Set */
  
  set sesegment=STRecord.GetValueAt(STRecord.SegCount)   
+ 
+ $$$TRACE("need to see the value in 2000B, " _cur2000Bstatus)
 
   
  try
@@ -405,6 +435,7 @@ BPL Definition</Description>
    While(ENTIterator = "true")
    {
     
+    
     /* Below if & elseif logic would create individual X12 records with one ENT loop. The logic iterates through the X12 segments and gathers the header information (ST - PER) into "X12HeaderRecord" variable and each ENT loop would then be appended to the Header record creating individual records */ 	
 	
     if ((i'=1) && (cur2000Bstatus=1))
@@ -413,6 +444,8 @@ BPL Definition</Description>
         /* Move header information to IndividualENTRecord variable before appending all segments and trailing segment SE to create individual ST-SE record with one ENT record */
 	  
         set IndividualENTRecord=context.X12HeaderRecord
+        
+      $$$TRACE("if else logic loop , " _IndividualENTRecord)  
       
        /* Logic : if next ENT record is available, capture all segments until the next ENT record. Else capture until end of SE segment */
 	   
@@ -476,8 +509,19 @@ BPL Definition</Description>
     }
     else
     {
+         if (cur2000Astatus=1)
+       { 
+         for j=1:1:(STRecord.SegCount-1)
+          { 
+            set IndividualENTRecord=IndividualENTRecord_"~"_STRecord.GetValueAt(j)     
+          } 
+          
+          
+       }
+        
         set context.ENTParsing = "1"
 	set ENTIterator = "false"
+	$$$TRACE("new 1234indivi ENT erecord , " _IndividualENTRecord)
         QUIT
     }
    } 
@@ -485,6 +529,8 @@ BPL Definition</Description>
     /* Create output record for individual X12 with one ENT loop */
 	
     set IndividualENTRecord=IndividualENTRecord_"~"_sesegment
+    
+    $$$TRACE("new indivi ENT erecord , " _IndividualENTRecord)
     	
     set context.dtlInput=##class(EnsLib.EDI.X12.Document).ImportFromString(IndividualENTRecord)      
     set context.dtlInput.DocType="HIPAA_5010:820"      
@@ -549,9 +595,13 @@ BPL Definition</Description>
    
      set nxt2300Apath="loop2000A.loop2300A("_(i+1)_").RMR"
      set nxt2300Aind=HeaderRecord.GetSegmentIndex(nxt2300Apath,.nxt2300Astatus)
+     
+      $$$TRACE("new indivi 2300A erecord , " _nxt2300Aind)
 	 
      set cur2000Bpath="loop2000B(1).ENT"
      set cur2000Bind=HeaderRecord.GetSegmentIndex(cur2000Bpath,.cur2000Bstatus)
+     
+     
     
 
     /* Below if & elseif logic would create individual X12 records with one RMR loop. The logic iterates through the X12 segments and gathers the header information (ST - ENT) into "headerIndividualENTRecord2300A" variable and each RMR loop would then be appended to the Header record creating individual records. Finally SE segment would be appended at the end */ 	
@@ -595,10 +645,14 @@ BPL Definition</Description>
          if ($L(IndividualENTRecord2300A) > 0)
           { 
             set IndividualENTRecord2300A=IndividualENTRecord2300A_"~"_HeaderRecord.GetValueAt(j)
+            $$$TRACE("new trace nxt23000A , " _IndividualENTRecord2300A) 
          
             if ((cur2300Astatus=1) && (j<cur2300Aind))
             { 
               set headerIndividualENTRecord2300A=headerIndividualENTRecord2300A_"~"_HeaderRecord.GetValueAt(j)
+               $$$TRACE("new trace cur23000A , " _headerIndividualENTRecord2300A)
+              
+               
             }
           }
           else
@@ -608,7 +662,8 @@ BPL Definition</Description>
           }		  
         }  
 
-        set IndividualENTRecord2300A=IndividualENTRecord2300A_"~"_sesegment2000A      
+        set IndividualENTRecord2300A=IndividualENTRecord2300A_"~"_sesegment2000A 
+        $$$TRACE("new trace RMR 2300A 2300A erecord , " _IndividualENTRecord2300A)     
         
       }
       elseif (nxt2300Astatus'="1")
@@ -631,6 +686,8 @@ BPL Definition</Description>
   
   set outputRecord=##class(EnsLib.EDI.X12.Document).ImportFromString(IndividualENTRecord2300A) 
   set outputRecord.DocType="HIPAA_5010:820"
+  
+  $$$TRACE("new trace output record  , " _outputRecord)
   
   /* Place the generated output record in a list variable */
   
@@ -658,6 +715,10 @@ BPL Definition</Description>
  /* Set total number for individual 2000A RMR records created */
  set context.HeaderRecordCount = recordCount 
  
+ $$$TRACE("total record count erecord , " _context.HeaderRecordCount)
+ 
+ 
+ 
 
   
 
@@ -671,7 +732,7 @@ BPL Definition</Description>
 <![CDATA[ 
  try
  {
-   ///$$$TRACE("HeaderRecordCount : " _ context.HeaderRecordCount _ " // HeaderRecordite : " _ context.HeaderRecordite _" // TransactionSet : " _ context.dtlHeader.GetAt(context.HeaderRecordite).RawContent)
+   $$$TRACE("HeaderRecordCount : " _ context.HeaderRecordCount _ " // HeaderRecordite : " _ context.HeaderRecordite _" // TransactionSet : " _ context.dtlHeader.GetAt(context.HeaderRecordite).RawContent)
  
    set context.dtlHeaderInput = context.dtlHeader.GetAt(context.HeaderRecordite) 
  }
@@ -697,7 +758,7 @@ BPL Definition</Description>
 <![CDATA[
  /* Write record created to a temporary location */
  
- set stat = ##class(IHC.ITF.DStruc.Record.Sh820DffRemittanceAdviceHeader).PutObject(context.FileName, response)
+ set stat = ##class(IHC.ITF.DStruc.Record.Uhin820DelimHeader).PutObject(context.FileName, response)
  
  set context.HeaderRecordite = context.HeaderRecordite + 1
  
@@ -719,7 +780,7 @@ BPL Definition</Description>
 <annotation><![CDATA[Write detail record created to a temporary file]]]]><![CDATA[></annotation>
 <![CDATA[ /* Write record created to a temporary location  */
   
- set stat = ##class(IHC.ITF.DStruc.Record.Sh820DffRemittanceAdvice).PutObject(context.FileName, response)
+ set stat = ##class(IHC.ITF.DStruc.Record.Uhin820DelimDetail).PutObject(context.FileName, response)
   
  IF $$$ISERR(stat) 
  {
