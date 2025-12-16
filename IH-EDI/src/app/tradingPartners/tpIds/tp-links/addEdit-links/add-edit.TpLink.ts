@@ -94,6 +94,7 @@ public initializeData()
         res.forEach((entry) => {
 
         this.ownerTpIds.push(entry.TPID);
+        // console.info("Owner TPID: " + entry.TPID);
 
         });
     }
@@ -491,6 +492,10 @@ public initializeData()
         this.sendingTpIds =[];
         this.receivingTpIds=[];
         this.sendingTpIds[0] = this.parentTpId ;
+        if(this.form.controls.GsSenderId.value !== this.parentTpId)
+        {
+          this.sendingTpIds.push( this.form.controls.GsSenderId.value );
+        }
         this.receivingTpIds = this.ownerTpIds;
         if (this.isAddMode) {
           this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);
@@ -505,6 +510,10 @@ public initializeData()
         this.receivingTpIds =[];
         this.sendingTpIds = [];
         this.receivingTpIds[0] = this.parentTpId ;
+        if(this.form.controls.GsReceiverId.value !== this.parentTpId)
+        {
+          this.receivingTpIds.push( this.form.controls.GsReceiverId.value );
+        }
         this.sendingTpIds = this.ownerTpIds;
         if (this.isAddMode) {
           this.form.controls.GsReceiverId.setValue(this.receivingTpIds[0]);

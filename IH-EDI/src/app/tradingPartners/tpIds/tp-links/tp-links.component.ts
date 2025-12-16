@@ -74,7 +74,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
 
-    console.info("ngOnInit tpLinksService.fetchTpLinks");
+    console.info("ngOnInit");
     const routeParams = this.route.snapshot.paramMap;
     this.tpId = routeParams.get('tpId');
     this.tpName = routeParams.get('tpName');
@@ -170,9 +170,19 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-bulkAdd/" + this.tpId +"/" + this.tpName] );
   }
 
-  editRow(tpLink: string)
+  editRow(tpLink: tpLinks)
   {
-    this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-edit/" +  this.tpId +"/" + this.tpName +"/" + tpLink] );
+    console.info("Call edit for: " + typeof tpLink +", " + tpLink.IsaSenderId + " -> " + tpLink.IsaReceiverId +", " + tpLink.Direction);
+    let newTpNm = this.tpName.replace("/", "%2F");
+    if(tpLink.Direction.indexOf("In") >=0  )
+    {
+      this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-edit/" +  tpLink.IsaSenderId +"/" + this.tpName +"/" + tpLink.Link] );
+    }
+    else
+    {
+      this.router.navigate(["/TradingPartners/tpIds/tp-links/add-edit/tp-edit/" +  tpLink.IsaReceiverId +"/" + this.tpName +"/" + tpLink.Link] );
+    }
+
   }
 
   delete(tpLink: string) {

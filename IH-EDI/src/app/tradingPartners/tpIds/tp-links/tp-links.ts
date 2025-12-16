@@ -3,10 +3,10 @@ export class tpLinks
 {
 id: string;
 Link:string;
-IsaSenderIP:string;
-IsaReceiverIP:string;
-GsSenderIP:string;
-GsReceiverIP:string;
+IsaSenderId:string;
+IsaReceiverId:string;
+GsSenderId:string;
+GsReceiverId:string;
 TransactionSetId: string;
 TransType:string;
 Direction:string;
