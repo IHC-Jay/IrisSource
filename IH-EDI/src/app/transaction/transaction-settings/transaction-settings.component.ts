@@ -169,7 +169,7 @@ searchTypeString:string = "";
           this.form.controls.dispMode.setValue(formFields.mode)
     }
 
-    if (this.dispTransType === '' && this.searchTypeString !== null && this.searchTypeString.indexOf("transaction::") >=0 )
+    if (this.dispTransType === '' && this.searchTypeString !== null && this.searchTypeString.indexOf("transaction::") >=0)
     {
       let fInd = this.searchTypeString.indexOf("transaction::") + "transaction::".length;
             this.dispTransType = this.searchTypeString.substring( fInd, this.searchTypeString.indexOf(";", fInd))

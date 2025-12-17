@@ -58,7 +58,7 @@ public initializeData()
      this.ownerTpIds.push(entry.TPID);
      this.canRender = true;
     });
-    console.info("this.ownerTpIds: " + this.ownerTpIds.length)
+
 
  });
 }
@@ -98,7 +98,7 @@ public initializeData()
         let count = await myPromise()
 
         if(this.canRender){
-          console.log('Received from fetchOwnerTpIds: ' +`${count}: ${index}`);
+          console.log('Received from fetchOwnerTpIds: ' + this.ownerTpIds.length);
 
           break;
         }

@@ -1,5 +1,5 @@
 
-import { Component, OnInit, OnDestroy, ViewChild, Inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild } from '@angular/core';
 import { animate, state, style, transition, trigger } from '@angular/animations';
 import { MatTableModule, MatTableDataSource } from '@angular/material/table';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -17,6 +17,7 @@ import { TradingPartner } from '../../TradingPartner';
 import { MatDialog } from '@angular/material/dialog';
 import { ConfirmDialogComponent } from '../../../confirm-dialog/confirm-dialog.component';
 import { MatIconModule } from '@angular/material/icon';
+
 
 @Injectable({
   providedIn: 'root'
@@ -66,6 +67,7 @@ export class tpLinksComponent implements OnInit, OnDestroy {
 
   tpLinksArray: tpLinks[] = [];
 
+
   constructor(public dialog: MatDialog, private router: Router, private route: ActivatedRoute, private tpLinksService: TpRestServiceComponent
   ) {
     this.tpIdToLink = this.tpId;
@@ -95,6 +97,8 @@ export class tpLinksComponent implements OnInit, OnDestroy {
     this.tpIdLinksList.sort = this.sort;
 
   }
+
+
 
   Refresh()
   {

@@ -1,4 +1,4 @@
-import { Component, OnInit, ViewChild } from '@angular/core';
+import { Component, OnInit, ViewChild, inject } from '@angular/core';
 import { ActivatedRoute, RouteReuseStrategy } from '@angular/router';
 
 import {TpRestServiceComponent} from '../../services/tprest-service.component';
@@ -8,6 +8,8 @@ import { MatDialog } from '@angular/material/dialog';
 import { TpId, TpIdColumns } from './TpId';
 import { ConfirmDialogComponent } from '../../confirm-dialog/confirm-dialog.component';
 import { MatIconModule } from '@angular/material/icon';
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
+
 @Component({
     selector: 'app-tpIds',
     templateUrl: './tpIds.component.html',
@@ -27,6 +29,8 @@ export class TpIdComponent implements OnInit {
   dataSource = new MatTableDataSource<TpId>();
   valid: any = {};
   @ViewChild(MatPaginator, {static: true}) paginator: MatPaginator;
+  private _snackBar = inject(MatSnackBar);
+
 
   constructor(public dialog: MatDialog, private route: ActivatedRoute,  private tpIdService: TpRestServiceComponent) { }
 
@@ -40,6 +44,12 @@ export class TpIdComponent implements OnInit {
     ngAfterViewInit() {
       this.dataSource.paginator = this.paginator;
     }
+
+
+  openSnackBar(message: string, action: string) {
+    this._snackBar.open(message, action, {duration:3000});
+  }
+
 
     addRow() {
       const newRow: TpId = {
@@ -57,14 +67,16 @@ export class TpIdComponent implements OnInit {
     editRow(row: TpId) {
 
       if (row.id === '-1') {
-        console.info('Add a TPID ' + row.id);
+        console.info('Add a TPID ' + row.TPID +", " + this.tpId);
         if (row.TPID !== '')
         {
-          let res = this.tpIdService.addTPID(row).subscribe((res) => {
+            row.Name = this.tpId;
+            let res = this.tpIdService.addTPID(row).subscribe((res) => {
             row.isEdit = false;
             row.id = res.id;
             row.isEdit = false;
-            console.info('Added TP: ' + row.TPID +", ID: " + res.id);
+            console.info('Added TP: ' + row.TPID +", ID: " + res.id + ", " + res.Status );
+             this.openSnackBar('TPID ' + row.TPID, 'Save ' + res.Status );
           });
 
         }
@@ -79,8 +91,11 @@ export class TpIdComponent implements OnInit {
 
       } else {
         console.info('Edit a TP ' + row.Name +", " + row.id);
+        row.Name = this.tpId;
         this.tpIdService.updateTPID(row).subscribe((res) => {
           row.isEdit = false;
+          console.info('Update TP: ' + row.TPID +", ID: " + res.id + ", " + res.Status );
+             this.openSnackBar('Update TPID ' + row.TPID, 'Save ' + res.Status );
         });
       }
 

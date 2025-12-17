@@ -204,7 +204,7 @@ export class WorkflowComponent implements OnInit {
             console.log(fInd + ". startTm:" + val )
             this.startTm = val
 
-            fInd = searchParams.indexOf("endDtTm::") + "endDtTm::".length;
+            fInd = searchParams.indexOf("wfEndDtTm::") + "wfEndDtTm::".length;
             fInd2 = searchParams.indexOf(" ", fInd)
             val = searchParams.substring( fInd, fInd2)
             console.log(fInd + ". endDate:" + val )
@@ -378,7 +378,7 @@ onSubmit()
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "endDtTm::" + this.endDate+" " +this.endTm +";" +
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  );
 
   let mode = this.form.controls.mode.value;
@@ -492,7 +492,7 @@ onDetailsClicked(row) {
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "endDtTm::" + this.endDate+" " +this.endTm +";" +
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  ;
 
   console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
@@ -510,7 +510,7 @@ onHistoryClicked(row) {
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "endDtTm::" + this.endDate+" " +this.endTm +";" +
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
           "count::" + this.form.controls.rowCnt.value +";"  ;
 
   console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);

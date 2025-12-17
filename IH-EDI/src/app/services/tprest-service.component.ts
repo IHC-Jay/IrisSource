@@ -500,7 +500,7 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
   }
 
 
-  addTPID(newTpId: TpId) : Observable<TpId> {
+  addTPID(newTpId: TpId) : Observable<any> {
 
     console.log('addTradingPartner TPID: ' + newTpId.Name);
 
@@ -512,7 +512,7 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
 
   }
 
-  updateTPID(tpid: TpId): Observable<TpId> {
+  updateTPID(tpid: TpId): Observable<any> {
     console.log('updateTradingPartner TPIT: ' + tpid.Name + ", Id: " + tpid.id);
 
 

@@ -1,4 +1,4 @@
-import { Component,   ViewChildren,  ElementRef,  ChangeDetectorRef,  QueryList, OnInit } from '@angular/core';
+import { Component,   ViewChildren,  ElementRef,  ChangeDetectorRef,  QueryList, OnInit, inject } from '@angular/core';
 import { Router, ActivatedRoute, RouteConfigLoadEnd } from '@angular/router';
 import { AbstractControlOptions, FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { first } from 'rxjs/operators';
@@ -9,6 +9,7 @@ import { tpLinks } from '../tp-links';
 import { CreateNoteComponent } from '../create-note/create-note.component';
 import { SingleNoteComponent } from '../single-note/single-note.component';
 import { environment } from '../../../../../environments/environment';
+import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 
 export class TransTypes
 {
@@ -47,6 +48,8 @@ export class AddEditTpLink implements OnInit {
     submitted = false;
     transaction835:boolean = false;
     routeVal:string ='';
+    private _snackBar = inject(MatSnackBar);
+
 
     sendingTpIds = [];
     ackTypes:string[] = ["ERROR","ALWAYS","NEVER"];
@@ -368,6 +371,10 @@ public initializeData()
         }
     }
 
+      openSnackBar(message: string, action: string) {
+    this._snackBar.open(message, action, {duration:3000});
+  }
+
     // convenience getter for easy access to form fields
     get f() { return this.form.controls; }
 
@@ -556,7 +563,7 @@ public initializeData()
       this.tpService.addUpdateTpLink(this.form.value, addFlg)
           .pipe(first())
           .subscribe((res) => {
-            let retStr:String;
+            let retStr:string;
             if (res.errormessage !== undefined) {
              console.info('createUpdateTpLink error: ' + res.errormessage);
              retStr = res.errormessage;
@@ -577,6 +584,7 @@ public initializeData()
               alert('createUpdateTpLink Status: ' + res);
               retStr = res.Error;
             }
+            this.openSnackBar('Save Link ' + this.form.value.Link, retStr );
             if(retStr !== 'OK')
             {
               alert(retStr);
