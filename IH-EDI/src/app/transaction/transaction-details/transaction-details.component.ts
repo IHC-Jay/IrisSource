@@ -262,7 +262,7 @@ export class TransactionDetailComponent {
 
       if(res === "No data")
       {
-        let param: string[] = [ "Not found", ""];
+        let param: string[] = [ "Not found", this.transaction + " X12 Data, ID: " + this.X12DataParentId ];
         const dialogRef = this.dialog.open(Modalx12Component, {
           width: '1700px',
           data: param
@@ -289,7 +289,7 @@ export class TransactionDetailComponent {
         }
       if(val !== "")
       {
-        let param: string[] = [ val, this.fileName];
+        let param: string[] = [ val, this.fileName, this.transaction + " X12 Data, ID: " + this.X12DataParentId];
         const dialogRef = this.dialog.open(Modalx12Component, {
           width: '1700px',
           data: param
@@ -356,7 +356,7 @@ export class TransactionDetailComponent {
             }
       }
 
-        let param: string[] = [ val,  fileName];
+        let param: string[] = [ val,  fileName, this.transaction + " X12 Data, ID: " + this.X12DataParentId];
     const dialogRef = this.dialog.open(Modalx12Component, {
       width: '1700px',
       data: param
@@ -554,7 +554,7 @@ export class TransactionDetailComponent {
 
       }
 
-        let param: string[] = [ val, fileName];
+        let param: string[] = [ val, fileName, this.transaction + " X12 Data, ID: " + this.X12DataParentId];
     const dialogRef = this.dialog.open(Modalx12Component, {
       width: '1700px',
       data: param

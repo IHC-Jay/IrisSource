@@ -59,7 +59,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
 
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected"];
-    rightClickMenu: string[] = ['Transactions in Same Tab', 'Transactions in New Tab'] ;
+    rightClickMenu: string[] = ['Transactions in Same Tab', 'Transactions in New Tab', 'View X12'] ;
 
 
      org = `${environment.org}`;
@@ -933,10 +933,9 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
 handleContextMenu(item: Item, menu: string)  {
 
-
+  console.log('handleContextMenu Item: ' + item.FileName +", " + item.sessionId +", Menu: " + menu + ", rowId: " + item.rowId);
   if (menu === 'WorkFlow')
    {
-      console.log('Item: ' + item.FileName +", " + item.sessionId );
 
       sessionStorage.removeItem("currentTab")
       sessionStorage.setItem("currentTab", "Work Flow");
@@ -950,6 +949,10 @@ handleContextMenu(item: Item, menu: string)  {
               newTab.opener = null;
           }
    }
+   else if (menu.indexOf('X12') >= 0)
+   {
+    this.openX12Modal(item);
+   }
    else if (menu === this.rightClickMenu[0])
    {
     this.onContextMenuSame(item)
@@ -958,6 +961,7 @@ handleContextMenu(item: Item, menu: string)  {
     this.onContextMenuNew(item)
    }
 }
+
 
 onContextMenuNew(item: Item) {
   console.log("Click on Action id: " + item.rowId);
@@ -1011,6 +1015,58 @@ onContextMenuSame(item: Item) {
        );
 
 }
+
+  openX12Modal(item: Item) {
+
+    console.info("openX12Modal: " + item.rowId + ", " + this.formFields.currentTransType +", " + this.form.controls.mode.value);
+
+    this.SummaryService.fetchParentRecord(item.rowId.toString(), this.formFields.currentTransType, this.form.controls.mode.value).subscribe((res: any) => {
+      this.canRenderDetails = true;
+      let val = ""
+
+      if(res === "No data")
+      {
+        let param: string[] = [ "Not found", ""];
+        const dialogRef = this.dialog.open(Modalx12Component, {
+          width: '1700px',
+          data: param
+        });
+      }
+
+
+      else if (res.x12Data !== undefined && res.x12Data.length > 0 )
+      {
+        if (res.x12Data.length > 105)
+        {
+           let letter = res.x12Data.charAt(105);
+
+           val = res.x12Data.replaceAll(letter, letter + "\n" )
+            console.info("Split X12 with: " + letter);
+         }
+         else
+         {
+           val = res.x12Data
+         }
+      }
+      else{
+          val = res.x12Data.replaceAll("~", "~\n")
+        }
+      if(val !== "")
+      {
+        let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + ")"  ];
+        const dialogRef = this.dialog.open(Modalx12Component, {
+          width: '1700px',
+          data: param
+        });
+
+        dialogRef.afterClosed().subscribe(result => {
+          console.log('The dialog closed');
+        });
+
+      }
+    });
+
+  }
 
 applyFilter(event: Event) {
   const filterValue = (event.target as HTMLInputElement).value;
