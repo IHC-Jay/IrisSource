@@ -83,6 +83,7 @@ BPL Definition</Description>
 <property name='x12List' type='%ListOfDataTypes' instantiate='0' />
 <property name='lstInd' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='indX12Doc' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='sessionID' type='%Integer' initialexpression='$$$JobSessionId' instantiate='0' />
 </context>
 <sequence xend='200' yend='1750' >
 <scope xpos='200' ypos='250' xend='200' yend='1650' >
@@ -119,91 +120,87 @@ BPL Definition</Description>
  	  ]]]]><![CDATA[>
 </code>
 <code name='Get documentType ' xpos='200' ypos='650' >
-<![CDATA[
- set context.documentType = ""
- set context.x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .stat)
-	   if ( ($$$ISOK(stat)) && ($IsObject(context.x12Doc)) && (context.x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
-	   {
-		 $$$TRACE("Inbound data is X12, stream size: " _ request.Stream.Size)
-			 set context.x12Doc.DocType = "ERP_4010:Interchange:Group"
-			 			 
-			 Set k1="",tSC=1,k2=""
-			 set nxt = context.x12Doc.GetSegmentIndex("GroupDocsRef",.tSCTrans)
-			 Set k1=context.x12Doc.NextChild(k1,nxt)
+<![CDATA[	set context.documentType = ""
+	set context.x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .stat)
+	if (($$$ISOK(stat)) && ($IsObject(context.x12Doc)) && (context.x12Doc.%Extends("EnsLib.EDI.X12.Document"))) 
+	{
+		$$$TRACE("Inbound data is X12, stream size: " _ request.Stream.Size)
+		set context.x12Doc.DocType = "ERP_4010:Interchange:Group"
 
-			 while (($IsObject(k1)) && (context.documentType = ""))
+		set k1 = "", tSC = 1, k2 = ""
+		set nxt = context.x12Doc.GetSegmentIndex("GroupDocsRef", .tSCTrans)
+		set k1 = context.x12Doc.NextChild(k1, nxt)
+
+		while (($IsObject(k1)) && (context.documentType = "")) 
+		{
+			If "" = k1.DocType
 			{
-			    
-				If ""=k1.DocType {
-					Set tDocType = k1.resolveChildDocType()
-					
-					Set tSC =k1.PokeDocType(tDocType)
-				}
-				Set context.x12Doc.FunctionalGroups(k1)=k1
-			
-		 		Set k2=context.x12Doc.FunctionalGroups(k1).NextChild(k2,context.x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef",.tSCTrans))
-		 		while (($IsObject(k2)) && (context.documentType = ""))
-		 		{
+				set tDocType = k1.resolveChildDocType()
 
-
-					Set context.x12Doc.FunctionalGroups(k1).TransactionSets(k2)=k2
-					If ""=k2.DocType {
-						Set tDocType = k2.resolveChildDocType()
-						Set tSC =k2.PokeDocType(tDocType)
-					}
-					
-						set segRec = k2.GetValueAt(1)
-						set recType = k2.GetValueAt(1_":0")
-						if (recType = "ST")
-						{
-							set context.documentType = k2.GetValueAt("1:1")
-							set stCtrlNum = k2.GetValueAt("1:2")
-							$$$TRACE("ST " _ context.documentType _", CtrlNum: " _ stCtrlNum)
-							QUIT
-						}
-					
-		 		}
+				set tSC = k1.PokeDocType(tDocType)
 			}
-	     set context.dtlNm = "IHC.ITF.Transform.Dtl.ErpX124010" _ context.documentType _"ToWorkdayXML" 
-	
-	     $$$TRACE("Call: " _ context.dtlNm)
+			set context.x12Doc.FunctionalGroups(k1) = k1
+
+			set k2 = context.x12Doc.FunctionalGroups(k1).NextChild(k2, context.x12Doc.FunctionalGroups(k1).GetSegmentIndex("TransactionSetDocsRef", .tSCTrans))
+			while (($IsObject(k2)) && (context.documentType = "")) 
+			{
+				set context.x12Doc.FunctionalGroups(k1).TransactionSets(k2) = k2
+				if "" = k2.DocType
+				{
+					set tDocType = k2.resolveChildDocType()
+					set tSC = k2.PokeDocType(tDocType)
+				}
+
+				set segRec = k2.GetValueAt(1)
+				set recType = k2.GetValueAt(1_":0")
+				if (recType = "ST") 
+				{
+					set context.documentType = k2.GetValueAt("1:1")
+					set stCtrlNum = k2.GetValueAt("1:2")
+					$$$TRACE("ST " _ context.documentType _", CtrlNum: " _ stCtrlNum)
+					QUIT
+				}
+
+			}
+		}
+		set context.dtlNm = "IHC.ITF.Transform.Dtl.ErpX124010" _ context.documentType _ "ToWorkdayXML"
+
+		$$$TRACE("Call Inbound: " _ context.dtlNm)
 	}
-	else
-	{  
-	
-	     $$$TRACE("NOT X12")
+	else {
+		$$$TRACE("NOT X12")
 	}
-			 
-			
-	SET $ZSTORAGE=-1
+
+	set $ZSTORAGE =  - 1
 	$$$TRACE("Storage: " _ $ZS)]]]]><![CDATA[>
 </code>
 <if name='documentType ' condition='context.dtlNm &apos;= ""' xpos='200' ypos='750' xend='200' yend='1400' >
 <true>
 <assign name="tradingPartnerName" property="context.tradingPartnerName" value="request.TradingPartnerName" action="set" xpos='470' ypos='900' />
 <code name='x12Doc Split' xpos='470' ypos='1000' >
-<![CDATA[	set context.x12List = ##class(IHC.ITF.ITFCOMMON.ErpX12utils).SplitX12(context.x12Doc, .stat)
-	
-         
-  	$$$TRACE(  " X12 Split" _ stat _ ", Count " _ context.x12List.Count())
-  		
-  	if $$$ISERR(stat)
-       {
-             Set errStr = $SYSTEM.Status.GetErrorText(stat)  				  		    
-             Do process.ItfSendAlert(errStr _ " Invalid Inbound Data, file name: " _ request.OriginalFilename)
+<![CDATA[ set context.x12List = ##class(IHC.ITF.ITFCOMMON.ErpX12utils).SplitX12(context.x12Doc, .stat)
+ $$$TRACE(  " X12 Split" _ stat _ ", Count " _ context.x12List.Count())
+ if $$$ISERR(stat)
+ {
+   $$$TRACE("is error on SplitX12")
+   set errStr = $SYSTEM.Status.GetErrorText(stat)  				  		    
+   Do process.ItfSendAlert(errStr _ " Invalid Inbound Data, file name: " _ request.OriginalFilename)
    
-             set tStatus=process.SendRequestAsync("ErpInbound-ToError-XmlAndX12-File", request, "20")
-             if ('tStatus) { 
-                 set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned or call failure." _$SYSTEM.Status.GetOneErrorText(tStatus)) 
-             }   
-       }
-       set status = stat
+   set tStatus=process.SendRequestAsync("ErpInbound-ToError-XmlAndX12-File", request, "20")
+   if ('tStatus) 
+   { 
+     $$$TRACE("is error on send request")
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned or call failure." _$SYSTEM.Status.GetOneErrorText(tStatus)) 
+   }   
+ }
+ set status = stat
+ $$$TRACE("End x12Doc Split")
           
          
   
   ]]]]><![CDATA[>
 </code>
-<while name='x12List.Count' condition='context.lstInd &lt;= context.x12List.Count()' xpos='470' ypos='1100' xend='200' yend='650' >
+<while name='x12List.Count' condition='context.lstInd &lt;= context.x12List.Count()' xpos='470' ypos='1100' xend='200' yend='750' >
 <code name='ImportFromString X12 data' xpos='200' ypos='250' >
 <![CDATA[
 	$$$TRACE( "X12 Process: "_ context.lstInd _", Stream size: " _ context.x12List.GetAt(context.lstInd).Size)
@@ -212,8 +209,8 @@ BPL Definition</Description>
 		        	
   ]]]]><![CDATA[>
 </code>
-<transform name='Call DTL' class='@context.dtlNm' source='context.indX12Doc' target='response' xpos='204' ypos='350' />
-<code name='Send data' xpos='207' ypos='451' >
+<transform name='Call DTL' class='@context.dtlNm' source='context.indX12Doc' target='response' xpos='200' ypos='350' />
+<code name='Send data' xpos='200' ypos='450' >
 <![CDATA[
    $$$TRACE("Create Stream Container")
    set scTp = ##class(IHC.ITF.DStruc.Record.StreamContainerWithTransType).%New()
@@ -263,10 +260,16 @@ BPL Definition</Description>
  }
   ]]]]><![CDATA[>
 </code>
-<assign property="context.lstInd" value="context.lstInd + 1" action="set" xpos='200' ypos='550' />
+<code name='Store Workday XML' xpos='200' ypos='550' >
+<![CDATA[ $$$TRACE("*** Store Workday XML")
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpXmlData(scTp.Stream, ##class(%File).GetFilename(scTp.OriginalFilename), context.sessionID, context.lstInd) 
+]]]]><![CDATA[>
+</code>
+<assign property="context.lstInd" value="context.lstInd + 1" action="set" xpos='200' ypos='650' />
 </while>
 <code name='Any errors' xpos='470' ypos='1200' >
-<![CDATA[          
+<![CDATA[   
+		$$$TRACE("Any Errors")       
        if $$$ISERR(status)
        {
              Set errStr = $SYSTEM.Status.GetErrorText(status)  				  		    
@@ -277,6 +280,7 @@ BPL Definition</Description>
                  set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned or call failure." _$SYSTEM.Status.GetOneErrorText(tStatus)) 
              }   
        }
+       $$$TRACE("End Any Errors")
   
   ]]]]><![CDATA[>
 </code>
