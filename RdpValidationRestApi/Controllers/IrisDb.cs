@@ -244,8 +244,8 @@ namespace RdpValidationRestApi.Controllers
         {
             string host = "lp-itfdevvp2";
             string port = "6973";
-            string username = "lpjnaras";
-            string password = "Diwali2025#";
+            string username = "eai_chef";
+            string password = "Tokumt8dDRec!#";
             string Namespace = "EDIPAYER";
 
             IRISConnection IRISConnect = new IRISConnection();
