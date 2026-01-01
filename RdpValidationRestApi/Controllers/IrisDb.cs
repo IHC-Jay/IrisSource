@@ -13,7 +13,7 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class IrisDb
     {
-        public int ProcessX12Table(string transaction)
+        public int ProcessX12Table(string transaction, string filePath)
         {
 
             string x12Id = "";
@@ -23,7 +23,7 @@ namespace RdpValidationRestApi.Controllers
 
             IRISConnection IRISConnect = ConnectToIRIS();
 
-            string queryString = "SELECT ID, FileName, x12Data FROM IHC_X12.Data" + transaction + " where X12DataParentId is null and x12Data like 'ISA%'";
+            string queryString = "SELECT ID, FileName, x12Data, SessionID FROM IHC_X12.Data" + transaction + " where X12DataParentId is null and x12Data like 'ISA%'";
             Console.WriteLine("SQL: " + queryString);
 
             IRISCommand irisCmd = new IRISCommand(queryString, IRISConnect);
@@ -34,7 +34,11 @@ namespace RdpValidationRestApi.Controllers
             {
                 x12Id = reader.GetValue(0).ToString();
                 x12Data = reader.GetValue(2).ToString();
+                string sessionId = reader.GetValue(3).ToString();
+
                 flNm = reader.GetValue(1).ToString();
+                flNm = filePath + "/" + transaction + "/" + System.IO.Path.GetFileName(flNm);
+
                 Console.WriteLine($"SQL output, ID: " + x12Id +", Filename: " + flNm +", X12 size: " + x12Data.Length);
 
                 if (x12Data.Contains("005010X223A2"))
@@ -55,12 +59,12 @@ namespace RdpValidationRestApi.Controllers
                 // Validate X12
 
                 var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(x12Id, flNm, transaction);
+                X12Response rdpResp = obj.ProcessX12(flNm, transaction, filePath);
 
                 if (rdpResp.validator != null)
                 {
 
-                    string retStr = RdpErrorsToIris(rdpResp.validator, x12Id);
+                    string retStr = RdpErrorsToIris(rdpResp.validator, x12Id, sessionId);
                     Console.WriteLine(retStr);
 
                 }
@@ -75,16 +79,14 @@ namespace RdpValidationRestApi.Controllers
             return numFiles;
         }
 
-        public string GetX12Data(string id, string transaction)
+        public string GetX12Data(string x12Id, string transaction, string filePath)
         {
-           
-            string filePath = "";
             string x12Data = "";
             string flNm = "";
 
             IRISConnection IRISConnect = ConnectToIRIS();
 
-            string queryString = "SELECT ID, FileName, x12Data FROM IHC_X12.Data" + transaction + " where ID = " + id;
+            string queryString = "SELECT ID, FileName, x12Data FROM IHC_X12.Data" + transaction + " where ID = " + x12Id;
             Console.WriteLine("SQL: " + queryString);
 
             IRISCommand irisCmd = new IRISCommand(queryString, IRISConnect);
@@ -96,6 +98,8 @@ namespace RdpValidationRestApi.Controllers
                 
                 x12Data = reader.GetValue(2).ToString();
                 flNm = reader.GetValue(1).ToString();
+                flNm = filePath + System.IO.Path.GetFileName(flNm);
+
                 Console.WriteLine($"SQL output, Filename: " + flNm + ", X12 size: " + x12Data.Length);
 
                 if (x12Data.Contains("005010X223A2"))
@@ -110,7 +114,7 @@ namespace RdpValidationRestApi.Controllers
                 {
                     transaction = "837D";
                 }
-                filePath = X12ToFile(x12Data, transaction, flNm);
+                X12ToFile(x12Data, transaction,  flNm);
             }
 
             reader.Close();
@@ -118,11 +122,11 @@ namespace RdpValidationRestApi.Controllers
             irisCmd.Dispose();
             IRISConnect.Close();
 
-            return filePath;
+            return flNm;
 
         }
       
-        public string RdpErrorsToIris(EDIValidator validator, string x12Id )
+        public string RdpErrorsToIris(EDIValidator validator, string x12Id, string SessionId)
         {
            
             string validationStr = "";
@@ -132,7 +136,7 @@ namespace RdpValidationRestApi.Controllers
 
                 if (validator.Errors.Count <= 0)
                 {
-                    validationStr = "No errors in X12 validation: " + validator.Passed;
+                    validationStr = "Validation Passed " + validator.Passed + ". No errors in X12 validation" ;
                 }
                 else
                 { 
@@ -140,7 +144,7 @@ namespace RdpValidationRestApi.Controllers
 
                     IRISConnection IRISConnect = ConnectToIRIS();
 
-                    string queryString = "INSERT INTO IHC_ITF_ITFCOMMON_X12.RdpValidationErrors(LineNum,TransactionSet,SegmentData,FieldValue,SnipLevel,Loop,Segment,Element,ErrorCode,ErrorDesc,ErrorType,X12DataId,TransactionType,ProcessDtTm) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    string queryString = "INSERT INTO IHC_ITF_ITFCOMMON_X12.RdpValidationErrors(LineNum,TransactionSet,SegmentData,FieldValue,SnipLevel,Loop,Segment,Element,ErrorCode,ErrorDesc,ErrorType,X12DataId,TransactionType,ProcessDtTm, SessionId) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
                     Console.WriteLine("SQL: " + queryString);
 
@@ -157,8 +161,9 @@ namespace RdpValidationRestApi.Controllers
                         IRISParameter param4 = new IRISParameter("FieldValue", IRISDbType.NVarChar);
                         string fv = "";
 
+                        Console.WriteLine("Element: " + error.ValidatingSegment.Elements.Count + " >= " + error.ElementOrdinal);
 
-                        if (error.ValidatingSegment.Elements.Count >= error.ElementOrdinal &&
+                        if (error.ValidatingSegment.Elements.Count >= error.ElementOrdinal && error.ElementOrdinal > 0 &&
                             error.ValidatingSegment.Elements.ElementAt(error.ElementOrdinal - 1) != null)
                         {
                             LightWeightElement ele = error.ValidatingSegment.Elements.ElementAt(error.ElementOrdinal - 1);
@@ -201,6 +206,8 @@ namespace RdpValidationRestApi.Controllers
                         IRISParameter param14 = new IRISParameter("ProcessDtTm", IRISDbType.DateTime);
                         param14.Value = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
+                        IRISParameter param15 = new IRISParameter("SessionId", IRISDbType.NVarChar);
+                        param15.Value = SessionId;
 
                         irisCmd.Parameters.Add(param1);
                         irisCmd.Parameters.Add(param2);
@@ -216,11 +223,13 @@ namespace RdpValidationRestApi.Controllers
                         irisCmd.Parameters.Add(param12);
                         irisCmd.Parameters.Add(param13);
                         irisCmd.Parameters.Add(param14);
+                        irisCmd.Parameters.Add(param15);
 
                         validationStr += param1.Value + ", " + param2.Value + ", " + param3.Value +
                             ", " + param4.Value + ", " + param5.Value + ", " + param6.Value +
                             ", " + param7.Value + ", " + param8.Value + ", " + param9.Value
-                            + ", " + param10.Value + ", " + param11.Value + ", " + param12.Value + ", " + param13.Value + ", " + param14.Value + ";";
+                            + ", " + param10.Value + ", " + param11.Value + ", " + param12.Value + ", " 
+                            + param13.Value + ", " + param14.Value + ", " + param15.Value + ";";
 
                         int rows = irisCmd.ExecuteNonQuery();
 
@@ -244,33 +253,31 @@ namespace RdpValidationRestApi.Controllers
         {
             string host = "lp-itfdevvp2";
             string port = "6973";
-            string username = "eai_chef";
-            string password = "Tokumt8dDRec!#";
+            string username = "rdpuser";
+            string password = "crystal123";
             string Namespace = "EDIPAYER";
 
             IRISConnection IRISConnect = new IRISConnection();
-            // Console.WriteLine("connect to IRIS " + host + ":" + port);
+            Console.WriteLine("connect to IRIS " + host + ":" + port +", User: " + username);
 
             IRISConnect.ConnectionString = "Server = " + host
                 + "; Port = " + port + "; Namespace = " + Namespace
                 + "; Password = " + password + "; User ID = " + username;
 
             IRISConnect.Open();
-            Console.WriteLine("Connected to IRIS  " + host + ":" + port +", " + IRISConnect.Database);
+            Console.WriteLine("Connected to IRIS  " + host + ":" + port +", " + IRISConnect.Database +", User: " + username);
             return IRISConnect;
         }
 
-        private string X12ToFile(string X12Data, string transation, string flNm)
+        private void X12ToFile(string X12Data, string transation, string filePath)
         {
-
-            string filePath = "C:\\temp\\" + transation + "\\" + flNm;
 
             try
             {
                 using (StreamWriter wr = new StreamWriter(filePath))
                 {
                     wr.Write(X12Data);
-                    Console.WriteLine("X12 data in: " + filePath);
+                    Console.WriteLine("X12 data saved in: " + filePath);
                 }
 
 
@@ -279,7 +286,6 @@ namespace RdpValidationRestApi.Controllers
             {
                 Console.WriteLine($"The file could not be created: {e.Message}");
             }
-            return filePath;
 
         }
 

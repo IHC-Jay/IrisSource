@@ -13,15 +13,27 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class RdpValidate
     {
-        public X12Response ProcessX12(string x12Id, string inpFile, string transaction)
+        public X12Response ProcessX12(string dataFile, string transaction, string rulesPath)
         {
             int errNum = 0;
             // Display all errors
             errNum++;
 
-            string x12Direc = "C:\\temp\\" + transaction + "\\";
-            string rulesDirec = "C:\\temp\\ihcRdpRules\\";
-           
+            if (!System.IO.File.Exists(dataFile))
+            {
+                var response = new X12Response
+                {
+                    dataFile = $"{dataFile}!",
+                    validator = null,
+                    ackStr = "Data file does not exists:" + dataFile,
+                    status = "FAIL",
+                    ediRulesFile = "Invalid request"
+
+                };
+
+                return response;
+
+            }
 
             try
             {
@@ -44,27 +56,6 @@ namespace RdpValidationRestApi.Controllers
                         break;
                     }
                 }
-
-                string dataFile = "";
-
-                if (inpFile == null || inpFile == "")
-                {
-
-                    return new X12Response
-                    {
-                        dataFile = "File is null"
-                    };
-                }
-                else { 
-                    if (inpFile.Contains('/'))
-                    {
-                        dataFile = inpFile;
-                    }
-                    else
-                    {
-                        dataFile = Path.Combine(x12Direc, inpFile);
-                    }
-                }
                 
                 Console.WriteLine("Do RDP validation for " + dataFile);
 
@@ -72,9 +63,9 @@ namespace RdpValidationRestApi.Controllers
 
                 EDIValidator validator = new EDIValidator();
 
-                Console.WriteLine("Using " + rulesDirec + ruleFile + " for " + transaction +", X12 Id: " + x12Id);
+                Console.WriteLine("Using " + rulesPath + ruleFile + " for " + transaction);
 
-                validator.EDIRulesFile = rulesDirec + ruleFile;
+                validator.EDIRulesFile = rulesPath + ruleFile;
 
                 // Register for the appropriate event on the EDIValidator
 
@@ -168,7 +159,7 @@ namespace RdpValidationRestApi.Controllers
                 string msg = ex.Message;
                 var response = new X12Response
                 {
-                    dataFile = $"{inpFile}!",
+                    dataFile = $"{dataFile}!",
                     validator = null,
                     ackStr = msg,
                     status = "FAIL",
@@ -185,7 +176,7 @@ namespace RdpValidationRestApi.Controllers
         private string getLicense()
         {
 
-            string filePath = "C:\\temp\\RDPLicense.txt";
+            string filePath = "/usr/local/dotnet/RdpValidationRestApi/RDPLicense.txt";
             string licenseKey = "C0210e1f-7f40-4629-bdd5-a531f78222ec";
 
             try

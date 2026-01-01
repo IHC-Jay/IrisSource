@@ -6,6 +6,7 @@ using System.Data;
 using System.Dynamic;
 using System.IO;
 using System.IO.Pipelines;
+using System.Runtime.InteropServices;
 using System.Xml.Linq;
 
 
@@ -20,21 +21,128 @@ namespace RdpValidationRestApi.Controllers
        
 
         [HttpGet]
-        public IActionResult Get([FromQuery] string name, [FromQuery] string? file, [FromQuery] string? transaction)
+        public IActionResult Get([FromQuery] string operation, [FromQuery] string? fileName, [FromQuery] string? filePath, [FromQuery] string? X12Id, [FromQuery] string? transaction, [FromQuery] string? rulesPath, [FromQuery] string? SessionId)
             
         {
             var irisObj = new IrisDb();
             string retStr = "";
-            if (name == "Validate" && transaction != null)
+            string dataFile = "";
+
+            if (filePath != null && filePath != "")
             {
-                if (file != null && file != "")
+                if (!System.IO.Directory.Exists(filePath))
+                {
+                    return new OkObjectResult(new { Results = "File Directory does not exists:" + filePath });
+                }
+            }
+
+            if (rulesPath != null && rulesPath != "")
+            {
+                if (!System.IO.Directory.Exists(rulesPath))
+                {
+                    return new OkObjectResult(new { Results = "Rules Directory does not exists:" + rulesPath });
+                }
+            }
+
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Console.WriteLine("Running on Windows.");
+                if (rulesPath == null || rulesPath == "")
+                {
+                    rulesPath = "C:\\temp\\ihcRdpRules\\";
+                
+                }
+                if (filePath == null || filePath == "")
+                {
+                    filePath = "c:\\Temp\\";
+                }
+
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                Console.WriteLine("Running on Linux.");
+
+                if (rulesPath == null || rulesPath == "")
+                {
+                    rulesPath = "/itf-share/itf-tmp/RdpCrystal/Rules/";
+                }
+
+                if (filePath == null || filePath == "")
+                { 
+                    filePath = "/itf-share/itf-tmp/RdpCrystal/Data/";
+                }
+
+            }
+
+            if (operation == "RDP" && transaction != null)
+            {
+                if (fileName == null || fileName == "")
+                {
+                    return new OkObjectResult(new { Results = "X12 file to validate is erequired"  });
+                }
+
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                   
+                    if (fileName != null && fileName.Contains('\\'))
+                    {
+                        dataFile = fileName;
+                    }
+                    else
+                    {
+                        dataFile = Path.Combine(filePath + fileName);
+                    }
+                }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                {
+
+                    
+                    if (fileName != null && fileName.Contains('/'))
+                    {
+                        dataFile = fileName;
+                    }
+                    else
+                    {
+                        dataFile = Path.Combine(filePath + fileName);
+                    }
+                }
+                Console.WriteLine("X12 data file: " + dataFile);
+                if (!System.IO.File.Exists(dataFile))
+                {
+                    return new OkObjectResult(new { Results = "Data file does not exists:" + dataFile });
+                }
+
+                var obj = new RdpValidate();
+                X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath);
+                if (rdpResp.validator != null)
+                {
+
+                    retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (SessionId ==null)?"":SessionId);
+
+                }
+                return new OkObjectResult(new {Transaction =transaction , FileName= fileName , Status= rdpResp.status, Details= retStr, ACK= rdpResp.ackStr });
+            }
+
+
+            else if (operation == "IRIS" && X12Id != null && transaction != null)
+            {
+
+                var flNm = irisObj.GetX12Data(X12Id, transaction, filePath);
+
+                return new OkObjectResult(new { Results = $"{transaction} X12 date, ID: {X12Id} is stored in {flNm}" });
+
+            }
+
+
+            else if (operation == "Validate" && transaction != null)
+            {
+                if (X12Id != null && X12Id != "")
                 {
 
                     Console.WriteLine("Process IRIS X12 data from file: " + irisObj.ToString());
-                    var x12Data = irisObj.GetX12Data(file, transaction);
+                    var x12Data = irisObj.GetX12Data(X12Id, transaction, filePath);
                     if (x12Data != "")
                     {
-
                         if (x12Data.Contains("005010X223A2"))
                         {
                             transaction = "837I";
@@ -49,69 +157,51 @@ namespace RdpValidationRestApi.Controllers
                         }
 
                         var obj = new RdpValidate();
-                        X12Response rdpResp = obj.ProcessX12(file, x12Data, transaction);
+                        X12Response rdpResp = obj.ProcessX12(x12Data, transaction, rulesPath);
 
                         if (rdpResp.validator != null)
                         {
 
-                            retStr = irisObj.RdpErrorsToIris(rdpResp.validator, file);
+                            retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (SessionId == null) ? "" : SessionId);
 
                         }
-                        return new OkObjectResult(new { Results = $"Transaction {transaction}, ID: {file} -> {rdpResp.status}, Details: {retStr}, ACK: {rdpResp.ackStr}" });
+                        return new OkObjectResult(new { Transaction = transaction, FileName = fileName, Status = rdpResp.status, Details = retStr, ACK = rdpResp.ackStr });
+
                     }
                     else
                     {
-                        return new OkObjectResult(new { Results = $"Transaction {transaction} ID: {file} not found in IRIS" });
+                        return new OkObjectResult(new { Transaction = transaction, ID = X12Id, Status =  "FAIL, ID not found in IRIS" });
                     }
                 }
                 else
                 {
 
-                    Console.WriteLine("Process X12 data from Table");
-                    var outStr = irisObj.ProcessX12Table(transaction);
+                    Console.WriteLine("Process X12 data rows from Table: " + transaction);
+                    var outStr = irisObj.ProcessX12Table(transaction, filePath);
                     return new OkObjectResult(new { Results = $"{outStr} files processed of transaction type: {transaction}" });
                 }
             }
-            else if (name == "RDP" && file != null && transaction != null)
+            else if (operation == "Edifecs")
             {
-               
-                Console.WriteLine("X12 data file: " + file);
-                var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(file, file, transaction);
-                if (rdpResp.validator != null)
-                {
-
-                    retStr = irisObj.RdpErrorsToIris(rdpResp.validator, file);
-
-                }
-                return new OkObjectResult(new { Results = $"Transaction {transaction} {file} -> {rdpResp.status}, Details: {retStr}, ACK: {rdpResp.ackStr}" });
-            }
-            
-            
-            else if (name == "IRIS" && file != null && transaction != null)
-            {
-
-                var outStr = irisObj.GetX12Data(file, transaction);
-
-                return new OkObjectResult(new { Results = $"{transaction} X12 date, ID: {file} is stored in {outStr}" });
-
+                OracleDataRetriever.GetDataFromOracle();
+                return new OkObjectResult(new { Results = "Data from Edifecs" });
             }
 
-            else if (name != "")
+            else if (operation != "")
             {
-                Console.WriteLine("Hello " + name +", " + file);
+                Console.WriteLine("Hello " + operation + ", " + fileName);
                 var response = new X12Response
                 {
 
-                    dataFile = $"Hello, {name}!",
-                    ackStr = $"{file}",
+                    dataFile = $"Hello, {operation}!",
+                    ackStr = $"{fileName}",
                     status = "success"
                 };
 
                 return Ok(response);
             }
-          
-            else 
+
+            else
             {
                 return Ok(new { Results = $"Hello, World" });
             }
