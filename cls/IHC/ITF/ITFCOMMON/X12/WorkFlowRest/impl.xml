@@ -3,7 +3,7 @@
 <Class name="IHC.ITF.ITFCOMMON.X12.WorkFlowRest.impl">
 <Description><![CDATA[
 Business logic class defined by OpenAPI in IHC.ITF.ITFCOMMON.X12.WorkFlowRest.spec<br/>
-Updated Nov 26, 2025 15:59:48]]></Description>
+Updated Dec 26, 2025 14:44:57]]></Description>
 <IncludeCode>Ensemble</IncludeCode>
 <ProcedureBlock>1</ProcedureBlock>
 <Super>%REST.Impl</Super>
@@ -52,7 +52,7 @@ The method arguments hold values for:<br/>
 		   set transType = val
 		   if (transType [ "837")
 		   {
-			   set transType = "837"
+			   set transType = "%837%"
 		   }
 	   }
 	   elseif ( param [ "ErrorType")
@@ -107,7 +107,7 @@ The method arguments hold values for:<br/>
 	    }
 	    if (transType '= "All")
 	    {
-	       set transactionStr = " AND TransactionType = '"_ transType _"'"
+	       set transactionStr = " AND TransactionType like '"_ transType _"'"
 	    }
 	    if (dateRange '= "")
 	    {
@@ -219,8 +219,7 @@ This request returns WORK FLOW<br/>
 The method arguments hold values for:<br/>
     ID, ID<br/>
     SessionID, SessionID<br/>
-    userNm, User Name<br/>
-WARNING: This method's signature has changed.]]></Description>
+    userNm, User Name<br/>]]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>ID:%String,SessionID:%String,userNm:%String</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
@@ -506,6 +505,259 @@ This request retruns users</Description>
 	Do ..%SetStatusCode(200)
 
 	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="RdpCrystalEntries">
+<Description><![CDATA[
+This request returns errors from RDpCrystal<br/>
+The method arguments hold values for:<br/>
+    ID, ID<br/>
+    X12DataId, X12DataId<br/>
+    SessionID, Session ID<br/>
+    WFID, WorkFlow ID<br/>
+    TransactionType, Transaction Type<br/>
+WARNING: This method's signature has changed.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>ID:%String,X12DataId:%String,SessionID:%String,WFID:%String,TransactionType:%String</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    //(Place business logic here)
+    //Do ..%SetStatusCode(<HTTP_status_code>)
+    //Do ..%SetHeader(<name>,<value>)
+    //Quit (Place response here) ; response may be a string, stream or dynamic object
+    set sqlStr = "", x12Id = "", rdpId = "", wfStatus = "Data Error"
+    Set tArr = []
+    
+    if (TransactionType [ "837")
+    {
+	    set TransactionType = "837"
+    }
+    
+    if (ID '= "")
+    {
+    	return ..GetRows(ID)
+    }
+        
+    elseif((X12DataId '= "") && (TransactionType '= ""))
+    {
+	    set ^webService("RdpCrystalEntries from X12DataId ") = "X12DataId = " _ X12DataId
+	     set sqlStr = "SELECT ID, X12DataId FROM IHC_ITF_ITFCOMMON_X12.RdpValidationErrors " _
+			"where X12DataId = " _ X12DataId
+    }
+    elseif((SessionID '= "") && (TransactionType '= ""))
+    {
+	    set ^webService("RdpCrystalEntries from SessionID ") = "SessionID = " _ SessionID
+	    set sqlStr = "SELECT r.ID, x.ID FROM IHC_ITF_ITFCOMMON_X12.RdpValidationErrors r, IHC_X12.Data" _ TransactionType _ " x " _
+			"where SessionId = " _ SessionID _" )  and r.X12DataId = x.ID "
+    }
+    elseif((WFID '= "") && (TransactionType '= ""))
+    {
+	    set ^webService("RdpCrystalEntries from WFID ") = "WFID = " _ WFID
+	    set sqlStr = "SELECT distinct r.ID, x.ID FROM IHC_ITF_ITFCOMMON_X12.RdpValidationErrors r, IHC_X12.Data" _ TransactionType _ " x where r.SessionId = " _
+			"(select SessionID from IHC_ITF_ITFCOMMON_X12.WorkFlow where Id = " _ WFID _" ) and r.SessionID = x.SessionID "
+    }
+    else
+    {
+	    Do ..%SetStatusCode(200)
+    	Quit "Required parameters are not sent to create SQL"
+    }
+    set ^webService("RdpCrystalEntries SQL") = sqlStr
+    #dim rset AS %SQL.StatementResult = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+    if rset.%SQLCODE=0 
+    { 
+      if (rset.%Next())      
+     	{ 
+     		set rdpId = rset.%GetData(1) 
+     		set x12Id = rset.%GetData(2) 
+     	}
+     	
+    }
+    else { 
+    	set ^webService("RdpCrystalEntries SQLCODE") = "ExecDirect SQLCODE="_rset.%SQLCODE_", " _ rset.%Message  
+    }
+    if (x12Id = "")
+    {
+	    if ((WFID '= "") && (TransactionType '= ""))
+    	{
+	    	set ^webService("RdpCrystalEntries X12 from WFID ") = "WFID = " _ WFID
+	    	set sqlStr = "SELECT x.ID, w.Error FROM IHC_X12.Data" _ TransactionType _ " x, IHC_ITF_ITFCOMMON_X12.WorkFlow w where w.ID = " _ WFID _
+			" AND w.SessionId = x.SessionId  "
+			set rset = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+		    if rset.%SQLCODE=0 
+		    { 
+		      if (rset.%Next())      
+		     	{ 
+		     		set x12Id = rset.%GetData(1) 
+		     		set wfStatus = rset.%GetData(2)
+		     	}
+		     	
+		    }
+    	}
+    }
+	if (x12Id '= "")
+    {    
+		set classname = "IHC.X12.Data" _ TransactionType
+		if (TransactionType [ "837")
+		{
+			set classname = "IHC.X12.Data837" //Remove I, P, D
+		}
+		
+		  $$$TRACE( "Check class: " _ classname _ " for Id: " _ x12Id)
+
+		 if ( $classmethod(classname,"%ExistsId",x12Id) )
+		 {
+			 set xObj = $classmethod(classname,"%OpenId",x12Id)
+			 if ($ISOBJECT(xObj))
+			 {
+				set x12Str = xObj.x12Data
+				set fileName = xObj.FileName
+				set ^webService("RdpCrystalEntries Class") = classname _", file: " _ xObj.FileName
+			}
+		}
+		
+		if (x12Str = "")
+		{
+			#dim x12Doc As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).%OpenId(x12Id,,.sc)
+		
+			set ^webService("RdpCrystalEntries open2: ") = sc _", " _ x12Doc
+			if ($IsObject(x12Doc))
+			{
+				set x12Str = x12Doc.OutputToString()
+				set fileName = "X12.Document ID: " _ x12Doc.%Id()
+			}
+		}
+		if (x12Str = "")
+		{
+			set x12Str = x12Doc.OutputToString()
+			set fileName = "X12.Document ID: " _ x12Doc.%Id()
+		}
+	
+		set ^webService("RdpCrystalEntries x12: ") = fileName _", X12 length: " _ $L(x12Str)
+		
+		Do tArr.%Push({
+			"Operation":"RdpCrystalEntries",
+					"Filename": (fileName),
+					"OrigX12Id": (x12Id),
+					"X12": (x12Str),
+					"Error": (wfStatus)
+					
+		})
+    
+    	set ^webService("RdpCrystalEntries from rdpId ") = "ID = " _ rdpId
+    	return ..GetRows(rdpId, tArr)
+    }
+    else
+    {
+	    
+	    Do ..%SetStatusCode(200)
+	    Do tArr.%Push({
+			"Operation":"RdpCrystalEntries",
+					"Filename": "ID not found in IHC_ITF_ITFCOMMON_X12.RdpValidationErrors",
+					"OrigX12Id": "0",
+					"X12": "ID not found in IHC_ITF_ITFCOMMON_X12.RdpValidationErrors",
+					"Error": "TP Error"
+					
+		})
+    	return tArr 
+    }
+]]></Implementation>
+</Method>
+
+<Method name="GetRows">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String,tArr:%Library.DynamicArray</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    
+
+    set tableName = "IHC_ITF_ITFCOMMON_X12.RdpValidationErrors"
+    
+    set propertyList = ##class(%Library.ListOfDataTypes).%New()
+    		
+	Do ..getColumnNames(tableName, propertyList)
+	
+    set sqlStr = "SELECT * FROM "_ tableName _ "  WHERE ID = '" _ id _"'"
+    
+    #dim rs As %SQL.StatementResult
+    
+    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
+    if (sqlStr '= "")
+    {
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+	    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
+		Do ..populateArray(tableName, rs , tArr, propertyList)
+    }
+    
+	set ^webService(tableName _ " End") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="getColumnNames">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tableName:%String,propertyList:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	// All Column names
+	
+	    
+		Set prop=""
+		Do propertyList.Insert("ID")
+		set clsNm = $REPLACE(tableName,"_",".")
+		For {
+			Set prop=$$$comMemberNext(clsNm,$$$cCLASSproperty,prop) Quit:prop=""
+			If (' ((prop [ "OID") || (prop [ "%") ) )
+			{							
+				Do propertyList.Insert(prop) 
+			}
+		}
+]]></Implementation>
+</Method>
+
+<Method name="populateArray">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tableName:%String,rs:%SQL.StatementResult,tArr:%Library.DynamicArray,propertyList:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	
+	While rs.%Next() {
+		
+    	if ( rs.%SQLCODE = 0)
+    	{
+			
+    		set ^webService(tableName _ " rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", ID: " _ (rs.%Get("ID"))
+    		set innerArr = []
+    		set val = ""
+    		set dataType = propertyList.Count()
+    		
+    		for ind=1:1:propertyList.Count()
+    		{
+    		    set column = propertyList.GetAt(ind)
+    		    
+    		    
+    		    set val = rs.%Get(column)
+    		    
+    		    
+    		   
+    			
+    			if (ind=1)
+    			{
+    				set innerArr={}.%Set(column,(val))
+    			}
+    			else
+    			{
+	    			Do innerArr.%Set(column,(val))
+    			}
+    				
+    		}
+    				
+    		Do tArr.%Push((innerArr))
+    	}
+    
+		
+	}
+	set ^webService(tableName _ " array size: ") = tArr.%Size()
 ]]></Implementation>
 </Method>
 </Class>
