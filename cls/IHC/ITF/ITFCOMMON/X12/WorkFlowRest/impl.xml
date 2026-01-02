@@ -526,17 +526,21 @@ WARNING: This method's signature has changed.]]></Description>
     //Do ..%SetStatusCode(<HTTP_status_code>)
     //Do ..%SetHeader(<name>,<value>)
     //Quit (Place response here) ; response may be a string, stream or dynamic object
-    set sqlStr = "", x12Id = "", rdpId = "", wfStatus = "Data Error"
-    Set tArr = []
+    set sqlStr = "", x12Id = "", wfStatus = "Data Error"
+    #dim tArr As %Library.DynamicArray = []
+    #dim rdpIds As %ListOfDataTypes = ##class(%ListOfDataTypes).%New()
     
     if (TransactionType [ "837")
     {
+	    
 	    set TransactionType = "837"
     }
     
     if (ID '= "")
     {
-    	return ..GetRows(ID)
+	    DO rdpIds.Insert(ID)
+    	Do ..GetRows(rdpIds, tArr)
+    	return tArr
     }
         
     elseif((X12DataId '= "") && (TransactionType '= ""))
@@ -555,7 +559,7 @@ WARNING: This method's signature has changed.]]></Description>
     {
 	    set ^webService("RdpCrystalEntries from WFID ") = "WFID = " _ WFID
 	    set sqlStr = "SELECT distinct r.ID, x.ID FROM IHC_ITF_ITFCOMMON_X12.RdpValidationErrors r, IHC_X12.Data" _ TransactionType _ " x where r.SessionId = " _
-			"(select SessionID from IHC_ITF_ITFCOMMON_X12.WorkFlow where Id = " _ WFID _" ) and r.SessionID = x.SessionID "
+			"(select SessionID from IHC_ITF_ITFCOMMON_X12.WorkFlow where Id = " _ WFID _" ) and r.SessionID = x.SessionID and x12DataParentId is null"
     }
     else
     {
@@ -564,12 +568,13 @@ WARNING: This method's signature has changed.]]></Description>
     }
     set ^webService("RdpCrystalEntries SQL") = sqlStr
     #dim rset AS %SQL.StatementResult = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+    
     if rset.%SQLCODE=0 
     { 
-      if (rset.%Next())      
+      while (rset.%Next())      
      	{ 
-     		set rdpId = rset.%GetData(1) 
-     		set x12Id = rset.%GetData(2) 
+     		Do rdpIds.Insert(rset.%GetData(1)) 
+     		set x12Id = rset.%GetData(2)   		
      	}
      	
     }
@@ -633,7 +638,7 @@ WARNING: This method's signature has changed.]]></Description>
 			set fileName = "X12.Document ID: " _ x12Doc.%Id()
 		}
 	
-		set ^webService("RdpCrystalEntries x12: ") = fileName _", X12 length: " _ $L(x12Str)
+		set ^webService("RdpCrystalEntries x12: ") = x12Id _": " _ fileName _", X12 length: " _ $L(x12Str)
 		
 		Do tArr.%Push({
 			"Operation":"RdpCrystalEntries",
@@ -643,9 +648,12 @@ WARNING: This method's signature has changed.]]></Description>
 					"Error": (wfStatus)
 					
 		})
-    
-    	set ^webService("RdpCrystalEntries from rdpId ") = "ID = " _ rdpId
-    	return ..GetRows(rdpId, tArr)
+		set ^webService("RdpCrystalEntries RDP ids ") = rdpIds.Count()
+		
+        Do ..GetRows(rdpIds, tArr)
+        
+        Do ..%SetStatusCode(200)
+        return tArr
     }
     else
     {
@@ -666,7 +674,7 @@ WARNING: This method's signature has changed.]]></Description>
 
 <Method name="GetRows">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>id:%String,tArr:%Library.DynamicArray</FormalSpec>
+<FormalSpec>ids:%ListOfDataTypes,tArr:%Library.DynamicArray</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
     
@@ -676,18 +684,21 @@ WARNING: This method's signature has changed.]]></Description>
     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     		
 	Do ..getColumnNames(tableName, propertyList)
+	#dim rs As %SQL.StatementResult
+		    
+	Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
 	
-    set sqlStr = "SELECT * FROM "_ tableName _ "  WHERE ID = '" _ id _"'"
-    
-    #dim rs As %SQL.StatementResult
-    
-    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
-    {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
-    }
+	for ind=1:1:ids.Count()
+	{
+	
+		    set sqlStr = "SELECT * FROM "_ tableName _ "  WHERE ID = '" _ ids.GetAt(ind) _"'"
+		    if (sqlStr '= "")
+		    {
+			    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+			    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
+				Do ..populateArray(tableName, rs , tArr, propertyList)
+		    }
+	}
     
 	set ^webService(tableName _ " End") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
 	Do ..%SetStatusCode(200)
@@ -737,10 +748,7 @@ WARNING: This method's signature has changed.]]></Description>
     		    
     		    
     		    set val = rs.%Get(column)
-    		    
-    		    
-    		   
-    			
+    		        			
     			if (ind=1)
     			{
     				set innerArr={}.%Set(column,(val))
