@@ -82,6 +82,7 @@ import {
   CdkDropList,
   CdkDropListGroup
 } from '@angular/cdk/drag-drop';
+import { RdpValidationErrorsComponent } from './workflow/rdpValidationErrors/rdpValidationErrors.component';
 
 @NgModule({ declarations: [
         AppComponent,
@@ -109,7 +110,8 @@ import {
         DashBoardComponent,
         WorkflowComponent,
         WorkflowDetailsComponent,
-        WorkflowHistoryComponent
+        WorkflowHistoryComponent,
+        RdpValidationErrorsComponent
     ],
     exports: [
         MatTableModule,

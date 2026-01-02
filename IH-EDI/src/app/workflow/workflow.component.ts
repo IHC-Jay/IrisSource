@@ -498,7 +498,7 @@ onDetailsClicked(row) {
   console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
 
  this.router.navigate(["/workflow/workflowDetails/"],
-  {queryParams: { ID:  row.ID,  searchParams:  searchParamsString } }
+  {queryParams: { ID:  row.ID, TransactionType: row.TransactionType, searchParams:  searchParamsString } }
    );
 
 }

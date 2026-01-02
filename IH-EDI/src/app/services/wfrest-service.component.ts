@@ -272,6 +272,39 @@ updateWorkFlowItem(mode: string, paramsList: string[]) {
 
 }
 
+fetchRdpCrytalEntries(mode: string, searchStr: string) {
+  console.log('Fetch RdpCrystalEntries with Auth for '+ this.currentUser );
+
+  let url = this.batchWfUrl + 'RdpCrystalEntries?' +  searchStr+"&userNm="+ this.currentUser;
+  if (mode === 'RealTime')
+  {
+     url = this.rtWfUrl + + 'RdpCrystalEntries?' +  searchStr+"&userNm="+ this.currentUser;
+  }
+
+  return this.http
+    .get<{ [key: string]: WorkFlowEntry }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+
+        return responseData;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchRdpCrystalEntries catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
+
+}
+
 }
 
 

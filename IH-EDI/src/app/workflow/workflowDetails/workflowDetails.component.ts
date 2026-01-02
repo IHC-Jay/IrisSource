@@ -16,6 +16,7 @@ import { MatPaginator } from '@angular/material/paginator';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 import {x12err} from './WfDetails';
+import { Console } from 'node:console';
 
 @Component({
     selector: 'app-workflowDetails',

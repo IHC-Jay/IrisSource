@@ -1040,7 +1040,7 @@ fetchConfiguration() {
 
       catchError(errorRes => {
         // Send to analytics server
-        console.error('In fetchWorkFlowEntry catchError: ' + errorRes);
+        console.error('In fetchConfiguration catchError: ' + errorRes);
         return errorRes;
       })
     );
