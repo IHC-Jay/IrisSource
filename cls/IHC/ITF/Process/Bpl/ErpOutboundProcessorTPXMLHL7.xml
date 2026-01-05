@@ -27,7 +27,6 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='ValidationPassed' type='%Boolean' initialexpression='1' instantiate='0' />
-<property name='PartnerFound' type='%Boolean' initialexpression='1' instantiate='0' />
 <property name='transTypeName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -44,6 +43,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='xmlDoc' type='EnsLib.EDI.XML.Document' instantiate='0' />
+<property name='xmlList' type='%ListOfDataTypes' instantiate='0' />
+<property name='lstInd' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='indXmlDoc' type='EnsLib.EDI.XML.Document' instantiate='0' />
 <property name='hl7Msg' type='EnsLib.HL7.Message' instantiate='0' />
 <property name='streamContainer' type='Ens.StreamContainer' instantiate='1' />
 <property name='docType' type='%String' instantiate='0' >
@@ -113,6 +115,7 @@ BPL Definition</Description>
  {
     $$$TRACE( "**** XML Data Filename " _ request.OriginalFilename)
     set context.xmlDoc = tDocument
+    set context.docType = context.xmlDoc.Name
     set context.ValidationPassed = 1
  }
  else
@@ -122,57 +125,48 @@ BPL Definition</Description>
     //$$$LOGERROR($System.Status.GetErrorText(tSC))
  }]]]]><![CDATA[>
 </code>
-<if name='Check If XML is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1650' >
+<if name='Check If XML is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='2200' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
-<code name='Document and Partner Info' xpos='470' ypos='1000' >
-<![CDATA[ $$$TRACE("Document and Partner for " _ context.xmlDoc.Name)
- set context.docType = context.xmlDoc.Name
-
- if context.docType = "WorkdayItemMaster"
- {
-	$$$TRACE("Transform ItemMaster")
-	set context.docType = "ItemMaster"
-	set context.partnerName = "Epic"
- 	set context.transTypeProtocol = "HL7"
- 	set context.transTypeVersion = "26"
- 	set context.transTypeName = "MFNM16"
- 	set context.ctrlNum = ##class(IHC.ITF.ITFCOMMON.ErpUtil).getMessageControlNumber("AutoMsh", "Workday", context.partnerName, context.transTypeName) 
- 	set context.PartnerFound = 1
- }
- elseif context.docType = "TissueTracking"
- {
-        $$$TRACE("Transform TissueTracking")
-        set context.partnerName = "TrackCore"
- 	set context.transTypeProtocol = "HL7"
- 	set context.transTypeVersion = "26"
- 	set context.transTypeName = "ZTSTS1"
- 	set context.ctrlNum = ##class(IHC.ITF.ITFCOMMON.ErpUtil).getMessageControlNumber("AutoMsh", "Workday", context.partnerName, context.transTypeName) 
- 	set context.PartnerFound = 1
- }
- else
- {
-   $$$TRACE("Transform Valid")
-   set context.errorMessage = "hl7NotSetup"
-   set context.PartnerFound = 0
- }
+<switch xpos='470' ypos='1000' xend='470' yend='2100' >
+<case condition='context.docType = "WorkdayItemMaster"' name='WorkdayItemMaster' >
+<trace name='WorkdayItemMaster' value='"Processing WorkdayItemMaster"' xpos='740' ypos='1150' />
+<code name='Document and Partner Info' xpos='740' ypos='1250' >
+<![CDATA[ $$$TRACE("Document and Partner for " _ context.docType)
+ set context.partnerName = "Epic"
+ set context.transTypeProtocol = "HL7"
+ set context.transTypeVersion = "26"
+ set context.transTypeName = "MFNM16"
+ 	
+ set context.dtlName = "IHC.ITF.Transform.Dtl.ErpWorkdayXML" _ "ItemMaster" _ "ToErp" _ context.transTypeProtocol _ context.transTypeVersion _ context.transTypeName 
+ $$$TRACE( "DTL Name: " _ context.dtlName)]]]]><![CDATA[>
+</code>
+<code name='split XML' xpos='740' ypos='1350' >
+<![CDATA[ set splitName = "HL7_Record"
+ set nmSpace = " xmlns:wd=""urn:com.workday/bsvc"" xmlns:r=""urn:report"" xmlns:atomicvars=""wd.util.AtomicVars"""
  
-]]]]><![CDATA[>
+ set context.xmlList = ##class(IHC.ITF.ITFCOMMON.ErpUtil).SplitXML(request.OriginalFilename, context.docType, nmSpace, splitName, .stat)
+ ]]]]><![CDATA[>
 </code>
-<if name='Partner Found' condition='context.PartnerFound' xpos='470' ypos='1100' xend='470' yend='1550' >
-<true>
-<code name='Set DTL Name' xpos='740' ypos='1250' >
-<![CDATA[ set context.dtlName = "IHC.ITF.Transform.Dtl.ErpWorkdayXML" _ context.docType _ "ToErp" _ context.transTypeProtocol _ context.transTypeVersion _ context.transTypeName 
- $$$TRACE( "DTL Name: " _ context.dtlName)
-]]]]><![CDATA[>
+<while condition='context.lstInd &lt;= context.xmlList.Count()' xpos='740' ypos='1450' xend='200' yend='1200' >
+<code name='Control Number' xpos='200' ypos='250' >
+<![CDATA[ $$$TRACE( "XML Process: "_ context.lstInd _", Stream size: " _ context.xmlList.GetAt(context.lstInd).Size)
+ set context.indXmlDoc = ##class(EnsLib.EDI.XML.Document).ImportFromLibraryStream(context.xmlList.GetAt(context.lstInd), .status)
+
+ $$$TRACE("XML ImportFromLibraryStream Status: " _ status _", " _ context.indXmlDoc.Name)
+ 
+ set context.ctrlNum = ##class(IHC.ITF.ITFCOMMON.ErpUtil).getMessageControlNumber("AutoMsh", "Workday", context.partnerName, context.transTypeName) 
+ 
+ ]]]]><![CDATA[>
 </code>
-<transform name='Call DTL' class='@context.dtlName' source='context.xmlDoc' target='response' xpos='740' ypos='1350' />
-<code name='Transform Valid or Failed' xpos='740' ypos='1450' >
+<transform name='Call DTL' class='@context.dtlName' source='context.indXmlDoc' target='response' xpos='200' ypos='350' />
+<code name='Transform Valid or Failed' xpos='200' ypos='450' >
 <![CDATA[   $$$TRACE("hl7 data: " _ response.RawContent)
  if $$$ISERR(status)
  {
    $$$TRACE("Transform Failed")
    set context.errorMessage = "hl7TranformFailed"
+   set context.ValidationPassed = 0
    set context.errorProcess = 1
    set status = $$$ERROR($$$GeneralError, "DTL failed")
  }
@@ -181,57 +175,15 @@ BPL Definition</Description>
    $$$TRACE("Transform Valid")
    set context.errorMessage = ""
    set context.errorProcess = 0
+   set context.ValidationPassed = 1
    set context.hl7Msg = response
  }
 
 ]]]]><![CDATA[>
 </code>
-</true>
-<false>
-<code name='Partner Not Found' xpos='470' ypos='1250' >
-<![CDATA[ $$$TRACE("Partner not found")
- set context.errorMessage = "hl7PartnerNotFound"
- set context.errorProcess = 1]]]]><![CDATA[>
-</code>
-</false>
-</if>
-</true>
-<false>
-<code name='Message Validation Failed' xpos='200' ypos='900' >
-<![CDATA[ $$$TRACE("Message Validation Failed")
- set context.errorMessage = "hl7InvalidXml"
- set context.errorProcess = 1
- ]]]]><![CDATA[>
-</code>
-</false>
-</if>
-<if name='Error Process' condition='context.errorProcess' xpos='200' ypos='1750' xend='200' yend='2650' >
+<if name='Valid' condition='context.ValidationPassed' xpos='200' ypos='550' xend='200' yend='1100' >
 <true>
-<code name='Create Error Stream Container' xpos='200' ypos='1900' >
-<![CDATA[   $$$TRACE("Create Error Stream Container")
- Do request.Stream.Rewind()
- $$$TRACE("Send Error" _ request.OriginalFilename _ ", Stream data size: " _ request.Stream.Size)
- 
- set context.streamContainer.Stream=##class(%FileCharacterStream).%New()
- set stat = context.streamContainer.Stream.CopyFromAndSave(request.Stream)
-        
- $$$TRACE("Document Stream: " _ context.streamContainer.Stream.Size _", copy status: " _ stat )
- 
- set context.streamContainer.OutputFilename =   context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename)
- set context.streamContainer.OriginalFilename = context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename) 
-]]]]><![CDATA[>
-</code>
-<call name='ErpOutbound-ToError-Xml-File' target='ErpOutbound-ToError-Xml-File' async='1' xpos='200' ypos='2000' >
-<request type='Ens.StreamContainer' >
-<assign property="callrequest" value="context.streamContainer" action="set" />
-</request>
-</call>
-</true>
-<false>
-<code name='Outbound File Transformed' xpos='470' ypos='1900' >
-<![CDATA[ $$$TRACE("Outbound File Transformed")]]]]><![CDATA[>
-</code>
-<code name='Create Stream Container' xpos='470' ypos='2000' >
+<code name='Create Stream Container' xpos='470' ypos='700' >
 <![CDATA[  $$$TRACE("*** Create Stream Container")
    // set context.scTp = ##class(IHC.ITF.DStruc.Record.StreamContainerWithTransType).%New()
    set context.scTp.Stream = ##class(%Library.FileCharacterStream).%New()
@@ -262,34 +214,160 @@ BPL Definition</Description>
   
   ]]]]><![CDATA[>
 </code>
-<switch name='Send Data' xpos='470' ypos='2100' xend='470' yend='2450' >
-<case condition='context.partnerName = "Epic"' >
-<trace name='Epic' value='"Epic Call"' xpos='605' ypos='2250' />
-<call name='Out-Epic-Mfn-HL7tcp-WORKDAY' target='Out-Epic-Mfn-HL7tcp-WORKDAY' async='1' xpos='605' ypos='2350' >
+<call name='Out-Epic-Mfn-HL7tcp-WORKDAY' target='Out-Epic-Mfn-HL7tcp-WORKDAY' async='1' xpos='470' ypos='800' >
 <request type='EnsLib.HL7.Message' >
 <assign property="callrequest" value="context.hl7Msg" action="set" />
 </request>
 <response type='Ens.Response' />
 </call>
-</case>
-<case condition='context.partnerName = "TrackCore"' >
-<trace name='TrackCore' value='"TrackCore Call"' xpos='875' ypos='2250' />
-<call name='Out-TrackCore-Zts-HL7tcp-WORKDAY' target='Out-TrackCore-Zts-HL7tcp-WORKDAY' async='1' xpos='875' ypos='2350' >
-<request type='EnsLib.HL7.Message' >
-<assign property="callrequest" value="context.hl7Msg" action="set" />
-</request>
-<response type='Ens.Response' />
-</call>
-</case>
-<default/>
-</switch>
-<code name='Store Data' xpos='470' ypos='2550' >
+<code name='Store Data' xpos='470' ypos='900' >
 <![CDATA[   $$$TRACE("*** Store Outbound HL7 Data")
- set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpHl7Data(context.scTp.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID) 
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpHl7Data(context.scTp.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID, context.lstInd) 
+ 
+ $$$TRACE("*** Store Inbound XML Data")
+ #dim tSt As %Library.FileCharacterStream = context.xmlList.GetAt(context.lstInd)
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpXmlData(tSt, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID, context.lstInd) 
+ ]]]]><![CDATA[>
+</code>
+<assign name="Increment lstInd" property="context.lstInd" value="context.lstInd + 1" action="set" xpos='470' ypos='1000' />
+</true>
+<false>
+<code name='Quit' xpos='200' ypos='700' >
+<![CDATA[ QUIT]]]]><![CDATA[>
+</code>
+</false>
+</if>
+</while>
+</case>
+<case condition='context.docType = "TissueTracking"' name='TissueTracking' >
+<trace name='TissueTracking' value='"Processing TissueTracking"' xpos='1010' ypos='1150' />
+<code name='Document and Partner Info' xpos='1010' ypos='1250' >
+<![CDATA[ $$$TRACE("Document and Partner for " _ context.docType)
+ set context.partnerName = "TrackCore"
+ set context.transTypeProtocol = "HL7"
+ set context.transTypeVersion = "26"
+ set context.transTypeName = "ZTSTS1"
+ 
+ set context.dtlName = "IHC.ITF.Transform.Dtl.ErpWorkdayXML" _ context.docType _ "ToErp" _ context.transTypeProtocol _ context.transTypeVersion _ context.transTypeName 
+ $$$TRACE( "DTL Name: " _ context.dtlName)
+ 
+  set context.ctrlNum = ##class(IHC.ITF.ITFCOMMON.ErpUtil).getMessageControlNumber("AutoMsh", "Workday", context.partnerName, context.transTypeName) ]]]]><![CDATA[>
+</code>
+<transform name='Call DTL' class='@context.dtlName' source='context.xmlDoc' target='response' xpos='1010' ypos='1350' />
+<code name='Transform Valid or Failed' xpos='1010' ypos='1450' >
+<![CDATA[   $$$TRACE("hl7 data: " _ response.RawContent)
+ if $$$ISERR(status)
+ {
+   $$$TRACE("Transform Failed")
+   set context.errorMessage = "hl7TranformFailed"
+   set context.errorProcess = 1
+   set context.ValidationPassed = 0
+   set status = $$$ERROR($$$GeneralError, "DTL failed")
+ }
+ else
+ {
+   $$$TRACE("Transform Valid")
+   set context.errorMessage = ""
+   set context.errorProcess = 0
+   set context.ValidationPassed = 1
+   set context.hl7Msg = response
+ }
+
+]]]]><![CDATA[>
+</code>
+<if name='Valid' condition='context.ValidationPassed' xpos='1010' ypos='1550' xend='1010' yend='2000' >
+<true>
+<code name='Create Stream Container' xpos='1145' ypos='1700' >
+<![CDATA[  $$$TRACE("*** Create Stream Container")
+   // set context.scTp = ##class(IHC.ITF.DStruc.Record.StreamContainerWithTransType).%New()
+   set context.scTp.Stream = ##class(%Library.FileCharacterStream).%New()
+ 
+   set context.scTp.TpName = context.partnerName
+   set context.scTp.Folder = "hl7"
+   set context.scTp.TransType = context.transTypeName
+   set context.scTp.TradingPartnerName = context.partnerName
+   set context.scTp.AliasName = ""
+   set context.scTp.TransFileName = ""
+   
+   set stat = response.OutputToLibraryStream(context.scTp.Stream) 
+
+   if ('stat) { 
+      set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned from Stream Copy." _$SYSTEM.Status.GetOneErrorText(stat))    
+   }
+   else
+   {
+      $$$TRACE("OutputToLibraryStream OK")
+   }
+   set flNm = ##class(%File).GetFilename(request.OriginalFilename)
+   
+   set workFileName = context.partnerName _ "_" _ context.transTypeName _ "_" _ $ZDATETIME($ZTIMESTAMP,8,1,9) _ "_" _ request.%Id() _ ".txt"
+   
+   $$$TRACE("Output Filename: " _ workFileName)
+   set context.scTp.OutputFilename = workFileName
+   set context.scTp.OriginalFilename = context.scTp.OutputFilename
+  
+  ]]]]><![CDATA[>
+</code>
+<call name='Out-TrackCore-Zts-HL7tcp-WORKDAY' target='Out-TrackCore-Zts-HL7tcp-WORKDAY' async='1' xpos='1145' ypos='1800' >
+<request type='EnsLib.HL7.Message' >
+<assign property="callrequest" value="context.hl7Msg" action="set" />
+</request>
+<response type='Ens.Response' />
+</call>
+<code name='Store Data' xpos='1145' ypos='1900' >
+<![CDATA[   $$$TRACE("*** Store Outbound HL7 Data")
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpHl7Data(context.scTp.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID, 1) 
  
  $$$TRACE("*** Store Inbound XML Data")
  set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpXmlData(request.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID, 1) 
  ]]]]><![CDATA[>
+</code>
+</true>
+</if>
+</case>
+<default>
+<code name='Document and Partner Not Found' xpos='470' ypos='1150' >
+<![CDATA[ $$$TRACE("Partner not found")
+ set context.errorMessage = "hl7NotSetup"
+ set context.errorProcess = 1]]]]><![CDATA[>
+</code>
+</default>
+</switch>
+</true>
+<false>
+<code name='Message Validation Failed' xpos='200' ypos='900' >
+<![CDATA[ $$$TRACE("Message Validation Failed")
+ set context.errorMessage = "hl7InvalidXml"
+ set context.errorProcess = 1
+ ]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<if name='Error Process' condition='context.errorProcess' xpos='200' ypos='2300' xend='200' yend='2650' >
+<true>
+<code name='Create Error Stream Container' xpos='470' ypos='2450' >
+<![CDATA[   $$$TRACE("Create Error Stream Container")
+ Do request.Stream.Rewind()
+ $$$TRACE("Send Error" _ request.OriginalFilename _ ", Stream data size: " _ request.Stream.Size)
+ 
+ set context.streamContainer.Stream=##class(%FileCharacterStream).%New()
+ set stat = context.streamContainer.Stream.CopyFromAndSave(request.Stream)
+        
+ $$$TRACE("Document Stream: " _ context.streamContainer.Stream.Size _", copy status: " _ stat )
+ 
+ set context.streamContainer.OutputFilename =   context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename)
+ set context.streamContainer.OriginalFilename = context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename) 
+]]]]><![CDATA[>
+</code>
+<call name='ErpOutbound-ToError-Xml-File' target='ErpOutbound-ToError-Xml-File' async='1' xpos='470' ypos='2550' >
+<request type='Ens.StreamContainer' >
+<assign property="callrequest" value="context.streamContainer" action="set" />
+</request>
+</call>
+</true>
+<false>
+<code name='Outbound File Transformed' xpos='200' ypos='2450' >
+<![CDATA[ $$$TRACE("Process Completed")]]]]><![CDATA[>
 </code>
 </false>
 </if>
