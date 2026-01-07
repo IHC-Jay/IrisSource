@@ -41,7 +41,8 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   links = [
     {name:'Trading Partners', link:"/TradingPartners"},
     {name:'Search ERP TPID', link:"/search"},
-    {name:'Transactions', link:"/transaction"}
+    {name:'X12 Transactions', link:"/transaction"},
+    {name:'HL7 Messages', link:"/hl7"}
   ];
 
   activeLink = this.links[0].link;

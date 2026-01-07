@@ -1,7 +1,6 @@
 import { Component, OnInit,Input } from '@angular/core';
 import { CommonModule } from "@angular/common";
 import { CommonColumns, CommonColumnsDisplayColumns} from '../CommonColumns';
-import { ERPRequest } from '../ERPRequest';
 import { transition } from '@angular/animations';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';

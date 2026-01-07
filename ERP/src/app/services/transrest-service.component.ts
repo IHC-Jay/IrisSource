@@ -10,10 +10,6 @@ import { environment } from '../../environments/environment';
 
 import { Inject } from "@angular/core";
 
-
-import {ERPRequest} from '../transaction/ERPRequest'
-
-
 import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
 
 import { Router, ActivatedRoute} from '@angular/router';
@@ -90,7 +86,7 @@ fetchERPtransactions(searchStr: string, searchType: string, isaOrSt: string, max
 
   console.log('ERP transactions URL: ' + url)
   return this.http2
-    .get<{ [key: string]: ERPRequest }>(
+    .get<{ [key: string]: any }>(
       url
     )
 
@@ -98,7 +94,7 @@ fetchERPtransactions(searchStr: string, searchType: string, isaOrSt: string, max
       map(responseData => {
         console.info(responseData);
 
-        const ERPRequestArray: ERPRequest[] = [];
+        const ERPRequestArray: any[] = [];
         for (const key in responseData) {
           if (responseData.hasOwnProperty(key)) {
              ERPRequestArray.push({ ...responseData[key], id: responseData[key].id });
@@ -126,7 +122,7 @@ fetchParentRecord(id: string) {
 
   console.log('Fetch Parent X12 ' + url);
   return this.http2
-  .get<{ [key: string]: ERPRequest }>(
+  .get<{ [key: string]: any }>(
     url
   ).pipe(
       map(responseData => {
@@ -163,7 +159,7 @@ fetchTransactionTypes() {
 
 
   return this.http2
-    .get<{ [key: string]: ERPRequest }>(
+    .get<{ [key: string]: any }>(
       url
     )
 
@@ -191,7 +187,7 @@ fetchTransactionFields(all) {
 
 
   return this.http2
-    .get<{ [key: string]: ERPRequest }>(
+    .get<{ [key: string]: any }>(
       url
     )
 
@@ -247,7 +243,7 @@ fetchDisplayColumns() {
 
       catchError(errorRes => {
         // Send to analytics server
-        console.error('In fetchTransactionFields catchError: ' + errorRes);
+        console.error('In fetchDisplayColumns catchError: ' + errorRes);
         return errorRes;
       })
     );
@@ -303,6 +299,43 @@ deleteDisplayColumns(dispCol: DisplayColumnsArray)
       return errorRes;
     })
   );
+
+}
+
+
+fetchHL7Messages(searchStr: string, searchType: string,  maxCnt : Number, partnerName: string) {
+  console.log( this.env + ' - Fetch fetchHL7Messages with Auth for: ' + searchStr +", " + searchType +", for " + partnerName);
+
+  let url = this.createRestUrl('HL7', searchStr, searchType, maxCnt, partnerName, '');
+
+  console.log('HL7 URL: ' + url)
+  return this.http2
+    .get<{ [key: string]: any }>(
+      url
+    )
+
+    .pipe(
+      map(responseData => {
+        console.info(responseData);
+
+        const ERPRequestArray: any[] = [];
+        for (const key in responseData) {
+          if (responseData.hasOwnProperty(key)) {
+             ERPRequestArray.push({ ...responseData[key], id: responseData[key].id });
+          }
+        }
+        console.info('return TP array: ' + ERPRequestArray.length );
+        return ERPRequestArray;
+
+
+      }),
+
+      catchError(errorRes => {
+        // Send to analytics server
+        console.error('In fetchHL7Messages catchError: ' + errorRes);
+        return errorRes;
+      })
+    );
 
 }
 

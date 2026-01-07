@@ -1,7 +1,6 @@
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormControl, Validators } from '@angular/forms';
-import {ERPRequest} from './ERPRequest'
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
 import { TpRestServiceComponent } from '../services/tprest-service.component';

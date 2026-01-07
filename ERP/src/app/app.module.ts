@@ -45,6 +45,7 @@ import { AddEditComponent } from './tradingPartners/tpIds/tp-links/add-edit.comp
 import { tpLinksComponent } from './tradingPartners/tpIds/tp-links/tp-links.component';
 import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
+import {HL7Component} from './message/hl7.component'
 import {AuthInterceptor} from './login/auth-interceptor';
 import {ErrorInterceptor} from './login/error.interceptor';
 
@@ -73,7 +74,8 @@ AppComponent,
         AddEditTP,
         SearchComponent,
         TransactionComponent,
-        TransactionDetailComponent
+        TransactionDetailComponent,
+        HL7Component
     ],
     exports: [
         MatTableModule,

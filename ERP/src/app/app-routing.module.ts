@@ -11,7 +11,8 @@ import {AddEditComponent} from './tradingPartners/tpIds/tp-links/add-edit.compon
 import { SearchComponent } from './search/search.component';
 import {TransactionComponent} from './transaction/transaction.component'
 import {TransactionDetailComponent} from './transaction/transaction-details/transaction-details.component';
-
+import {HL7Component} from './message/hl7.component';
+import {Hl7DetailComponent} from './message/transaction-details/hl7-details.component';
 import { AddEditTP } from './tradingPartners/add-edit.TP';
 
 
@@ -26,6 +27,8 @@ const appRoutes: Routes = [
   {path: 'search', component: SearchComponent, canActivate: [AuthGuard]},
   {path: 'transaction', component: TransactionComponent, canActivate: [AuthGuard]},
   {path: 'transaction/transaction-details', component: TransactionDetailComponent, canActivate: [AuthGuard]},
+  {path: 'hl7', component: HL7Component, canActivate: [AuthGuard]},
+  {path: 'hl7/hl7-details', component: Hl7DetailComponent, canActivate: [AuthGuard]},
 ];
 
 @NgModule({
