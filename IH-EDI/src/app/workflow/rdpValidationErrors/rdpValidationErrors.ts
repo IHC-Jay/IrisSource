@@ -16,8 +16,8 @@ export interface RdpX12Error {
 }
 
 export interface x12err {
+  Num:string
   LineNum: string;
-  Element: string;
-  Data:string;
+  Segment: string;
   Error:string;
 }

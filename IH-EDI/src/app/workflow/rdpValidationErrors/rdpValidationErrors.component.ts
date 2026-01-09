@@ -81,10 +81,10 @@ export class RdpValidationErrorsComponent implements OnInit {
   dataTableLabel:string[] =  ['#', 'X12 Data', 'Error'];
   dataTableKey: string[] = ['LineNum',  'Data',  'Error'];
 
-  errDataTableLabel:string[] =  ['#', 'Line #', 'Element','Error'];
+  errDataTableLabel:string[] =  ['#', 'Line #', 'Segment','Error'];
 
   errDataTableKey: string[] = [
-    'Num', 'LineNum', 'Element', 'Error'
+    'Num', 'LineNum', 'Segment', 'Error'
   ]
 
   isEdit: boolean = false;
@@ -278,20 +278,20 @@ getX12(searchStr: string = "")
 
               if(err !== '')
                 {
-                  this.errArray.push({LineNum:(index+1), Element: res[ind].Element, Data: item,  'Error' : err})
+                  this.errArray.push({'Num' :''+ind, 'LineNum':''+lenNum, 'Segment': res[ind].Segment,  'Error' : err})
               }
               if (this.checked) // Show errors only
               {
                 if(err !== '')
                 {
-                  this.x12Array.push({LineNum:(index+1), Data: item, Error:err});
+                  this.x12Array.push({'LineNum' :''+lenNum, 'Data':item, Error:err});
                   errFound = true;
 
                 }
               }
               else
               {
-                this.x12Array.push({LineNum:(index+1), Data: item, Error:err});
+                this.x12Array.push({'LineNum' :''+lenNum, 'Data':item,  Error:err});
               }
             }
 
@@ -345,7 +345,7 @@ getX12(searchStr: string = "")
       else
       {
         this.dataError = false;
-        this.errArray.push({'LineNum': '1', 'Element': '-', 'Data': '-', 'Error' : "-"});
+        this.errArray.push({'Num': '1', 'LineNum': '1', 'Segment': '-', 'Error' : "-"});
         this.errorDataSource.data = this.errArray;
 
       }
