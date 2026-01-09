@@ -136,11 +136,8 @@ export class HL7Component implements OnInit, AfterViewInit {
     {
       this.dataTableKey = sessionStorage.getItem("DisplayKeys").split(',');
       this.dataTableLabel = sessionStorage.getItem("DisplayLabels").split(',');
-      this.selDropdownList = [];
-      for (var i=0; i<this.dataTableKey.length; i++)
-      {
-        this.selDropdownList.push({key:this.dataTableKey[i], item_text:this.dataTableLabel[i]});
-      }
+
+
     }
     else{
         for (var item of CommonColumnsDisplayColumns)
@@ -148,13 +145,24 @@ export class HL7Component implements OnInit, AfterViewInit {
             this.dataTableLabel.push(item.label);
 
             this.dataTableKey.push(item.key);
+
+        }
+    }
+
+    this.selDropdownList = [];
+      for (var i=0; i<this.dataTableKey.length; i++)
+      {
+        this.selDropdownList.push({key:this.dataTableKey[i], item_text:this.dataTableLabel[i]});
+      }
+      this.searchColumns =[];
+      for (var item of CommonColumnsDisplayColumns)
+        {
             if (item.search == 'Y')
             {
 
               this.searchColumns.push({key:item.key, label:item.label});
             }
         }
-    }
 
 
     this.sub = this.route.queryParams.subscribe(params => {

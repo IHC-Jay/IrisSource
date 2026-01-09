@@ -25,7 +25,7 @@ export class TransactionDetailComponent {
 
   sub:any;
   id:string;
-  ERPDataParentId:string;
+  ParentId:string;
   ak1CtrlNum:string;
   ak1ver:string;
   searchStr:string;
@@ -36,6 +36,7 @@ export class TransactionDetailComponent {
   erpData:string;
   fileName = "TEST";
   prevWindow: boolean = false;
+  xmlData:string;
 
   constructor(
     private TransactionService: TransRestServiceComponent,
@@ -96,12 +97,25 @@ export class TransactionDetailComponent {
 
 
             this.dataSource.data = res;
-            this.ERPDataParentId = this.dataSource.data[0].ERPDataParentId;
+            this.ParentId = this.dataSource.data[0].ERPDataParentId;
             this.fileName = this.dataSource.data[0].FileName.replace(/^.*[\\\/]/, '');
             this.erpData = this.dataSource.data[0].erpData
 
             console.log("# of records: " + res.length);
             console.log(this.transaction + '- Display columns: ' + this.displayedColumns.length);
+
+            var staticSearchStr = " sessionId='" + this.dataSource.data[0].SessionID + "'";
+            if(this.dataSource.data[0].SequenceID !== '' && this.dataSource.data[0].SequenceID !== 0  )
+            {
+               staticSearchStr += " AND SequenceID='" + this.dataSource.data[0].SequenceID + "'";
+            }
+
+             this.TransactionService.fetchERPtransactions(staticSearchStr, '', '', 1, '').subscribe((xmlRes: any) => {
+              console.log('fetchERPtransactions: ' + xmlRes.length);
+              this.xmlData = xmlRes[0].erpData;
+
+              });
+
             this.canRenderDetails = true;
           });
 
@@ -151,7 +165,7 @@ export class TransactionDetailComponent {
                   val = '-';
                 }
 
-                console.info("getSelectedValue: " + question +"= " + val);
+                // console.info("getSelectedValue: " + question +"= " + val);
                 return val;
             }
           }
@@ -177,8 +191,8 @@ export class TransactionDetailComponent {
   }
 
   openERPModal(): void {
-    console.info("openERPModal: " + this.ERPDataParentId + ", " + this.transaction);
-    this.TransactionService.fetchParentRecord(this.ERPDataParentId).subscribe((res: any) => {
+    console.info("openERPModal: " + this.ParentId + ", " + this.transaction);
+    this.TransactionService.fetchParentRecord(this.ParentId).subscribe((res: any) => {
       this.canRenderDetails = true;
       let val = ""
 

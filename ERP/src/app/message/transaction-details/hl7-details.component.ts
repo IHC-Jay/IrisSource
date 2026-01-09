@@ -79,6 +79,10 @@ export class Hl7DetailComponent {
             console.log("# of records: " + res.length);
 
             var staticSearchStr = " sessionId='" + this.dataSource.data[0].SessionID + "'";
+            if(this.dataSource.data[0].SequenceID !== '' && this.dataSource.data[0].SequenceID !== 0  )
+            {
+               staticSearchStr += " AND SequenceID='" + this.dataSource.data[0].SequenceID + "'";
+            }
 
              this.TransactionService.fetchERPtransactions(staticSearchStr, '', '', 1, '').subscribe((xmlRes: any) => {
               console.log('fetchERPtransactions: ' + xmlRes.length);
@@ -102,7 +106,7 @@ export class Hl7DetailComponent {
 
             const jsonData = JSON.parse(jsonStr)
 
-            console.info("getSelectedValue - JSON Data: " + jsonStr);
+            // console.info("getSelectedValue - JSON Data: " + jsonStr);
 
             for(var i in jsonData)
             {
