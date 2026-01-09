@@ -202,8 +202,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
       for (var item of res)
       {
-
+        if (item.Type != 'HL7')
+        {
               this.transactionTypes.push(item.TransactionType);
+        }
 
       }
       console.info("TransactionTypes #: " + this.transactionTypes.length);

@@ -69,7 +69,7 @@ export class Hl7DetailComponent {
           this.displayedColumns.push(...CommonColumnsDisplayColumns);
 
 
-          this.TransactionService.fetchHL7Messages("id='" + this.id +"'", this.searchTypeString, 1, "").subscribe((res: any) => {
+          this.TransactionService.fetchHL7Messages("id='" + this.id +"'", this.searchTypeString, 1).subscribe((res: any) => {
 
 
             this.dataSource.data = res;

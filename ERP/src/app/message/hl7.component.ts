@@ -43,15 +43,8 @@ export class HL7Component implements OnInit, AfterViewInit {
   @ViewChild(MatMenuTrigger)
   contextMenu: MatMenuTrigger;
 
-  transactionTypes: string[] = [] ;
+  MessageTypes: string[] = [] ;
 
-  butSaveDisplay: boolean = false;
-
-   nyiColumns = [
-    {
-      key: 'N/A',
-      item_text: 'Not Implemented'
-    }];
 
   panelExpand: boolean = true;
   loading:boolean = false;
@@ -66,30 +59,23 @@ export class HL7Component implements OnInit, AfterViewInit {
   conditionColumns: string[] = ['=', '!=', '%StartsWith', 'Contains', 'LIKE', 'NOT LIKE'];
   searchFieldVal:string = "";
   dataSource = new MatTableDataSource<any>();
-  tpDataSource: string[] = [];
 
 
-  transactionsSearchColumns= [
-    {
-      key: 'Invalid',
-      label: 'Select Transaction to view the Columns'
-    }];
 
-
-  searchColumns= this.transactionsSearchColumns.slice();
+  searchColumns= [];
 
   @ViewChild("searchValue") searchValue: ElementRef;
   @ViewChild("searchField") searchField: ElementRef;
   @ViewChild("searchCndition") searchCndition: ElementRef;
 
-  @ViewChild("transType") transType: ElementRef;
+  @ViewChild("msgType") msgType: ElementRef;
   @ViewChild("displayCols") displayCols: ElementRef;
 
 
   searchString = "";
   searchTypeString = "";
-  currentTransType = "";
-  tradingPartnerString:string = "";
+  currentMessageType = "";
+
   sub:any;
   isTableExpanded = false;
 
@@ -111,7 +97,7 @@ export class HL7Component implements OnInit, AfterViewInit {
   dropdownSettings={};
 
 
-  constructor(private TransactionService: TransRestServiceComponent,  private TradingPartnerService: TpRestServiceComponent,
+  constructor(private TransactionService: TransRestServiceComponent,
     private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
 
       tpId: new FormControl();
@@ -123,18 +109,16 @@ export class HL7Component implements OnInit, AfterViewInit {
   {
 
     this.startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-    console.info("ngOnInit with  tradingPartner: " + this.startDate);
+    console.info("ngOnInit: " + this.startDate);
     let queryParams = 0
 
     this.form = this.formBuilder.group({
-      transType: ['', Validators.required],
+      msgType: ['', Validators.required],
       searchField: ['', Validators.required],
       searchCndition: [''],
       searchValue: [''],
       matStartDate: [''],
-      matEndDate:[''],
-
-      TradingPartner:['All']
+      matEndDate:['']
     });
 
     this.form.controls.matStartDate.setValue(this.startDate);
@@ -164,6 +148,11 @@ export class HL7Component implements OnInit, AfterViewInit {
             this.dataTableLabel.push(item.label);
 
             this.dataTableKey.push(item.key);
+            if (item.search == 'Y')
+            {
+
+              this.searchColumns.push({key:item.key, label:item.label});
+            }
         }
     }
 
@@ -171,8 +160,8 @@ export class HL7Component implements OnInit, AfterViewInit {
     this.sub = this.route.queryParams.subscribe(params => {
       // Defaults to '' if no query param provided.
 
-      this.currentTransType =  params['transaction'] || '';
-      if (this.currentTransType !== "")
+      this.currentMessageType =  params['transaction'] || '';
+      if (this.currentMessageType !== "")
       {
         queryParams = 1
         this.searchString = params['search'] || '';
@@ -181,62 +170,54 @@ export class HL7Component implements OnInit, AfterViewInit {
           this.searchString=""
         }
         this.searchTypeString = params['searchTypeString'];
-        this.tradingPartnerString = params['tradingPartner'];
-        this.startDate =  new Date(this.searchTypeString);
-        this.form.controls.transType.setValue(this.currentTransType);
-        this.form.controls.TradingPartner.setValue(this.tradingPartnerString);
 
-        console.log('ngOnInit - Query params ' + this.searchTypeString +", transType: " + this.currentTransType +", " + this.searchString);
+        this.startDate =  new Date(this.searchTypeString);
+        this.form.controls.msgType.setValue(this.currentMessageType);
+
+
+        console.log('ngOnInit - Query params ' + this.searchTypeString +", msgType: " + this.currentMessageType +", " + this.searchString);
       }
     });
-    console.info("TransactionType: " + this.currentTransType +",tradingPartner: " + this.tradingPartnerString)
-    this.transactionTypes.push('All')
+    console.info("Message Type: " + this.currentMessageType )
+    this.MessageTypes.push('All')
 
-
-    this.transactionTypes.push('2.6:MFN_M16');
-
-
-      console.info("TransactionTypes #: " + this.transactionTypes.length);
+      console.info("Message Types #: " + this.MessageTypes.length);
       if(queryParams === 0)
         {
-          this.form.controls.transType.setValue(this.transactionTypes[0]);
-          this.currentTransType = this.transactionTypes[0];
+          this.form.controls.msgType.setValue(this.MessageTypes[0]);
+          this.currentMessageType = this.MessageTypes[0];
           console.info("New search Default Date: " + this.startDate)
           this.form.controls.matStartDate.setValue(this.startDate)
 
-          console.info("New search Set TransactionType: " + this.currentTransType +", Date: " + this.form.controls.matStartDate.value)
+          console.info("New search Set MessageType: " + this.currentMessageType +", Date: " + this.form.controls.matStartDate.value)
         }
 
-
-    this.transactionsSearchColumns = [];
-
-
-      console.info("transactionsSearchColumns: " + this.transactionsSearchColumns.length);
-
-
         CommonColumnsDisplayColumns.forEach( col => {
-          this.allDropdownList.push({key:col.key, item_text:col.label});
+
+            this.allDropdownList.push({key:col.key, item_text:col.label});
+
         });
 
 
-      this.tpDataSource.push('All');
-      this.transactionChange(this.currentTransType);
+      this.form.controls.msgType.setValue(this.currentMessageType);
       this.form.controls.searchValue.setValue("");
       this.form.controls.searchField.setValue(this.dataTableLabel[0]);
       this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
 
-      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+      this.TransactionService.fetchTransactionTypes().subscribe((res: any) => {
 
         for (var item of res)
         {
-
-           this.tpDataSource.push(item.Name);
+          if (item.Type == 'HL7')
+          {
+                this.MessageTypes.push(item.TransactionType);
+          }
 
         }
+        console.info("Message Types #: " + this.MessageTypes.length);
 
-        console.log('# of TPs: ' + this.tpDataSource.length);
-        console.info('Transaction search for: ' + this.currentTransType);
-            this.onSearchTransactions();
+
+        this.onSearchTransactions();
       });
 
 
@@ -254,8 +235,6 @@ export class HL7Component implements OnInit, AfterViewInit {
   onSearchTransactions()
     {
       let staticSearchStr =  "";
-      this.tradingPartnerString = (this.form.controls.TradingPartner.value  === 'All') ? '': this.form.controls.TradingPartner.value;
-      console.info("SearchTransactions for TradingPartner: " + this.tradingPartnerString )
 
       if (this.form.controls.matEndDate.value !== null && this.form.controls.matEndDate.value !== "")
       {
@@ -271,10 +250,10 @@ export class HL7Component implements OnInit, AfterViewInit {
           this.searchTypeString =  "" + this.form.controls.matStartDate.value
       }
       this.canRenderDetails = false;
-      console.info("onSearchTransactions TransType: " +this.form.controls.transType.value +",  currentTransType: " +  this.currentTransType +", " + this.searchTypeString)
-      if (this.form.controls.transType.value === '' && this.currentTransType !== '')
+      console.info("onSearchTransactions msgType: " +this.form.controls.msgType.value +",  currentmsgType: " +  this.currentMessageType +", " + this.searchTypeString)
+      if (this.form.controls.msgType.value === '' && this.currentMessageType !== '')
       {
-        this.form.controls.transType.setValue(this.currentTransType);
+        this.form.controls.msgType.setValue(this.currentMessageType);
       }
 
 
@@ -282,9 +261,9 @@ export class HL7Component implements OnInit, AfterViewInit {
 
 
 
-        if(this.form.controls.transType.value !== 'All')
+        if(this.form.controls.msgType.value !== 'All')
         {
-          staticSearchStr =  "TransactionType = '"+ this.form.controls.transType.value + "'";
+          staticSearchStr =  "MessageType like '%"+ this.form.controls.msgType.value + "'";
         }
 
 
@@ -306,7 +285,7 @@ export class HL7Component implements OnInit, AfterViewInit {
 
         console.info('Transaction search with: ' + staticSearchStr);
 
-        this.TransactionService.fetchHL7Messages(staticSearchStr, this.searchTypeString,  1000, this.tradingPartnerString).subscribe((res: any) => {
+        this.TransactionService.fetchHL7Messages(staticSearchStr, this.searchTypeString,  1000).subscribe((res: any) => {
 
         this.dataSource.data = res;
 
@@ -338,7 +317,7 @@ setControls()
             console.info("selDropdownList.length: " + this.selDropdownList.length);
 
             this.panelExpand = false;
-            this.butSaveDisplay = true;
+
 }
 
 clearSearch()
@@ -438,16 +417,11 @@ onItemDeSelect(inp: any)
 }
 
 
-tpChange()
-{
-  console.info("tpChange: " + this.form.controls.TradingPartner.value)
-  this.tradingPartnerString = this.form.controls.TradingPartner.value
-}
 
-transactionChange(evt: any)
+messageChange(evt: any)
 {
   var selDropdownInsert = false
-  this.displayLabel = "Display columns for: "+this.form.controls.transType.value;
+  this.displayLabel = "Display columns for: "+this.form.controls.msgType.value;
 
   this.searchColumns =[];
   if (this.selDropdownList.length === 0)
@@ -458,18 +432,22 @@ transactionChange(evt: any)
 
   var allTempArr= [];
   this.dataSource.data = [];
-  console.info(this.displayLabel +", this.currentTransType: " + this.currentTransType)
+  console.info(this.displayLabel +", this.currentmsgType: " + this.currentMessageType)
 
 
   for (var item of CommonColumnsDisplayColumns)
   {
+    if (item.search == 'Y')
+    {
 
       this.searchColumns.push({key:item.key, label:item.label});
+    }
 
       if (selDropdownInsert)
       {
         this.selDropdownList.push({key:item.key, item_text:item.label});
       }
+
 
   }
 
@@ -477,7 +455,8 @@ transactionChange(evt: any)
   console.info("selDropdownList #: " + this.selDropdownList.length);
   console.info("searchColumns #: " + this.searchColumns.length);
 
-  this.butSaveDisplay = false;
+
+  this.onSearchTransactions();
 }
 
 setSearchField()
@@ -509,7 +488,7 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={id: row.id, rowType: row.TransactionType};
+  let item: Item ={id: row.id, rowType: row.MessageType};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
@@ -521,7 +500,7 @@ onContextMenuNew(item: Item) {
        const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/hl7/hl7-details/"],
       {queryParams: { id:  item.id,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':false
+        'MessageType':item.rowType, 'sameWindow':false
          } }
        ));
     const newTab = window.open(url, '_blank');
@@ -539,7 +518,7 @@ onContextMenuSame(item: Item) {
       this.router.navigate(["/hl7/hl7-details/"],
       {queryParams: { id:  item.id,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':true } }
+        'MessageType':item.rowType, 'sameWindow':true } }
        );
 
 }

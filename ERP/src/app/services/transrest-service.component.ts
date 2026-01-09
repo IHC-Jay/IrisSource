@@ -303,10 +303,10 @@ deleteDisplayColumns(dispCol: DisplayColumnsArray)
 }
 
 
-fetchHL7Messages(searchStr: string, searchType: string,  maxCnt : Number, partnerName: string) {
-  console.log( this.env + ' - Fetch fetchHL7Messages with Auth for: ' + searchStr +", " + searchType +", for " + partnerName);
+fetchHL7Messages(searchStr: string, searchType: string,  maxCnt : Number) {
+  console.log( this.env + ' - Fetch fetchHL7Messages with Auth for: ' + searchStr +", " + searchType );
 
-  let url = this.createRestUrl('HL7', searchStr, searchType, maxCnt, partnerName, '');
+  let url = this.createRestUrl('HL7', searchStr, searchType, maxCnt, '', '');
 
   console.log('HL7 URL: ' + url)
   return this.http2
