@@ -21,12 +21,18 @@ namespace RdpValidationRestApi.Controllers
        
 
         [HttpGet]
-        public IActionResult Get([FromQuery] string operation, [FromQuery] string? fileName, [FromQuery] string? filePath, [FromQuery] string? X12Id, [FromQuery] string? transaction, [FromQuery] string? rulesPath, [FromQuery] string? SessionId)
+        public IActionResult Get([FromQuery] string operation, [FromQuery] string? filePath, [FromQuery] string? fileName, [FromQuery] string? rulesPath, string? rulesFile, [FromQuery] string? transaction, string? sessionId, [FromQuery] int? snipLevel, [FromQuery] string? X12Id)
             
         {
             var irisObj = new IrisDb();
             string retStr = "";
             string dataFile = "";
+            int snipVal = 0;
+
+            if (snipLevel != null)
+            {
+                snipVal = snipLevel.Value;
+            }
 
             if (filePath != null && filePath != "")
             {
@@ -43,7 +49,7 @@ namespace RdpValidationRestApi.Controllers
                     return new OkObjectResult(new { Results = "Rules Directory does not exists:" + rulesPath });
                 }
             }
-
+            // DEFAULT paths
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 Console.WriteLine("Running on Windows.");
@@ -73,12 +79,12 @@ namespace RdpValidationRestApi.Controllers
                 }
 
             }
-
+            // Validate a X12 file and write any errors to IRIS table
             if (operation == "RDP" && transaction != null)
             {
                 if (fileName == null || fileName == "")
                 {
-                    return new OkObjectResult(new { Results = "X12 file to validate is erequired"  });
+                    return new OkObjectResult(new { Results = "X12 file to validate is required"  });
                 }
 
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -113,17 +119,26 @@ namespace RdpValidationRestApi.Controllers
                 }
 
                 var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath);
+                X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath, rulesFile, snipVal);
                 if (rdpResp.validator != null)
                 {
 
-                    retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (SessionId ==null)?"":SessionId);
+                    retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (sessionId ==null)?"":sessionId, rdpResp.ackStr);
 
                 }
+		if (retStr.Length > 2056)
+		{
+    			retStr = "Number of validation errors: " + rdpResp.validator.Errors.Count + ". Details are stored in IHC_ITF_ITFCOMMON_X12.RdpValidationErrors";
+		}
+		if (rdpResp.ackStr != null && rdpResp.ackStr.Length > 2056)
+		{
+    			rdpResp.ackStr = rdpResp.ackStr.Substring(0, 2056);
+		}
+
                 return new OkObjectResult(new {Transaction =transaction , FileName= fileName , Status= rdpResp.status, Details= retStr, ACK= rdpResp.ackStr });
             }
 
-
+            // Return X12 from a IRIS table
             else if (operation == "IRIS" && X12Id != null && transaction != null)
             {
 
@@ -133,7 +148,7 @@ namespace RdpValidationRestApi.Controllers
 
             }
 
-
+            // Get X12 from a IRIS table, validate X12 and write errors to Table
             else if (operation == "Validate" && transaction != null)
             {
                 if (X12Id != null && X12Id != "")
@@ -157,12 +172,12 @@ namespace RdpValidationRestApi.Controllers
                         }
 
                         var obj = new RdpValidate();
-                        X12Response rdpResp = obj.ProcessX12(x12Data, transaction, rulesPath);
+                        X12Response rdpResp = obj.ProcessX12(x12Data, transaction, rulesPath, rulesFile, snipVal);
 
                         if (rdpResp.validator != null)
                         {
 
-                            retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (SessionId == null) ? "" : SessionId);
+                            retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (sessionId == null) ? "" : sessionId, rdpResp.ackStr);
 
                         }
                         return new OkObjectResult(new { Transaction = transaction, FileName = fileName, Status = rdpResp.status, Details = retStr, ACK = rdpResp.ackStr });
@@ -177,7 +192,7 @@ namespace RdpValidationRestApi.Controllers
                 {
 
                     Console.WriteLine("Process X12 data rows from Table: " + transaction);
-                    var outStr = irisObj.ProcessX12Table(transaction, filePath);
+                    var outStr = irisObj.ProcessX12Table(transaction, filePath, rulesPath, rulesFile, snipVal);
                     return new OkObjectResult(new { Results = $"{outStr} files processed of transaction type: {transaction}" });
                 }
             }

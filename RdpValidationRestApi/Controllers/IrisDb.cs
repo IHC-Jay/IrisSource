@@ -13,9 +13,9 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class IrisDb
     {
-        public int ProcessX12Table(string transaction, string filePath)
+        public int ProcessX12Table(string transaction, string filePath, string rulesPath, string rulesFile, int snipLevel)
         {
-
+            // Read X12 from IHC_X12.Data and validate
             string x12Id = "";
             string x12Data = "";
             string flNm = "";
@@ -59,12 +59,12 @@ namespace RdpValidationRestApi.Controllers
                 // Validate X12
 
                 var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(flNm, transaction, filePath);
+                X12Response rdpResp = obj.ProcessX12(flNm, transaction, rulesPath, rulesFile, snipLevel);
 
                 if (rdpResp.validator != null)
                 {
 
-                    string retStr = RdpErrorsToIris(rdpResp.validator, x12Id, sessionId);
+                    string retStr = RdpErrorsToIris(rdpResp.validator, x12Id, sessionId, rdpResp.ackStr);
                     Console.WriteLine(retStr);
 
                 }
@@ -81,6 +81,7 @@ namespace RdpValidationRestApi.Controllers
 
         public string GetX12Data(string x12Id, string transaction, string filePath)
         {
+            // Read X12 from IHC_X12.Data
             string x12Data = "";
             string flNm = "";
 
@@ -126,9 +127,9 @@ namespace RdpValidationRestApi.Controllers
 
         }
       
-        public string RdpErrorsToIris(EDIValidator validator, string x12Id, string SessionId)
+        public string RdpErrorsToIris(EDIValidator validator, string x12Id, string SessionId, string ackStr)
         {
-           
+           // Write RDP errors to DB table
             string validationStr = "";
 
             try
@@ -144,7 +145,7 @@ namespace RdpValidationRestApi.Controllers
 
                     IRISConnection IRISConnect = ConnectToIRIS();
 
-                    string queryString = "INSERT INTO IHC_ITF_ITFCOMMON_X12.RdpValidationErrors(LineNum,TransactionSet,SegmentData,FieldValue,SnipLevel,Loop,Segment,Element,ErrorCode,ErrorDesc,ErrorType,X12DataId,TransactionType,ProcessDtTm, SessionId) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                    string queryString = "INSERT INTO IHC_ITF_ITFCOMMON_X12.RdpValidationErrors(LineNum,TransactionSet,SegmentData,FieldValue,SnipLevel,Loop,Segment,Element,ErrorCode,ErrorDesc,ErrorType,X12DataId,TransactionType,ProcessDtTm, SessionId, Ack) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
                     Console.WriteLine("SQL: " + queryString);
 
@@ -208,6 +209,8 @@ namespace RdpValidationRestApi.Controllers
 
                         IRISParameter param15 = new IRISParameter("SessionId", IRISDbType.NVarChar);
                         param15.Value = SessionId;
+                        IRISParameter param16 = new IRISParameter("Ack", IRISDbType.NVarChar);
+                        param16.Value = ackStr;
 
                         irisCmd.Parameters.Add(param1);
                         irisCmd.Parameters.Add(param2);
@@ -224,16 +227,17 @@ namespace RdpValidationRestApi.Controllers
                         irisCmd.Parameters.Add(param13);
                         irisCmd.Parameters.Add(param14);
                         irisCmd.Parameters.Add(param15);
+                        irisCmd.Parameters.Add(param16);
 
                         validationStr += param1.Value + ", " + param2.Value + ", " + param3.Value +
                             ", " + param4.Value + ", " + param5.Value + ", " + param6.Value +
                             ", " + param7.Value + ", " + param8.Value + ", " + param9.Value
                             + ", " + param10.Value + ", " + param11.Value + ", " + param12.Value + ", " 
-                            + param13.Value + ", " + param14.Value + ", " + param15.Value + ";";
+                            + param13.Value + ", " + param14.Value + ", " + param15.Value + ", " + param16.Value + ";";
 
                         int rows = irisCmd.ExecuteNonQuery();
 
-                        Console.WriteLine("Added " + rows + " row for " + validationStr);
+                        // Console.WriteLine("Added " + rows + " row for " + validationStr);
                         irisCmd.Dispose();
                     }
 
@@ -251,6 +255,7 @@ namespace RdpValidationRestApi.Controllers
 
         public IRISConnection ConnectToIRIS()
         {
+            // Connetion to IRIS
             string host = "lp-itfdevvp2";
             string port = "6973";
             string username = "rdpuser";
@@ -271,7 +276,7 @@ namespace RdpValidationRestApi.Controllers
 
         private void X12ToFile(string X12Data, string transation, string filePath)
         {
-
+            // IRIS X12 data to a file
             try
             {
                 using (StreamWriter wr = new StreamWriter(filePath))

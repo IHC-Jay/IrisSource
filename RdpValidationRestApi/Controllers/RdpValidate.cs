@@ -13,7 +13,7 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class RdpValidate
     {
-        public X12Response ProcessX12(string dataFile, string transaction, string rulesPath)
+        public X12Response ProcessX12(string dataFile, string transaction, string rulesPath, string ruleFile, int snipLevel)
         {
             int errNum = 0;
             // Display all errors
@@ -40,22 +40,23 @@ namespace RdpValidationRestApi.Controllers
                 string prodKey = getLicense();
                 PackageLicense.Key = prodKey;
 
-                string ruleFile = "";
+                if (ruleFile == null || ruleFile == "")
+                { 
 
-
-                foreach (var con in X12Transactions.TransactionsArr)
-                {
-                    if (transaction == con.Name)
+                    foreach (var con in X12Transactions.TransactionsArr)
                     {
-                        transaction = con.Name;
-                        if (con.Rule != null)
+                        if (transaction == con.Name)
                         {
-                            ruleFile = con.Rule;
+                            transaction = con.Name;
+                            if (con.Rule != null)
+                            {
+                                ruleFile = con.Rule;
+                            }
+                            break;
                         }
-                        
-                        break;
                     }
                 }
+            
                 
                 Console.WriteLine("Do RDP validation for " + dataFile);
 
@@ -63,7 +64,7 @@ namespace RdpValidationRestApi.Controllers
 
                 EDIValidator validator = new EDIValidator();
 
-                Console.WriteLine("Using " + rulesPath + ruleFile + " for " + transaction);
+                Console.WriteLine("Using " + rulesPath + ruleFile + " for " + transaction +", SNIP:" + snipLevel);
 
                 validator.EDIRulesFile = rulesPath + ruleFile;
 
@@ -94,6 +95,8 @@ namespace RdpValidationRestApi.Controllers
                 }
                 else
                 {
+                    RDPCrystalEDILibrary.SnipTestLevel snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Integrity; // SNIP 1
+
                     EDIFileParser parser = new EDIFileParser(dataFile);
                     parser.AutoDetectDelimiters = true;
 
@@ -104,10 +107,22 @@ namespace RdpValidationRestApi.Controllers
                     int validationInd = 0;
 
                     List<string> errors = new List<string>();
+                    if (snipLevel == 2)
+                    {
+                        snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Requirement;
+                    }
+                    else if(snipLevel == 3)
+                    {
+                        snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Balance;
+                    }
+                    else if (snipLevel > 3)
+                    {
+                        snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Situational;
+                    }
 
                     foreach (EDIError error in validator.Errors)
                     {
-                        if (error.SnipLevel.ToString() == "Balance")
+                        if (error.SnipLevel > snipCheck)
                         {
                             deleteErrors[validationInd++] = error;
                         }
@@ -123,7 +138,8 @@ namespace RdpValidationRestApi.Controllers
                             validator.Errors.Remove(delInd);
                         }
                     }
-                    Console.WriteLine("# of errors after deleting SnipLevel: Balance: " + validator.Errors.Count);
+                    Console.WriteLine("# of errors after deleting SnipLevel " + snipCheck +" = " + validator.Errors.Count);
+		    /*
 
                     foreach (EDIError error in validator.Errors)
                     {
@@ -136,6 +152,7 @@ namespace RdpValidationRestApi.Controllers
                         Console.WriteLine(" Warning Line # " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment, Element: " + error.Segment + ", " + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
                        
                     }
+		    */
                     
 
                     string edi997Data = CreateAck(validator);
