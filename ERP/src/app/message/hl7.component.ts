@@ -22,6 +22,7 @@ import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import {MatRadioModule} from '@angular/material/radio';
 import { FormsModule,ReactiveFormsModule } from '@angular/forms';
 import { CommonColumnsDisplayColumns } from './CommonColumns';
+import e from 'express';
 
 @Component({
   selector: 'app-hl7',
@@ -37,7 +38,7 @@ export class HL7Component implements OnInit, AfterViewInit {
 
   startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
-  endDate = "";
+  endDate: Date = new Date();
 
   contextMenuPosition = { x: '0px', y: '0px' };
   @ViewChild(MatMenuTrigger)
@@ -168,7 +169,7 @@ export class HL7Component implements OnInit, AfterViewInit {
     this.sub = this.route.queryParams.subscribe(params => {
       // Defaults to '' if no query param provided.
 
-      this.currentMessageType =  params['transaction'] || '';
+      this.currentMessageType =  params['MessageType'] || '';
       if (this.currentMessageType !== "")
       {
         queryParams = 1
@@ -178,9 +179,15 @@ export class HL7Component implements OnInit, AfterViewInit {
           this.searchString=""
         }
         this.searchTypeString = params['searchTypeString'];
+        console.log('ngOnInit - Query params ' + params['searchTypeString'] +", Dates: " + params['stDate'] +", " + params['endDate'] +", msgType: " + this.currentMessageType +", " + this.searchString);
 
-        this.startDate =  new Date(this.searchTypeString);
+
+        this.startDate =  new Date(params['stDate']);
+        this.endDate =  new Date(params['endDate']);
+
         this.form.controls.msgType.setValue(this.currentMessageType);
+        this.form.controls.matStartDate.setValue(this.startDate);
+        this.form.controls.matEndDate.setValue(this.endDate);
 
 
         console.log('ngOnInit - Query params ' + this.searchTypeString +", msgType: " + this.currentMessageType +", " + this.searchString);
@@ -209,7 +216,7 @@ export class HL7Component implements OnInit, AfterViewInit {
 
       this.form.controls.msgType.setValue(this.currentMessageType);
       this.form.controls.searchValue.setValue("");
-      this.form.controls.searchField.setValue(this.dataTableLabel[0]);
+      this.form.controls.searchField.setValue(this.searchColumns[0].label);
       this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
 
       this.TransactionService.fetchTransactionTypes().subscribe((res: any) => {
@@ -295,9 +302,17 @@ export class HL7Component implements OnInit, AfterViewInit {
 
         this.TransactionService.fetchHL7Messages(staticSearchStr, this.searchTypeString,  1000).subscribe((res: any) => {
 
-        this.dataSource.data = res;
+        if(res == null || res.length === 0)
+        {
+            this.dataSource.data = [];
+        }
 
-        this.dataSource.sort = this.sort;
+        else {
+          this.dataSource.data = res;
+          this.dataSource.sort = this.sort;
+        }
+
+
 
         console.info("Data rows with sorted array: " + this.dataSource.data.length +", Display Columns #: " + this.dataTableKey.length  );
 
@@ -307,6 +322,11 @@ export class HL7Component implements OnInit, AfterViewInit {
         this.canRenderDetails = true;
 
 
+        }, error => {
+          console.error('Error fetching HL7 Messages: ', error);
+          this.loading = false;
+          this.canRenderDetails = true;
+          this.dataSource.data = [];
         });
 
 
@@ -335,7 +355,7 @@ clearSearch()
           this.searchTransaction = false;
           this.searchString = "";
           this.form.controls.searchValue.setValue("");
-          this.form.controls.searchField.setValue(this.dataTableLabel[0]);
+          this.form.controls.searchField.setValue(this.searchColumns[0].label);
           this.form.controls.searchCndition.setValue(this.conditionColumns[0]);
           console.info('reset fields' + this.form.controls.searchField.value);
 
@@ -428,7 +448,8 @@ onItemDeSelect(inp: any)
 
 messageChange(evt: any)
 {
-  var selDropdownInsert = false
+  var selDropdownInsert = false;
+  this.currentMessageType = this.form.controls.msgType.value;
   this.displayLabel = "Display columns for: "+this.form.controls.msgType.value;
 
   this.searchColumns =[];
@@ -508,7 +529,9 @@ onContextMenuNew(item: Item) {
        const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/hl7/hl7-details/"],
       {queryParams: { id:  item.id,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'MessageType':item.rowType, 'sameWindow':false
+        'MessageType':this.currentMessageType,
+        'stDate': this.form.controls.matStartDate.value, 'endDate': this.form.controls.matEndDate.value,
+         'sameWindow':false
          } }
        ));
     const newTab = window.open(url, '_blank');
@@ -526,7 +549,8 @@ onContextMenuSame(item: Item) {
       this.router.navigate(["/hl7/hl7-details/"],
       {queryParams: { id:  item.id,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'MessageType':item.rowType, 'sameWindow':true } }
+        'stDate': this.form.controls.matStartDate.value, 'endDate': this.form.controls.matEndDate.value,
+        'MessageType':this.currentMessageType, 'sameWindow':true } }
        );
 
 }

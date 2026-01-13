@@ -29,9 +29,11 @@ export class Hl7DetailComponent {
 
   xmlData:string;
   searchStr:string;
+  stDate:string;
+  endDate:string
   searchTypeString:string;
 
-  tradingPartner:string;
+  MessageType:string;
 
   hl7Data:string;
   fileName = "TEST";
@@ -57,12 +59,15 @@ export class Hl7DetailComponent {
       this.id = ''+params['id'] || '0';
 
       this.searchStr = params['search'];
+      this.stDate = params['stDate'];
+      this.endDate = params['endDate'];
+
       this.searchTypeString = params['searchTypeString'];
 
-      this.tradingPartner = params['TradingPartner'];
+      this.MessageType = params['MessageType'];
       this.prevWindow = params['sameWindow'];
 
-      console.log('Query params id: ', this.id  +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString + ", Same Window: " + this.prevWindow);
+      console.log('Query params id: ', this.id  +", search: " + this.MessageType +", Date: " + this.stDate + ", Same Window: " + this.prevWindow);
     });
 
 
@@ -91,6 +96,7 @@ export class Hl7DetailComponent {
               });
 
             this.canRenderDetails = true;
+
           });
 
   }
@@ -138,14 +144,17 @@ export class Hl7DetailComponent {
   toTransactions()
   {
 
-      console.log('To HL7: '  + this.searchTypeString +"/"+ this.tradingPartner );
+      console.log('To HL7: '  + this.searchTypeString +"/"+ this.MessageType );
       this.router.navigate(["/hl7/"],
 
       {
         queryParams: {
-          'search': this.searchStr,
-          'searchTypeString': this.searchTypeString,
-          'tradingPartner': this.tradingPartner }
+
+        'search': this.searchStr, 'searchTypeString': this.searchTypeString,
+        'stDate': this.stDate, 'endDate': this.endDate,
+        'MessageType':this.MessageType
+
+        }
     }
 
        );

@@ -36,7 +36,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
   startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
-  endDate = "";
+  endDate: Date = new Date();
+
   maxCount = ["ALL", "10", "25", "50", "100", "200"];
 
   contextMenuPosition = { x: '0px', y: '0px' };
@@ -191,6 +192,12 @@ export class TransactionComponent implements OnInit, AfterViewInit {
         this.startDate =  new Date(this.searchTypeString);
         this.form.controls.transType.setValue(this.currentTransType);
         this.form.controls.TradingPartner.setValue(this.tradingPartnerString);
+
+         this.startDate =  new Date(params['stDate']);
+        this.endDate =  new Date(params['endDate']);
+
+        this.form.controls.matStartDate.setValue(this.startDate);
+        this.form.controls.matEndDate.setValue(this.endDate);
 
         console.log('ngOnInit - Query params ' + this.searchTypeString +", transType: " + this.currentTransType +", " + this.searchString);
       }
@@ -690,7 +697,9 @@ onRowClicked(row) {
   this.router.navigate(["/transaction/transaction-details/"],
   {queryParams: { id:  row.id, 'transaction': this.form.controls.transType.value,
     'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-     'TransactionType':row.TransactionType, 'TradingPartner':this.tradingPartnerString } }
+     'TransactionType':row.TransactionType, 'TradingPartner':this.tradingPartnerString,
+     'stDate': this.form.controls.matStartDate.value, 'endDate': this.form.controls.matEndDate.value
+    } }
    );
 }
 
@@ -715,7 +724,9 @@ onContextMenuNew(item: Item) {
        const url = this.router.serializeUrl(this.router.createUrlTree(["/ERP/transaction/transaction-details/"],
       {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':false
+        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString,
+        'stDate': this.form.controls.matStartDate.value, 'endDate': this.form.controls.matEndDate.value,
+        'sameWindow':false
          } }
        ));
     const newTab = window.open(url, '_blank');
@@ -733,7 +744,9 @@ onContextMenuSame(item: Item) {
       this.router.navigate(["/transaction/transaction-details/"],
       {queryParams: { id:  item.id, 'transaction': this.form.controls.transType.value,
         'search': (this.searchString==="")?'-':this.searchString, 'searchTypeString': this.searchTypeString,
-        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString, 'sameWindow':true } }
+        'TransactionType':item.rowType, 'TradingPartner':this.tradingPartnerString,
+        'stDate': this.form.controls.matStartDate.value, 'endDate': this.form.controls.matEndDate.value,
+        'sameWindow':true } }
        );
 
 }

@@ -37,6 +37,8 @@ export class TransactionDetailComponent {
   fileName = "TEST";
   prevWindow: boolean = false;
   xmlData:string;
+  stDate:string;
+  endDate:string
 
   constructor(
     private TransactionService: TransRestServiceComponent,
@@ -64,6 +66,8 @@ export class TransactionDetailComponent {
       this.transactionType = params['TransactionType'];
       this.tradingPartner = params['TradingPartner'];
       this.prevWindow = params['sameWindow'];
+      this.stDate = params['stDate'];
+      this.endDate = params['endDate'];
 
       console.log('Query params id: ', this.id + ', trans: ' + this.transaction +", search: " + this.searchStr +", searchTypeString: " + this.searchTypeString + ", Same Window: " + this.prevWindow);
     });
@@ -184,7 +188,8 @@ export class TransactionDetailComponent {
         queryParams: { transaction: this.transaction,
           'search': this.searchStr,
           'searchTypeString': this.searchTypeString,
-          'tradingPartner': this.tradingPartner }
+          'tradingPartner': this.tradingPartner,
+          'stDate': this.stDate, 'endDate': this.endDate }
     }
 
        );
