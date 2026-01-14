@@ -21,7 +21,7 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
-import { catchError } from 'rxjs';
+import { from, catchError, concatMap, forkJoin, toArray } from 'rxjs';
 
 import { MatDialog } from '@angular/material/dialog';
 import { DialogRef } from '@angular/cdk/dialog';
@@ -1020,7 +1020,8 @@ onContextMenuSame(item: Item) {
 
     console.info("openX12Modal: " + item.rowId + ", " + this.formFields.currentTransType +", " + this.form.controls.mode.value);
 
-    this.SummaryService.fetchParentRecord(item.rowId.toString(), this.formFields.currentTransType, this.form.controls.mode.value).subscribe((res: any) => {
+    this.SummaryService.fetchParentRecord(item.rowId.toString(), this.formFields.currentTransType, this.form.controls.mode.value).subscribe((res: any) =>
+      {
       this.canRenderDetails = true;
       let val = ""
 
@@ -1033,7 +1034,63 @@ onContextMenuSame(item: Item) {
         });
       }
 
+      else if (res.x12Data !== undefined && res.x12Data.indexOf('stored as a Stream') >= 0)
+      {
+            var stPos = 1;
+            var moreData = 1;
+            let letter = "";
+            var maxSize = 3000000;
+            var productIds: number[] = [0,1,2,3,4,5,6,7,8,9,10];
 
+            from(productIds).pipe(
+               concatMap(id =>  this.SummaryService.fetchX12Stream(item.rowId.toString(), this.formFields.currentTransType,
+                this.form.controls.mode.value, id * maxSize + 1)), toArray()).subscribe(
+                {next: (res: any) =>
+              {
+                console.info("Sequential calls completed. Total parts: " + res.length);
+                var totSize = 0;
+                for (let i = 0; i < res.length; i++) {
+                  console.info("Part " + i + ": " + res[i][0].startPos + ", " + res[i][0].x12Len + " more: "  + res[i][0].moreData);
+                  if (res[i][0].moreData > 0){
+                    totSize += res[i][0].x12Len;
+                    val = val + res[i][0].x12Data;
+                  }
+                  else if (res[i][0].x12Len > 0){
+                    totSize += res[i][0].x12Len;
+                    val = val + res[i][0].x12Data;
+                  }
+                  else
+                  {
+                    break;
+                  }
+
+
+                }
+                console.info(" Final X12 length: " + totSize);
+                val = val.replaceAll("~", "~\n")
+              }, error: (error) => {
+                  console.error('An error occurred:', error);
+                },
+                complete: () => {
+                  console.log('All sequential calls completed.' );
+                    if(val !== "")
+                    {
+                      let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + "), Size:" + val.length  ];
+                      const dialogRef = this.dialog.open(Modalx12Component, {
+                        width: '1700px',
+                        data: param
+                      });
+
+                      dialogRef.afterClosed().subscribe(result => {
+                        console.log('The dialog closed');
+                      });
+
+                    }
+
+                }
+              }) ;
+
+      }
       else if (res.x12Data !== undefined && res.x12Data.length > 0 )
       {
         if (res.x12Data.length > 105)
@@ -1051,9 +1108,10 @@ onContextMenuSame(item: Item) {
       else{
           val = res.x12Data.replaceAll("~", "~\n")
         }
+
       if(val !== "")
       {
-        let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + ")"  ];
+        let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + "), Size:" + val.length  ];
         const dialogRef = this.dialog.open(Modalx12Component, {
           width: '1700px',
           data: param

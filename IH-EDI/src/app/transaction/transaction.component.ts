@@ -50,7 +50,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected"];
 
-    rightClickMenu: string[] = ['Open in New Tab', 'Open in Same Window'] ;
+    rightClickMenu: string[] = ['Details in New Tab', 'Details in Same Window'] ;
 
    org = `${environment.org}`;
 
@@ -1052,7 +1052,7 @@ handleContextMenu(item: Item, menu: string)  {
       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
          {queryParams: { sessionID:  (item.sessionId),  searchParams:  "TBD" } }
       ));
-      console.log("Open in new tab URL: " + url);
+      console.log("Details in new tab URL: " + url);
           const newTab = window.open(url, '_blank');
           if(newTab) {
               newTab.opener = null;
@@ -1060,7 +1060,7 @@ handleContextMenu(item: Item, menu: string)  {
 
 
    }
-   else if (menu === 'Open in Same Window')
+   else if (menu === 'Details in Same Window')
    {
       this.transUserFlds += ";sameWindow::true";
 
@@ -1081,7 +1081,7 @@ handleContextMenu(item: Item, menu: string)  {
             {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
               'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
             ));
-            console.log("Open in new tab URL: " + url);
+            console.log("Details in new tab URL: " + url);
           const newTab = window.open(url, '_blank');
           if(newTab) {
               newTab.opener = null;

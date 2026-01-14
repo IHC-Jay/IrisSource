@@ -260,7 +260,7 @@ getX12(searchStr: string = "")
               if(lenNum == res[ind].LineNum)
               {
                 segEle = res[ind].Segment +"/" + res[ind].Element
-                err =  " Element: " +    res[ind].Element + ". " + res[ind].ErrorDesc + "(" + res[ind].ErrorCode + ")";
+                err =  segEle + ": " + res[ind].ErrorDesc + "(" + res[ind].ErrorCode + ")";
 
                 if (this.selectedRow === -1 && err !== '')
                 {
@@ -278,7 +278,7 @@ getX12(searchStr: string = "")
 
               if(err !== '')
                 {
-                  this.errArray.push({'Num' :''+ind, 'LineNum':''+lenNum, 'Segment': res[ind].Segment,  'Error' : err})
+                  this.errArray.push({'Num' :''+ind, 'LineNum':''+lenNum, 'Segment': res[ind].Segment, 'Element': res[ind].Element, 'Error' : err})
               }
               if (this.checked) // Show errors only
               {
@@ -345,7 +345,7 @@ getX12(searchStr: string = "")
       else
       {
         this.dataError = false;
-        this.errArray.push({'Num': '1', 'LineNum': '1', 'Segment': '-', 'Error' : "-"});
+        this.errArray.push({'Num': '1', 'LineNum': '1', 'Segment': '-', 'Element':'-', 'Error' : "-"});
         this.errorDataSource.data = this.errArray;
 
       }
@@ -509,7 +509,7 @@ getX12(searchStr: string = "")
   {
      this.selection.select(evt.LineNum)
 
-     console.log( evt.LineNum + " === " + this.errSelectedRow)
+     console.log( evt.LineNum + " === " + this.errSelectedRow  + ", " + evt.Num )
 
      console.log( this.errSelectedRow+", Line #" + evt.LineNum +", "  + this.selectedRow +", page Size: " + this.dataPaginator.pageSize)
 
@@ -564,8 +564,8 @@ getX12(searchStr: string = "")
 
   OnRowClick(evt:any)
   {
-    this.selectedRow = evt.LineNum
-    console.log("Selected row: "  + evt.LineNum)
+    // this.selectedRow = evt.LineNum
+    // console.log("Selected row: "  + evt.LineNum)
   }
 
 }

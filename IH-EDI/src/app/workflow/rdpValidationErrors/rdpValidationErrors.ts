@@ -19,5 +19,6 @@ export interface x12err {
   Num:string
   LineNum: string;
   Segment: string;
+  Element :string;
   Error:string;
 }

@@ -802,6 +802,22 @@ fetchParentRecord(id: string, trans: string, searchTypeString: string) {
 
 }
 
+
+fetchX12Stream(id: string, trans: string, searchTypeString: string, startPos: number) {
+
+
+  let url = this. rtTransUrl + "GetX12Stream?id=" + id +"&transType=" + trans+"&startPos=" + startPos;
+
+  if(searchTypeString.indexOf("Batch") >= 0)
+  {
+    url = this. batchTransUrl + "GetX12Stream?id=" + id +"&transType=" + trans+"&startPos=" + startPos ;
+  }
+
+  console.log('Fetch X12 Stream ' + url);
+  return this.http2.get<{ [key: string]: TransactionData}>(   url    );
+
+}
+
 openRelated2701Model(trans:string, TrnRefId: string, SubscriberId : string,
   InterchangeSenderID : string,
   InterchangeReceiverID: string,
