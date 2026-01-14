@@ -21,7 +21,7 @@ namespace RdpValidationRestApi.Controllers
        
 
         [HttpGet]
-        public IActionResult Get([FromQuery] string operation, [FromQuery] string? filePath, [FromQuery] string? fileName, [FromQuery] string? rulesPath, string? rulesFile, [FromQuery] string? transaction, string? sessionId, [FromQuery] int? snipLevel, [FromQuery] string? X12Id)
+        public IActionResult Get([FromQuery] string operation, [FromQuery] string? filePath, [FromQuery] string? fileName, [FromQuery] string? rulesPath, string? rulesFile, [FromQuery] string? transaction, string? sessionId, [FromQuery] int? snipLevel, [FromQuery] string? X12Id, [FromQuery] string? nameSpace)
             
         {
             var irisObj = new IrisDb();
@@ -123,7 +123,7 @@ namespace RdpValidationRestApi.Controllers
                 if (rdpResp.validator != null)
                 {
 
-                    retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (sessionId ==null)?"":sessionId, rdpResp.ackStr);
+                    retStr = irisObj.RdpErrorsToIris(nameSpace, rdpResp.validator, fileName, (sessionId ==null)?"":sessionId, rdpResp.ackStr);
 
                 }
 		if (retStr.Length > 2056)
@@ -142,7 +142,7 @@ namespace RdpValidationRestApi.Controllers
             else if (operation == "IRIS" && X12Id != null && transaction != null)
             {
 
-                var flNm = irisObj.GetX12Data(X12Id, transaction, filePath);
+                var flNm = irisObj.GetX12Data(nameSpace, X12Id, transaction, filePath);
 
                 return new OkObjectResult(new { Results = $"{transaction} X12 date, ID: {X12Id} is stored in {flNm}" });
 
@@ -155,7 +155,7 @@ namespace RdpValidationRestApi.Controllers
                 {
 
                     Console.WriteLine("Process IRIS X12 data from file: " + irisObj.ToString());
-                    var x12Data = irisObj.GetX12Data(X12Id, transaction, filePath);
+                    var x12Data = irisObj.GetX12Data(nameSpace, X12Id, transaction, filePath);
                     if (x12Data != "")
                     {
                         if (x12Data.Contains("005010X223A2"))
@@ -177,7 +177,7 @@ namespace RdpValidationRestApi.Controllers
                         if (rdpResp.validator != null)
                         {
 
-                            retStr = irisObj.RdpErrorsToIris(rdpResp.validator, fileName, (sessionId == null) ? "" : sessionId, rdpResp.ackStr);
+                            retStr = irisObj.RdpErrorsToIris(nameSpace, rdpResp.validator, fileName, (sessionId == null) ? "" : sessionId, rdpResp.ackStr);
 
                         }
                         return new OkObjectResult(new { Transaction = transaction, FileName = fileName, Status = rdpResp.status, Details = retStr, ACK = rdpResp.ackStr });
@@ -192,7 +192,7 @@ namespace RdpValidationRestApi.Controllers
                 {
 
                     Console.WriteLine("Process X12 data rows from Table: " + transaction);
-                    var outStr = irisObj.ProcessX12Table(transaction, filePath, rulesPath, rulesFile, snipVal);
+                    var outStr = irisObj.ProcessX12Table(nameSpace, transaction, filePath, rulesPath, rulesFile, snipVal);
                     return new OkObjectResult(new { Results = $"{outStr} files processed of transaction type: {transaction}" });
                 }
             }
