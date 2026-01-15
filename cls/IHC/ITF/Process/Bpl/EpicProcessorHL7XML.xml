@@ -106,30 +106,29 @@ BPL Definition</Description>
  	  ]]]]><![CDATA[>
 </code>
 <code name='Validate HL7 Message' xpos='200' ypos='650' >
-<![CDATA[ Set tDocument=##class(EnsLib.HL7.Message).ImportFromLibraryStream(request.Stream, .tSC)
+<![CDATA[ $$$TRACE( "**** Validate HL7")
+ Set tDocument=request
      	 
- if ( ($$$ISOK(tSC)) && ($IsObject( tDocument)))
+ if ($IsObject( tDocument))
  {
-    $$$TRACE( "**** HL7 Data Filename " _ request.OriginalFilename)
+    $$$TRACE( "**** Valid HL7 Message ")
     set context.hl7Msg = tDocument
     set context.ValidationPassed = 1
  }
  else
  {
-    $$$TRACE( "**** Invalid HL7 Data Filename " _ request.OriginalFilename)
+    $$$TRACE( "**** Invalid HL7 Message ")
     set context.ValidationPassed = 0
-    //$$$LOGERROR($System.Status.GetErrorText(tSC))
  }]]]]><![CDATA[>
 </code>
 <if name='Check If HL7 is Valid' condition='context.ValidationPassed' xpos='200' ypos='750' xend='200' yend='1650' >
 <true>
 <trace name='Message Validation Passed' value='"Message Validation Passed"' xpos='470' ypos='900' />
 <code name='Document and Partner Info' xpos='470' ypos='1000' >
-<![CDATA[ $$$TRACE("Allow Document")
+<![CDATA[ $$$TRACE("Allow Document: " _ context.hl7Msg.DocType)
  set context.docType = context.xmlDoc.Name
- set hl7Msg.DocType = hl7Msg.TypeVersion _ ":" _ hl7Msg.Name
-
- if (hl7Msg.DocType = "2.6:OMS_O05")
+ 
+ if (context.hl7Msg.DocType [ "2.6:OMS_O05")
  {
 	set context.docType = "OMS"
 	set context.partnerName = "Epic"
@@ -138,7 +137,7 @@ BPL Definition</Description>
  	set context.transTypeName = "InventoryRelief"
  	set context.PartnerFound = 1
  }
- elseif ((hl7Msg.DocType = "2.6:SIU_S12") || (hl7Msg.DocType = "2.6:SIU_S13") || (hl7Msg.DocType = "2.6:SIU_S14") || (hl7Msg.DocType = "2.6:SIU_S15"))
+ elseif ((context.hl7Msg.DocType [ "2.6:SIU_S12") || (context.hl7Msg.DocType [ "2.6:SIU_S13") || (context.hl7Msg.DocType [ "2.6:SIU_S14") || (context.hl7Msg.DocType [ "2.6:SIU_S15"))
  {
         set context.docType = "SIU"
         set context.partnerName = "Epic"
@@ -206,16 +205,16 @@ BPL Definition</Description>
 <true>
 <code name='Create Error Stream Container' xpos='200' ypos='1900' >
 <![CDATA[   $$$TRACE("Create Error Stream Container")
- Do request.Stream.Rewind()
- $$$TRACE("Send Error" _ request.OriginalFilename _ ", Stream data size: " _ request.Stream.Size)
  
- set context.streamContainer.Stream=##class(%FileCharacterStream).%New()
- set stat = context.streamContainer.Stream.CopyFromAndSave(request.Stream)
+ set context.streamContainer.Stream=##class(%Stream.GlobalCharacter).%New()
+ set hl7Str = context.hl7Msg.OutputToString()
+ $$$TRACE("Copy HL7 to Stream, length: " _ $L(hl7Str) _", Stream: " _ context.streamContainer.Stream)
+ set stat = context.streamContainer.Stream.Write(hl7Str)
         
  $$$TRACE("Document Stream: " _ context.streamContainer.Stream.Size _", copy status: " _ stat )
  
- set context.streamContainer.OutputFilename =   context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename)
- set context.streamContainer.OriginalFilename = context.errorMessage _ "-" _ ##class(%File).GetFilename(request.OriginalFilename) 
+ set context.streamContainer.OutputFilename =   context.errorMessage _ "-" _ context.hl7Msg.DocType
+ set context.streamContainer.OriginalFilename = context.errorMessage _ "-" _ context.hl7Msg.DocType 
 ]]]]><![CDATA[>
 </code>
 <call name='ErpInbound-ToError-XmlAndX12-File' target='ErpInbound-ToError-XmlAndX12-File' async='1' xpos='200' ypos='2000' >
@@ -249,7 +248,7 @@ BPL Definition</Description>
    {
       $$$TRACE("OutputToLibraryStream OK")
    }
-   set flNm = ##class(%File).GetFilename(request.OriginalFilename)
+   set flNm = context.hl7Msg.DocType
    
    set workFileName = context.partnerName _ "_" _ context.transTypeName _ "_" _ $ZDATETIME($ZTIMESTAMP,8,1,9) _ "_" _ request.%Id() _ ".xml"
    
@@ -263,20 +262,26 @@ BPL Definition</Description>
 <![CDATA[ $$$TRACE("Send Data")
   FOR ind=1:1:context.targetList.Count()
  {
-    $$$TRACE("Send Data to Operations: " _ context.targetList.GetAt(ind) _ ", stream size:" _ scTp.Stream.Size)
+    $$$TRACE("Send Data to Operations: " _ context.targetList.GetAt(ind) _ ", stream size:" _ context.scTp.Stream.Size)
    
-    set tStatus=process.SendRequestAsync(context.targetList.GetAt(ind), scTp, "Outbound Message")
+    set tStatus=process.SendRequestAsync(context.targetList.GetAt(ind), context.scTp, "Outbound Message")
     if ('tStatus) { 
        set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName," Unexpected response returned or call failure." _$SYSTEM.Status.GetOneErrorText(tStatus))    
     }
  }]]]]><![CDATA[>
 </code>
 <code name='Store Data' xpos='470' ypos='2200' >
-<![CDATA[   $$$TRACE("*** Store Inbound HL7 Data")
- set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpHl7Data(request.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID) 
+<![CDATA[ $$$TRACE("*** Store Inbound HL7 Data")
+   
+ set context.streamContainer.Stream=##class(%Stream.GlobalCharacter).%New()
+ set hl7Str = context.hl7Msg.OutputToString()
+ $$$TRACE("Copy HL7 to Stream, length: " _ $L(hl7Str) _", Stream: " _ context.streamContainer.Stream)
+ set stat = context.streamContainer.Stream.Write(hl7Str)
+
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpHl7Data(context.streamContainer.Stream, context.hl7Msg.DocType, context.sessionID) 
  
  $$$TRACE("*** Store Outbound XML Data")
- set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpXmlData(context.scTp.Stream, ##class(%File).GetFilename(request.OriginalFilename), context.sessionID, 1) 
+ set status = ##class(IHC.ITF.ITFCOMMON.ErpUtil).StoreErpXmlData(context.scTp.Stream, context.hl7Msg.DocType, context.sessionID, 1) 
  ]]]]><![CDATA[>
 </code>
 </false>
