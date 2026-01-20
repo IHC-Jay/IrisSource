@@ -3,7 +3,7 @@
 <Class name="IHC.ITF.ITFCOMMON.X12.TransactionsRest.impl">
 <Description><![CDATA[
 Business logic class defined by OpenAPI in IHC.ITF.ITFCOMMON.X12.TransactionsRest.spec<br/>
-Updated Dec 10, 2025 07:42:48]]></Description>
+Updated Jan 12, 2026 11:12:56]]></Description>
 <IncludeCode>Ensemble</IncludeCode>
 <ProcedureBlock>1</ProcedureBlock>
 <Super>%REST.Impl</Super>
@@ -261,10 +261,18 @@ The method arguments hold values for:<br/>
     		    
     		    set val = rs.%Get(column)
     		    
-    		    if (dataType(column) [ "date")
+    		    if ($zconvert(dataType(column), "l") [ "date")
     		    {
 	    		    set dtTm = rs.%Get(column)
-	    		    if ($LENGTH(dtTm) >= 10) // DtTm
+	    		    if ($LENGTH(dtTm) >= 17) // Range
+	    		    {
+	    		    	
+						 set val =  $E(dtTm, 1, 4) _ "-"_   $E(dtTm, 5, 6) _ "-"_  $E(dtTm, 7, 8) _ " -> "
+						           _ $E(dtTm, 10, 13) _ "-"_   $E(dtTm, 14, 15) _ "-"_  $E(dtTm, 16, 17)
+						
+						 
+	    		    }
+	    		    elseif ($LENGTH(dtTm) >= 10) // DtTm
 	    		    {
 	    		    	
 						 set val =  $E(dtTm, 1, 2) _ "-"_  $E(dtTm, 3, 4) _ "-"_  $E(dtTm, 5, 6) _ " "_  $E(dtTm, 7, 8) _ ":"_  $E(dtTm, 9, 10)
@@ -304,7 +312,7 @@ The method arguments hold values for:<br/>
 	    		    }
     		    }
 
-    		    elseif (dataType(column) = "currency")
+    		    elseif ($zconvert(dataType(column), "l") = "currency")
     		    {
 	    		     // collect 3 digits as a group
 	    		     set dec = $PIECE(val, ".", 2)
@@ -585,6 +593,7 @@ The method arguments hold values for:<br/>
 <Description>
 This request returns TransactionFields in response</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
      
@@ -1180,6 +1189,7 @@ The method arguments hold values for:<br/>
 <Description>
 This request saves DisplayColumns</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1281,6 +1291,7 @@ Helper methods</Description>
 <Description>
 This request deletes DisplayColumns</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1424,6 +1435,7 @@ The method arguments hold values for:<br/>
 <Description>
 This request saves SearchColumns</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1525,6 +1537,7 @@ Helper methods</Description>
 <Description>
 This request deletes SearchColumns</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1594,10 +1607,92 @@ The method arguments hold values for:<br/>
 ]]></Implementation>
 </Method>
 
+<Method name="GetX12Stream">
+<Description><![CDATA[
+This request returns X12 from ISA<br/>
+The method arguments hold values for:<br/>
+    id, ID of Child ID<br/>
+    transType, TransactionType<br/>
+    startPos, Stream Starting Position<br/>]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%String,transType:%String,startPos:%Integer</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    set ^webService("GetX12Stream Start") = id _ " / " _ transType _ " read from " _ startPos _ ": " _ $ZDATETIME($HOROLOG,3, 1)
+    Set tArr = []
+    #dim rs As %SQL.StatementResult
+    if (transType [ "837")
+    {
+	    set transType = "837"
+    }
+    set x12Stream = "", tableName = ""
+    
+    set tableName = "IHC_X12.Data" _ transType
+   
+    
+    
+    set sqlStr = "SELECT * FROM " _ tableName _" where ID = '" _ id _ "'" 
+    
+	Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr)
+
+    set ^webService("GetX12Stream rs") = sqlStr _", SQLCODE: " _ rs.%SQLCODE _ " " _ $ZDATETIME($HOROLOG,3, 1)
+    set len = 3000000
+	While rs.%Next() {
+		
+		set x12Data = ""
+		#dim x12Stream As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
+			   
+				set ^webService("GetX12Stream ID: ") = (rs.%Get("ID")) _", ROWCOUNT: " _ rs.%ROWCOUNT
+				
+				try 
+				{ 
+				   set x12col = rs.%Get("x12DataStream")
+				   set x12Stream = ##class(%Stream.Object).%Open(x12col)
+				   if ( ($IsObject(x12Stream)) && (x12Stream.Size > startPos) )
+					{
+						if (startPos > 1)
+						{
+							Do x12Stream.MoveTo(startPos)
+						}
+						
+						set x12Data = x12Stream.Read(.len, .sc)
+						set ^webService("GetX12Stream x12DataStream Read") = len _" from " _ startPos _", " _ sc
+					}
+					else
+					{
+						set x12Data = x12Stream.Size _" < " _ startPos
+						set len = 0
+					}
+				   
+				} catch (er)
+				{
+					set ^webService("GetX12Stream x12DataStream") = "NO"
+				}
+				
+				
+		    set ^webService("GetX12Stream x12Data: ") = x12Data
+			Do tArr.%Push({
+				"Operation":"GetParentX12",
+				"ID": (rs.%Get("ID")),
+				"x12Len": (len),
+				"startPos": (startPos),	
+				"moreData": ($Select(len = 3000000:1,1:0)),
+				"x12Data": (x12Data)			 
+			})
+		
+	}
+	set ^webService("GetX12Stream") = "End: " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
 <Method name="SaveUserSettings">
 <Description>
 This request saves User Settings</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
     //(Place business logic here)
@@ -1698,6 +1793,7 @@ This request saves User Settings</Description>
 <Description>
 This request saves Configuration</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
 	Set result={}
@@ -1806,6 +1902,7 @@ The method arguments hold values for:<br/>
 <Description>
 This request retruns users</Description>
 <ClassMethod>1</ClassMethod>
+<FormalSpec/>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
     //(Place business logic here)
