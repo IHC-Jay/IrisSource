@@ -189,13 +189,15 @@ fetchIrisUsers() {
 }
 
 fetchWorkFlowEntry(mode: string, searchStr: string) {
-  console.log('Fetch WF Entry with Auth for '+ this.currentUser );
+
 
   let url = this.batchWfUrl + 'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
   if (mode === 'RealTime')
   {
-     url = this.rtWfUrl + + 'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
+     url = this.rtWfUrl +  'WorkFlowEntry?' +  searchStr+"&userNm="+ this.currentUser;
   }
+
+  console.log('Fetch WF Entry ' + url + ' with Auth for '+ this.currentUser );
 
   return this.http
     .get<{ [key: string]: WorkFlowEntry }>(
@@ -273,13 +275,14 @@ updateWorkFlowItem(mode: string, paramsList: string[]) {
 }
 
 fetchRdpCrytalEntries(mode: string, searchStr: string) {
-  console.log('Fetch RdpCrystalEntries with Auth for '+ this.currentUser );
+
 
   let url = this.batchWfUrl + 'RdpCrystalEntries?' +  searchStr+"&userNm="+ this.currentUser;
   if (mode === 'RealTime')
   {
-     url = this.rtWfUrl + + 'RdpCrystalEntries?' +  searchStr+"&userNm="+ this.currentUser;
+     url = this.rtWfUrl +  'RdpCrystalEntries?' +  searchStr+"&userNm="+ this.currentUser;
   }
+  console.log('Fetch RdpCrystalEntries with Auth for '+ this.currentUser +", URL: " + url);
 
   return this.http
     .get<{ [key: string]: WorkFlowEntry }>(

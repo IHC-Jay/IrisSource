@@ -48,7 +48,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   paramsList: string[];
 
     maxCount = ["10", "25", "50", "100", "200"];
-    dispositions = ["All", "Processed", "Rejected"];
+    dispositions = ["All", "Processed", "Rejected", "Validation failed"];
 
     rightClickMenu: string[] = ['Details in New Tab', 'Details in Same Window'] ;
 
@@ -120,9 +120,8 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   formFields = {
       rowCnt: '',
       currentTransType: '',
-      disposition: 'Processed',
+      disposition: 'All',
       mode:'',
-      currentMode: '',
       direction: '',
       additional: '',
       startDate : "2023-01-12",
@@ -174,7 +173,7 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['', Validators.required],
-      disposition: ['Processed', Validators.required],
+      disposition: ['All', Validators.required],
       mode:['RealTime', Validators.required],
       direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
@@ -245,12 +244,12 @@ export class TransactionComponent implements OnInit, AfterViewInit {
 
 
         this.formFields.currentTransType = parsedObject.TranType;
-        this.formFields.currentMode = parsedObject.Mode
+        this.formFields.mode = parsedObject.Mode
         this.formFields.rowCnt = parsedObject.DispCnt;
 
         this.form.controls.transType.setValue(this.formFields.currentTransType);
         this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
-        this.form.controls.mode.setValue(this.formFields.currentMode);
+        this.form.controls.mode.setValue(this.formFields.mode);
 
         this.pageSize = parsedObject.DispCnt;
         let stDtStr = parsedObject.TranTime;
@@ -750,12 +749,12 @@ transactionChange(evt: any)
   console.info("In transactionChange: currentTransType: " + this.formFields.currentTransType)
   this.additionalSearchStr = ''
   if(this.form.controls.transType.value !== this.formFields.currentTransType &&
-    this.form.controls.mode.value !== this.formFields.currentMode)
+    this.form.controls.mode.value !== this.formFields.mode)
   {
     this.clearSearch();
   }
   this.formFields.currentTransType = this.form.controls.transType.value;
-  this.formFields.currentMode = this.form.controls.mode.value;
+  this.formFields.mode = this.form.controls.mode.value;
 
   this.readCustomFlds();
 
@@ -1050,7 +1049,7 @@ handleContextMenu(item: Item, menu: string)  {
       sessionStorage.setItem("currentTab", "Work Flow");
 
       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
-         {queryParams: { sessionID:  (item.sessionId),  searchParams:  "TBD" } }
+         {queryParams: { sessionID:  (item.sessionId),  mode:  this.formFields.mode , TransactionType: this.formFields.currentTransType } }
       ));
       console.log("Details in new tab URL: " + url);
           const newTab = window.open(url, '_blank');

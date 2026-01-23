@@ -94,8 +94,8 @@ export class RdpValidationErrorsComponent implements OnInit {
 
   tpCreate:boolean = false;
 
-  ID:string;
-  TransactionType:string;
+  ID:string = "";
+  TransactionType:string = "";
   fileName:string;
   selectedRow: number = -1;
   errSelectedRow: number = -1;
@@ -107,6 +107,7 @@ export class RdpValidationErrorsComponent implements OnInit {
   errArray:x12err[] = [];
 
   x12Data:string;
+  sessionID:string = "";
   selection = new SelectionModel<RdpX12Error>(false, []);
 
 
@@ -143,9 +144,12 @@ export class RdpValidationErrorsComponent implements OnInit {
 
       if (searchParams['sessionID'] !== undefined && searchParams['sessionID'] !== null)
       {
-        console.log("sessionID query sessionID provided!")
+        this.sessionID = searchParams['sessionID'];
+        this.TransactionType = searchParams['TransactionType'];
+        console.log("sessionID query sessionID provided!" + this.sessionID +", FileName: " + searchParams['searchParams']  +", TransactionType: " + this.TransactionType);
         this.fileName = searchParams['searchParams'];
-        this.getX12( 'ID=&SessionID=' + searchParams['sessionID']);
+        this.wfMode = searchParams['mode'];
+        this.getX12( 'ID=&SessionID=' + this.sessionID);
       }
       else
       {
@@ -193,12 +197,12 @@ getX12(searchStr: string = "")
 {
   this.canRenderDetails = false;
 
+  searchStr = "ID=&X12DataId=&SessionID=" + this.sessionID +"&WFID=" + this.ID +"&TransactionType=" + this.TransactionType ;
 
-  var srchStr = "ID=&X12DataId=&SessionID=&WFID=" + this.ID +"&TransactionType=" + this.TransactionType ;
   console.log("Call service for " +searchStr);
 
-      console.log(srchStr);
-      this.WfService.fetchRdpCrytalEntries(this.wfMode, srchStr ).subscribe((res: any) => {
+      console.log(searchStr);
+      this.WfService.fetchRdpCrytalEntries(this.wfMode, searchStr ).subscribe((res: any) => {
       console.log("Call to get RDP Crystal Entries, count: " + Object.keys(res).length);
 
       console.log("# of records: " + res.length +", first row: " + JSON.stringify(res[0]) );
@@ -547,7 +551,7 @@ getX12(searchStr: string = "")
       if (x12DataLns.length >= Number.parseInt(evt.Element))
        {
         console.log("Element: " + evt.Element +", Data: " + x12DataLns[Number.parseInt(evt.Element) -1])
-        x12DataLns[Number.parseInt(evt.Element) -1] = "<B><I>" + x12DataLns[Number.parseInt(evt.Element) -1] + "</B></I>"
+        x12DataLns[Number.parseInt(evt.Element)] = "<B><I>" + x12DataLns[Number.parseInt(evt.Element)] + "</B></I>"
        }
        this.errorSegmentText = x12DataLns.join(this.separator);
 

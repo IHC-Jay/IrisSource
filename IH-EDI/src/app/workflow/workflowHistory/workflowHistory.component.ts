@@ -110,7 +110,7 @@ export class WorkflowHistoryComponent implements OnInit {
 
       console.log('Query params ID: ', this.ID + ', params: ' + this.searchParams );
     });
-    this.getX12();
+    this.getX12("ID=" + this.ID +'&SessionID=');
 
   }
   get f() { return this.form.controls; }
@@ -126,13 +126,12 @@ export class WorkflowHistoryComponent implements OnInit {
 }
 
 
-getX12()
+getX12(searchStr: string = "")
 {
   this.canRenderHistory = false;
-  console.log("Call service for " +this.ID +", ", this.wfStatus);
+  console.log("Call service for " +searchStr);
 
-
-    this.WfService.fetchWorkFlowEntry(this.wfMode, "ID=" + this.ID ).subscribe((res: any) => {
+    this.WfService.fetchWorkFlowEntry(this.wfMode, searchStr ).subscribe((res: any) => {
 
 
 

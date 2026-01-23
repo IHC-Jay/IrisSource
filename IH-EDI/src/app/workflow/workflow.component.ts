@@ -38,9 +38,9 @@ export class WorkflowComponent implements OnInit {
   nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 
   startDate = "2023-01-12";
-  endDate ="13:30";
+  endDate ="2023-01-12";
   startTm = "13:30";
-  endTm= "2023-01-12";
+  endTm= "13:30";
   noAssignee:boolean = true;
 
   displayedColumns: string[] = [

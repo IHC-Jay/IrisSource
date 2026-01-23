@@ -58,7 +58,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
   paramsList: string[];
 
     maxCount = ["10", "25", "50", "100", "200"];
-    dispositions = ["All", "Processed", "Rejected"];
+    dispositions = ["All", "Processed", "Rejected", "Validation failed" ];
     rightClickMenu: string[] = ['Transactions in Same Tab', 'Transactions in New Tab', 'View X12'] ;
 
 
@@ -108,7 +108,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
   formFields = {
       rowCnt: '',
       currentTransType: '',
-      disposition: '',
+      disposition: 'All',
       mode: '',
       direction: '',
       additional: '',
@@ -165,7 +165,7 @@ export class SummaryComponent implements OnInit, AfterViewInit {
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
       transType: ['', Validators.required],
-      disposition: ['Processed', Validators.required],
+      disposition: ['All', Validators.required],
       mode:['RealTime', Validators.required],
       direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
@@ -941,7 +941,7 @@ handleContextMenu(item: Item, menu: string)  {
       sessionStorage.setItem("currentTab", "Work Flow");
 
       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
-         {queryParams: { sessionID:  (item.sessionId),  searchParams:  item.FileName } }
+         {queryParams: { sessionID:  (item.sessionId),  mode:  this.formFields.mode, TransactionType: this.formFields.currentTransType} }
       ));
       console.log("Open in new tab URL: " + url);
           const newTab = window.open(url, '_blank');

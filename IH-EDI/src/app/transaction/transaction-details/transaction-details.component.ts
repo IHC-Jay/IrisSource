@@ -56,9 +56,10 @@ export class TransactionDetailComponent {
       this.transaction = ''+params['transaction'] || '0';
       this.additionalSearchStr = params['additionalSearch'];
       this.searchTypeString = params['searchTypeString'];
+      this.mode = params['mode'];
       this.transConfigJsonString = params['transConfig'];
       console.log('Query params ID: ', this.ID + ', trans: ' + this.transaction + ", additionalSearch: " + this.additionalSearchStr +", searchTypeString: " + this.searchTypeString);
-      if (this.searchTypeString.indexOf("Batch") > 0)
+      if (this.mode != "" && this.searchTypeString.indexOf("Batch") > 0)
       {
         this.mode = "Batch"
       }
@@ -218,15 +219,6 @@ export class TransactionDetailComponent {
                   }
                   this.x12Data = val;
                 }
-
-                else if( question.indexOf("Date") > 0  && val.length ==8)
-                {
-                  val = val.substring(0,4) +"-"+ val.substring(4,6)  + "-" +  val.substring(6,8)
-                }
-                else if( question.indexOf("Date") > 0  && val.length >=17)
-                  {
-                    val = val.substring(0,4) +"-"+ val.substring(4,6)  + "-" +  val.substring(6,8) + " -> " + val.substring(9,13) +"-"+ val.substring(13,15)  + "-" +  val.substring(15,17)
-                  }
                 else if (val === '')
                 {
                   val = '-';
