@@ -163,9 +163,10 @@ BPL Definition</Description>
 <property name='FromTELCOR' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='FromResolve' type='%Boolean' initialexpression='0' instantiate='0' />
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
+<property name='ToResolve' type='%Boolean' initialexpression='0' instantiate='0' />
 </context>
-<sequence xend='200' yend='5150' >
-<scope xpos='200' ypos='250' xend='200' yend='5050' >
+<sequence xend='200' yend='5250' >
+<scope xpos='200' ypos='250' xend='200' yend='5150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId _", req: " _ process.%PrimaryRequestHeader.SourceConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -220,7 +221,7 @@ BPL Definition</Description>
    
    ]]]]><![CDATA[>
 </code>
-<if name='check source and filename' condition='(process.%PrimaryRequestHeader.SourceConfigName [ "Resolve") &amp;&amp; (context.FileName [ "EDIFECS")' xpos='200' ypos='550' xend='200' yend='4800' >
+<if name='check source and filename' condition='(process.%PrimaryRequestHeader.SourceConfigName [ "Resolve") &amp;&amp; (context.FileName [ "EDIFECS")' xpos='200' ypos='550' xend='200' yend='4900' >
 <true>
 <trace name='SKIP' value='"File from Resolve inbound service and filename has EDIFECS will be ignored. File:"  _ context.FileName' xpos='200' ypos='700' />
 </true>
@@ -280,7 +281,7 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='470' ypos='800' xend='470' yend='4700' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='470' ypos='800' xend='470' yend='4800' >
 <true>
 <code name='Print file name' xpos='740' ypos='950' >
 <![CDATA[
@@ -406,7 +407,7 @@ BPL Definition</Description>
   $$$TRACE("PerformSNIPValidation, SNIP: " _ context.tpLinkObj.SNIP _ " returned: " _ tSc)
   ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='740' ypos='2350' xend='740' yend='4600' >
+<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='740' ypos='2350' xend='740' yend='4700' >
 <true>
 <if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='740' ypos='2500' xend='740' yend='2950' >
 <true>
@@ -479,7 +480,7 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1280' ypos='2500' xend='1280' yend='4400' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1280' ypos='2500' xend='1280' yend='4500' >
 <true>
 <trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1550' ypos='2650' />
 <code name='Get ISA values' xpos='1550' ypos='2750' >
@@ -516,7 +517,74 @@ BPL Definition</Description>
   set context.X12Filename = flNm 
   set context.AckFilename = "999_" _ InterchangeSenderID _"_"_ dtStr _tmStr _ "_" _ InterchangeReceiverID _"_"_ InterchangeCtrlNum _".835"]]]]><![CDATA[>
 </code>
-<code name='Send Ack?' xpos='1550' ypos='2850' >
+<code name='Check TAX ID - ToResolve?' xpos='1550' ypos='2850' >
+<![CDATA[  //  If the REF qualifier is TJ  and values are  942854057,  876000309   Send them to Resolve
+  // added so that these files from Resolve inbound service will not be sent back to Resolve 
+  
+  set context.ToResolve = 0
+  	
+  if ( process.%PrimaryRequestHeader.SourceConfigName [ "Resolve" )
+  {
+	     $$$TRACE("File from Resolve inbound service, will not be sent back to Resolve. " )
+	     set context.ToResolve = 0
+  }
+  else
+  {
+      
+      set GSCounter = context.inXmlDoc.ChildCount 
+      #dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF
+      for gsInt=1:1:GSCounter
+      { 
+        
+          set individualGroup = context.inXmlDoc.NextChild(individualGroup) // context.inXmlDoc.getNthChild(gsInt,2)
+	
+		if (individualGroup.DocType = "")
+		 {
+	 		set individualGroup.DocType = "HIPAA_5010:Group"
+		 }
+		 #dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
+	 				    	  
+		 FOR stInd=1:1:individualGroup.ChildCount
+		  
+		 {
+			  set STRecord=individualGroup.NextChild(STRecord) 
+			  if (STRecord.DocType = "")
+		 	  {
+	 			set STRecord.DocType = "HIPAA_5010:835"
+		 	  }		  
+			  FOR ind=1:1:STRecord.SegCountGet()
+			  {					    
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	if ( $FIND(segVal, "REF") = 4  )
+			  	{
+				  	set ref01 = STRecord.GetValueAt(segPath_":1",, .stat)
+					set ref02 = STRecord.GetValueAt(segPath_":2",, .stat)
+					
+				  	if (ref01 = "TJ")
+				  	{
+					  	
+					  	set lookupTbl  = "IHC.ITF.Process.BPL.ValidateX12PreRemitMgr/Lookup/ResolveTaxIds"
+					  	set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(lookupTbl, ref02, .value)
+					  	if ($$$ISERR(stat))
+					  	{
+  					  	    Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, Lookup table not found: " _ lookupTbl)
+  					  	    QUIT
+					  	}
+					  	elseif (value > 0)
+					  	{
+					  	   $$$TRACE( segPath _ ": " _ segVal _", Value is found in " _ lookupTbl)
+					  	   set context.ToResolve = 1 // Send to Resolve
+					  	   QUIT
+					  	}
+				  	}
+			  	}
+			  }
+		 }
+        }
+   }]]]]><![CDATA[>
+</code>
+<code name='Send Ack?' xpos='1550' ypos='2950' >
 <![CDATA[ $$$TRACE( "Inbound X12, Return ACKs- ISA:" _ context.tpLinkObj.ISAAck _", GS: " _ context.tpLinkObj.GSAck _", ST: " _ context.tpLinkObj.STAck _", SNIP: " _ context.tpLinkObj.SNIP)
 	if '( context.tpLinkObj.GSAck [ "NEVER")
 	{
@@ -569,7 +637,7 @@ BPL Definition</Description>
 	
 	]]]]><![CDATA[>
 </code>
-<code name='Check the inbound service' xpos='1550' ypos='2950' >
+<code name='Check the inbound service' xpos='1550' ypos='3050' >
 <![CDATA[ // Check the inbound service
 	set context.FromAvaility = process.%PrimaryRequestHeader.SourceConfigName [ "Availity"
 	if ('context.FromAvaility)
@@ -590,22 +658,22 @@ BPL Definition</Description>
 	
 	$$$TRACE( "From Resolve : " _ context.FromResolve _ ", From TELCOR: " _ context.FromTELCOR )]]]]><![CDATA[>
 </code>
-<if name='Availity' condition='context.FromAvaility' xpos='1550' ypos='3050' xend='1550' yend='3650' >
+<if name='Availity' condition='context.FromAvaility' xpos='1550' ypos='3150' xend='1550' yend='3750' >
 <true>
-<transform name='Availity837DX12Transform' class='IHC.ITF.Transform.Dtl.Availity835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1550' ypos='3200' />
-<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1550' ypos='3300' />
+<transform name='Availity837DX12Transform' class='IHC.ITF.Transform.Dtl.Availity835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1550' ypos='3300' />
+<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1550' ypos='3400' />
 </true>
 <false>
-<if name='Resolve ||  Assurance' condition='context.FromResolve || context.FromAssurance' xpos='1820' ypos='3200' xend='1820' yend='3550' >
+<if name='Resolve ||  Assurance' condition='context.FromResolve || context.FromAssurance' xpos='1820' ypos='3300' xend='1820' yend='3650' >
 <true>
-<transform name='Resolve837DX12Transform' class='IHC.ITF.Transform.Dtl.Availity835X12TransformResolve' source='context.inXmlDoc' target='context.modX12' xpos='1955' ypos='3350' />
-<assign name="X12 for Assurance" property="context.inXmlDoc" value="context.modX12" action="set" xpos='1955' ypos='3450' />
+<transform name='Resolve837DX12Transform' class='IHC.ITF.Transform.Dtl.Availity835X12TransformResolve' source='context.inXmlDoc' target='context.modX12' xpos='1955' ypos='3450' />
+<assign name="X12 for Assurance" property="context.inXmlDoc" value="context.modX12" action="set" xpos='1955' ypos='3550' />
 </true>
 </if>
 </false>
 </if>
-<trace name='Store X12?' value='"Store X12 in DB with new IDs"' xpos='1550' ypos='3750' />
-<code name='Send X12 messages to next components' xpos='1550' ypos='3850' >
+<trace name='Store X12?' value='"Store X12 in DB with new IDs"' xpos='1550' ypos='3850' />
+<code name='Send X12 messages to next components' xpos='1550' ypos='3950' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -621,19 +689,22 @@ BPL Definition</Description>
 	Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
 	
 	
-	if ( (process.%PrimaryRequestHeader.SourceConfigName [ "Resolve") && (tOneTarget [ "Resolve") )
-	{
-	     $$$TRACE("File from Resolve inbound service, will not be sent back to Resolve")
-	     QUIT
-	}
 	set outFilename = context.X12Filename
 	
 	if (tOneTarget [ "Resolve")
 	{
-	    // To Out-Resolve-835-File: filename - add EDIFECS, ISA-06 = EDIFECS
-            Do context.inXmlDoc.SetValueAt("EDIFECS         ", "ISA:InterchangeSenderID")
-	    // set outFilename = $REPLACE(context.X12Filename, ".Remit_Cirius_Import", "_EDIFECS.Remit_Cirius_Import") - set in file operation
-	    // added so that these files from Resolve inbound service will not be sent back to Resolve
+	     if (context.ToResolve = 0) 
+	     {
+	         $$$TRACE("To Resolve is false, do not send to " _ tOneTarget )
+	         QUIT
+	     }
+	     else
+	     {
+	         // To Out-Resolve-835-File: filename - add EDIFECS, ISA-06 = EDIFECS
+                 Do context.inXmlDoc.SetValueAt("EDIFECS         ", "ISA:InterchangeSenderID")
+             }
+	     // set outFilename = $REPLACE(context.X12Filename, ".Remit_Cirius_Import", "_EDIFECS.Remit_Cirius_Import") - 
+	     // FileName is set in file operation	    
 	}
 	else
 	{
@@ -656,12 +727,12 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<if name='Assurance or Availity' condition='context.FromAvaility || context.FromAssurance || context.FromTELCOR ' xpos='1550' ypos='3950' xend='1550' yend='4300' >
+<if name='Assurance or Availity' condition='context.FromAvaility || context.FromAssurance || context.FromTELCOR ' xpos='1550' ypos='4050' xend='1550' yend='4400' >
 <true>
-<trace value='"From Assurance, Telcore, or Availity, Don&apos;t send to R1"' xpos='1550' ypos='4100' />
+<trace value='"From Assurance, Telcore, or Availity, Don&apos;t send to R1"' xpos='1550' ypos='4200' />
 </true>
 <false>
-<code name='Split X12 and get fileName' xpos='1820' ypos='4100' >
+<code name='Split X12 and get fileName' xpos='1820' ypos='4200' >
 <![CDATA[
    set segSep = $EXTRACT(context.inXmlDoc.Separators, 4)
    set eleSep = $EXTRACT(context.inXmlDoc.Separators, 1, 2)
@@ -911,7 +982,7 @@ BPL Definition</Description>
     }
     ]]]]><![CDATA[>
 </code>
-<code name='Send X12 messages to R1 component' xpos='1820' ypos='4200' >
+<code name='Send X12 messages to R1 component' xpos='1820' ypos='4300' >
 <![CDATA[
            set tOneTarget = "Out-R1-835-Sftp"  
            set key="", numFiles = 0
@@ -958,7 +1029,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<trace name='Continue processing X12' value='"Sent to next component for processing"' xpos='1280' ypos='4500' />
+<trace name='Continue processing X12' value='"Sent to next component for processing"' xpos='1280' ypos='4600' />
 </false>
 </if>
 </true>
@@ -972,7 +1043,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='4900' xend='200' yend='350' >
+<catchall xpos='200' ypos='5000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
