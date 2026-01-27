@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.Operation.ErpDataJdbc">
+<Super>Ens.BusinessOperation</Super>
+<TimeCreated>67585,51351.708250296</TimeCreated>
+
+<Parameter name="ADAPTER">
+<Description>
+Author: Jay Narasipura, Bryan Brotherson
+Last Modify: 1/27/2026
+This class is used to write the HL7 data from Epic to a file</Description>
+<Default>EnsLib.SQL.OutboundAdapter</Default>
+</Parameter>
+
+<Method name="OnMessage">
+<FormalSpec>pRequest:Ens.Request,*pResponse:Ens.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$LOGERROR("Invalid Request Type: " _ pRequest)
+	quit $$$ERROR(5001,"Invalid Request, expecting EnsLib.HL7.Message")
+]]></Implementation>
+</Method>
+
+<Method name="ProcessEpicSchedules">
+<Description>
+This method gets HL7 Data and reads the result set to create outputs to the file.</Description>
+<FormalSpec>pRequest:EnsLib.HL7.Message,*pResponse:Ens.StringContainer</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tResultSet,snap As EnsLib.SQL.Snapshot
+	set pResponse = ##class(Ens.StringContainer).%New()
+	
+	#dim tSC As %Status=$$$OK
+
+	// SQL to insert	
+	set tQuery = "INSERT INTO ""EpicSchedules2"" " _
+	"(""TransactionId"", ""LineId"", ""DpcComment"", ""Trigger"", ""CaseNumber"", ""PatientName"", " _
+	" ""ProcedureNumber"", ""ProcedureDescription"", ""StartTime"", ""EndTime"", ""SurgeonName"", ""RoomName"", ""Inbu"", " _
+	" ""Facility"", ""CartId"", ""ItemId"", ""Descr"", ""ManufacturerId"", ""ManufacturerName"", ""Type"", ""TypeRaw"", ""QtyToPick"", " _
+	" ""QtyHold"", ""StorageArea"", ""BinLocation"", ""ItemComment"", ""ScheduleComment"", ""CreateTimestamp"")" _
+	" values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+	
+	Set snap=##class(EnsLib.SQL.Snapshot).%New()
+	Set snap.MaxRowsToGet=-1
+	Set tRTs=##class(%Library.ListOfObjects).%New()
+	Do tRTs.Insert(snap)
+	Set tSC = ..Adapter.Connect()
+	$$$TRACE("Connect to DB - " _ ..Adapter.DSN _": " _ tSC)
+		  	
+	try
+	{
+	    $$$TRACE("Inbound HL7: " _ pRequest.RawContent)
+	    // Get values from inbound HL7 message
+		set TransactionId = ""
+    	set LineId = ""
+    	set DpcComment = ""
+    	set Trigger = ""
+    	set CaseNumber = ""
+    	set PatientName = ""
+    	set ProcedureNumber = ""
+    	set ProcedureDescription = ""
+    	set StartTime = ""
+    	set EndTime = ""
+    	set SurgeonName = ""
+    	set RoomName = ""
+    	set Inbu = ""
+    	set Facility = ""
+    	set CartId = ""
+    	set ItemId = ""
+    	set Descr = ""
+    	set ManufacturerId = ""
+    	set ManufacturerName = ""
+    	set Type = ""
+    	set TypeRaw = ""
+    	set QtyToPick = ""
+    	set QtyHold = ""
+    	set StorageArea = ""
+    	set BinLocation = ""
+    	set ItemComment = ""
+    	set ScheduleComment = ""
+    	set CreateTimestamp = ""
+    	set idx = 1
+			
+		If (pRequest.DocType = "ERP-2.6:OMS_O05")
+		{
+			While pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:1") '= ""
+			{
+				set TransactionId = pRequest.GetValueAt("MSH:10") _ "_" _ pRequest.GetValueAt("MSH:9.1") _ "_" _ pRequest.GetValueAt("MSH:9.2")
+				set LineId = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:1")
+				set Trigger = $ZCONVERT(pRequest.GetValueAt("PIDgrp.ZCS:3"),"u")
+				set CaseNumber = pRequest.GetValueAt("PIDgrp.ORC:2.1")
+				set PatientName = pRequest.GetValueAt("PIDgrp.PID:5.1") _ ", " _ pRequest.GetValueAt("PIDgrp.PID:5.2")
+				set dtTm = pRequest.GetValueAt("PIDgrp.ORC:9")
+	    		set StartTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+	    		set EndTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)				
+				set SurgeonName = pRequest.GetValueAt("PIDgrp.ORC:12(1).2.1") _ ", " _ pRequest.GetValueAt("PIDgrp.ORC:12(1).3")
+				set RoomName = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:11.2")
+				set Facility = pRequest.GetValueAt("MSH:4.1")
+				set CartId = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:11.1")
+				set ItemId = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:3.1")
+				set Descr = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:3.2")
+				set ManufacturerId = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:9")
+				set ManufacturerName = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:8.1")
+		    	set QtyToPick = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZPP(1):4")
+    			set QtyHold = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZPP(1):5")	
+				set BinLocation = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZQD(1):15")
+				//set Addon = pRequest.GetValueAt("PPIDgrp.ZCS:2")
+				//set DoctorNumber = pRequest.GetValueAt("PIDgrp.ORC:12(1).1")
+				//set RoomNumber = pRequest.GetValueAt("PIDgrp.ORC:13.2")
+				//set UnitOfMeasure = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:5.1")			
+				//set IssueQuantity = pRequest.GetValueAt("RQDgrp(" _ idx _ ").RQD:4")
+				//set QtyToPick = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZPP(1):4")
+				//set WastedQuantity = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZQD(1):14")
+				//set WastedQuantity = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZPP(1):5")
+				//set LotNumber = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZQD(1):2")
+				//set SerialNumber = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZQD(1):1")
+				//set ExpirationDate = pRequest.GetValueAt("RQDgrp(" _ idx _ ").ZQD(1):3")
+				//set Comments1 = pRequest.GetValueAt("RQDgrp(" _ idx _ ").NTE(1):3")
+				//set Comments2 = pRequest.GetValueAt("RQDgrp(" _ idx _ ").NTE(1):4.1")
+				set dtTm = pRequest.GetValueAt("MSH:7")
+	    		set CreateTimestamp = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+	    		set tSC = ..Adapter.ExecuteUpdate(.tRTs,tQuery, TransactionId, LineId, DpcComment, Trigger, CaseNumber, PatientName, ProcedureNumber, ProcedureDescription,
+		 				StartTime, EndTime, SurgeonName, RoomName, Inbu, Facility, CartId, ItemId, Descr, ManufacturerId, ManufacturerName, Type, TypeRaw,
+		  				QtyToPick, QtyHold, StorageArea, BinLocation, ItemComment, ScheduleComment, CreateTimestamp)
+				set idx = idx + 1
+			}			
+		}
+		elseif ((pRequest.DocType = "ERP-2.6:SIU_S12") || (pRequest.DocType = "ERP-2.6:SIU_S13") || (pRequest.DocType = "ERP-2.6:SIU_S14") || (pRequest.DocType = "ERP-2.6:SIU_S15"))
+		{
+			If pRequest.GetValueAt("RGSgrp(1).AIGgrp(1).AIG:1") '= ""
+			{
+				$$$TRACE("data has AIG Segment")
+
+				While pRequest.GetValueAt("RGSgrp(1).AIGgrp(" _ idx _ ").AIG:1") '= ""
+				{
+					set TransactionId = pRequest.GetValueAt("MSH:10") _ "_" _ pRequest.GetValueAt("MSH:9.1") _ "_" _ pRequest.GetValueAt("MSH:9.2")
+					set LineId = pRequest.GetValueAt("RGSgrp(1).AIGgrp(" _ idx _ ").AIG:1")
+					set Trigger = pRequest.GetValueAt("ZCS:3")
+					set CaseNumber = pRequest.GetValueAt("SCH:2.1")
+					set PatientName = pRequest.GetValueAt("PIDgrp(1).PID:5.1") _ ", " _ pRequest.GetValueAt("PIDgrp(1).PID:5.2")
+					set Facility = pRequest.GetValueAt("MSH:4.1")
+					set ProcedureNumber = pRequest.GetValueAt("RGSgrp(1).AISgrp(1).AIS:3.1")
+					set ProcedureDescription = pRequest.GetValueAt("RGSgrp(1).AISgrp(1).AIS:3.2")
+					set RoomName = pRequest.GetValueAt("RGSgrp(1).AILgrp(1).AIL:3.2")
+					set SurgeonName = pRequest.GetValueAt("PIDgrp(1).PV1:17.2") _ ", " _ pRequest.GetValueAt("PIDgrp(1).PV1:17.3")
+					set Descr = pRequest.GetValueAt("RGSgrp(1).AIGgrp(" _ idx _ ").AIG:4.2")
+					set Type = pRequest.GetValueAt("RGSgrp(1).AIGgrp(" _ idx _ ").AIG:4.1")
+					set dtTm = pRequest.GetValueAt("SCH:11.4")
+					set StartTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+					set EndTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+	    			set dtTm = pRequest.GetValueAt("MSH:7")
+	    			set CreateTimestamp = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+	    			set tSC = ..Adapter.ExecuteUpdate(.tRTs,tQuery, TransactionId, LineId, DpcComment, Trigger, CaseNumber, PatientName, ProcedureNumber, ProcedureDescription,
+		 					StartTime, EndTime, SurgeonName, RoomName, Inbu, Facility, CartId, ItemId, Descr, ManufacturerId, ManufacturerName, Type, TypeRaw,
+		  					QtyToPick, QtyHold, StorageArea, BinLocation, ItemComment, ScheduleComment, CreateTimestamp)
+					set idx = idx + 1
+					}
+			}
+			else
+			{
+				$$$TRACE("data has no AIG Segment")
+				set TransactionId = pRequest.GetValueAt("MSH:10") _ "_" _ pRequest.GetValueAt("MSH:9.1") _ "_" _ pRequest.GetValueAt("MSH:9.2")
+				set LineId = idx
+				set Trigger = pRequest.GetValueAt("ZCS:3")
+				set CaseNumber = pRequest.GetValueAt("SCH:2.1")
+				set PatientName = pRequest.GetValueAt("PIDgrp(1).PID:5.1") _ ", " _ pRequest.GetValueAt("PIDgrp(1).PID:5.2")
+				set Facility = pRequest.GetValueAt("MSH:4.1")
+				set ProcedureNumber = pRequest.GetValueAt("RGSgrp(1).AISgrp(1).AIS:3.1")
+				set ProcedureDescription = pRequest.GetValueAt("RGSgrp(1).AISgrp(1).AIS:3.2")
+				set RoomName = pRequest.GetValueAt("RGSgrp(1).AILgrp(1).AIL:3.2")
+				set SurgeonName = pRequest.GetValueAt("PIDgrp(1).PV1:17.2") _ ", " _ pRequest.GetValueAt("PIDgrp(1).PV1:17.3")
+				set dtTm = pRequest.GetValueAt("SCH:11.4")
+				set StartTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+				set EndTime = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+	    		set dtTm = pRequest.GetValueAt("MSH:7")
+	    		set CreateTimestamp = $E(dtTm,1,4)_ "-" _ $E(dtTm,5,6) _ "-" _ $E(dtTm,7,8) _ " " _ $E(dtTm,9,10) _ ":" _ $E(dtTm,11,12) _ ":" _ $E(dtTm,13,14)
+				set tSC = ..Adapter.ExecuteUpdate(.tRTs,tQuery, TransactionId, LineId, DpcComment, Trigger, CaseNumber, PatientName, ProcedureNumber, ProcedureDescription,
+		  				StartTime, EndTime, SurgeonName, RoomName, Inbu, Facility, CartId, ItemId, Descr, ManufacturerId, ManufacturerName, Type, TypeRaw, 
+		  				QtyToPick, QtyHold, StorageArea, BinLocation, ItemComment, ScheduleComment, CreateTimestamp)
+			}
+		}
+			  
+		$$$TRACE(tQuery _": ExecuteUpdate() tSC= "_tSC)
+	}
+	catch errobj {
+	    $$$LOGERROR("Error in calling the ExecuteUpdate "  _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	    set pResponse.StringValue="FAILURE in calling the ExecuteUpdate"
+	    set tSC = $$$ERROR("Error in calling the ExecuteUpdate " _ errobj.AsSystemError() _ " _ data: " _ errobj.Data _ "; code:" _ errobj.Code)
+	}
+	return tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="EnsLib.HL7.Message">
+	<Method>ProcessEpicSchedules</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
