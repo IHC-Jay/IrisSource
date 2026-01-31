@@ -74,7 +74,6 @@ import { WorkflowComponent } from './workflow/workflow.component';
 import {WorkflowDetailsComponent} from './workflow/workflowDetails/workflowDetails.component';
 import {WorkflowHistoryComponent} from './workflow/workflowHistory/workflowHistory.component';
 
-
 import { MatSnackBarModule } from '@angular/material/snack-bar';
 
 import {
@@ -83,6 +82,9 @@ import {
   CdkDropListGroup
 } from '@angular/cdk/drag-drop';
 import { RdpValidationErrorsComponent } from './workflow/rdpValidationErrors/rdpValidationErrors.component';
+import { X12ViewerComponent } from './x12/x12-viewer.component';
+import { PdfReaderComponent } from './pdf-reader/pdf-reader.component';
+import { CodeValueLookupComponent } from './codeValue-lookup/codeValue-lookup.component';
 
 @NgModule({ declarations: [
         AppComponent,
@@ -111,7 +113,10 @@ import { RdpValidationErrorsComponent } from './workflow/rdpValidationErrors/rdp
         WorkflowComponent,
         WorkflowDetailsComponent,
         WorkflowHistoryComponent,
-        RdpValidationErrorsComponent
+        RdpValidationErrorsComponent,
+        X12ViewerComponent,
+        PdfReaderComponent
+        ,CodeValueLookupComponent
     ],
     exports: [
         MatTableModule,
@@ -146,6 +151,7 @@ import { RdpValidationErrorsComponent } from './workflow/rdpValidationErrors/rdp
         AngularSplitModule,
         MatCardModule, MatRadioModule,
         MatTreeModule,
+
         CdkDrag,
         CdkDropList,
         MatSnackBarModule,
@@ -162,3 +168,4 @@ public cors =''; // require('cors');
 
 
  }
+

@@ -11,5 +11,8 @@ export const tabLinks: Link[] = [
     {name:'Dashboard', link:"/dashboard"},
     {name:'Transmissions', link:"/summary"},
     {name:'Transactions', link:"/transaction"},
+    {name:'X12 Viewer', link:"/x12-viewer"},
+    {name:'PDF Reader', link:"/pdf-reader"},
     {name:'Work Flow', link:"/workflow"}
+
   ];

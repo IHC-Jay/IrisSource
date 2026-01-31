@@ -504,9 +504,10 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   }
 
   storageEvt(){
-	console.log("storage");
-	this.val = sessionStorage.getItem(STORE_KEY);
+	  console.log("storage");
+	  this.val = sessionStorage.getItem(STORE_KEY);
   }
+
 
 }
 
