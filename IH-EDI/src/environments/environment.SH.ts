@@ -26,6 +26,8 @@ export const environment = {
   rtUatWFUrl: 'https://itf-webapache-test.co.ihc.com:8443/EdiRest/RtWorkFlow/',
   tpType: 'Provider',
   logo: 'assets/sh_logo.jpg',
+  rtRoutes: '["UhinRT","IntermountainHealthcare", "BitBucket", "NA"]',
+  batchRoutes: ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket", "NA"],
 
   allowedEnvironments: ['DEV', 'QA']
 

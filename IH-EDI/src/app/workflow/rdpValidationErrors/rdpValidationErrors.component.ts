@@ -17,6 +17,9 @@ import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 import {RdpX12Error, x12err} from './rdpValidationErrors';
 import { Console } from 'node:console';
+import { Modalx12Component } from '../../transaction/transaction-details/modal/modal-x12.component';
+import { MatDialog } from '@angular/material/dialog';
+import { DialogRef } from '@angular/cdk/dialog';
 
 @Component({
     selector: 'app-workflowDetails',
@@ -112,7 +115,7 @@ export class RdpValidationErrorsComponent implements OnInit {
 
 
   constructor(private WfService: WfRestServiceComponent,
-    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute){
+    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
       tpId: new FormControl();
 
   }
@@ -205,10 +208,8 @@ getX12(searchStr: string = "")
       this.WfService.fetchRdpCrytalEntries(this.wfMode, searchStr ).subscribe((res: any) => {
       console.log("Call to get RDP Crystal Entries, count: " + Object.keys(res).length);
 
-      console.log("# of records: " + res.length +", first row: " + JSON.stringify(res[0]) );
+      // console.log("# of records: " + res.length +", first row: " + JSON.stringify(res[0]) );
 
-
-        // First record - WF entry
         let x12DataLns = res[0].X12.split( String(res[0].X12).substr(105, 1) );
         this.separator = res[0].X12.substr(3, 1)
         console.log("Sep: " + this.separator)
@@ -263,7 +264,7 @@ getX12(searchStr: string = "")
 
               if(lenNum == res[ind].LineNum)
               {
-                segEle = res[ind].Segment +"/" + res[ind].Element
+                segEle = "Loop: " + res[ind].Loop +", " + res[ind].Segment +"/" + res[ind].Element
                 err =  segEle + ": " + res[ind].ErrorDesc + "(" + res[ind].ErrorCode + ")";
 
                 if (this.selectedRow === -1 && err !== '')
@@ -359,6 +360,31 @@ getX12(searchStr: string = "")
 
 
 }
+
+
+ exportX12()
+    {
+      let x12Data ="";
+      if(this.x12Array !== null && this.x12Array.length > 0)
+      {
+        this.x12Array.forEach(element => {
+           x12Data += element.Data + "~" ;
+        });
+
+
+        let param: string[] = [ x12Data, "WF" + this.ID + "-X12.txt", '' + " X12 Data, ID(" + this.ID + "), Size:" + x12Data.length  ];
+        const dialogRef = this.dialog.open(Modalx12Component, {
+          width: '1700px',
+          data: param
+        });
+
+        dialogRef.afterClosed().subscribe(result => {
+          console.log('The dialog closed');
+        });
+
+      }
+    }
+
 
 
  updateWF()

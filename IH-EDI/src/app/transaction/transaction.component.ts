@@ -427,14 +427,21 @@ export class TransactionComponent implements OnInit, AfterViewInit {
                 && val.transactionCode === this.form.controls.transType.value
               )
                 {
-                  console.info("transSearchStructArr " + ind + ": " + val.transactionCode +", " + val.label + ", " + val.key + " = '" + fGrp.controls.newFldValue.value + "'")
-                  if (fGrp.controls.newFldValue.value.indexOf('%') >= 0 )
+                  let fldVal = fGrp.controls.newFldValue.value;
+                  console.info("transSearchStructArr " + ind + ": " + val.transactionCode +", " + val.label + ", " + val.key + " = '" + fldVal + "'")
+
+                  if (val.key.toUpperCase().indexOf('DATE') >= 0 && fldVal.indexOf('-') >= 0)
                   {
-                      this.staticSearchStr += " AND " + val.key + " LIKE '" + fGrp.controls.newFldValue.value + "'"
+                    fldVal = fldVal.replaceAll('-','');
+                  }
+
+                  if (fldVal.indexOf('%') >= 0 )
+                  {
+                      this.staticSearchStr += " AND " + val.key + " LIKE '" + fldVal + "'"
                   }
                   else
                   {
-                    this.staticSearchStr += " AND " + val.key + "='" + fGrp.controls.newFldValue.value + "'"
+                    this.staticSearchStr += " AND " + val.key + "='" + fldVal + "'"
                   }
                 }
             };

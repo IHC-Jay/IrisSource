@@ -352,8 +352,14 @@ getX12(searchStr: string = "")
     });
 
 
+
+
 }
 
+ exportX12()
+    {
+      let exportData = "";
+    }
 
  updateWF()
  {

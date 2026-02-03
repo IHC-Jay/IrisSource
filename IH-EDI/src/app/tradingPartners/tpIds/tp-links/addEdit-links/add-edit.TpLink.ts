@@ -422,29 +422,15 @@ public initializeData()
           this.batchMode = false;
           this.ackTypes = ["ERROR","NEVER"];
 
-           if (`${environment.org}` == 'SH')
-          {
-            this.routingTypes = ["UhinRT","IntermountainHealthcare", "BitBucket", "NA"];
-          }
-          else{
-            this.routingTypes = ["NA"];
-          }
+            this.routingTypes =  `${environment.rtRoutes}`.split(',') // ["UhinRT","IntermountainHealthcare", "BitBucket", "NA"];
+
 
       }
       else {
         this.batchMode = true;
         this.ackTypes = ["ERROR","ALWAYS","NEVER"];
-        if (`${environment.org}` == 'SH')
-        {
 
-            this.routingTypes = ["UhinBatch","StLukesBatch","UMRBatch","IntermountainHealthcare", "BitBucket", "NA"];
-        }
-        else
-        {
-            this.routingTypes = ["R1","UhinProvConnBatch","UhinBatch", "SelectHealth", "BitBucket", "NA"];
-        }
-
-
+        this.routingTypes = `${environment.batchRoutes}`.split(',');
 
       }
       if(this.isAddMode)

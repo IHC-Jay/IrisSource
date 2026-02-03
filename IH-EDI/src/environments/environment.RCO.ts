@@ -26,7 +26,9 @@ export const environment = {
 
   tpType: 'Payer',
   logo:'assets/ih-rco.jpg',
-  allowedEnvironments: [ 'DEV', 'QA','UAT']
+  allowedEnvironments: [ 'DEV', 'QA','UAT'],
+  rtRoutes: ["NA"],
+  batchRoutes:["R1","Assurance","UhinProvConnBatch","UhinBatch", "SelectHealth", "BitBucket", "NA"]
 
 };
 

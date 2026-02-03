@@ -127,7 +127,6 @@ export class WorkflowComponent implements OnInit {
 
     this.form = this.formBuilder.group({
       statusType: ['', Validators.required],
-      rowCnt:['25', Validators.required],
       transType: ['', Validators.required],
       assignedUser: [''],
       mode:['Batch', Validators.required],
@@ -136,7 +135,9 @@ export class WorkflowComponent implements OnInit {
       updStatusType: ['', Validators.required],
       notes:[''],
       assignee:[''],
-      searchID:['']
+      wfID:[''],
+      senderID:[''],
+      receiverID:['']
     });
     this.canRenderDetails = false;
     this.irisUsers = [];
@@ -177,8 +178,6 @@ export class WorkflowComponent implements OnInit {
 
             fInd = searchParams.indexOf("count::") + "count::".length;
             val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
-            this.form.controls.rowCnt.setValue(val)
-            console.log("rowCnt: " + val)
 
             fInd = searchParams.indexOf("mode::") + "mode::".length;
             val = searchParams.substring( fInd, searchParams.indexOf(";", fInd))
@@ -217,7 +216,7 @@ export class WorkflowComponent implements OnInit {
 
             wfItems = 1
 
-        }
+      }
 
       if (wfItems != 1 && sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
       {
@@ -225,17 +224,17 @@ export class WorkflowComponent implements OnInit {
 
         console.info("Init from session UserConfig: " + parsedObject.WfTime +", " + parsedObject.DispCnt +", " + parsedObject.Mode);
 
-        this.form.controls.rowCnt.setValue(parsedObject.DispCnt);
+
         let stDtStr = parsedObject.WfTime;
         mode = parsedObject.Mode;
 
         // Format: Last 90 days
 
-      if(stDtStr.toString().indexOf('1') > 1)
-      {
-        stDt = 1
-      }
-      else if(stDtStr.toString().indexOf('7') > 1)
+        if(stDtStr.toString().indexOf('1') > 1)
+        {
+          stDt = 1
+        }
+        else if(stDtStr.toString().indexOf('7') > 1)
         {
           stDt = 7
         }
@@ -252,17 +251,6 @@ export class WorkflowComponent implements OnInit {
           stDt = 365
         }
           console.info("Search from " + stDt + " days. " + stDtStr);
-    }
-
-    this.sub = this.route.queryParams.subscribe(params => {
-
-      console.log(" Query Params: " + params.WFitems );
-
-      if(wfItems != 1 && params !== undefined && params.WFitems !== undefined)
-        {
-          wfItems =  params['WFitems'];
-          console.log("queryParams wfItems: " + wfItems);
-
             this.nowDt = new Date((new Date().getTime() - (stDt *24 * 60 * 60 * 1000)));
             let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
             let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
@@ -294,13 +282,10 @@ export class WorkflowComponent implements OnInit {
 
             this.statusTypeString = this.statusTypes[0];
             this.errorTypeStr = this.errorTypes[0];
+      }
 
 
-        }
-
-      });
-
-        this.onSubmit()
+      this.onSubmit()
 
 
   }
@@ -316,10 +301,10 @@ onSubmit()
   let paramsList: string[]= [];
 
   console.info("onSubmit fetchWorkFlowItems, StatusTypes::" + this.form.controls.statusType.value)
-  if (this.form.controls.searchID.value !== '')
+  if (this.form.controls.wfID.value !== '')
   {
-    paramsList.push("ID::" + this.form.controls.searchID.value)
-    console.info("fetchWorkFlowItems ID: " + this.form.controls.searchID.value)
+    paramsList.push("ID::" + this.form.controls.wfID.value)
+    console.info("fetchWorkFlowItems ID: " + this.form.controls.wfID.value)
   }
   else
   {
@@ -333,9 +318,18 @@ onSubmit()
        paramsList.push("TransactionType::" + this.transTypeStr);
     }
 
+    if (this.form.controls.senderID.value !== '' )
+    {
+        paramsList.push("senderID::" + this.form.controls.senderID.value.replaceAll('%','%25'))
+    }
+    if (this.form.controls.receiverID.value !== '' )
+    {
+        paramsList.push("receiverID::" + this.form.controls.receiverID.value.replaceAll('%','%25'))
+    }
+
+
 
     paramsList.push("mode::" + this.form.controls.mode.value);
-    paramsList.push("Count::" + this.form.controls.rowCnt.value);
     paramsList.push("DateRange::" + "BETWEEN '" + this.startDate +" "+ this.startTm +"' AND '" + this.endDate+" " +this.endTm +"'");
     paramsList.push('StatusTypes::' + this.form.controls.statusType.value)
     paramsList.push("ErrorType::" + this.errorTypeStr)
@@ -361,7 +355,7 @@ onSubmit()
        paramsList.push("AssignedUser::" + assignee)
     }
 
-    console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr +", count: " + this.form.controls.rowCnt.value)
+    console.info("fetchWorkFlowItems statusTypes: " +this.statusTypeString +",  TransType: " +  this.transTypeStr )
 
   }
 
@@ -378,8 +372,7 @@ onSubmit()
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
-          "count::" + this.form.controls.rowCnt.value +";"  );
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" );
 
   let mode = this.form.controls.mode.value;
 
@@ -407,9 +400,9 @@ onSubmit()
 
  inputID()
  {
-  console.info('ID: ' +  this.form.controls.searchID.value)
+  console.info('ID: ' +  this.form.controls.wfID.value)
 
-  if (this.form.controls.searchID.value !== '')
+  if (this.form.controls.wfID.value !== '')
   {
     this.searchID = true
   }
@@ -419,13 +412,6 @@ onSubmit()
   }
 
  }
-
- onRowCnt()
-  {
-      console.info('Set paginator.pageSize: ' + this.form.controls.rowCnt.value)
-      this.paginator.pageSize = this.form.controls.rowCnt.value;
-      this.dataSource.paginator = this.paginator
-  }
 
  statusTypeChange(evt: any)
  {
@@ -492,8 +478,7 @@ onDetailsClicked(row) {
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
-          "count::" + this.form.controls.rowCnt.value +";"  ;
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" ;
 
   console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
 
@@ -510,8 +495,7 @@ onHistoryClicked(row) {
           "mode::"+ this.form.controls.mode.value +";" +
           "status::"+this.form.controls.statusType.value +";" +
           "wfStartDtTm::" + this.startDate +" "+ this.startTm +";" +
-          "wfEndDtTm::" + this.endDate+" " +this.endTm +";" +
-          "count::" + this.form.controls.rowCnt.value +";"  ;
+          "wfEndDtTm::" + this.endDate+" " +this.endTm +";"   ;
 
   console.log('Row clicked, ID: ' + row.ID + ", Transaction: " + searchParamsString);
 
