@@ -13,11 +13,12 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class RdpValidate
     {
-        public X12Response ProcessX12(string dataFile, string transaction, string rulesPath, string ruleFile, int snipLevel)
+        public X12Response ProcessX12(string dataFile, string transaction, string rulesPath, string ruleFile, int snipLevel, string ignoreSegments)
         {
             int errNum = 0;
             // Display all errors
             errNum++;
+
 
             if (!System.IO.File.Exists(dataFile))
             {
@@ -37,6 +38,7 @@ namespace RdpValidationRestApi.Controllers
 
             try
             {
+		string[] segments = ignoreSegments.Split(",");
                 string prodKey = getLicense();
                 PackageLicense.Key = prodKey;
 
@@ -102,7 +104,6 @@ namespace RdpValidationRestApi.Controllers
 
                     // Start loading the file 
                     parser.BeginFileLoad();
-                    Console.WriteLine("Total # of errors: " + validator.Errors.Count);
                     Span<RDPCrystalEDILibrary.EDIError> deleteErrors = new RDPCrystalEDILibrary.EDIError[50];
                     int validationInd = 0;
 
@@ -119,13 +120,21 @@ namespace RdpValidationRestApi.Controllers
                     {
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Situational;
                     }
+                    Console.WriteLine("Total # of errors: " + validator.Errors.Count + ", snipLevel: " + snipLevel +", snipCheck: " + snipCheck);
 
                     foreach (EDIError error in validator.Errors)
                     {
+			Console.WriteLine(" - Line: " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment/Element: " + error.Segment + "/" + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
                         if (error.SnipLevel > snipCheck)
                         {
                             deleteErrors[validationInd++] = error;
                         }
+			if (segments.Contains(error.Segment))
+                        {
+				Console.WriteLine("Ignore segment: " +  error.Segment );
+                            deleteErrors[validationInd++] = error;
+                        }
+                                            
                                             
 
                     }
@@ -139,7 +148,6 @@ namespace RdpValidationRestApi.Controllers
                         }
                     }
                     Console.WriteLine("# of errors after deleting SnipLevel " + snipCheck +" = " + validator.Errors.Count);
-		    /*
 
                     foreach (EDIError error in validator.Errors)
                     {
@@ -152,7 +160,7 @@ namespace RdpValidationRestApi.Controllers
                         Console.WriteLine(" Warning Line # " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment, Element: " + error.Segment + ", " + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
                        
                     }
-		    */
+		    
                     
 
                     string edi997Data = CreateAck(validator);
@@ -240,16 +248,137 @@ namespace RdpValidationRestApi.Controllers
 
         private void ediValidator_CustomCondition(object sender, CodeConditionEventArgs e)
         {
-            // Console.WriteLine("In RDP custom .Net rule: " + e.CodeCondition.ToString());
-            if (e.CodeCondition.Id == "shouldStartWithNumber")
+            e.ConditionValid = false;
+	    string fldVal = e.CurrentSegment.Elements[0].DataValue.ToString();
+	    Console.WriteLine(" ---- ");
+            Console.WriteLine("In RDP CustomCondition: " + e.CodeCondition.ToString() +", sender: " + sender);
+	    Console.WriteLine("Data: " + fldVal +  e.CurrentLoop);
+            foreach (LightWeightElement ele in e.CurrentSegment.Elements)
             {
-                /*
-                Console.WriteLine(e.CurrentSegment.ToString() + ", Data count: " + e.CurrentSegment.Elements.Count);
-                foreach (LightWeightElement ele in e.CurrentSegment.Elements)
-                {
-                    Console.WriteLine(ele.ToString() + ": " + ele.DataValue + ", " + ele.DataValue);
-                }
-                */
+                    Console.Write(ele.DataValue + ", ");
+            }
+            Console.WriteLine(" ---- Data count: " + e.CurrentSegment.Elements.Count);
+
+
+	    if (e.CodeCondition.Id == "npiValidation")
+		{
+    		if (e.CurrentSegment.Elements[0].ToString() == "1P")
+    		{
+		    	string npiNum = e.CurrentSegment.Elements[8].ToString();
+				
+    			Console.WriteLine("NPI Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+        		e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+        		Console.WriteLine("NPI valid:" + e.ConditionValid);
+    		}
+	    }
+	    else if (e.CodeCondition.Id == "dtpValidation")
+		{
+		    	string dob = e.CurrentSegment.Elements[2].ToString();
+				
+    			Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[1] + ", " + dob);
+        		e.ConditionValid = !Util.DtpValidator.IsValid(e.CurrentSegment.Elements[1].ToString(), dob);
+        		Console.WriteLine("DTP valid:" + e.ConditionValid);
+	    }
+	    else if (e.CodeCondition.Id == "dobValidation")
+		{
+    		if (e.CurrentSegment.Elements[0].ToString() == "D8")
+    		{
+		    	string dob = e.CurrentSegment.Elements[1].ToString();
+				
+    			Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[0].ToString() + ", " + dob);
+        		e.ConditionValid = !Util.DobValidator.IsValid(dob);
+        		Console.WriteLine("DoB valid:" + e.ConditionValid);
+    		}
+	    }
+	    else if (e.CodeCondition.Id == "refValidation")
+		{
+    		if (e.CurrentSegment.Elements[0].ToString() == "SY")
+    		{
+		    	string ssnNum = e.CurrentSegment.Elements[1].ToString();
+				
+    			Console.WriteLine("SSN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + ssnNum);
+        		e.ConditionValid = !Util.SsnValidator.IsValid(ssnNum);
+        		Console.WriteLine("SSN valid:" + e.ConditionValid);
+    		}
+		else if (e.CurrentSegment.Elements[0].ToString() == "EA")
+    		{
+		    	string medNum = e.CurrentSegment.Elements[1].ToString();
+    			Console.WriteLine("EA Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + medNum);
+			string pattern = @"^[a-zA-Z0-9]+$";
+    			e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(medNum, pattern);
+        		Console.WriteLine("EA valid:" + e.ConditionValid);
+    		}
+	    }
+	    else if ( e.CodeCondition.Id == "zipValidation")
+	    {
+		    	string st = e.CurrentSegment.Elements[1].ToString();
+		    	string zip = e.CurrentSegment.Elements[2].ToString();
+    			Console.WriteLine("ZIP Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + zip);
+				try {
+					string csvPath = "/usr/local/dotnet/rdp-api/Lookup/States.csv";
+        				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, st);
+        				Console.WriteLine(st + " CSV:" + val);
+					if (val == null || val == "")
+					{
+				   		e.ConditionValid = true;
+					}
+				}
+                		catch (IOException ex)
+                		{
+                    			Console.WriteLine($"Exception Regular Exp: {ex.Message}");
+				}
+			if (zip.Length > 0)
+			{
+				string pattern = @"^\d{5}(-\d{4})?$";
+    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(zip, pattern);
+        			Console.WriteLine("ZIP valid:" + e.ConditionValid);
+			}
+	    }
+	    else if ( e.CodeCondition.Id == "nmValidation")
+	    {
+		    	string nm2 = e.CurrentSegment.Elements[2].ToString();
+		    	string nm3 = e.CurrentSegment.Elements[3].ToString();
+    			Console.WriteLine("Name Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + nm2 +", " + nm3);
+			// [A-Za-z'-]+: Allows one or more letters, apostrophes ('), or hyphens (-).
+			string pattern = @"^[A-Za-z][A-Za-z'-]+([ A-Za-z][A-Za-z'-]+)*$";
+			if (nm2.Length > 0)
+			{
+    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm2, pattern);
+        			Console.WriteLine("NM 2 valid:" + e.ConditionValid);
+			}
+			if (nm3.Length > 0 && e.ConditionValid == false)
+			{
+    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm3, pattern);
+        			Console.WriteLine("NM 3 valid:" + e.ConditionValid);
+			}
+	    }
+	    if (e.CodeCondition.Id == "eqLookup" && e.CurrentSegment.Elements.Count > 1)
+		{
+		    	string eq2 = e.CurrentSegment.Elements[2].ToString();
+				
+    			Console.WriteLine("EQ Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + eq2);
+			if (eq2 != null && eq2.Length > 0)
+                        {
+				try {
+					string csvPath = "/usr/local/dotnet/rdp-api/Lookup/EQ-02.csv";
+        				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, eq2);
+        				Console.WriteLine("CSV:" + val);
+					if (val == null || val == "")
+					{
+				   		e.ConditionValid = true;
+					}
+				}
+                		catch (IOException ex)
+                		{
+                    			Console.WriteLine($"Exception Regular Exp: {ex.Message}");
+                		}
+			}
+	    }
+
+	    else if (e.CodeCondition.Id == "shouldStartWithNumber")
+            {
+                
+                
                 try { 
                     var expr = @"^\d.+$";
                     bool val = System.Text.RegularExpressions.Regex.IsMatch(e.CurrentSegment.Elements[0].DataValue.ToString(), expr);
@@ -262,7 +391,6 @@ namespace RdpValidationRestApi.Controllers
                     {
                         Console.WriteLine("ConditionValid Regex.IsMatch: " + e.CurrentSegment.Elements[1].DataValue + ", " + expr + ": " + val);
 
-                        e.ConditionValid = true;
                     }
                 }
                 catch (IOException ex)
@@ -270,6 +398,7 @@ namespace RdpValidationRestApi.Controllers
                     Console.WriteLine($"Exception Regular Exp: {ex.Message}");
                 }
             }
+	    Console.WriteLine(" **** " + e.CodeCondition.Id + "= " +  (e.ConditionValid? "FAIL" : "PASS") + " ---- ");
         }
     }
 

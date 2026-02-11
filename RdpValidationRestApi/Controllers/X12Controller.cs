@@ -21,7 +21,7 @@ namespace RdpValidationRestApi.Controllers
        
 
         [HttpGet]
-        public IActionResult Get([FromQuery] string operation, [FromQuery] string? filePath, [FromQuery] string? fileName, [FromQuery] string? rulesPath, string? rulesFile, [FromQuery] string? transaction, string? sessionId, [FromQuery] int? snipLevel, [FromQuery] string? X12Id, [FromQuery] string? nameSpace)
+        public IActionResult Get([FromQuery] string operation, [FromQuery] string? filePath, [FromQuery] string? fileName, [FromQuery] string? rulesPath, string? rulesFile, [FromQuery] string? transaction, string? sessionId, [FromQuery] int? snipLevel, [FromQuery] string? X12Id, [FromQuery] string? nameSpace, string? ignoreSegments)
             
         {
             var irisObj = new IrisDb();
@@ -113,17 +113,24 @@ namespace RdpValidationRestApi.Controllers
                     }
                 }
                 Console.WriteLine("X12 data file: " + dataFile);
+                Console.WriteLine("Rule file: " + rulesFile);
                 if (!System.IO.File.Exists(dataFile))
                 {
                     return new OkObjectResult(new { Results = "Data file does not exists:" + dataFile });
                 }
 
                 var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath, rulesFile, snipVal);
+                X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath, rulesFile, snipVal, ignoreSegments);
                 if (rdpResp.validator != null)
                 {
 
                     retStr = irisObj.RdpErrorsToIris(nameSpace, rdpResp.validator, fileName, (sessionId ==null)?"":sessionId, rdpResp.ackStr);
+		    // Console.WriteLine("Skip RdpErrorsToIris");
+    		    retStr = "Number of validation errors: " + rdpResp.validator.Errors.Count ;
+		    foreach (EDIError error in rdpResp.validator.Errors)
+		    {
+			retStr += ", Segment: " + error.ValidatingSegment.ToString() +"; Error: " + error.Message.ToString() +" / " + error.Description;
+		    }
 
                 }
 		if (retStr.Length > 2056)
@@ -172,12 +179,20 @@ namespace RdpValidationRestApi.Controllers
                         }
 
                         var obj = new RdpValidate();
-                        X12Response rdpResp = obj.ProcessX12(x12Data, transaction, rulesPath, rulesFile, snipVal);
+                        X12Response rdpResp = obj.ProcessX12(x12Data, transaction, rulesPath, rulesFile, snipVal, ignoreSegments);
 
                         if (rdpResp.validator != null)
                         {
+							/*
+							foreach (EDIError error in rdpResp.validator.Errors)
+							{
+							   retStr = error.ValidatingSegment.ToString() +", Error: " + error.Message.ToString() +" / " + error.Description;
+							}
+							Console.WriteLine("Skip RdpErrorsToIris: " + retStr);
+							*/
 
                             retStr = irisObj.RdpErrorsToIris(nameSpace, rdpResp.validator, fileName, (sessionId == null) ? "" : sessionId, rdpResp.ackStr);
+							
 
                         }
                         return new OkObjectResult(new { Transaction = transaction, FileName = fileName, Status = rdpResp.status, Details = retStr, ACK = rdpResp.ackStr });

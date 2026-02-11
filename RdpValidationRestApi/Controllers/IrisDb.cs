@@ -59,7 +59,7 @@ namespace RdpValidationRestApi.Controllers
                 // Validate X12
 
                 var obj = new RdpValidate();
-                X12Response rdpResp = obj.ProcessX12(flNm, transaction, rulesPath, rulesFile, snipLevel);
+                X12Response rdpResp = obj.ProcessX12(flNm, transaction, rulesPath, rulesFile, snipLevel, "");
 
                 if (rdpResp.validator != null)
                 {
