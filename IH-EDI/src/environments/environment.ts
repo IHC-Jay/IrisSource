@@ -27,7 +27,9 @@ export const environment = {
 
   tpType:'',
   logo:'',
-  allowedEnvironments: []
+  allowedEnvironments: [],
+  rtRoutes:[],
+  batchRoutes: []
 
 };
 

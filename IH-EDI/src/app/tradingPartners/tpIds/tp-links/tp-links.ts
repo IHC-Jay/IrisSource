@@ -20,6 +20,7 @@ GSAck: string;
 STAck: string;
 Separators: string;
 UniqueId: string;
+ValidationRuleFile: string;
 Active: boolean;
 User: string;
 customProp: {Key: string, Value: string }[];

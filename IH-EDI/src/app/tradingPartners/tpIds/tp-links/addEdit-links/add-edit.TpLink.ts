@@ -143,6 +143,7 @@ public initializeData()
           Routing: ['', Validators.required],
           SNIP: ['', Validators.required],
           Separators   : ['|*^:', Validators.maxLength(4)],
+          ValidationRuleFile: [''],
           UniqueId: [''],
           MergeFlg: [''],
           customProp: [''],
@@ -265,6 +266,10 @@ public initializeData()
                 else if(key === 'Separators')
                 {
                   this.form.controls['Separators'].setValue(x[key].toString());
+                }
+                else if(key === 'ValidationRuleFile')
+                {
+                  this.form.controls['ValidationRuleFile'].setValue(x[key].toString());
                 }
                 else if(key === 'SNIP')
                 {
