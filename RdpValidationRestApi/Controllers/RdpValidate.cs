@@ -18,17 +18,19 @@ namespace RdpValidationRestApi.Controllers
             int errNum = 0;
             // Display all errors
             errNum++;
+	    Console.WriteLine("In ProcessX12, file:" + dataFile);
 
 
             if (!System.IO.File.Exists(dataFile))
             {
+		Console.WriteLine("File do not Exists: " +dataFile);
                 var response = new X12Response
                 {
                     dataFile = $"{dataFile}!",
                     validator = null,
                     ackStr = "Data file does not exists:" + dataFile,
                     status = "FAIL",
-                    ediRulesFile = "Invalid request"
+                    ediRulesFile = "NA"
 
                 };
 
@@ -38,7 +40,11 @@ namespace RdpValidationRestApi.Controllers
 
             try
             {
-		string[] segments = ignoreSegments.Split(",");
+		string[] segments = null;
+		    if(ignoreSegments != null)
+		    {
+			segments = ignoreSegments.Split(",");
+		    }
                 string prodKey = getLicense();
                 PackageLicense.Key = prodKey;
 
@@ -129,7 +135,7 @@ namespace RdpValidationRestApi.Controllers
                         {
                             deleteErrors[validationInd++] = error;
                         }
-			if (segments.Contains(error.Segment))
+			if (segments != null && segments.Contains(error.Segment))
                         {
 				Console.WriteLine("Ignore segment: " +  error.Segment );
                             deleteErrors[validationInd++] = error;

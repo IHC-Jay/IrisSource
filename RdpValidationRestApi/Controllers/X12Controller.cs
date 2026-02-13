@@ -120,6 +120,7 @@ namespace RdpValidationRestApi.Controllers
                 }
 
                 var obj = new RdpValidate();
+		Console.WriteLine("Call RdpValidate ProcessX12");
                 X12Response rdpResp = obj.ProcessX12(dataFile, transaction, rulesPath, rulesFile, snipVal, ignoreSegments);
                 if (rdpResp.validator != null)
                 {
@@ -133,6 +134,7 @@ namespace RdpValidationRestApi.Controllers
 		    }
 
                 }
+		Console.WriteLine("return: " + retStr);
 		if (retStr.Length > 2056)
 		{
     			retStr = "Number of validation errors: " + rdpResp.validator.Errors.Count + ". Details are stored in IHC_ITF_ITFCOMMON_X12.RdpValidationErrors";
@@ -211,11 +213,13 @@ namespace RdpValidationRestApi.Controllers
                     return new OkObjectResult(new { Results = $"{outStr} files processed of transaction type: {transaction}" });
                 }
             }
+	    /*
             else if (operation == "Edifecs")
             {
                 OracleDataRetriever.GetDataFromOracle();
                 return new OkObjectResult(new { Results = "Data from Edifecs" });
             }
+	    */
 
             else if (operation != "")
             {
