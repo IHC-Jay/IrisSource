@@ -34,7 +34,7 @@ import e from 'express';
 
 
 export class HL7Component implements OnInit, AfterViewInit {
-  displayLabel: string = "Display columns:";
+  displayLabel: string = "Display Columns:";
 
   startDate =  new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
 

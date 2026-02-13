@@ -540,7 +540,7 @@ expandCollapse(index: boolean) {
 
 searchTypeChange(evt: any)
 {
-  this.displayLabel = "Display columns for: "+this.form.controls.searchType.value;
+  this.displayLabel = "Display columns for ("+this.form.controls.searchType.value + ")";
   this.searchTypeString = this.form.controls.searchType.value
 
   this.form.controls.rowCnt.setValue(this.maxCount[1]);
@@ -555,7 +555,7 @@ tpChange()
 
 transactionChange(evt: any)
 {
-  this.displayLabel = "Display columns for: "+this.form.controls.transType.value;
+  this.displayLabel = "Display columns for ("+this.form.controls.transType.value + ")" ;
   this.dataTableLabel = [];
   this.dataTableKey = [];
   this.selectedItems = [];
