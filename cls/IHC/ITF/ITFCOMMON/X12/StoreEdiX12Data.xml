@@ -323,6 +323,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
 	 set parentId = "", objCnt =0
+	 set buildStat = $$$OK
 	 set elObj = ##class(IHC.X12.Data835).%New()
 	 Do ..InitFirstObject(elObj, x12Doc, fileName, stat, receiptDtTm, direction, sessionId ) 
 	 if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
@@ -355,17 +356,16 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  	
 			  set STRecord.DocType = "HIPAA_5010:" _ transType
 			  
-			  set stat = STRecord.BuildMap()
+			  set buildStat = STRecord.BuildMap()
 			  
-			  if ($$$ISERR(stat))
+			  if ($$$ISERR(buildStat))
 			  {
-				  $$$LOGERROR("ST build: " _  transType_ ": " _  stat)
+				  $$$LOGERROR("ST build: " _  transType_ ": " _  buildStat)
 				  set elObj.Status = "Data"
 				  Do elObj.%Save()
 				  
 				  set parentId = elObj.%Id()
 				  $$$TRACE( "  IHC.X12.Data835 ID: " _ elObj.%Id())
-				  // return ""
 				  
 			  }
 			  			  
@@ -563,6 +563,12 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		  set elObj.SeqNum = objCnt - 1
 		  Do elObj.%Save()
     }
+     if ( (objCnt = 0) && ($$$ISERR(buildStat)) )
+     {
+     	// Add an entry to WorkFlow
+		Do ..InsertWF(elObj, transType)
+     }
+     
 	$$$TRACE( " --- Processing complete: IHC.X12.Data835, ClaimPayment, # rows:" _ objCnt)
 	return elObj.%Id()
 ]]></Implementation>
@@ -575,6 +581,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 <Implementation><![CDATA[
 	set elObj = ##class(IHC.X12.Data837).%New()
 	#dim elObjSub As IHC.X12.Data837;
+	set buildStat = $$$OK
 			   
 	set elObjSub = $$$NULLOREF // 22, 2000B
 	if ($GET(^ItfGlobalX12IdKey("X12Data" _ transType)) = "")
@@ -607,21 +614,18 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  set STRecord=individualGroup.getNthChild(stInd,2)		  
 				
 			  set STRecord.DocType = "HIPAA_5010:" _ transType
-			  set stat = STRecord.BuildMap()
+			  set buildStat = STRecord.BuildMap()
 			  
-			  if ($$$ISERR(stat))
+			  if ($$$ISERR(buildStat))
 			  {
-				  $$$LOGERROR("ST build: " _  transType_ ": " _  stat)
+				  $$$LOGERROR("ST build: " _  transType_ ": " _  buildStat)
 				  set elObj.Status = "Data"
 				  Do elObj.%Save()
 				  
 				  set parentId = elObj.%Id()
 				  $$$TRACE( "  IHC.X12.Data837 ID: " _ elObj.%Id())
-				  
-				 		  
-					set elObjSub = elObj.%ConstructClone()
-						  
-				  //return ""
+				  		  
+				  set elObjSub = elObj.%ConstructClone()				
 				  
 			  }
 			  
@@ -908,6 +912,13 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		  Do elObj.%Save()
 		  
      }
+     if ( (objCnt = 0) && ($$$ISERR(buildStat)) )
+     {
+     	// Add an entry to WorkFlow
+		Do ..InsertWF(elObj, transType)
+     }
+						  
+				  
 	 $$$TRACE( " --- Processing complete: IHC.X12.Data837, Claim, # rows:" _ objCnt)
 	 return elObj.%Id()
 ]]></Implementation>
@@ -2453,6 +2464,32 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
  &SQL(SELECT top 1 tp.Name into :tpNm FROM IHC_TPManage.TradingPartner tp, IHC_TPManage.TPIDS tpid where tpid.TPFK = tp.ID and TPID = :tpid)
  $$$TRACE("GetTpName: " _ tpid_ "= "_ tpNm)
  return tpNm
+]]></Implementation>
+</Method>
+
+<Method name="InsertWF">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Obj:IHC.X12.SharedData,transType:%String</FormalSpec>
+<Implementation><![CDATA[
+	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id, SessionID) " _
+			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, x12Obj.InterchangeReceiverID, 
+			  x12Obj.InterchangeSenderID , transType,  "New", "Data", 
+			  "BuildMap failed", $USERNAME, dtTm, "", $$$JobSessionId)
+			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
+			  if (rset.%SQLCODE < 0)
+			  {
+			  $$$LOGERROR(sqlStr _", Recv: " _ x12Obj.InterchangeReceiverID _", Send: " _ x12Obj.InterchangeSenderID _",Tran: " _ transType _ ", New, X12, " _ $USERNAME _", DT " _ dtTm )
+				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
+			  else
+			  {
+			   $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
+			  }
 ]]></Implementation>
 </Method>
 </Class>
