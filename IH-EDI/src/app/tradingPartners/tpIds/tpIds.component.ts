@@ -18,6 +18,7 @@ import {MatSnackBar, MatSnackBarModule} from '@angular/material/snack-bar';
 })
 
 export class TpIdComponent implements OnInit {
+    private subscriptions: any[] = [];
   tpId: string;
 
   public size = 5;
@@ -35,138 +36,172 @@ export class TpIdComponent implements OnInit {
   constructor(public dialog: MatDialog, private route: ActivatedRoute,  private tpIdService: TpRestServiceComponent) { }
 
   ngOnInit() {
-    // First get the product id from the current route.
+    // Get the TP ID from the route and load initial data
     const routeParams = this.route.snapshot.paramMap;
     this.tpId = routeParams.get('tpId');
-    this.RefreshRows();
-    }
-
-    ngAfterViewInit() {
-      this.dataSource.paginator = this.paginator;
-    }
-
-
-  openSnackBar(message: string, action: string) {
-    this._snackBar.open(message, action, {duration:3000});
+    this.subscriptions.push(this.tpIdService.getTpIds(this.tpId).subscribe((res: TpId[]) => {
+      this.dataSource.data = res;
+    }));
   }
 
+  ngAfterViewInit() {
+    this.dataSource.paginator = this.paginator;
+  }
 
-    addRow() {
-      const newRow: TpId = {
-        id: '-1',
-        Name: this.tpId,
-        TPID: '',
-        Type: 'ISA',
-        isEdit: true,
-        isSelected: false,
-        User:''
-      };
-      this.dataSource.data = [newRow, ...this.dataSource.data];
+  /**
+   * Show a snackbar message
+   */
+  openSnackBar(message: string, action: string) {
+    this._snackBar.open(message, action, { duration: 3000 });
+  }
+
+  /**
+   * Add a new row to the table for editing
+   */
+  addRow() {
+    const newRow: TpId = {
+      id: '-1',
+      Name: this.tpId,
+      TPID: '',
+      Type: 'ISA',
+      isEdit: true,
+      isSelected: false,
+      User: ''
+    };
+    this.dataSource.data = [newRow, ...this.dataSource.data];
+  }
+
+  /**
+   * Handle row edit: add or update
+   */
+  editRow(row: TpId) {
+    if (row.id === '-1') {
+      this.handleAddRow(row);
+    } else {
+      this.handleUpdateRow(row);
     }
+  }
 
-    editRow(row: TpId) {
+  /**
+   * Add a new TPID row via the service
+   */
+  private handleAddRow(row: TpId) {
+    if (row.TPID !== '') {
+      row.Name = this.tpId;
+      this.subscriptions.push(this.tpIdService.addTPID(row).subscribe((res) => {
+        row.isEdit = false;
+        row.id = res.id;
+        console.info('Added TP: ' + row.TPID + ', ID: ' + res.id + ', ' + res.Status);
+        this.openSnackBar('TPID ' + row.TPID, 'Save ' + res.Status);
+      }));
+    } else {
+      this.removeInvalidRow(row);
+      this.openSnackBar('Required fields missing', 'Error');
+    }
+  }
 
-      if (row.id === '-1') {
-        console.info('Add a TPID ' + row.TPID +", " + this.tpId);
-        if (row.TPID !== '')
-        {
-            row.Name = this.tpId;
-            let res = this.tpIdService.addTPID(row).subscribe((res) => {
-            row.isEdit = false;
-            row.id = res.id;
-            row.isEdit = false;
-            console.info('Added TP: ' + row.TPID +", ID: " + res.id + ", " + res.Status );
-             this.openSnackBar('TPID ' + row.TPID, 'Save ' + res.Status );
-          });
+  /**
+   * Update an existing TPID row via the service
+   */
+  private handleUpdateRow(row: TpId) {
+    row.Name = this.tpId;
+    this.subscriptions.push(this.tpIdService.updateTPID(row).subscribe((res) => {
+      row.isEdit = false;
+      console.info('Update TP: ' + row.TPID + ', ID: ' + res.id + ', ' + res.Status);
+      this.openSnackBar('Update TPID ' + row.TPID, 'Save ' + res.Status);
+    }));
+  }
 
-        }
-        else
-        {
-          let ind = this.dataSource.data.indexOf(row)
-          this.dataSource.data.splice(ind, 1);
-          this.dataSource.data = [...this.dataSource.data];
-          row.isEdit = false;
-          alert("Required fields missing");
-        }
+  /**
+   * Remove a row if required fields are missing
+   */
+  private removeInvalidRow(row: TpId) {
+    const ind = this.dataSource.data.indexOf(row);
+    if (ind > -1) {
+      this.dataSource.data.splice(ind, 1);
+      this.dataSource.data = [...this.dataSource.data];
+    }
+    row.isEdit = false;
+  }
 
-      } else {
-        console.info('Edit a TP ' + row.Name +", " + row.id);
-        row.Name = this.tpId;
-        this.tpIdService.updateTPID(row).subscribe((res) => {
-          row.isEdit = false;
-          console.info('Update TP: ' + row.TPID +", ID: " + res.id + ", " + res.Status );
-             this.openSnackBar('Update TPID ' + row.TPID, 'Save ' + res.Status );
-        });
+  /**
+   * Cancel editing and refresh the table
+   */
+  cancelRow(row: TpId) {
+    this.refreshRows();
+  }
+
+  /**
+   * Remove a TPID row after confirmation
+   */
+  removeRow(row: TpId) {
+    const tpid = row.TPID;
+    console.log('removeRow: ' + tpid);
+    try {
+      this.subscriptions.push(
+        this.dialog.open(ConfirmDialogComponent)
+          .afterClosed()
+          .subscribe((confirm) => {
+            if (confirm) {
+              this.subscriptions.push(
+                this.tpIdService.deleteTPID(tpid).subscribe({
+                  next: (res) => {
+                    if (res["Status"] !== undefined) {
+                      this.refreshRows();
+                    } else if (res["Error"] !== undefined) {
+                      this.openSnackBar(res["Error"], 'Error');
+                    }
+                    console.info('deleteTPID: Json: ' + JSON.stringify(res));
+                  },
+                  error: (e) => {
+                    this.openSnackBar('deleteTPID catchError: ' + e, 'Error');
+                  }
+                })
+              );
+            }
+          })
+      );
+    } catch (e) {
+      console.error('Exception: ' + e);
+    }
+  }
+
+  /**
+   * Refresh the table data from the service
+   */
+  private refreshRows() {
+    console.info('RefreshRows');
+    this.subscriptions.push(this.tpIdService.getTpIds(this.tpId).subscribe((res: TpId[]) => {
+      this.dataSource.data = res;
+    }));
+  }
+
+  /**
+   * Handle input validation for a cell
+   */
+  inputHandler(e: Event, id: string, key: string) {
+    if (!this.valid[id]) {
+      this.valid[id] = {};
+    }
+    const input = e.target as HTMLInputElement;
+    this.valid[id][key] = input.validity.valid;
+  }
+
+  /**
+   * Disable submit if any field in the row is invalid
+   */
+  disableSubmit(id: string): boolean {
+    if (this.valid[id]) {
+      return Object.values(this.valid[id]).some((item) => item === false);
+    }
+    return false;
+  }
+
+  ngOnDestroy(): void {
+    this.subscriptions.forEach(sub => {
+      if (sub && typeof sub.unsubscribe === 'function') {
+        sub.unsubscribe();
       }
-
-    }
-    cancelRow(row: TpId)  {
-      this.RefreshRows();
-    }
-
-    removeRow(row: TpId)  {
-      let tpid = row.TPID;
-      console.log('removeRow: ' + tpid);
-      try
-      {
-
-        this.dialog
-        .open(ConfirmDialogComponent)
-        .afterClosed()
-        .subscribe((confirm) => {
-          if (confirm) {
-
-            this.tpIdService.deleteTPID(tpid).subscribe( {
-              next: (res) =>
-              {
-                if (res["Status"] !== undefined) {
-                  this.RefreshRows();
-                }
-                else if(res["Error"] !== undefined) {
-                  alert(res["Error"])
-                }
-                console.info('deleteTPID: Json: ' + JSON.stringify(res));
-                return;
-              },
-              error: (e) => {
-                alert('deleteTPID catchError: ' + e);
-                return;
-              }
-            })
-
-      }
-      });
-
-
-
-      }
-      catch(e)
-      {
-        console.error('Exception: ' + e)
-      }
-
-    }
-
-    RefreshRows()
-    {
-      console.info('RefreshRows')
-      this.tpIdService.getTpIds(this.tpId).subscribe((res: any) => {
-        this.dataSource.data = res;
-      });
-    }
-
-    inputHandler(e: any, id: string, key: string) {
-      if (!this.valid[id]) {
-        this.valid[id] = {};
-      }
-      this.valid[id][key] = e.target.validity.valid;
-    }
-
-    disableSubmit(id: string) {
-      if (this.valid[id]) {
-        return Object.values(this.valid[id]).some((item) => item === false);
-      }
-      return false;
-    }
-
+    });
+  }
 }

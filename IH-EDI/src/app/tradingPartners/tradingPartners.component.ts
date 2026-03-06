@@ -1,7 +1,7 @@
-import { Component, OnInit, ViewChild, AfterViewInit } from '@angular/core';
+import { Component, OnInit, ViewChild, AfterViewInit, OnDestroy } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { forkJoin, Observable, of } from 'rxjs';
+import { forkJoin, Observable, of, Subscription } from 'rxjs';
 import { first } from 'rxjs/operators';
 import {TradingPartner, TradingPartnerColumns} from './TradingPartner';
 import {TpRestServiceComponent} from '../services/tprest-service.component';
@@ -14,6 +14,7 @@ import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
 
 import {UtilService} from '../services/utilService';
+import { StorageService } from '../services/storage.service';
 import { environment } from '../../environments/environment';
 import { MatIconModule } from '@angular/material/icon';
 
@@ -38,10 +39,12 @@ export interface filterOption{
 
 
 
-export class TradingPartnersComponent implements OnInit, AfterViewInit {
+export class TradingPartnersComponent implements OnInit, AfterViewInit, OnDestroy {
+    private subscriptions: Subscription[] = [];
+  // ...existing code...
+  // Refactor large methods into private helpers for clarity and maintainability
 
-  public size = 5;
-  public pageNumber = 0;
+
   searchText:string;
   ifSelect:boolean = false;
   ifAdd:boolean = false;
@@ -65,7 +68,8 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     @ViewChild(MatPaginator) paginator: MatPaginator;
 
     constructor(public dialog: MatDialog, private router: Router,
-      private TradingPartnerService: TpRestServiceComponent)
+      private TradingPartnerService: TpRestServiceComponent,
+      private storageService: StorageService)
     {
 
     }
@@ -73,8 +77,8 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     ngOnInit()
     {
 
-      sessionStorage.removeItem("currentTab")
-      sessionStorage.setItem("currentTab", "Trading Partners");
+      this.storageService.removeItem("currentTab");
+      this.storageService.setItem("currentTab", "Trading Partners");
       let continueOn = true;
       if (sessionStorage.getItem("TpOperation") != null)
       {
@@ -93,25 +97,22 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       if(continueOn)
       {
 
-        this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
-          this.dataSource.data = res;
-
-          this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
-
-          this.dataSourceFilters.filterPredicate = function (record,filter) {
-            debugger;
-            var map = new Map(JSON.parse(filter));
-            let isMatch = false;
-            for(let [key,value] of map){
-              isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
-              if(!isMatch) return false;
+        this.subscriptions.push(
+          this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+            this.dataSource.data = res;
+            this.tpFilters.push({name:'name',options:this.displayedColumns,defaultValue:this.defaultValue});
+            this.dataSourceFilters.filterPredicate = function (record,filter) {
+              debugger;
+              var map = new Map(JSON.parse(filter));
+              let isMatch = false;
+              for(let [key,value] of map){
+                isMatch = (value=="All") || (record[key as keyof TradingPartner] == value);
+                if(!isMatch) return false;
+              }
+              return isMatch;
             }
-            return isMatch;
-          }
-
-
-
-        });
+          })
+        );
       }
 
 
@@ -126,9 +127,11 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     RefreshRows()
     {
       console.info('RefreshRows')
-      this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
-        this.dataSource.data = res;
-      });
+      this.subscriptions.push(
+        this.TradingPartnerService.fetchTradingPartners().subscribe((res: any) => {
+          this.dataSource.data = res;
+        })
+      );
     }
 
     addRow() {
@@ -160,11 +163,13 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
 
         if (row.Name !== '')
         {
-          let res = this.TradingPartnerService.addTradingPartner(row).subscribe((res) => {
-            console.info('Added TP: ' + row.Name + ": " + res.id);
-            row.id = res.id;
-            row.isEdit = false;
-          });
+          this.subscriptions.push(
+            this.TradingPartnerService.addTradingPartner(row).subscribe((res) => {
+              console.info('Added TP: ' + row.Name + ": " + res.id);
+              row.id = res.id;
+              row.isEdit = false;
+            })
+          );
 
 
         }
@@ -179,7 +184,9 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
         this.ifSelect = false;
       } else {
         console.info('Edit a TP ');
-        this.TradingPartnerService.updateTradingPartner(row).subscribe(() => (row.isEdit = false));
+        this.subscriptions.push(
+          this.TradingPartnerService.updateTradingPartner(row).subscribe(() => (row.isEdit = false))
+        );
         this.ifSelect = false;
       }
       this.ifAdd = false;
@@ -199,41 +206,34 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
     removeRow(row: TradingPartner)  {
       let name = row.Name;
       console.log('removeRow: ' + name);
-      try
-      {
+      try {
         this.dialog
-        .open(ConfirmDialogComponent)
-        .afterClosed()
-        .subscribe((confirm) => {
-          if (confirm) {
-
-        this.TradingPartnerService.deleteTradingPartner(name).subscribe({
-          next: (res) =>
-          {
-            if (res["Status"] !== undefined) {
-              this.RefreshRows();
+          .open(ConfirmDialogComponent)
+          .afterClosed()
+          .subscribe((confirm) => {
+            if (confirm) {
+              this.subscriptions.push(
+                this.TradingPartnerService.deleteTradingPartner(name).subscribe({
+                  next: (res) => {
+                    if (res["Status"] !== undefined) {
+                      this.RefreshRows();
+                    } else if (res["Error"] !== undefined) {
+                      alert(res["Error"])
+                    }
+                    console.info('deleteTradingPartner: Json: ' + JSON.stringify(res));
+                    return;
+                  },
+                  error: (e) => {
+                    alert('deleteTradingPartner catchError: ' + e);
+                    return;
+                  }
+                })
+              );
             }
-            else if(res["Error"] !== undefined) {
-              alert(res["Error"])
-            }
-            console.info('deleteTradingPartner: Json: ' + JSON.stringify(res));
-            return;
-          },
-          error: (e) => {
-            alert('deleteTradingPartner catchError: ' + e);
-            return;
-          }
-        })
-
+          });
+      } catch(e) {
+        console.error('Exception: ' + e)
       }
-      });
-
-    }
-    catch(e)
-    {
-      console.error('Exception: ' + e)
-    }
-
     }
 
     copyTP()
@@ -274,5 +274,7 @@ export class TradingPartnersComponent implements OnInit, AfterViewInit {
       }
     }
 
-
+  ngOnDestroy(): void {
+    this.subscriptions.forEach(sub => sub.unsubscribe());
   }
+}

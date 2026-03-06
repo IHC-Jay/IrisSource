@@ -1,4 +1,4 @@
-import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
 
@@ -20,12 +20,18 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
-import { catchError } from 'rxjs';
-import { Modalx12Component } from './transaction-details/modal/modal-x12.component';
-import { MatDialog } from '@angular/material/dialog';
-import { DialogRef } from '@angular/cdk/dialog';
+import { catchError, Subscription } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { MatIconModule } from '@angular/material/icon';
+import { Modalx12Component } from './transaction-details/modal/modal-x12.component';
+import { parseDays } from '../utils/parseDays';
+import { MatDialog } from '@angular/material/dialog';
+import { DateTimeUtils } from '../utils/date-time.utils';
+
+    // =====================
+    // Table & Paginator Events
+    // =====================
+
+import { StorageService } from '../services/storage.service';
 
 @Component({
     selector: 'app-transaction',
@@ -36,9 +42,13 @@ import { MatIconModule } from '@angular/material/icon';
 
 
 
-export class TransactionComponent implements OnInit, AfterViewInit {
+export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
 
   contextMenuPosition = { x: '0px', y: '0px' };
+
+    // =====================
+    // Custom Fields Helpers
+    // =====================
   @ViewChild(MatMenuTrigger)
   contextMenu: MatMenuTrigger;
 
@@ -50,11 +60,10 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     maxCount = ["10", "25", "50", "100", "200"];
     dispositions = ["All", "Processed", "Rejected", "Validation failed"];
 
-    rightClickMenu: string[] = ['Details in New Tab', 'Details in Same Window'] ;
+    rightClickMenu: string[] = ['Details in Same Window', 'Details in New Tab'] ;
 
-   org = `${environment.org}`;
-
-  transactionTypes: string[] ;
+  org: string = `${environment.org}`;
+  transactionTypes: string[] = [];
    pageLength= 25;
    pageIndex = 1;
    pageSize = 25;
@@ -100,13 +109,18 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       key: 'Invalid',
       type: 'text',
       label: 'Select Transaction to view the Columns',
+
+    // =====================
+    // Transaction Type Change
+    // =====================
       transactionCode: 'XXX',
     }];
 
 
   searchColumns= this.transactionsFields.slice();
 
-  sub:any;
+  sub: Subscription | undefined;
+  private openDetailsRedirectHandled = false;
 
   selDropdownList = [];
 
@@ -125,9 +139,9 @@ export class TransactionComponent implements OnInit, AfterViewInit {
       direction: '',
       additional: '',
       startDate : "2023-01-12",
-      endDate :"13:30",
+      endDate :"2023-01-12",
       startTm : "13:30",
-      endTm: "2023-01-12"
+      endTm: "13:30"
   }
 
   staticSearchStr = "";
@@ -136,10 +150,19 @@ export class TransactionComponent implements OnInit, AfterViewInit {
   fileName:string="";
 
 
-  constructor(private TransactionService: TransRestServiceComponent,
-    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
-      tpId: new FormControl();
+  constructor(
+    private TransactionService: TransRestServiceComponent,
+    private formBuilder: FormBuilder,
+    private router: Router,
+    private route: ActivatedRoute,
+    public dialog: MatDialog,
+    private storageService: StorageService
+  ) {
+    tpId: new FormControl();
+  }
 
+  get additionalControls() {
+    return (this.form.get('additional') as FormArray).controls;
   }
 
 
@@ -152,517 +175,477 @@ export class TransactionComponent implements OnInit, AfterViewInit {
     })
   }
 
-  ngOnInit()
-  {
+  async ngOnInit() {
     console.info("ngOnInit Transactions for " + this.org );
+    this.initTransactionTypes();
+    this.initForm();
+    this.handleQueryParamsSessionStorage();
+    this.initFromUserConfig();
 
-     if (this.org == 'SH')
-    {
-        this.transactionTypes = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
-    }
-   else
-    {
-        this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
+    this.setFormControlValues();
+    await this.initTransactionFieldsAndColumnsAsync();
+    this.setDataSourceSort();
+
+    // Call handleCustomFieldsAndSearch after all fields are initialized
+    // This ensures additionalSearch filename filter is applied
+    this.handleCustomFieldsAndSearch();
+  }
+
+  // =====================
+  // ngOnInit Refactor Helpers
+  // =====================
+  private initTransactionTypes() {
+    if (this.org == 'SH') {
+      this.transactionTypes = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+    } else {
+      this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
     }
     this.formFields.currentTransType = '';
+    this.storageService.removeItem("currentTab");
+    this.storageService.setItem("currentTab", "Transactions");
+  }
 
-    sessionStorage.removeItem("currentTab")
-    sessionStorage.setItem("currentTab", "Transactions")
 
-
+  private initForm() {
+    // Determine initial value for transType
+    let initialTransType = '';
+    const defaultMode = this.org === 'RCO' ? 'Batch' : 'RealTime';
+    if (this.formFields && this.formFields.currentTransType) {
+      initialTransType = this.formFields.currentTransType;
+    } else if (this.transactionTypes && this.transactionTypes.length > 0) {
+      initialTransType = this.transactionTypes[0];
+    }
     this.form = this.formBuilder.group({
       rowCnt:['25', Validators.required],
-      transType: ['', Validators.required],
+      transType: [initialTransType, Validators.required],
       disposition: ['All', Validators.required],
-      mode:['RealTime', Validators.required],
+      mode:[defaultMode, Validators.required],
       direction:['Inbound'],
       additional:this.formBuilder.array([this.createinitForm()])
     });
+  }
 
-    let stDt = 1;
+  private handleQueryParamsSessionStorage() {
 
-    this.sub = this.route.queryParams.subscribe(params => {
+    console.info("Handle query params and session storage for Transactions");
+      this.sub = this.route.queryParams.subscribe(params => {
+        const openDetails = params['openDetails'] === 'true';
 
-      if(params !== undefined)
-      {
-          // From Summary Tab
-          if(params['transConfig'] !== undefined )
-          {
-            // Defaults to '' if no query param provided.
-            let jsonString = params['transConfig']
-            if (jsonString !== null)
-            {
-              console.info("TransConfig from queryParams: " + jsonString);
-              this.formFields = JSON.parse(jsonString);
-              console.info('Parsed Object:', this.formFields);
+        // If openDetails flag is set, check for detailed nav data in localStorage
+        if (openDetails && !this.openDetailsRedirectHandled) {
+          this.openDetailsRedirectHandled = true;
+
+          // Try to get additional params from localStorage if not in URL
+          let navData: any = {};
+          const transactionNavData = localStorage.getItem('transactionNavData');
+          if (transactionNavData) {
+            try {
+              navData = JSON.parse(transactionNavData);
+              localStorage.removeItem('transactionNavData'); // Clear after use
+            } catch (e) {
+              console.warn('Failed to parse transactionNavData from localStorage', e);
             }
-            else
-            {
-              this.formFields.currentTransType =  params['transaction'] || '';
-              this.transUserFlds = params['transUserFlds'];
-            }
-            this.additionalSearchStr = params['additionalSearch'] || '';
-            console.info("Query params, additionalSearchStr: " + this.additionalSearchStr +", " + this.formFields.currentTransType +", " + this.transUserFlds)
-
-            let fInd = this.additionalSearchStr.indexOf("FileName=") + "FileName=".length;
-              let val = this.additionalSearchStr.substring( fInd)
-              console.log(fInd + ". FileName:" + val )
-              this.fileName = val
-
           }
 
-      }
-    });
+          // Build the redirect query params, using sessionStorage data as fallback
+          const redirectParams: any = {
+            ID: params['ID']
+          };
 
-    if(this.formFields.currentTransType === '')
-    {
-        // Set in Search
-        if(sessionStorage.getItem('transConfig') !== undefined && sessionStorage.getItem('transConfig') !== null)
-        {
-          // Defaults to '' if no query param provided.
+          if (params['transConfig'] || navData.transConfig) {
+            redirectParams.transConfig = params['transConfig'] || navData.transConfig;
+          }
+          if (params['transaction'] || navData.transaction) {
+            redirectParams.transaction = params['transaction'] || navData.transaction;
+          }
+          if (params['mode'] || navData.mode) {
+            redirectParams.mode = params['mode'] || navData.mode;
+          }
+          if (params['sessionID'] || params['SessionID'] || params['SessionId']) {
+            redirectParams.sessionID = params['sessionID'] || params['SessionID'] || params['SessionId'];
+          }
+          if (params['Status'] || params['status']) {
+            redirectParams.Status = params['Status'] || params['status'];
+          }
+          if (params['additionalSearch'] || navData.additionalSearch) {
+            redirectParams.additionalSearch = params['additionalSearch'] || navData.additionalSearch;
+          }
+          if (params['searchTypeString']) {
+            redirectParams.searchTypeString = params['searchTypeString'];
+          }
 
-          let jsonString = sessionStorage.getItem('transConfig')
-          console.info("transConfig from sessionStorage: " + jsonString);
-          this.formFields = JSON.parse(jsonString);
-          let nowDt = new Date(new Date().getTime());
-          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
-          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
-          this.formFields.endTm= tmVal
+          this.router.navigate(['/transaction/transaction-details'], {
+            queryParams: redirectParams,
+            replaceUrl: true
+          });
+          return;
         }
 
-    }
+        if(params !== undefined) {
+          let jsonString = params['transConfig'];
 
-    if(this.formFields.currentTransType === '')
-    {
-
-      console.log('sessionStorage UserConfig: ' + sessionStorage.getItem('UserConfig'))
-      if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
-      {
-        let parsedObject = JSON.parse(sessionStorage.getItem('UserConfig'));
-
-        console.info("Init from session UserConfig: " + parsedObject.TranType +", " + parsedObject.DispCnt +", " + parsedObject.Mode);
-
-
-        this.formFields.currentTransType = parsedObject.TranType;
-        this.formFields.mode = parsedObject.Mode
-        this.formFields.rowCnt = parsedObject.DispCnt;
-
-        this.form.controls.transType.setValue(this.formFields.currentTransType);
-        this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
-        this.form.controls.mode.setValue(this.formFields.mode);
-
-        this.pageSize = parsedObject.DispCnt;
-        let stDtStr = parsedObject.TranTime;
-
-        // Format: Last 90 days
-
-        if(stDtStr.toString().indexOf('7') > 1)
-          {
-            stDt = 7
-          }
-          else if(stDtStr.toString().indexOf('30') > 1)
-          {
-            stDt = 30
-          }
-          else if(stDtStr.toString().indexOf('90') > 1)
-          {
-            stDt = 90
-          }
-          else if(stDtStr.toString().indexOf('365') > 1)
-          {
-            stDt = 365
-          }
-          console.info("Init from session: " +  this.formFields.currentTransType + ", Search from " + stDt + " days. " + stDtStr)
-      }
-
-
-     console.info('Set valid date time')
-      this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
-      let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-      let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-      this.formFields.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-      let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-      tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-      this.formFields.startTm = tmVal
-      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
-
-
-      this.nowDt = new Date(new Date().getTime());
-      mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-      dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-      this.formFields.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-      this.formFields.endTm= tmVal
-      console.info("End Time: " + this.formFields.endDate + ", " + this.formFields.endTm);
-    }
-
-    this.form.controls.mode.setValue(this.formFields.mode)
-    this.form.controls.transType.setValue(this.formFields.currentTransType)
-    this.form.controls.disposition.setValue(this.formFields.disposition)
-    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
-
-
-    if (this.formFields.currentTransType !== '')
-    {
-        this.updateCustomFlds()
-
-        this.searchTransaction = true;
-    }
-    else{
-        this.clearSearch();
-    }
-
-
-
-    this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
-    this.transactionsFields = [];
-
-      for (var item of res)
-      {
-        // console.info("Push transactionsSearchColumns: " + item.Key)
-          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.TransactionLabel, transactionCode: item.TransactionCode});
-      }
-      console.info("transactions Fields: " + this.transactionsFields.length);
-      console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
-
-      this.TransactionService.fetchDisplayColumns("Default", "Transactions").subscribe((res: any) => {
-        this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
-        this.usrDisplayColumns.push(...res);
-
-        console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
-        this.TransactionService.fetchSearchColumns("Default", "Transactions").subscribe((res: any) => {
-          this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
-          this.usrSearchColumns.push(...res);
-          console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
-
-          if(this.formFields.currentTransType !== '')
-            {
-
-            this.transactionChange(this.formFields.currentTransType);
-
-            console.info('Transaction search for: ' + this.formFields.currentTransType);
-            // this.onSearchTransactions();
+          // If transConfig not in URL params, try to get from localStorage
+          if (!jsonString) {
+            const transactionNavData = localStorage.getItem('transactionNavData');
+            if (transactionNavData) {
+              try {
+                const navData = JSON.parse(transactionNavData);
+                jsonString = navData.transConfig;
+              } catch (e) {
+                console.warn('Failed to parse transactionNavData from localStorage', e);
+              }
             }
-            else
-            {
-              this.transactionChange(this.transactionTypes[0])
-            }
+          }
 
-
-        });
-
+          if(jsonString !== undefined && jsonString !== null) {
+            console.info("TransConfig from parent or sessionStorage: " + jsonString);
+            this.formFields = JSON.parse(jsonString);
+            console.info('Parsed Object:', this.formFields);
+          } else {
+            this.formFields.currentTransType =  params['transaction'] || '';
+            this.transUserFlds = params['transUserFlds'];
+          }
+          this.additionalSearchStr = params['additionalSearch'] || '';
+          console.info("Query params, additionalSearchStr: " + this.additionalSearchStr +", " + this.formFields.currentTransType +", " + this.transUserFlds)
+          let fInd = this.additionalSearchStr.indexOf("FileName=") + "FileName=".length;
+          let val = this.additionalSearchStr.substring( fInd)
+          console.log(fInd + ". FileName:" + val )
+          this.fileName = val
+        }
 
       });
 
+    if (this.formFields.currentTransType === '') {
+        let jsonString = this.storageService.getItem<any>('transConfig') ;
+        console.info('Fetched transConfig from session storage: ' + jsonString);
+        if (jsonString) {
+          this.formFields = JSON.parse(jsonString) ;
+          console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+
+          this.setEndTimeToNow();
+      }
+    }
+  }
+
+  private setEndTimeToNow() {
+    if(this.formFields)
+    {
+      const { currentDt: endDt, currentTm: currentTm } = DateTimeUtils.GetCurrentDtTm();
+      this.formFields.endDate = endDt;
+      this.formFields.endTm = currentTm;
+
+      console.info("End Time: " + this.formFields.endDate + ", " + this.formFields.endTm);
+    }
+  }
+
+  private initFromUserConfig() {
+    let stDt = 1;
+    console.info("Initialize from session UserConfig if available");
+    if (this.formFields.currentTransType === '') {
+      const parsedObject = JSON.parse(this.storageService.getItem<any>('UserConfig') || '{}' ) ;
+      if (parsedObject) {
+        console.info("Init from session UserConfig: " + parsedObject.TranType + ", " + parsedObject.DispCnt + ", " + parsedObject.Mode);
+        this.formFields.currentTransType = parsedObject.TranType;
+        this.formFields.mode = parsedObject.Mode;
+        this.formFields.rowCnt = parsedObject.DispCnt;
+        this.form.controls.transType.setValue(this.formFields.currentTransType);
+        this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+        this.form.controls.mode.setValue(this.formFields.mode);
+        this.pageSize = parsedObject.DispCnt;
+        let stDtStr = parsedObject.TranTime;
+
+        stDt = parseDays(parsedObject.TranTime);
+
+        console.info("Init from UserConfig: " + this.formFields.currentTransType + ", Search from " + stDt + " days. " + stDtStr);
+      }
+
+      const dtObj = DateTimeUtils.GetStartEndDtTm(stDt);
+                this.formFields.startDate = dtObj.startDt;
+                this.formFields.startTm = dtObj.startTm;
+                this.formFields.endDate = dtObj.endDt;
+                this.formFields.endTm = dtObj.endTm;
+
+      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+    }
+  }
+
+  // parseDays now imported from utils
+
+  private setFormControlValues() {
+    this.form.controls.mode.setValue(this.formFields.mode);
+    this.form.controls.transType.setValue(this.formFields.currentTransType);
+    this.form.controls.disposition.setValue(this.formFields.disposition);
+    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+  }
+
+  private handleCustomFieldsAndSearch() {
+    if (this.formFields.currentTransType !== '') {
+      this.updateCustomFlds();
+      this.searchTransaction = true;
+
+      // If additionalSearch is set (e.g., from Summary filtering by filename), automatically execute search
+      if (this.additionalSearchStr && this.additionalSearchStr.trim().length > 0) {
+        console.info('AutoSearch triggered: additionalSearchStr = ' + this.additionalSearchStr);
+        // Use setTimeout to ensure async execution after DOM is ready
+        setTimeout(() => this.onSearchTransactions(), 100);
+      }
+    } else {
+      this.clearSearch();
+    }
+  }
+
+  private initTransactionFieldsAndColumnsAsync(): Promise<void> {
+    return new Promise((resolve) => {
+      console.info('Fetching TransactionFields and Display/Search Columns');
+      this.TransactionService.fetchTransactionFields().subscribe((res: any) => {
+        this.transactionsFields = [];
+        for (var item of res) {
+          this.transactionsFields.push({key: item.Key, type: item.Type, label: item.TransactionLabel, transactionCode: item.TransactionCode});
+        }
+        console.info("transactions Fields: " + this.transactionsFields.length);
+        console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
+        this.TransactionService.fetchDisplayColumns("Default", "Transactions").subscribe((res: any) => {
+          this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length);
+          this.usrDisplayColumns.push(...res);
+          console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
+          this.TransactionService.fetchSearchColumns("Default", "Transactions").subscribe((res: any) => {
+            this.usrSearchColumns.splice(0, this.usrSearchColumns.length);
+            this.usrSearchColumns.push(...res);
+            console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
+            if(this.formFields.currentTransType !== '') {
+              this.transactionChange(this.formFields.currentTransType);
+              console.info('Transaction search for: ' + this.formFields.currentTransType);
+            } else {
+              this.transactionChange(this.transactionTypes[0]);
+            }
+            console.info('Fetched TransactionFields and Display/Search Columns');
+            resolve();
+          });
+        });
+      });
     });
+  }
+
+  private setDataSourceSort() {
     if (!this.dataSource.sort) {
-      console.debug("Set sort in ngInit")
+      console.debug("Set sort in ngInit");
       this.dataSource.sort = this.sort;
     }
-
-
   }
 
   ngAfterViewInit() {
     this.dataSource.paginator = this.paginator;
     // this.dataSource.sort = this.sort;
 
+    // =====================
+    // Context Menu Handlers
+    // =====================
+
   }
+
+  ngOnDestroy(): void {
+    if (this.sub) {
+      this.sub.unsubscribe();
+    }
+  }
+
   get f() { return this.form.controls; }
 
-  onSearchTransactions()
-    {
-      this.canRenderDetails = false;
-      this.paramsList = [];
-      this.paramsList.push("mode::" + this.form.controls.mode.value);
-      this.paramsList.push("transaction::"+this.form.controls.transType.value);
-      this.paramsList.push("status::"+this.form.controls.disposition.value );
-
-      this.paramsList.push("startDtTm::" + this.formFields.startDate+" " +this.formFields.startTm );
-      this.paramsList.push("endDtTm::" + this.formFields.endDate+" " +this.formFields.endTm );
-      this.paramsList.push("count::" + this.form.controls.rowCnt.value);
-
-
-      console.info("onSearchTransactions count: " +this.form.controls.rowCnt.value)
-      console.info("SearchTransactions Mode# " +  this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value );
-      console.info("SearchTransactions Start# " +  this.formFields.startDate + ", " + this.formFields.startTm );
-      console.info("SearchTransactions End# " +  this.formFields.endDate  + ", " + this.formFields.endTm );
-
-      if (this.form.controls.transType.value === '' && this.formFields.currentTransType !== '')
-      {
-        this.form.controls.transType.setValue(this.formFields.currentTransType);
-      }
-
-
-      this.loading = true;
-      const formArr = this.form.get('additional') as FormArray;
-
-
-
-      if (this.additionalSearchStr === '')
-      {
-        this.staticSearchStr = ""
-
-        // Get values for static search
-
-        if (formArr.length >= 1) {
-          for(let i=0;i< formArr.length;i++)
-          {
-            let fGrp = formArr.at(i) as FormGroup
-            if (fGrp.controls.newFldValue.value === '')
-            {
-              console.info(fGrp.controls.fld.value +" is empty")
-              continue;
-            }
-            else{
-
-              console.info(fGrp.controls.fld.value +"= " + fGrp.controls.newFldValue.value)
-            }
-
-
-
-            for (let [ind, val] of this.transSearchStructArr.entries()) {
-
-              if(fGrp.controls.fld.value === val.label
-                && val.transactionCode === this.form.controls.transType.value
-              )
-                {
-                  let fldVal = fGrp.controls.newFldValue.value;
-                  console.info("transSearchStructArr " + ind + ": " + val.transactionCode +", " + val.label + ", " + val.key + " = '" + fldVal + "'")
-
-                  if (val.key.toUpperCase().indexOf('DATE') >= 0 && fldVal.indexOf('-') >= 0)
-                  {
-                    fldVal = fldVal.replaceAll('-','');
-                  }
-
-                  if (fldVal.indexOf('%') >= 0 )
-                  {
-                      this.staticSearchStr += " AND " + val.key + " LIKE '" + fldVal + "'"
-                  }
-                  else
-                  {
-                    this.staticSearchStr += " AND " + val.key + "='" + fldVal + "'"
-                  }
-                }
-            };
-
-
-          }
-        }
-      }
-      else
-      {
-        console.info("Set controls with values from " + this.additionalSearchStr);
-        this.staticSearchStr = this.additionalSearchStr
-        for(let i=0;i< formArr.length;i++)
-          {
-            let fGrp = formArr.at(i) as FormGroup
-
-             for (let [ind, val] of this.transSearchStructArr.entries()) {
-
-              if (this.additionalSearchStr.indexOf(val.key) >= 0
-                 && val.label ===  fGrp.controls.fld.value
-                 && val.transactionCode === this.form.controls.transType.value)
-              {
-                let usrVal =  this.staticSearchStr.substring(this.staticSearchStr.indexOf("=") + 1)
-                console.info('transSearchStructArr Set: '+ val.transactionCode +", " + val.key + " = '" + usrVal + "', " + val.label);
-
-                fGrp.controls.newFldValue.setValue(usrVal.replaceAll("'",""));
-                break;
-              }
-             }
-
-
-
-          }
-      }
-
-      if(this.staticSearchStr.length > 3)
-      {
-        this.staticSearchStr = this.staticSearchStr.replace('AND','') // Remove first AND
-        this.staticSearchStr = this.staticSearchStr.replaceAll('%','%25') //send a literal '%' character, it needs to be encoded as %25.%
-          this.paramsList.push("sql::" + this.staticSearchStr);
-      }
-
-      this.transUserFlds = "";
-      this.paramsList.forEach( val => {
-        this.transUserFlds += val +";";
-       });
-
-      sessionStorage.setItem("transUserFlds", this.transUserFlds)
-      const jsonString = JSON.stringify(this.formFields);
-      sessionStorage.setItem("transConfig", jsonString);
-
-
-      if(this.form.controls.transType.value === '270')
-      {
-
-            this.TransactionService.fetchEligibilityRequests(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-
-            this.dataSource.data = res;
-            this.dataSource.sort = this.sort;
-            this.canRenderDetails = true;
-
-            console.info("Data rows array: " + this.dataSource.data.length);
-
-
-            this.loading = false;
-
-            }),
-
-            catchError(errorRes => {
-              // Send to analytics server
-              alert('Error in fetching EligibilityBenefit Requests: ' + errorRes);
-              this.dataSource.data = [];
-              return errorRes;
-            })
-
-      }
-      else if(this.form.controls.transType.value === '271'){
-
-        this.TransactionService.fetchEligibilityBenefitResponses(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("EligibilityBenefitResponses array: " + this.dataSource.data.length);
-        });
-
-      }
-
-      else if(this.form.controls.transType.value === '835'){
-
-
-        console.info("835 search: "+ this.staticSearchStr );
-
-
-        this.TransactionService.fetchClaimPayment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("ClaimPayment array: " + this.dataSource.data.length);
-        });
-
-      }
-      else if(this.form.controls.transType.value === '837P'){
-
-        console.info("837P search: "+ this.staticSearchStr );
-
-          this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' ");
-
-         this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-          this.dataSource.data = res;
-          this.dataSource.sort = this.sort;
-          this.canRenderDetails = true;
-          this.loading = false;
-          console.info("Claims array: " + this.dataSource.data.length);
-
-         });
-
-       }
-
-       else if(this.form.controls.transType.value === '837I'){
-
-        this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ")
-        this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Claims array: " + this.dataSource.data.length);
-        });
-
-      }
-      else if(this.form.controls.transType.value === '837D'){
-
-        this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ")
-        this.TransactionService.fetchClaims(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Claims array: " + this.dataSource.data.length);
-
-        });
-
-      }
-      else if(this.form.controls.transType.value === '276'){
-
-        this.TransactionService.fetchClaimStatusReq(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-          console.info("Service array: " + res.length);
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Claim Status  Req array: " + this.dataSource.data.length);
-
-        }
-    );
-
-      }
-       else if(this.form.controls.transType.value === '277'){
-
-         this.TransactionService.fetchClaimStatusResp(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-          this.dataSource.data = res;
-          this.dataSource.sort = this.sort;
-          this.canRenderDetails = true;
-          this.loading = false;
-          console.info("Claim Status Resp array: " + this.dataSource.data.length);
-
-         });
-
-       }
-       else if(this.form.controls.transType.value === '277CA'){
-
-        this.TransactionService.fetchClaimAcknowledgment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Claim Acknowledgment array: " + this.dataSource.data.length);
-         this.dataSource.sort = this.sort;
-         console.debug("Set sort after populating table")
-        });
-
-      }
-       else if(this.form.controls.transType.value === '999'){
-
-        this.TransactionService.fetchImplementationAcknowledgment(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Implementation Acknowledgment array: " + this.dataSource.data.length);
-
-        });
-
-      }
-      else if(this.form.controls.transType.value === 'TA1'){
-
-        this.TransactionService.fetchTA1(this.form.controls.mode.value, this.paramsList).subscribe((res: any) => {
-         this.dataSource.data = res;
-         this.dataSource.sort = this.sort;
-         this.canRenderDetails = true;
-         this.loading = false;
-         console.info("Interchange TA1 array: " + this.dataSource.data.length);
-
-        });
-
-      }
-       else // Not Implemented
-       {
-        this.searchColumns = [];
-        this.selDropdownList = this.nyiColumns;
-
-        this.canRenderDetails = true;
-        this.loading = false;
-        console.info("NotImplementd array: " + this.dataSource.data.length);
-       }
-
-       this.paginator.pageSize = this.form.controls.rowCnt.value;
-
+  onSearchTransactions() {
+    this.canRenderDetails = false;
+    this.buildParamsList();
+    this.logSearchParams();
+    this.ensureTransTypeSet();
+    this.loading = true;
+    const formArr = this.form.get('additional') as FormArray;
+    console.info('onSearchTransactions: additionalSearchStr = "' + this.additionalSearchStr + '"');
+    if (this.additionalSearchStr === '') {
+      this.staticSearchStr = '';
+      this.buildStaticSearchStr(formArr);
+    } else {
+      this.handleAdditionalSearchStr(formArr);
     }
+    console.info('onSearchTransactions: after handleAdditional, staticSearchStr = "' + this.staticSearchStr + '"');
+    this.handleSqlParam();
+    console.info('onSearchTransactions: after handleSqlParam, paramsList = ', this.paramsList);
+    this.saveSessionState();
+    this.fetchTransactionData();
+    this.paginator.pageSize = this.form.controls.rowCnt.value;
+  }
+
+  // --- onSearchTransactions helpers ---
+  private buildParamsList() {
+    this.paramsList = [];
+    this.paramsList.push("mode::" + this.form.controls.mode.value);
+    this.paramsList.push("transaction::" + this.form.controls.transType.value);
+    this.paramsList.push("status::" + this.form.controls.disposition.value);
+    this.paramsList.push("startDtTm::" + this.formFields.startDate + " " + this.formFields.startTm);
+    this.paramsList.push("endDtTm::" + this.formFields.endDate + " " + this.formFields.endTm);
+    this.paramsList.push("count::" + this.form.controls.rowCnt.value);
+  }
+
+  private logSearchParams() {
+    console.info("onSearchTransactions count: " + this.form.controls.rowCnt.value);
+    console.info("SearchTransactions Mode# " + this.form.controls.mode.value + ", " + this.form.controls.transType.value + ", " + this.form.controls.disposition.value);
+    console.info("SearchTransactions Start# " + this.formFields.startDate + ", " + this.formFields.startTm);
+    console.info("SearchTransactions End# " + this.formFields.endDate + ", " + this.formFields.endTm);
+  }
+
+  private ensureTransTypeSet() {
+    if (this.form.controls.transType.value === '' && this.formFields.currentTransType !== '') {
+      this.form.controls.transType.setValue(this.formFields.currentTransType);
+    }
+  }
+
+  private buildStaticSearchStr(formArr: FormArray) {
+    if (formArr.length >= 1) {
+      for (let i = 0; i < formArr.length; i++) {
+        let fGrp = formArr.at(i) as FormGroup;
+        if (fGrp.controls.newFldValue.value === '') {
+          console.info(fGrp.controls.fld.value + " is empty");
+          continue;
+        } else {
+          console.info(fGrp.controls.fld.value + "= " + fGrp.controls.newFldValue.value);
+        }
+        for (let [ind, val] of this.transSearchStructArr.entries()) {
+          if (
+            fGrp.controls.fld.value === val.label &&
+            val.transactionCode === this.form.controls.transType.value
+          ) {
+            let fldVal = fGrp.controls.newFldValue.value;
+            console.info("transSearchStructArr " + ind + ": " + val.transactionCode + ", " + val.label + ", " + val.key + " = '" + fldVal + "'");
+            if (val.key.toUpperCase().indexOf('DATE') >= 0 && fldVal.indexOf('-') >= 0) {
+              fldVal = fldVal.replaceAll('-', '');
+            }
+            if (fldVal.indexOf('%') >= 0) {
+              this.staticSearchStr += " AND " + val.key + " LIKE '" + fldVal + "'";
+            } else {
+              this.staticSearchStr += " AND " + val.key + "='" + fldVal + "'";
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private handleAdditionalSearchStr(formArr: FormArray) {
+    console.info("handleAdditionalSearchStr: START with additionalSearchStr = " + this.additionalSearchStr);
+    this.staticSearchStr = this.additionalSearchStr;
+    console.info("handleAdditionalSearchStr: SET staticSearchStr = " + this.staticSearchStr);
+    for (let i = 0; i < formArr.length; i++) {
+      let fGrp = formArr.at(i) as FormGroup;
+      for (let [ind, val] of this.transSearchStructArr.entries()) {
+        if (
+          this.additionalSearchStr.indexOf(val.key) >= 0 &&
+          val.label === fGrp.controls.fld.value &&
+          val.transactionCode === this.form.controls.transType.value
+        ) {
+          let usrVal = this.staticSearchStr.substring(this.staticSearchStr.indexOf("=") + 1);
+          console.info('handleAdditionalSearchStr: Set: ' + val.transactionCode + ", " + val.key + " = '" + usrVal + "', " + val.label);
+          fGrp.controls.newFldValue.setValue(usrVal.replaceAll("'", ""));
+          break;
+        }
+      }
+    }
+    console.info("handleAdditionalSearchStr: END with staticSearchStr = " + this.staticSearchStr);
+  }
+
+  private handleSqlParam() {
+    console.info('handleSqlParam: staticSearchStr = "' + this.staticSearchStr + '", length = ' + this.staticSearchStr.length);
+    if (this.staticSearchStr.length > 3) {
+      this.staticSearchStr = this.staticSearchStr.replace('AND', '');
+      this.staticSearchStr = this.staticSearchStr.replaceAll('%', '%25');
+      console.info('handleSqlParam: ADDING to paramsList: sql::' + this.staticSearchStr);
+      this.paramsList.push("sql::" + this.staticSearchStr);
+    } else {
+      console.info('handleSqlParam: staticSearchStr too short, NOT adding sql parameter');
+    }
+  }
+
+  private saveSessionState() {
+    this.transUserFlds = '';
+    this.paramsList.forEach(val => {
+      this.transUserFlds += val + ';';
+    });
+    this.storageService.setItem("transUserFlds", this.transUserFlds);
+    const jsonString = JSON.stringify(this.formFields);
+    this.storageService.setItem("transConfig", jsonString);
+  }
+
+  private fetchTransactionData() {
+    const transType = this.form.controls.transType.value;
+    const mode = this.form.controls.mode.value;
+    if (transType === '270') {
+      this.TransactionService.fetchEligibilityRequests(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      }, errorRes => {
+        alert('Error in fetching EligibilityBenefit Requests: ' + errorRes);
+        this.dataSource.data = [];
+        this.loading = false;
+      });
+    } else if (transType === '271') {
+      this.TransactionService.fetchEligibilityBenefitResponses(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '835') {
+      console.info("835 search: " + this.staticSearchStr);
+      this.TransactionService.fetchClaimPayment(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '837P') {
+      console.info("837P search: " + this.staticSearchStr);
+      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' ");
+      this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '837I') {
+      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ");
+      this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '837D') {
+      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ");
+      this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '276') {
+      this.TransactionService.fetchClaimStatusReq(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '277') {
+      this.TransactionService.fetchClaimStatusResp(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === '277CA') {
+      this.TransactionService.fetchClaimAcknowledgment(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+        this.dataSource.sort = this.sort;
+        console.debug("Set sort after populating table");
+      });
+    } else if (transType === '999') {
+      this.TransactionService.fetchImplementationAcknowledgment(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else if (transType === 'TA1') {
+      this.TransactionService.fetchTA1(mode, this.paramsList).subscribe((res: any) => {
+        this.handleFetchResult(res);
+      });
+    } else {
+      this.searchColumns = [];
+      this.selDropdownList = this.nyiColumns;
+      this.canRenderDetails = true;
+      this.loading = false;
+      console.info("NotImplementd array: " + this.dataSource.data.length);
+    }
+  }
+
+  private handleFetchResult(res: any) {
+    this.dataSource.data = res;
+    this.dataSource.sort = this.sort;
+    this.canRenderDetails = true;
+    this.loading = false;
+    console.info("Data rows array: " + this.dataSource.data.length);
+  }
 
 onRowCnt()
       {
@@ -754,7 +737,10 @@ transactionChange(evt: any)
   var allTempArr= [];
   this.dataSource.data = [];
   console.info("In transactionChange: currentTransType: " + this.formFields.currentTransType)
-  this.additionalSearchStr = ''
+
+  // Preserve additionalSearchStr (filename filter) instead of clearing it
+  const preservedAdditionalSearch = this.additionalSearchStr;
+
   if(this.form.controls.transType.value !== this.formFields.currentTransType &&
     this.form.controls.mode.value !== this.formFields.mode)
   {
@@ -762,6 +748,9 @@ transactionChange(evt: any)
   }
   this.formFields.currentTransType = this.form.controls.transType.value;
   this.formFields.mode = this.form.controls.mode.value;
+
+  // Restore additionalSearchStr after cleanup
+  this.additionalSearchStr = preservedAdditionalSearch;
 
   this.readCustomFlds();
 
@@ -879,29 +868,29 @@ transactionChange(evt: any)
 
   this.transSearchStructArr =[];
 
-
   this.usrSearchColumns.forEach(element => {
     if(element.TransactionCode === this.form.controls.transType.value && element.Mode === this.form.controls.mode.value)
     {
-
         for (let tran of this.transactionsFields){
         {
           if(tran.key == element.key && tran.transactionCode === this.form.controls.transType.value)
           {
             console.info("Push transSearchStructArr: " + tran.label + ": " + element.key +", " + element.TransactionCode +", " + element.Mode);
             formArr.push(this.createCustomFlds(tran.label));
-
             this.transSearchStructArr.push({label: tran.label, key: element.key, transactionCode: element.TransactionCode});
             break;
           }
-
         }
-
       }
-      this.updateCustomFlds()
     }
   });
-  this.onSearchTransactions();
+
+  // Only call updateCustomFlds and onSearchTransactions if we're not handling additionalSearch
+  // (additionalSearch will be handled by handleCustomFieldsAndSearch in ngOnInit)
+  if (!this.additionalSearchStr || this.additionalSearchStr.trim().length === 0) {
+    this.updateCustomFlds();
+    this.onSearchTransactions();
+  }
 
 
 }
@@ -1034,67 +1023,76 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={ID: row.ID, rowId: ind, sessionId: row.SessionID};
+  let item: Item ={ID: row.ID, rowId: ind, sessionId: row.SessionID, status: row.Status};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
 }
 
 
-handleContextMenu(item: Item, menu: string)  {
-  console.log('Click on Action 2 ' + item.ID +", " + menu);
-
-  this.transUserFlds = "";
-  this.paramsList.forEach( val => {
-    this.transUserFlds += val +";";
-   });
-   const jsonString = JSON.stringify(this.formFields);
-   if (menu === 'WorkFlow')
-   {
-      console.log('Item: ' + item.ID +", " + item.sessionId );
-      sessionStorage.removeItem("currentTab")
-      sessionStorage.setItem("currentTab", "Work Flow");
-
-      const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
-         {queryParams: { sessionID:  (item.sessionId),  mode:  this.formFields.mode , TransactionType: this.formFields.currentTransType } }
-      ));
+  handleContextMenu(item: Item, menu: string)  {
+    console.log('Click on Action 2 ' + item.ID + ", " + menu);
+    this.transUserFlds = "";
+    this.paramsList.forEach(val => {
+      this.transUserFlds += val + ";";
+    });
+    const jsonString = JSON.stringify(this.formFields);
+    if (menu === 'WorkFlow') {
+      console.log('Item: ' + item.ID + ", " + item.sessionId);
+      this.storageService.removeItem("currentTab");
+      this.storageService.setItem("currentTab", "Work Flow");
+      const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
+      const normalizedBase = baseHref.endsWith('/') ? baseHref.slice(0, -1) : baseHref;
+      const query = new URLSearchParams();
+      query.set('TransId', String(item.ID));
+      query.set('sessionID', item.sessionId || '');
+      query.set('Status', item.status || '');
+      query.set('mode', this.formFields.mode || '');
+      query.set('TransactionType', this.formFields.currentTransType || '');
+      const url = `${normalizedBase}/workflow/rdpValidationErrors?${query.toString()}`;
       console.log("Details in new tab URL: " + url);
-          const newTab = window.open(url, '_blank');
-          if(newTab) {
-              newTab.opener = null;
-          }
-
-
-   }
-   else if (menu === 'Details in Same Window')
-   {
+      const newTab = window.open(url, '_blank');
+      if (newTab) {
+        newTab.opener = null;
+      }
+    } else if (menu === 'Details in Same Window') {
       this.transUserFlds += ";sameWindow::true";
-
       this.router.navigate(["/transaction/transaction-details/"],
-      {queryParams: { ID:  item.ID, 'transConfig': jsonString,
-         'transaction': this.form.controls.transType.value,
-         'additionalSearch': this.staticSearchStr,
-         'searchTypeString': this.transUserFlds } }
-       );
-      }
-      else
-      {
-        this.transUserFlds += ";sameWindow::false";
-
-        const jsonString = JSON.stringify(this.formFields);
-
-            const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/transaction/transaction-details/"],
-            {queryParams: { ID:  item.ID, 'transaction': this.form.controls.transType.value,
-              'additionalSearch': this.staticSearchStr, 'searchTypeString': this.transUserFlds } }
-            ));
-            console.log("Details in new tab URL: " + url);
-          const newTab = window.open(url, '_blank');
-          if(newTab) {
-              newTab.opener = null;
+        {
+          queryParams: {
+            ID: item.ID,
+            'transConfig': jsonString,
+            'transaction': this.form.controls.transType.value,
+            'sessionID': item.sessionId,
+            'Status': item.status,
+            'additionalSearch': this.staticSearchStr,
+            'searchTypeString': this.transUserFlds
           }
+        }
+      );
+    } else {
+      this.transUserFlds += ";sameWindow::false";
+      const jsonString = JSON.stringify(this.formFields);
+      const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
+      const normalizedBase = baseHref.endsWith('/') ? baseHref.slice(0, -1) : baseHref;
+      const query = new URLSearchParams();
+      query.set('ID', String(item.ID));
+      query.set('transConfig', jsonString);
+      query.set('transaction', this.form.controls.transType.value);
+      query.set('mode', this.form.controls.mode.value);
+      query.set('sessionID', item.sessionId || '');
+      query.set('Status', item.status || '');
+      query.set('additionalSearch', this.staticSearchStr || '');
+      query.set('searchTypeString', this.transUserFlds || '');
+      query.set('openDetails', 'true');
+      const targetUrl = `${normalizedBase}/transaction/transaction-details?${query.toString()}`;
+      console.log("Details in new tab URL: " + targetUrl);
+      const newTab = window.open(targetUrl, '_blank');
+      if (newTab) {
+        newTab.opener = null;
       }
-
-}
+    }
+  }
 
 
 applyFilter(event: Event) {
@@ -1124,6 +1122,7 @@ export interface Item {
   ID: number;
   rowId: number;
   sessionId: string;
+  status?: string;
 }
 
 export interface customSearchStruct {

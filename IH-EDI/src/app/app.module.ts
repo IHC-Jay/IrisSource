@@ -82,16 +82,15 @@ import {
   CdkDropListGroup
 } from '@angular/cdk/drag-drop';
 import { RdpValidationErrorsComponent } from './workflow/rdpValidationErrors/rdpValidationErrors.component';
-import { X12ViewerComponent } from './x12/x12-viewer.component';
 import { PdfReaderComponent } from './pdf-reader/pdf-reader.component';
 import { CodeValueLookupComponent } from './codeValue-lookup/codeValue-lookup.component';
 
 @NgModule({ declarations: [
         AppComponent,
         HeaderComponent,
-        TpRestServiceComponent,
-        TransRestServiceComponent,
-        WfRestServiceComponent,
+        // TpRestServiceComponent, // Service, should not be declared
+        // TransRestServiceComponent, // Service, should not be declared
+        // WfRestServiceComponent, // Service, should not be declared
         TradingPartnersComponent,
         copyTPComponent,
         ConfirmDialogComponent,
@@ -114,7 +113,6 @@ import { CodeValueLookupComponent } from './codeValue-lookup/codeValue-lookup.co
         WorkflowDetailsComponent,
         WorkflowHistoryComponent,
         RdpValidationErrorsComponent,
-        X12ViewerComponent,
         PdfReaderComponent
         ,CodeValueLookupComponent
     ],

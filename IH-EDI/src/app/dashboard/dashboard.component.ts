@@ -1,3 +1,4 @@
+import { DateTimeUtils } from '../utils/date-time.utils';
 import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
@@ -17,6 +18,7 @@ import { catchError } from 'rxjs';
 import { MatDialog } from '@angular/material/dialog';
 import { MatIconModule } from '@angular/material/icon';
 import { environment } from '../../environments/environment';
+import { StorageService } from '../services/storage.service';
 import { BaseChartDirective } from 'ng2-charts';
 import { Chart, registerables, ChartOptions, ChartType, ChartDataset, LabelItem } from 'chart.js';
 
@@ -31,6 +33,7 @@ import { Chart, registerables, ChartOptions, ChartType, ChartDataset, LabelItem 
 
 
 export class DashBoardComponent implements OnInit {
+  private subscriptions: any[] = [];
 
   barChartOptions: ChartOptions = {
     responsive: true,
@@ -82,11 +85,16 @@ export class DashBoardComponent implements OnInit {
   currentMode = 'Batch';
   sub:any;
 
-  constructor(private DashBoardService: TransRestServiceComponent,
-    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
-      tpId: new FormControl();
-      Chart.register(...registerables);
-
+  constructor(
+    private DashBoardService: TransRestServiceComponent,
+    private formBuilder: FormBuilder,
+    private router: Router,
+    private route: ActivatedRoute,
+    public dialog: MatDialog,
+    private storageService: StorageService
+  ) {
+    tpId: new FormControl();
+    Chart.register(...registerables);
   }
 
 
@@ -116,27 +124,19 @@ export class DashBoardComponent implements OnInit {
 
         }
 
-          if (this.searchTypeString === null || this.searchTypeString.length == 0)
-            {
-              console.info('no query params')
-              this.nowDt = new Date((new Date().getTime() - (24 * 60 * 60 * 1000)));
-              let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-              this.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-              let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-              tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-              this.startTm = tmVal
-              this.endTm= tmVal
-              console.info("Time: " + tmVal)
-              this.nowDt = new Date(new Date().getTime());
-              mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-              dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-              this.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-            }
+          if (this.searchTypeString === null || this.searchTypeString.length == 0) {
+            console.info('no query params')
+            const dtObj = DateTimeUtils.GetStartEndDtTm(1);
+            this.startDate = dtObj.startDt;
+            this.startTm = dtObj.startTm;
+            this.endDate = dtObj.endDt;
+            this.endTm = dtObj.endTm;
+            console.info("Time: " + this.startTm);
+          }
 
     });
     this.onSearchDashBoard();
+    this.subscriptions.push(this.sub);
 
   }
 
@@ -182,9 +182,9 @@ export class DashBoardComponent implements OnInit {
         this.searchTypeString += val +";";
        });
 
-      sessionStorage.setItem("searchTypeString", this.searchTypeString)
+      this.storageService.setItem("searchTypeString", this.searchTypeString)
 
-          this.DashBoardService.fetchDashboardentries(this.paramsList).subscribe((res: any) => {
+          const dashSub = this.DashBoardService.fetchDashboardentries(this.paramsList).subscribe((res: any) => {
 
             console.info("Data rows array: " + res.length);
             this.dataTableLabel = [];
@@ -276,20 +276,19 @@ export class DashBoardComponent implements OnInit {
               console.info("dataTableKey length: " + this.dataTableKey.length);
 
 
-            }),
-
-            catchError(errorRes => {
-
-              alert('Error in fetching EligibilityBenefit Requests: ' + errorRes);
-              this.dataSource.data = [];
-              return errorRes;
-            })
-
-
+            });
+      this.subscriptions.push(dashSub);
     }
 
 
 
+  ngOnDestroy(): void {
+    this.subscriptions.forEach(sub => {
+      if (sub && typeof sub.unsubscribe === 'function') {
+        sub.unsubscribe();
+      }
+    });
+  }
 // Handle right click
 
 onContextMenu(event: MouseEvent, row:any, ind: number) {
@@ -332,8 +331,8 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
 onContextMenuNew(item: Item) {
   console.log("Click on Action id: " + item.rowId);
-  sessionStorage.removeItem("currentTab")
-  sessionStorage.setItem("currentTab", "Transactions");
+  this.storageService.removeItem("currentTab");
+  this.storageService.setItem("currentTab", "Transactions");
 
     this.searchTypeString = "";
     this.paramsList.forEach( val => {
@@ -364,8 +363,8 @@ onContextMenuNew(item: Item) {
 onContextMenuSame(item: Item) {
 
   this.searchTypeString = "";
-  sessionStorage.removeItem("currentTab")
-  sessionStorage.setItem("currentTab", "Transactions");
+  this.storageService.removeItem("currentTab");
+  this.storageService.setItem("currentTab", "Transactions");
 
     this.paramsList.forEach( val => {
       this.searchTypeString += val +";";

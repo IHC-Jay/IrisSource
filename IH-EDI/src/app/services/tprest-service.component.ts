@@ -1,36 +1,17 @@
-import { Component } from '@angular/core';
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
-import { forkJoin, Observable, pipe } from 'rxjs';
-import { map, catchError, tap } from 'rxjs/operators';
-import { Subject, throwError } from 'rxjs';
-
+import { environment } from '../../environments/environment';
+import { Subject, throwError, Observable, forkJoin } from 'rxjs';
+import { map, catchError } from 'rxjs/operators';
+import { AuthenticationService } from './authentication.service';
+import { HttpClient, HttpParams, HttpHeaders } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { TradingPartner } from '../tradingPartners/TradingPartner';
 import { TpId } from '../tradingPartners/tpIds/TpId';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
-import { bulkTpLinks } from '../tradingPartners/tpIds/tp-links/addEdit-links/bulk-tp-links';
-
-import { environment } from '../../environments/environment';
-
-import { transition } from '@angular/animations';
-
-import {DisplayColumns, DisplayColumnsArray} from '../transaction/DisplayColumns';
-import {ConfirationArray, ConfigColumns} from '../transaction/Configuration';
-
-import { AuthenticationService } from './authentication.service';
-import { Router, ActivatedRoute} from '@angular/router';
-
-
-
 @Injectable({ providedIn: 'root' })
-
-@Component({
-    selector: 'app-rest-service',
-    templateUrl: './rest-service.component.html',
-    standalone: false
-})
-
 export class TpRestServiceComponent {
+  // ...existing code...
+  // Add private helper methods for API calls and error handling as needed
 
   currentUser:string = '';
   tpUrl = `${environment.tpDevUrl}`;
@@ -203,12 +184,12 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
         )
         .pipe(
           map(responseData => {
-           console.info("Response")
+           console.info("fetchTPforTpId Response: " + responseData.Length);
            return responseData;
           }),
           catchError(errorRes => {
             // Send to analytics server
-            console.error('In fetchTPIDs catchError');
+            console.error('In fetchTPforTpId catchError');
             return throwError(errorRes);
           })
         );
@@ -329,7 +310,7 @@ setcurrentUser(currentUser : string, env: string, authService: AuthenticationSer
             const TpLinksArray: tpLinks[] = [];
             for (const key in responseData) {
               if (responseData.hasOwnProperty(key)) {
-                console.info("Key: " + responseData[key].Link);
+                console.info( tpid + ": TPlinks # " + Object.keys(responseData).length);
                 if(responseData[key].Link !== undefined)
                 {
                   TpLinksArray.push({ ...responseData[key], id: key });

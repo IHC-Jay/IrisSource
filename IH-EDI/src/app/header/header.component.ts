@@ -1,6 +1,6 @@
 import { Component, OnInit, Input, Output, AfterViewInit, ViewChild, ElementRef, Injectable } from '@angular/core';
 import { FormsModule, FormControl } from '@angular/forms';
-import { Router, ActivatedRoute } from '@angular/router';
+import { Router, ActivatedRoute, NavigationEnd } from '@angular/router';
 import {AuthenticationService} from '../services/authentication.service';
 import {User} from '../login/user';
 import {Link, tabLinks} from './Links';
@@ -16,7 +16,7 @@ import {MatButtonModule} from '@angular/material/button';
 import {MatBadgeModule} from '@angular/material/badge';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
 import { environment } from '../../environments/environment';
-
+import { StorageService } from '../services/storage.service';
 
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
@@ -30,6 +30,38 @@ const STORE_KEY =  'lastAction';
 
 
 export class HeaderComponent implements AfterViewInit, OnInit   {
+
+  /**
+   *
+   * Utility to build JSON string from config array and store in session storage
+   */
+  buildAndStoreUserConfig(res: any[]): string {
+    let jsonString = "";
+    for (let ind = 0; ind < res.length; ind++) {
+      if (res[ind].Key !== undefined) {
+        if (jsonString.length === 0) {
+          jsonString = '{"' + res[ind].Key + '":"' + res[ind].Value + '"';
+        } else {
+          jsonString += ',"' + res[ind].Key + '":"' + res[ind].Value + '"';
+        }
+        // this.storage.setItem(res[ind].Key, res[ind].Value);
+        console.log('Store in sessionStorage ' + res[ind].Key + ", " + res[ind].Value);
+      }
+      if (res[ind].Key === 'Page') {
+        for (let tabInd = 0; tabInd < this.links.length; tabInd++) {
+          if (this.links[tabInd].name === res[ind].Value) {
+            this.firstPage = this.links[tabInd].link;
+            this.selectedLnkIndex.setValue(tabInd);
+            console.log('Use Config, page: ' + this.firstPage + ' # ' + this.selectedLnkIndex.value);
+          }
+        }
+      }
+    }
+    jsonString += "}";
+    console.log('JSON string:' + jsonString);
+    this.storage.setItem('UserConfig', jsonString);
+    return jsonString;
+  }
 
   loginForm: FormGroup;
   val: any;
@@ -48,11 +80,92 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   NumAssignedItems:number;
   public links:Link[] = tabLinks;
 
+  // Track Utility submenu visibility
+  utilitySubmenuVisible: boolean = false;
+  private openUtilitySubmenuOnSelect: boolean = false;
+
+  // Navigate to a link (handles both top-level and submenu)
+  navigateTo(link: Link) {
+    if (link.link) {
+      this.storage.removeItem("currentTab");
+      this.storage.setItem("currentTab", link.name);
+      this.router.navigateByUrl(link.link);
+      this.utilitySubmenuVisible = false;
+    }
+  }
+
+  onUtilityTabClick(index: number, event?: Event): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    this.selectedLnkIndex.setValue(index);
+    if (this.tabGrp) {
+      this.tabGrp.selectedIndex = index;
+    }
+    this.openUtilitySubmenuOnSelect = true;
+    this.utilitySubmenuVisible = true;
+    this.prevLnkIndex = index;
+  }
+
+  private syncSelectedTabWithUrl(url: string): void {
+    const normalizePath = (value: string): string => {
+      const base = (value || '').split('?')[0].toLowerCase();
+      if (!base || base === '/') return '/';
+      return base.endsWith('/') ? base.slice(0, -1) : base;
+    };
+
+    const matchesRoute = (currentPath: string, targetPath: string): boolean => {
+      if (!targetPath) return false;
+      return currentPath === targetPath || currentPath.startsWith(`${targetPath}/`);
+    };
+
+    const path = normalizePath(url || '');
+    if (!path) return;
+
+    let targetIndex = -1;
+
+    for (let i = 0; i < this.links.length; i++) {
+      const link = this.links[i];
+      const linkPath = normalizePath(link.link || '');
+
+      if (matchesRoute(path, linkPath)) {
+        targetIndex = i;
+        break;
+      }
+
+      if (link.children && link.children.length > 0) {
+        const matchedChild = link.children.find(child => {
+          const childPath = normalizePath(child.link || '');
+          return matchesRoute(path, childPath);
+        });
+
+        if (matchedChild) {
+          targetIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (targetIndex < 0) return;
+
+    this.selectedLnkIndex.setValue(targetIndex);
+    if (this.tabGrp) {
+      this.tabGrp.selectedIndex = targetIndex;
+    }
+
+    this.utilitySubmenuVisible = false;
+    this.openUtilitySubmenuOnSelect = false;
+    this.prevLnkIndex = targetIndex;
+  }
+
 
   isLogin:boolean=false;
   collapsed = true;
 
   logo =`${environment.logo}`;
+  appVersion = `${environment.appVersion || 'unknown'}`;
 
   @ViewChild("username") focusField: ElementRef;
   @ViewChild("tabGrp", { static: false }) tabGrp: MatTabGroup;
@@ -63,15 +176,20 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   selectedLnkIndex = new FormControl(3);
   prevLnkIndex = 0;
+  private openDetailsRedirectHandled = false;
+  private standaloneDetailMode = false;
 
   background = 'white';
 
-  constructor(private router: Router, private authenticationService: AuthenticationService,
-      private formBuilder: FormBuilder,
-      private route: ActivatedRoute,
-      private TransactionService: TransRestServiceComponent,
-      private WfService: WfRestServiceComponent
-    )
+  constructor(
+    private router: Router,
+    private authenticationService: AuthenticationService,
+    private formBuilder: FormBuilder,
+    private route: ActivatedRoute,
+    private TransactionService: TransRestServiceComponent,
+    private WfService: WfRestServiceComponent,
+    private storage: StorageService
+  )
     {
       console.log('**** HeaderComponent constructor ****');
 
@@ -105,12 +223,30 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       // get return url from route parameters or default to '/'
 
       this.route.queryParams.subscribe(params => {
+        const openDetails = params['openDetails'] === 'true';
+        if (openDetails && !this.openDetailsRedirectHandled) {
+          this.openDetailsRedirectHandled = true;
+          this.router.navigate(['/transaction/transaction-details'], {
+            queryParams: {
+              ID: params['ID'],
+              transConfig: params['transConfig'],
+              transaction: params['transaction'],
+              mode: params['mode'],
+              sessionID: params['sessionID'] || params['SessionID'] || params['SessionId'],
+              Status: params['Status'] || params['status'],
+              additionalSearch: params['additionalSearch'],
+              searchTypeString: params['searchTypeString']
+            },
+            replaceUrl: true
+          });
+          return;
+        }
 
-        let retTab =  sessionStorage.getItem("currentTab");
+        let retTab =  this.storage.getItem<string>("currentTab");
         console.log('HeaderComponent currentTab: '+ retTab);
         let tabInd = 0
 
-        for(; (retTab!== undefined || retTab !== '') && tabInd < this.links.length; tabInd++)
+        for(; (retTab!== undefined && retTab !== '') && tabInd < this.links.length; tabInd++)
           {
             if(this.links[tabInd].name === retTab)
             {
@@ -133,17 +269,22 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           let str:string = this.paramsObject.searchTypeString.toString()
           if(str.indexOf('sameWindow::false') >= 0)
           {
+            this.standaloneDetailMode = true;
 
             if (this.paramsObject.transaction !== undefined)
             {
               this.searchStr = "Transaction: " + this.paramsObject.transaction
-              let element = document.getElementById('tabGrp') as HTMLElement;
-              element.setAttribute('hidden', 'true');
-              console.log("Disable: " + element);
+              let element = document.getElementById('tabGrp') as HTMLElement | null;
+              if (element) {
+                element.setAttribute('hidden', 'true');
+                console.log("Disable: " + element);
+              }
 
-              element = document.getElementById('logout') as HTMLElement;
-              element.setAttribute('hidden', 'true');
-              console.log("Disable: " + element);
+              element = document.getElementById('logout') as HTMLElement | null;
+              if (element) {
+                element.setAttribute('hidden', 'true');
+                console.log("Disable: " + element);
+              }
 
 
             }
@@ -163,11 +304,13 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
           }
           else
           {
+            this.standaloneDetailMode = false;
             this.searchStr = ""
           }
         }
         else
         {
+          this.standaloneDetailMode = false;
           this.searchStr = ""
         }
 
@@ -192,6 +335,13 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
       }
     );
 
+      this.syncSelectedTabWithUrl(this.router.url);
+      this.router.events.subscribe(event => {
+        if (event instanceof NavigationEnd) {
+          this.syncSelectedTabWithUrl(event.urlAfterRedirects || event.url);
+        }
+      });
+
   }
 
   ngAfterViewInit() {
@@ -208,7 +358,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   logout() {
     this.authenticationService.logout();
-    sessionStorage.clear();
+    this.storage.clear();
     this.isLogin = false;
     this.f.username.setValue('');
     this.f.password.setValue('');
@@ -254,57 +404,16 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
               this.TransactionService.fetchConfiguration().subscribe((res: any) => {
                 console.info("Configuration array : " + res.length);
-                if (res.length == 1)
-                {
-                    console.log('Open Setting')
-                    this.router.navigate([this.links[0].link]);
-                    this.selectedLnkIndex.setValue(0);
-                }
-                else
-                {
-                  let jsonString= ""
-
-                  for(let ind = 0; ind < res.length; ind++)
-                    {
-                      if (res[ind].Key !== undefined)
-                      {
-                        if (jsonString.length === 0)
-                        {
-                          jsonString = '{"' + res[ind].Key + '":"' + res[ind].Value +'"'
-                        }
-                        else {
-                          jsonString += ',"' + res[ind].Key + '":"' + res[ind].Value +'"'
-
-                        }
-                        sessionStorage.setItem(res[ind].Key, res[ind].Value);
-                        console.log('Store in sessionStorage ' + res[ind].Key +", " + res[ind].Value);
-                      }
-
-
-                      if(res[ind].Key === 'Page')
-                        {
-                          for(let tabInd = 0; tabInd < this.links.length; tabInd++)
-                            {
-                              if(this.links[tabInd].name === res[ind].Value)
-                              {
-                                this.firstPage = this.links[tabInd].link;
-                                this.selectedLnkIndex.setValue(tabInd);
-                                console.log('Use Config, page: ' + this.firstPage + ' # ' +  this.selectedLnkIndex.value)
-                              }
-                            }
-                        }
-
-                    }
-                    jsonString += "}"
-                      console.log('JSON string:' + jsonString)
-
-                      let parsedObject = JSON.parse(jsonString);
-                      sessionStorage.setItem('UserConfig', jsonString)
-
-                    if (sessionStorage.getItem('Logoff') !== undefined && sessionStorage.getItem('Logoff') !== null)
-                    {
-                        this.loginForm.controls.logoutTime.setValue(sessionStorage.getItem('Logoff'));
-                    }
+                if (res.length == 1) {
+                  console.log('Open Setting')
+                  this.router.navigate([this.links[0].link]);
+                  this.selectedLnkIndex.setValue(0);
+                } else {
+                  this.buildAndStoreUserConfig(res);
+                  const logoffValue = this.storage.getItem<string>('Logoff');
+                  if (logoffValue !== undefined && logoffValue !== null) {
+                    this.loginForm.controls.logoutTime.setValue(logoffValue);
+                  }
 
 
 
@@ -340,7 +449,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
                 this.initListener();
                 this.initInterval();
                 console.log('Store in sessionStorage')
-                sessionStorage.setItem(STORE_KEY,Date.now().toString());
+                this.storage.setItem(STORE_KEY,Date.now().toString());
                 return;
 
               });
@@ -371,41 +480,57 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
    onTabChanged(event: MatTabChangeEvent): void {
 
+    if (this.standaloneDetailMode) {
+      this.selectedLnkIndex.setValue(this.prevLnkIndex);
+      if (this.tabGrp) {
+        this.tabGrp.selectedIndex = this.prevLnkIndex;
+      }
+      return;
+    }
+
     console.log("header onTabChanged. from: " + this.selectedLnkIndex.value +" to: "+ event.index)
 
 
       this.selectedLnkIndex.setValue(event.index);
+      const selectedLink = this.links[event.index];
 
-      console.info("onTabChanged Navigate to " + this.links[event.index].link)
+      if (!selectedLink.children || selectedLink.children.length === 0) {
+        this.utilitySubmenuVisible = false;
+      }
 
-      if (event.index == 6)
+      console.info("onTabChanged Navigate to " + selectedLink.link)
+
+      if (selectedLink.children && selectedLink.children.length > 0) {
+        this.utilitySubmenuVisible = this.openUtilitySubmenuOnSelect;
+        this.openUtilitySubmenuOnSelect = false;
+        this.prevLnkIndex = this.selectedLnkIndex.value
+        return;
+      }
+
+      const currentPath = (this.router.url || '').split('?')[0];
+      if (selectedLink.link && (currentPath === selectedLink.link || currentPath.startsWith(`${selectedLink.link}/`))) {
+        this.prevLnkIndex = this.selectedLnkIndex.value;
+        return;
+      }
+
+      if (selectedLink.name === 'Work Flow')
       {
-
           let numItems = this.NumAssignedItems
-
             this.NumAssignedItems = 0;
-            sessionStorage.removeItem("currentTab")
-            sessionStorage.setItem("currentTab", this.links[event.index].name);
-
-            this.router.navigate([this.links[event.index].link], {queryParams: { 'WFitems':  numItems}} );
-
-
+            this.storage.removeItem("currentTab")
+            this.storage.setItem("currentTab", selectedLink.name);
+            this.router.navigate([selectedLink.link], {queryParams: { 'WFitems':  numItems}} );
       }
       else{
-
           this.getWFitems()
-
           if (event.index != 0)
           {
-            sessionStorage.removeItem("currentTab")
-            sessionStorage.setItem("currentTab", this.links[event.index].name);
+            this.storage.removeItem("currentTab")
+            this.storage.setItem("currentTab", selectedLink.name);
           }
-          this.router.navigate([this.links[event.index].link]);
-
+          this.router.navigate([selectedLink.link], { queryParamsHandling: 'preserve' });
       }
       this.prevLnkIndex = this.selectedLnkIndex.value
-
-
    }
 
    getWFitems()
@@ -452,11 +577,11 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
    // Auto logout
 
    public getLastAction() {
-    return parseInt(sessionStorage.getItem(STORE_KEY));
+    return parseInt(this.storage.getItem<string>(STORE_KEY));
   }
 
  public setLastAction(lastAction: number) {
-  sessionStorage.setItem(STORE_KEY, lastAction.toString());
+  this.storage.setItem(STORE_KEY, lastAction.toString());
   }
 
    initListener() {
@@ -473,7 +598,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
   reset() {
 
     this.setLastAction(Date.now());
-    // console.log('store key',sessionStorage.getItem(STORE_KEY));
+    // console.log('store key',this.storage.getItem(STORE_KEY));
 
   }
 
@@ -505,7 +630,7 @@ export class HeaderComponent implements AfterViewInit, OnInit   {
 
   storageEvt(){
 	  console.log("storage");
-	  this.val = sessionStorage.getItem(STORE_KEY);
+	  this.val = this.storage.getItem<string>(STORE_KEY);
   }
 
 

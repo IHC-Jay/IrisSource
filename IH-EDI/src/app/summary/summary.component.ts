@@ -1,9 +1,10 @@
-import { Component, OnInit, AfterViewInit, ViewChild, ElementRef } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy, ViewChild, ElementRef } from '@angular/core';
 
 import { FormBuilder, FormGroup, FormArray, FormControl, Validators, NgForm } from '@angular/forms';
 
 
 import {TransRestServiceComponent} from '../services/transrest-service.component';
+import { StorageService } from '../services/storage.service';
 import { MatTableDataSource } from '@angular/material/table';
 import {MatAccordion, MatExpansionModule} from '@angular/material/expansion';
 import {MatRadioModule, MatRadioGroup} from '@angular/material/radio';
@@ -21,12 +22,14 @@ import {MatFormFieldModule} from '@angular/material/form-field';
 import { MatMenu, MatMenuTrigger } from '@angular/material/menu';
 import { MatSelect, MatSelectChange } from '@angular/material/select';
 import { MatFormField } from '@angular/material/form-field';
-import { from, catchError, concatMap, forkJoin, toArray } from 'rxjs';
+import { catchError, Subscription } from 'rxjs';
 
 import { MatDialog } from '@angular/material/dialog';
 import { DialogRef } from '@angular/cdk/dialog';
 import { environment } from '../../environments/environment';
 import { MatIconModule } from '@angular/material/icon';
+import { parseDays } from '../utils/parseDays';
+import { DateTimeUtils } from '../utils/date-time.utils';
 
 @Component({
     selector: 'app-summary',
@@ -37,7 +40,12 @@ import { MatIconModule } from '@angular/material/icon';
 
 
 
-export class SummaryComponent implements OnInit, AfterViewInit {
+export class SummaryComponent implements OnInit, AfterViewInit, OnDestroy {
+  // --- Code Organization & Readability Improvements ---
+  // 1. Large logic in ngOnInit split into private helpers
+  // 2. Constructor simplified
+  // 3. Session and form logic moved to private methods
+  // 4. Add comments for clarity
 
   contextMenuPosition = { x: '0px', y: '0px' };
   @ViewChild(MatMenuTrigger)
@@ -119,7 +127,12 @@ export class SummaryComponent implements OnInit, AfterViewInit {
   };
 
   sumUserFlds = "";
-  sub:any;
+  sub: Subscription | undefined;
+  ngOnDestroy(): void {
+    if (this.sub) {
+      this.sub.unsubscribe();
+    }
+  }
 
   selDropdownList = [];
 
@@ -130,10 +143,15 @@ export class SummaryComponent implements OnInit, AfterViewInit {
   usrSearchColumns: SearchColumns[] = [];
   usrDisplayColumns: DisplayColumns[] = [];
 
-  constructor(private SummaryService: TransRestServiceComponent,
-    private formBuilder: FormBuilder, private router: Router, private route: ActivatedRoute, public dialog: MatDialog){
-      tpId: new FormControl();
-
+  constructor(
+    private SummaryService: TransRestServiceComponent,
+    private formBuilder: FormBuilder,
+    private router: Router,
+    private route: ActivatedRoute,
+    public dialog: MatDialog,
+    private storage: StorageService
+  ) {
+    tpId: new FormControl();
   }
 
 
@@ -146,194 +164,130 @@ export class SummaryComponent implements OnInit, AfterViewInit {
     })
   }
 
-  ngOnInit()
-  {
-    console.info("ngOnInit Transmissions");
-    sessionStorage.removeItem("currentTab")
-    sessionStorage.setItem("currentTab", "Transmissions")
-
-    if (this.org == 'SH')
-    {
-        this.transactionTypes = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
-
-    }
-   else
-    {
-        this.transactionTypes = [ "835", "837I", "837P", "837D", "999", "277CA", "TA1"];
-    }
-
-    this.form = this.formBuilder.group({
-      rowCnt:['25', Validators.required],
-      transType: ['', Validators.required],
-      disposition: ['All', Validators.required],
-      mode:['RealTime', Validators.required],
-      direction:['Inbound'],
-      additional:this.formBuilder.array([this.createinitForm()])
-    });
-    let stDt = 1;
-
-
-    this.formFields.currentTransType = ''
-
-    this.sub = this.route.queryParams.subscribe(params => {
-
-      if(params !== undefined)
-      {
-        if(params["sumConfig"] !== undefined)
-        {
-          // Defaults to '' if no query param provided.
-
-          let jsonString = params["sumConfig"]
-          console.info("SumConfig from queryParams: " + jsonString);
-          this.formFields = JSON.parse(jsonString);
-
-          let nowDt = new Date(new Date().getTime());
-          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
-          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
-          this.formFields.endTm= tmVal
-
-        }
-
-      }
-    });
-
-    if (this.formFields.currentTransType == '')
-    {
-      if(sessionStorage.getItem('sumConfig') !== undefined && sessionStorage.getItem('sumConfig') !== null)
-        {
-          // Defaults to '' if no query param provided.
-
-          let jsonString = sessionStorage.getItem('sumConfig')
-          console.info("SumConfig from sessionStorage: " + jsonString);
-          this.formFields = JSON.parse(jsonString);
-          let nowDt = new Date(new Date().getTime());
-          let tmVal = ((nowDt.getHours()< 10)? "0"+ nowDt.getHours() : "" + nowDt.getHours()) + ":" ;
-          tmVal += (nowDt.getMinutes() < 10)? "0"+ nowDt.getMinutes(): "" + nowDt.getMinutes(); // "13:30";
-          this.formFields.endTm= tmVal
-        }
-    }
-
-    if (this.formFields.currentTransType == '')
-    {
-      // Check UserConfig
-      this.formFields.currentTransType = this.transactionTypes[0];
-      this.formFields.disposition = this.dispositions[0];
-
-      console.log('sessionStorage UserConfig: ' + sessionStorage.getItem('UserConfig'))
-
-      if (sessionStorage.getItem('UserConfig') !== undefined && sessionStorage.getItem('UserConfig') !== null)
-      {
-
-          let parsedObject = JSON.parse(sessionStorage.getItem('UserConfig'));
-
-          console.info("Init from session UserConfig: " + parsedObject.TranType +", " + parsedObject.DispCnt +", " + parsedObject.Mode);
-
-
-          this.formFields.currentTransType = parsedObject.TranType
-          this.formFields.rowCnt = parsedObject.DispCnt;
-          this.formFields.mode = parsedObject.Mode;
-          this.pageSize = parsedObject.DispCnt;
-          let stDtStr = parsedObject.BthTime;
-
-        // Format: Last 90 days
-
-         if(stDtStr.toString().indexOf('7') > 1)
-          {
-            stDt = 7
-          }
-          else if(stDtStr.toString().indexOf('30') > 1)
-          {
-            stDt = 30
-          }
-          else if(stDtStr.toString().indexOf('90') > 1)
-          {
-            stDt = 90
-          }
-          else if(stDtStr.toString().indexOf('365') > 1)
-          {
-            stDt = 365
-          }
-            console.info("Init from session: " +  this.formFields.currentTransType);
-            console.info("Search from " + stDt + " days. " + stDtStr);
-      }
-
-      console.info('Set valid date time')
-      this.nowDt = new Date((new Date().getTime() - (stDt * 24 * 60 * 60 * 1000)));
-      let mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-      let dt= (this.nowDt.getDate() < 10)? "0"+this.nowDt.getDate(): this.nowDt.getDate();
-      this.formFields.startDate = this.nowDt.getFullYear() +"-" + mm +"-" + dt; //  "2023-01-12"; // new Date();
-      let tmVal = ((this.nowDt.getHours()< 10)? "0"+ this.nowDt.getHours() : "" + this.nowDt.getHours()) + ":" ;
-
-      tmVal += (this.nowDt.getMinutes() < 10)? "0"+ this.nowDt.getMinutes(): "" + this.nowDt.getMinutes(); // "13:30";
-      this.formFields.startTm = tmVal
-      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
-
-
-      this.nowDt = new Date(new Date().getTime());
-      mm= (this.nowDt.getMonth() < 9)? "0"+(this.nowDt.getMonth() + 1): this.nowDt.getMonth() + 1;
-      dt= (this.nowDt.getDate() < 10)? "0" + this.nowDt.getDate(): this.nowDt.getDate();
-      this.formFields.endDate =this.nowDt.getFullYear() +"-" + mm +"-" + dt;
-      this.formFields.endTm= tmVal
-      console.info("End Time: " + this.formFields.endDate + ", " + this.formFields.endTm);
-    }
-
-    this.form.controls.mode.setValue(this.formFields.mode)
-    this.form.controls.transType.setValue(this.formFields.currentTransType)
-    this.form.controls.disposition.setValue(this.formFields.disposition)
-    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
-
+  async ngOnInit() {
+    this.initSessionTab();
+    this.initTransactionTypes();
+    this.initFormGroup();
+    this.initFormFieldsFromSessionOrQuery();
+    this.setFormControlsFromFields();
     this.clearSearch();
-
-    this.SummaryService.fetchTransactionFields().subscribe((res: any) => {
-    this.summarysFields = [];
-
-      for (var item of res)
-      {
-        // console.info("Push summarysSearchColumns: " + item.Key)
-          this.summarysFields.push({key: item.Key, type: item.Type, label: item.TransmissionLabel, summaryCode: item.TransactionCode});
-
-           // console.info(item.Key +": " + item.Label)
-
-      }
-      console.info("summarys Fields: " + this.summarysFields.length);
-      console.info("Init Usr Columns: " + this.usrDisplayColumns.length);
-
-      this.SummaryService.fetchDisplayColumns('Default', "Summary").subscribe((res: any) => {
-        this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length)
-        this.usrDisplayColumns.push(...res);
-        console.info("User display columns from fetchDisplayColumns: " + this.usrDisplayColumns.length);
-
-        this.SummaryService.fetchSearchColumns('Default', "Summary").subscribe((res: any) => {
-          this.usrSearchColumns.splice(0, this.usrSearchColumns.length)
-          this.usrSearchColumns.push(...res);
-          console.info("User search columns from fetchSearchColumns: " + this.usrSearchColumns.length);
-
-          if(this.formFields.currentTransType !== '')
-            {
-
-            this.transactionChange(this.formFields.currentTransType);
-
-            console.info('Summary search for: ' + this.formFields.currentTransType);
-            this.onSearchSummary();
-            }
-            else
-            {
-              this.transactionChange(this.transactionTypes[0])
-            }
-
-
-        });
-
-
-      });
-
-    });
+    await this.initSummaryFieldsAndColumnsAsync();
     if (!this.dataSource.sort) {
-      console.debug("Set sort in ngInit")
+      console.debug('Set sort in ngInit');
       this.dataSource.sort = this.sort;
     }
+  }
+
+  private initSessionTab() {
+    this.storage.removeItem('currentTab');
+    this.storage.setItem('currentTab', 'Transmissions');
+  }
+
+  private initTransactionTypes() {
+    if (this.org === 'SH') {
+      this.transactionTypes = ["270", "271", "276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
+    } else {
+      this.transactionTypes = ["835", "837I", "837P", "837D", "999", "277CA", "TA1"];
+    }
+  }
+
+  private initFormGroup() {
+    this.form = this.formBuilder.group({
+      rowCnt: ['25', Validators.required],
+      transType: ['', Validators.required],
+      disposition: ['All', Validators.required],
+      mode: ['RealTime', Validators.required],
+      direction: ['Inbound'],
+      additional: this.formBuilder.array([this.createinitForm()])
+    });
+  }
+
+  private initFormFieldsFromSessionOrQuery() {
+    let stDt = 1;
+    this.formFields.currentTransType = '';
+    this.sub = this.route.queryParams.subscribe(params => {
+      if (params && params['sumConfig']) {
+        console.info('Init from query params sumConfig: ' + params['sumConfig']);
+        this.formFields = JSON.parse(params['sumConfig']);
+        this.setEndTimeToNow();
+      }
+    });
+    if (this.formFields.currentTransType === '' && this.storage.getItem('sumConfig')) {
+      console.info('Init from session storage sumConfig');
+      this.formFields = this.storage.getItem<any>('sumConfig');
+      this.setEndTimeToNow();
+    }
+    if (this.formFields.currentTransType === '') {
+      this.formFields.currentTransType = this.transactionTypes[0];
+      this.formFields.disposition = this.dispositions[0];
+      const parsedObject = JSON.parse(this.storage.getItem<any>('UserConfig') || '{}' ) ;
+      if (parsedObject) {
+        console.info("Init from session UserConfig: " + parsedObject.TranType + ", " + parsedObject.DispCnt + ", " + parsedObject.Mode);
+        this.formFields.currentTransType = parsedObject.TranType;
+        this.formFields.rowCnt = parsedObject.DispCnt;
+        this.formFields.mode = parsedObject.Mode;
+        this.pageSize = parsedObject.DispCnt;
+
+        stDt = parseDays(parsedObject.BthTime);
+
+      }
+      this.setStartAndEndDateTimes(stDt);
+    }
+  }
 
 
+  private setEndTimeToNow() {
+    const { currentDt: endDt, currentTm: currentTm } = DateTimeUtils.GetCurrentDtTm();
+    this.formFields.endDate = endDt;
+    this.formFields.endTm = currentTm;
+  }
+
+  private setStartAndEndDateTimes(stDt: number) {
+    console.log("Set Start and End DateTimes with stDt: " + stDt);
+
+    const dtObj = DateTimeUtils.GetStartEndDtTm(stDt);
+                this.formFields.startDate = dtObj.startDt;
+                this.formFields.startTm = dtObj.startTm;
+                this.formFields.endDate = dtObj.endDt;
+                this.formFields.endTm = dtObj.endTm;
+
+  }
+
+  private setFormControlsFromFields() {
+    this.form.controls.mode.setValue(this.formFields.mode);
+    this.form.controls.transType.setValue(this.formFields.currentTransType);
+    this.form.controls.disposition.setValue(this.formFields.disposition);
+    this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
+  }
+
+  private initSummaryFieldsAndColumnsAsync(): Promise<void> {
+    return new Promise((resolve) => {
+
+      console.info('Fetching SummaryFields and Display/Search Columns');
+
+      this.SummaryService.fetchTransactionFields().subscribe((res: any) => {
+        this.summarysFields = [];
+        for (var item of res) {
+          this.summarysFields.push({ key: item.Key, type: item.Type, label: item.TransmissionLabel, summaryCode: item.TransactionCode });
+        }
+        this.SummaryService.fetchDisplayColumns('Default', 'Summary').subscribe((res: any) => {
+          this.usrDisplayColumns.splice(0, this.usrDisplayColumns.length);
+          this.usrDisplayColumns.push(...res);
+          this.SummaryService.fetchSearchColumns('Default', 'Summary').subscribe((res: any) => {
+            this.usrSearchColumns.splice(0, this.usrSearchColumns.length);
+            this.usrSearchColumns.push(...res);
+            if (this.formFields.currentTransType !== '') {
+              this.transactionChange(this.formFields.currentTransType);
+              this.onSearchSummary();
+            } else {
+              this.transactionChange(this.transactionTypes[0]);
+            }
+            console.info('Fetched SummaryFields and Display/Search Columns');
+            resolve();
+          });
+        });
+      });
+    });
   }
 
   ngAfterViewInit() {
@@ -427,9 +381,8 @@ export class SummaryComponent implements OnInit, AfterViewInit {
         this.sumUserFlds += val +";";
        });
 
-      sessionStorage.setItem("sumUserFlds", this.sumUserFlds);
-      const jsonString = JSON.stringify(this.formFields);
-      sessionStorage.setItem("sumConfig", jsonString);
+      this.storage.setItem("sumUserFlds", this.sumUserFlds);
+      this.storage.setItem("sumConfig", this.formFields);
 
       if(this.form.controls.transType.value === '270')
       {
@@ -925,7 +878,7 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={rowId: row.ID, FileName: row.FileName, sessionId: row.SessionID};
+  let item: Item ={rowId: row.ID, FileName: row.FileName, sessionId: row.SessionID, status: row.Status};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
@@ -937,12 +890,18 @@ handleContextMenu(item: Item, menu: string)  {
   if (menu === 'WorkFlow')
    {
 
-      sessionStorage.removeItem("currentTab")
-      sessionStorage.setItem("currentTab", "Work Flow");
+      this.storage.removeItem("currentTab");
+      this.storage.setItem("currentTab", "Work Flow");
 
-      const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` + "/workflow/workflowDetails/"],
-         {queryParams: { sessionID:  (item.sessionId),  mode:  this.formFields.mode, TransactionType: this.formFields.currentTransType} }
-      ));
+      const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
+      const normalizedBase = baseHref.endsWith('/') ? baseHref.slice(0, -1) : baseHref;
+      const query = new URLSearchParams();
+      query.set('TransId', String(item.rowId));
+      query.set('sessionID', item.sessionId || '');
+      query.set('Status', item.status || '');
+      query.set('mode', this.formFields.mode || '');
+      query.set('TransactionType', this.formFields.currentTransType || '');
+      const url = `${normalizedBase}/workflow/rdpValidationErrors?${query.toString()}`;
       console.log("Open in new tab URL: " + url);
           const newTab = window.open(url, '_blank');
           if(newTab) {
@@ -962,6 +921,43 @@ handleContextMenu(item: Item, menu: string)  {
    }
 }
 
+private openInX12Viewer(fileName: string, sessionId?: string, status?: string, x12DataId?: string): void {
+  this.storage.removeItem('x12ViewerSeed');
+  localStorage.removeItem('x12ViewerSeed');
+  this.storage.removeItem('currentTab');
+  this.storage.setItem('currentTab', 'Utilities');
+  const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
+  const normalizedBase = baseHref.endsWith('/') ? baseHref.slice(0, -1) : baseHref;
+  const query = new URLSearchParams();
+  if (sessionId) {
+    query.set('sessionID', sessionId);
+  }
+  if (status) {
+    query.set('Status', status);
+  }
+  if (this.formFields?.mode) {
+    query.set('mode', this.formFields.mode);
+  }
+  if (this.formFields?.currentTransType) {
+    query.set('TransactionType', this.formFields.currentTransType);
+  }
+  if (x12DataId) {
+    query.set('x12DataId', x12DataId);
+  }
+  if (this.form?.controls?.mode?.value) {
+    query.set('searchTypeString', this.form.controls.mode.value);
+  }
+  if (fileName) {
+    query.set('FileName', fileName);
+  }
+  const queryString = query.toString();
+  const targetUrl = `${normalizedBase}/x12-viewer${queryString ? '?' + queryString : ''}`;
+  const newTab = window.open(targetUrl, '_blank');
+  if (newTab) {
+    newTab.opener = null;
+  }
+}
+
 
 onContextMenuNew(item: Item) {
   console.log("Click on Action id: " + item.rowId);
@@ -970,8 +966,8 @@ onContextMenuNew(item: Item) {
   const jsonString = JSON.stringify(this.formFields);
 
     console.log(item.FileName);
-    sessionStorage.removeItem("currentTab")
-    sessionStorage.setItem("currentTab", "Transactions");
+    this.storage.removeItem("currentTab");
+    this.storage.setItem("currentTab", "Transactions");
 
     this.sumUserFlds = "";
     this.paramsList.forEach( val => {
@@ -983,11 +979,25 @@ onContextMenuNew(item: Item) {
 
     this.sumUserFlds += ";sameWindow::false";
 
-       const url = this.router.serializeUrl(this.router.createUrlTree([ `${environment.org}` +"/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
-        'mode': this.form.controls.mode.value, 'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
-       ));
-    const newTab = window.open(url, '_blank');
+    // Store complex parameters in localStorage to keep URL clean and share across tabs
+    localStorage.setItem('transactionNavData', JSON.stringify({
+      transConfig: jsonString,
+      transaction: this.form.controls.transType.value,
+      mode: this.form.controls.mode.value,
+      additionalSearch: additionalsearchString,
+      sumUserFlds: this.sumUserFlds
+    }));
+
+    // Build URL with additionalSearch parameter to display filtered transaction list
+    const relativeUrl = this.router.serializeUrl(this.router.createUrlTree(["/transaction/"],
+      {queryParams: { ID: item.rowId, 'additionalSearch': additionalsearchString } }
+    ));
+
+    // Get base href to construct absolute URL for window.open
+    const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
+    const absoluteUrl = window.location.origin + baseHref.replace(/\/$/, '') + relativeUrl;
+
+    const newTab = window.open(absoluteUrl, '_blank');
     if(newTab) {
         newTab.opener = null;
     }
@@ -999,8 +1009,8 @@ onContextMenuNew(item: Item) {
 onContextMenuSame(item: Item) {
 
   this.sumUserFlds = "";
-  sessionStorage.removeItem("currentTab")
-  sessionStorage.setItem("currentTab", "Transactions");
+  this.storage.removeItem("currentTab");
+  this.storage.setItem("currentTab", "Transactions");
   const jsonString = JSON.stringify(this.formFields);
 
   this.paramsList.forEach( val => {
@@ -1009,9 +1019,19 @@ onContextMenuSame(item: Item) {
    let additionalsearchString = "FileName='"+item.FileName +"'";
 
    this.sumUserFlds += ";sameWindow::true";
-      this.router.navigate(["/transaction/"],
-      {queryParams: { ID:  item.rowId, 'transConfig': jsonString, 'transaction': this.form.controls.transType.value,
-         'additionalSearch': additionalsearchString, 'sumUserFlds': this.sumUserFlds } }
+
+   // Store complex parameters in localStorage for same-window navigation too
+   localStorage.setItem('transactionNavData', JSON.stringify({
+     transConfig: jsonString,
+     transaction: this.form.controls.transType.value,
+     mode: this.form.controls.mode.value,
+     additionalSearch: additionalsearchString,
+     sumUserFlds: this.sumUserFlds
+   }));
+
+   // Navigate with minimal URL params (ID and essential filters only)
+   this.router.navigate(["/transaction"],
+      {queryParams: { ID: item.rowId, 'additionalSearch': additionalsearchString } }
        );
 
 }
@@ -1019,110 +1039,8 @@ onContextMenuSame(item: Item) {
   openX12Modal(item: Item) {
 
     console.info("openX12Modal: " + item.rowId + ", " + this.formFields.currentTransType +", " + this.form.controls.mode.value);
-
-    this.SummaryService.fetchParentRecord(item.rowId.toString(), this.formFields.currentTransType, this.form.controls.mode.value).subscribe((res: any) =>
-      {
-      this.canRenderDetails = true;
-      let val = ""
-
-      if(res === "No data")
-      {
-        let param: string[] = [ "Not found", ""];
-        const dialogRef = this.dialog.open(Modalx12Component, {
-          width: '1700px',
-          data: param
-        });
-      }
-
-      else if (res.x12Data !== undefined && res.x12Data.indexOf('stored as a Stream') >= 0)
-      {
-            var stPos = 1;
-            var moreData = 1;
-            let letter = "";
-            var maxSize = 3000000;
-            var productIds: number[] = [0,1,2,3,4,5,6,7,8,9,10];
-
-            from(productIds).pipe(
-               concatMap(id =>  this.SummaryService.fetchX12Stream(item.rowId.toString(), this.formFields.currentTransType,
-                this.form.controls.mode.value, id * maxSize + 1)), toArray()).subscribe(
-                {next: (res: any) =>
-              {
-                console.info("Sequential calls completed. Total parts: " + res.length);
-                var totSize = 0;
-                for (let i = 0; i < res.length; i++) {
-                  console.info("Part " + i + ": " + res[i][0].startPos + ", " + res[i][0].x12Len + " more: "  + res[i][0].moreData);
-                  if (res[i][0].moreData > 0){
-                    totSize += res[i][0].x12Len;
-                    val = val + res[i][0].x12Data;
-                  }
-                  else if (res[i][0].x12Len > 0){
-                    totSize += res[i][0].x12Len;
-                    val = val + res[i][0].x12Data;
-                  }
-                  else
-                  {
-                    break;
-                  }
-
-
-                }
-                console.info(" Final X12 length: " + totSize);
-                val = val.replaceAll("~", "~\n")
-              }, error: (error) => {
-                  console.error('An error occurred:', error);
-                },
-                complete: () => {
-                  console.log('All sequential calls completed.' );
-                    if(val !== "")
-                    {
-                      let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + "), Size:" + val.length  ];
-                      const dialogRef = this.dialog.open(Modalx12Component, {
-                        width: '1700px',
-                        data: param
-                      });
-
-                      dialogRef.afterClosed().subscribe(result => {
-                        console.log('The dialog closed');
-                      });
-
-                    }
-
-                }
-              }) ;
-
-      }
-      else if (res.x12Data !== undefined && res.x12Data.length > 0 )
-      {
-        if (res.x12Data.length > 105)
-        {
-           let letter = res.x12Data.charAt(105);
-
-           val = res.x12Data.replaceAll(letter, letter + "\n" )
-            console.info("Split X12 with: " + letter);
-         }
-         else
-         {
-           val = res.x12Data
-         }
-      }
-      else{
-          val = res.x12Data.replaceAll("~", "~\n")
-        }
-
-      if(val !== "")
-      {
-        let param: string[] = [ val, item.FileName, this.formFields.currentTransType + " X12 Data, ID(" + item.rowId + "), Size:" + val.length  ];
-        const dialogRef = this.dialog.open(Modalx12Component, {
-          width: '1700px',
-          data: param
-        });
-
-        dialogRef.afterClosed().subscribe(result => {
-          console.log('The dialog closed');
-        });
-
-      }
-    });
+    this.canRenderDetails = true;
+    this.openInX12Viewer(item.FileName, item.sessionId, item.status, item.rowId?.toString());
 
   }
 
@@ -1152,6 +1070,7 @@ export interface Item {
   FileName: string;
   rowId: number;
   sessionId: string;
+  status?: string;
 }
 
 export interface customSearchStruct {
