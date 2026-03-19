@@ -431,7 +431,7 @@ BPL Definition</Description>
 <![CDATA[  
   set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group:835"
   set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(context.inXmlDoc, 1, "All")
-  $$$TRACE("PerformSNIPValidation, SNIP: " _ context.tpLinkObj.SNIP _ " returned: " _ tSc)
+  $$$TRACE("PerformSNIPValidation, SNIP: 1, returned: " _ tSc)
   ]]]]><![CDATA[>
 </code>
 <if name='Error in validation' condition='$$$ISERR(tSc)' xpos='740' ypos='2350' xend='740' yend='4700' >
@@ -447,41 +447,45 @@ BPL Definition</Description>
 	  if ($IsObject(reply))
 	  {
 		 $$$TRACE( reply.OutputToString() )
-	  }
-	  /* Check if the reply is 999 or TA1 */
 	  
-	  Set tSC1=process.SendRequestAsync(context.ackTargetConfigNames _ context.tpLinkObj.Routing, reply)
-	  $$$TRACE("Send NAck to Process: " _ context.ackTargetConfigNames _ context.tpLinkObj.Routing _ ", status: " _ tSC1)
+	     /* Check if the reply is 999 or TA1 */
+	  
+	     $$$TRACE("Send inbound X12 data" )
+	   
+	      set stream=##class(%Stream.GlobalCharacter).%New()
+	      Set tSC =reply.OutputToLibraryStream(stream, context.x12Sep)
+	
+              set context.newStreamContainer =##class(Ens.StreamContainer).%New(stream)
+              set context.newStreamContainer.OriginalFilename = request.OriginalFilename _".999"
+	 
+	  
+	      Set tSC1=process.SendRequestAsync(context.ackTargetConfigNames _ context.tpLinkObj.Routing, context.newStreamContainer)
+	      $$$TRACE("Send NAck to Process: " _ context.ackTargetConfigNames _ context.tpLinkObj.Routing _ ", status: " _ tSC1)
+	  }
 	          
   }
   ]]]]><![CDATA[>
 </code>
 <code name='Create Success batch' xpos='1010' ypos='2750' >
-<![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"CreateNewBatches",.configValue)
-  if (configValue = "Yes")
-  {
-         set succBat = ##class(Ens.X12.FunctionSet).X12BatchSuccesses(context.inXmlDoc, "SNIP", context.tpLinkObj.SNIP)
-	 $$$TRACE("Create X12BatchSuccesses: " _ succBat)
-	 if ($IsObject(succBat))
-	 {
-	   $$$TRACE("Success X12 data: " _ succBat.RawContent)
-	   set context.succBat = succBat
+<![CDATA[
+	   $$$TRACE("Send inbound X12 data" )
 	   
+	   set stream=##class(%Stream.GlobalCharacter).%New()
+	   Set tSC =context.inXmlDoc.OutputToLibraryStream(stream, context.x12Sep)
+	
+           set context.newStreamContainer =##class(Ens.StreamContainer).%New(stream)
+           set context.newStreamContainer.OriginalFilename = request.OriginalFilename
+	 
 	    
            For iTarget=1:1:$L(context.targetConfigNames, ",") 
            {
 		Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
-		Set tSC1=process.SendRequestAsync(tOneTarget, context.inXmlDoc)
+		Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer)
 		$$$TRACE("Send Async Success message to Process: " _ tOneTarget _ ", status: " _ tSC1)
 			
            }
    
-	 }
-	 else
-	 {
-	       $$$TRACE("No success X12 from X12BatchSuccesses")
-	 }
-  }
+	
 ]]]]><![CDATA[>
 </code>
 <trace name='To Inbound data error WF' value='"X12 validation failed inbound X12, Send to WF"' xpos='1010' ypos='2850' />
@@ -645,21 +649,24 @@ BPL Definition</Description>
                             else
                             {
                                set shJmsComp = compNm 
+                               
                             }
                           }
                           $$$TRACE("ACK components: " _ uhinComp _", " _ shJmsComp )
                           
                           if ( (shJmsComp '= "") && (process.%PrimaryRequestHeader.SourceConfigName [ "LOOPBACK") )
                           {
-                              Set tSC1=process.SendRequestAsync(shJmsComp, x12StCon)
+                              Set tSC1=process.SendRequestAsync(shJmsComp, reply)
+                              $$$TRACE("Sent Ack as JmsMessageWithProperties to Ack Process: " + shJmsComp + " , status: " _ tSC1)
                           }
                           elseif  (uhinComp '= "")
                           {
 	 	
 		 	       Set tSC1=process.SendRequestAsync(uhinComp, x12StCon)
+		 	       $$$TRACE("Sent Ack as stream to Ack Process: " + uhinComp + " , status: " _ tSC1)
 	                       
 	                  }
-	                  $$$TRACE("Sent Ack as stream to Ack Process, status: " _ tSC1)
+	                  
 	
 	
 		  }
