@@ -32,6 +32,11 @@ Direction: In / Out </Description>
 <Parameter name="MAXLEN" value="128"/>
 </Property>
 
+<Property name="RdpCrystalTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
 <Property name="Mode">
 <Description>
 Mode RT / Batch </Description>
@@ -70,7 +75,7 @@ X12 - Create a new batch containing only those child documents which pass valida
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>-NextOperation,-TargetConfigMask,ContinueAfterTPError:Additional,ContinueAfterValidationError:Additional,SourceFlagsLookup:Additional, TargetMasksLookup:Additional, Mode:Additional,Direction:Additional,CreateNewBatches:Additional,X12StoreTargetConfigName:Additional</Default>
+<Default>-NextOperation,-TargetConfigMask,RdpCrystalTargetConfigName:Additional,ContinueAfterTPError:Additional,ContinueAfterValidationError:Additional,SourceFlagsLookup:Additional, TargetMasksLookup:Additional, Mode:Additional,Direction:Additional,CreateNewBatches:Additional,X12StoreTargetConfigName:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -101,6 +106,9 @@ X12 - Create a new batch containing only those child documents which pass valida
 </Value>
 <Value name="8">
 <Value>CreateNewBatches</Value>
+</Value>
+<Value name="9">
+<Value>RdpCrystalTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
@@ -201,6 +209,12 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='SNIPValidationStat' type='%Boolean' initialexpression='0' instantiate='0' />
+<property name='transactionType' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='jsonMessage' type='%Library.DynamicObject' instantiate='0' />
 </context>
 <sequence xend='200' yend='4450' >
 <scope xpos='200' ypos='250' xend='200' yend='4350' >
@@ -430,6 +444,8 @@ BPL Definition</Description>
   #dim individualGroup As EnsLib.EDI.X12.Document 
        set individualGroup = context.inXmlDoc.getNthChild(1,2)
        set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
+       set STRecord=individualGroup.getNthChild(1,2)
+       set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
            
      set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(context.interchangeSenderID ,context.interchangeReceiverID , context.version, context.mode, context.direction, .lnkInfo, .errStr)
             
@@ -542,19 +558,75 @@ BPL Definition</Description>
 </if>
 <if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2200' xend='470' yend='3900' >
 <true>
-<code name='X12 Validate Document' xpos='740' ypos='2350' >
-<![CDATA[ $$$TRACE("PerformSNIPValidation? SNIP: " _ context.tpLinkObj.SNIP)
- if (context.tpLinkObj.SNIP > 0)
- {
-    set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(context.inXmlDoc, context.tpLinkObj.SNIP, "All")
-    $$$TRACE("PerformSNIPValidation, SNIP: " _ context.tpLinkObj.SNIP _ " returned: " _ tSc)
-    set context.SNIPValidationStat = tSc
+<code name='Call RDP Validation ' xpos='740' ypos='2350' >
+<![CDATA[   $$$TRACE("RDP Validation operation")
+   if (context.tpLinkObj.SNIP > 0)
+  { 
+        set context.storeX12.SNIP = context.tpLinkObj.SNIP 
+        set context.storeX12.version = context.version 
+        set context.storeX12.transactionType = context.transactionType
+        set context.storeX12.ValidationRuleFile = context.tpLinkObj.ValidationRuleFile
+        
+        set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.configValue)
+                 if ( ($$$ISERR(pstatus)) || (configValue = ""))
+                 {
+	             $$$LOGERROR("271 validation process not defined - Validate271TargetConfigName")
+	             set context.SNIPValidationStat = $$$OK
+	         }
+	         else
+                 {
+	              $$$TRACE("Call: " _ configValue)
+	              try {
+	                Set tSC1=process.SendRequestSync(configValue, context.storeX12, .resp, 10)
+        
+                        $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", " _ resp.jsonMessage.%ToJSON())
+        
+                        if $$$ISOK(tSC1)
+                        {
+                           set context.jsonMessage = resp.jsonMessage
+                           $$$TRACE("Validation status: " _ context.jsonMessage.status)
+                           if (context.jsonMessage.status = "PASS")
+                           {
+                               set context.SNIPValidationStat = $$$OK
+                           }
+                           else
+                           {
+                             set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
+                             $$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)
+                           }
+                        }
+                        else
+                        {  
+                             set context.SNIPValidationStat = tSC1
+                        }
+                      } catch ex
+                      {
+                         Set errMsg = "Exception"
+                         If (ex.%IsA("%Exception.SystemException") && (ex.AsSystemError()["<NOTOPEN>")) {
+			     Set errMsg = $system.Process.OSError()
+			 }
+			 else
+			 {
+			    Set errMsg = "Exception: " _ ex.Code _ ", data=" _ ex.Data _ ", location=" _ ex.Location
+			 }
+                         $$$LOGERROR("Exception in calling the " _ configValue _ " : " _ errMsg )
+                         set context.SNIPValidationStat = 0
+                         set response = ##class(Ens.StringContainer).%New()
+                         set context.jsonMessage.ack = "ERROR: Could not validate X12"
+                         set context.jsonMessage.details = "Exception in calling validation, " _ errMsg 
+                      }
+                 }
+	         
+	         
   }
   else
   {
-    $$$TRACE("Don't Perform SNIPValidation, SNIP: " _ context.tpLinkObj.SNIP)
+    $$$TRACE("Don't Perform Validation, SNIP: " _ context.tpLinkObj.SNIP)
     set context.SNIPValidationStat = $$$OK
-  }]]]]><![CDATA[>
+  }
+                  
+
+ ]]]]><![CDATA[>
 </code>
 <if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='2450' xend='740' yend='2900' >
 <true>
