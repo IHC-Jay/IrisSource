@@ -64,7 +64,7 @@ namespace RdpValidationRestApi.Controllers
                 if (rdpResp.validator != null)
                 {
 
-                    string retStr = RdpErrorsToIris(nameSpace, rdpResp.validator, x12Id, sessionId, rdpResp.ackStr);
+                    string retStr = RdpErrorsToIris(nameSpace, rdpResp.validator, x12Id, sessionId, rdpResp.ackStr, 1);
                     Console.WriteLine(retStr);
 
                 }
@@ -127,10 +127,11 @@ namespace RdpValidationRestApi.Controllers
 
         }
       
-        public string RdpErrorsToIris(string nameSpace, EDIValidator validator, string x12Id, string SessionId, string ackStr)
+        public string RdpErrorsToIris(string nameSpace, EDIValidator validator, string x12Id, string SessionId, string ackStr, int logToDb)
         {
            // Write RDP errors to DB table
             string validationStr = "";
+            IRISConnection IRISConnect = null;
 
             try
             {
@@ -142,15 +143,20 @@ namespace RdpValidationRestApi.Controllers
                 else
                 { 
 
-
-                    IRISConnection IRISConnect = ConnectToIRIS(nameSpace);
-
                     string queryString = "INSERT INTO IHC_ITF_ITFCOMMON_X12.RdpValidationErrors(LineNum,TransactionSet,SegmentData,FieldValue,SnipLevel,Loop,Segment,Element,ErrorCode,ErrorDesc,ErrorType,X12DataId,TransactionType,ProcessDtTm, SessionId, Ack) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-                    Console.WriteLine("SQL: " + queryString);
+		    if(logToDb == 1)
+		    {
+                    	IRISConnect = ConnectToIRIS(nameSpace);
+
+
+                    	Console.WriteLine("SQL: " + queryString);
+		    }
 
                     foreach (EDIError error in validator.Errors)
                     {
+			if(logToDb == 1)
+			{
                         IRISCommand irisCmd = new IRISCommand(queryString, IRISConnect);
                         IRISParameter param1 = new IRISParameter("LineNum", IRISDbType.Int);
                         param1.Value = error.LineNumber;
@@ -253,14 +259,23 @@ namespace RdpValidationRestApi.Controllers
 
                         // Console.WriteLine("Added " + rows + " row for " + validationStr);
                         irisCmd.Dispose();
-                    }
+			}
+			else
+			{
+				validationStr += error.LineNumber +", " + error.ValidatingSegment.ToString()  +", " + error.Loop +", " + error.Segment  +", " + error.ElementOrdinal.ToString() +", " + error.Message.ToString() +", " + error.Description + ", Snip; " + error.SnipLevel.ToString()  +  ";" ;
 
-                    IRISConnect.Close();
+			}
+                    }
+		    if(logToDb == 1)
+		    {
+
+                    	IRISConnect.Close();
+		    }
                 }
             }
             catch (Exception eInsert)
             {
-                Console.WriteLine("Exception: " + eInsert.ToString() +", values: " + validationStr);
+                Console.WriteLine("RdpErrorsToIris Exception: " + eInsert.ToString() +", values: " + validationStr);
             }
             
             
@@ -303,7 +318,7 @@ namespace RdpValidationRestApi.Controllers
             }
             catch (IOException e)
             {
-                Console.WriteLine($"The file could not be created: {e.Message}");
+                Console.WriteLine($"ConnectToIRIS exception: {e.Message}");
             }
 
         }

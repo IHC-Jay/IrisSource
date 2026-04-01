@@ -3,6 +3,7 @@ using Microsoft.Win32;
 using RDPCrystalEDILibrary;
 using RDPCrystalEDILibrary.Rules;
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -16,6 +17,7 @@ namespace RdpValidationRestApi.Controllers
         public X12Response ProcessX12(string dataFile, string transaction, string rulesPath, string ruleFile, int snipLevel, string ignoreSegments)
         {
             int errNum = 0;
+	    const int MAX_ERRORS  = 999;
             // Display all errors
             errNum++;
 	    Console.WriteLine("In ProcessX12, file:" + dataFile);
@@ -71,6 +73,8 @@ namespace RdpValidationRestApi.Controllers
                 Console.WriteLine("Create EDIValidator: " + prodKey);
 
                 EDIValidator validator = new EDIValidator();
+		validator.AutoDetectDelimiters = true;
+		validator.MaxErrorsBeforeThrowingException = 5000;
 
                 Console.WriteLine("Using " + rulesPath + ruleFile + " for " + transaction +", SNIP:" + snipLevel);
 
@@ -83,6 +87,16 @@ namespace RdpValidationRestApi.Controllers
 
 
                 validator.EDIFile = dataFile;
+		FileInfo fileInfo = new FileInfo(dataFile);
+		if (fileInfo.Length > 1000000)
+		{
+			validator.LoadValidatedData = false;
+			Console.WriteLine("LoadValidatedData property is turned off ");
+		}
+		else
+		{
+                	Console.WriteLine("Load full X12");
+		}
                 validator.Validate();
 
                 if (validator.Passed)
@@ -110,7 +124,7 @@ namespace RdpValidationRestApi.Controllers
 
                     // Start loading the file 
                     parser.BeginFileLoad();
-                    Span<RDPCrystalEDILibrary.EDIError> deleteErrors = new RDPCrystalEDILibrary.EDIError[50];
+                    Span<RDPCrystalEDILibrary.EDIError> deleteErrors = new RDPCrystalEDILibrary.EDIError[MAX_ERRORS];
                     int validationInd = 0;
 
                     List<string> errors = new List<string>();
@@ -127,15 +141,34 @@ namespace RdpValidationRestApi.Controllers
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Situational;
                     }
                     Console.WriteLine("Total # of errors: " + validator.Errors.Count + ", snipLevel: " + snipLevel +", snipCheck: " + snipCheck);
+		    if (validator.Errors.Count > MAX_ERRORS)
+		    {
+                	var err = new X12Response
+                	{
+                    	dataFile = $"{dataFile}!",
+                        validator = null,
+                    	ackStr = null,
+                    	status = "FAIL, Aborting. More than MAX_ERRORS errors: "+  MAX_ERRORS,
+                    	ediRulesFile = $"{validator.EDIRulesFile}"
+	
+                	};
+
+                	return err;
+		    }
 
                     foreach (EDIError error in validator.Errors)
                     {
 			Console.WriteLine(" - Line: " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment/Element: " + error.Segment + "/" + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
-                        if (error.SnipLevel > snipCheck)
+			if (validationInd >= MAX_ERRORS)
+			{
+				break;
+			}
+
+                        if (error.SnipLevel > snipCheck )
                         {
                             deleteErrors[validationInd++] = error;
                         }
-			if (segments != null && segments.Contains(error.Segment))
+			if (segments != null && segments.Contains(error.Segment) )
                         {
 				Console.WriteLine("Ignore segment: " +  error.Segment );
                             deleteErrors[validationInd++] = error;
@@ -145,6 +178,7 @@ namespace RdpValidationRestApi.Controllers
 
                     }
 
+		    Console.WriteLine("Delete errors");
                     foreach (RDPCrystalEDILibrary.EDIError delInd in deleteErrors)
                     {
                         if (delInd != null)
@@ -193,8 +227,8 @@ namespace RdpValidationRestApi.Controllers
                     dataFile = $"{dataFile}!",
                     validator = null,
                     ackStr = msg,
-                    status = "FAIL",
-                    ediRulesFile = "Invalid request"
+                    status = "FAIL, Exception: " + ex,
+                    ediRulesFile = "NA"
 
                 };
 
@@ -277,6 +311,17 @@ namespace RdpValidationRestApi.Controllers
         		Console.WriteLine("NPI valid:" + e.ConditionValid);
     		}
 	    }
+	    else if (e.CodeCondition.Id == "prvValidation")
+		{
+    		if (e.CurrentSegment.Elements[1].ToString() == "HPI")
+    		{
+		    	string npiNum = e.CurrentSegment.Elements[2].ToString();
+				
+    			Console.WriteLine("HPI Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+        		e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+        		Console.WriteLine("PRV HPI NpiValidator:" + e.ConditionValid);
+    		}
+	    }
 	    else if (e.CodeCondition.Id == "dtpValidation")
 		{
 		    	string dob = e.CurrentSegment.Elements[2].ToString();
@@ -306,6 +351,15 @@ namespace RdpValidationRestApi.Controllers
         		e.ConditionValid = !Util.SsnValidator.IsValid(ssnNum);
         		Console.WriteLine("SSN valid:" + e.ConditionValid);
     		}
+                if (e.CurrentSegment.Elements[0].ToString() == "EI" || e.CurrentSegment.Elements[0].ToString() == "TJ")
+                {
+                        string einNum = e.CurrentSegment.Elements[1].ToString();
+
+                        Console.WriteLine("EIN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + einNum);
+                        e.ConditionValid = !Util.EinValidator.IsValid(einNum);
+                        Console.WriteLine("EIN valid:" + e.ConditionValid);
+                }
+
 		else if (e.CurrentSegment.Elements[0].ToString() == "EA")
     		{
 		    	string medNum = e.CurrentSegment.Elements[1].ToString();
@@ -335,7 +389,7 @@ namespace RdpValidationRestApi.Controllers
 				}
 			if (zip.Length > 0)
 			{
-				string pattern = @"^\d{5}(-\d{4})?$";
+				string pattern = @"^\d{5}(-\d{4})?$|^(\d{5}|\d{9})$";
     				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(zip, pattern);
         			Console.WriteLine("ZIP valid:" + e.ConditionValid);
 			}
