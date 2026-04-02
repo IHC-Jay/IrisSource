@@ -3,7 +3,6 @@ using Microsoft.Win32;
 using RDPCrystalEDILibrary;
 using RDPCrystalEDILibrary.Rules;
 using System;
-using System.IO;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
@@ -14,12 +13,14 @@ namespace RdpValidationRestApi.Controllers
 {
     internal class RdpValidate
     {
+        private string _rulesBasePath = string.Empty;
+
         public X12Response ProcessX12(string dataFile, string transaction, string rulesPath, string ruleFile, int snipLevel, string ignoreSegments)
         {
             int errNum = 0;
-	    const int MAX_ERRORS  = 999;
             // Display all errors
             errNum++;
+            const int MAX_ERRORS  = 999;
 	    Console.WriteLine("In ProcessX12, file:" + dataFile);
 
 
@@ -47,7 +48,9 @@ namespace RdpValidationRestApi.Controllers
 		    {
 			segments = ignoreSegments.Split(",");
 		    }
-                string prodKey = getLicense();
+                _rulesBasePath = rulesPath ?? string.Empty;
+
+                string prodKey = getLicense(_rulesBasePath);
                 PackageLicense.Key = prodKey;
 
                 if (ruleFile == null || ruleFile == "")
@@ -73,12 +76,14 @@ namespace RdpValidationRestApi.Controllers
                 Console.WriteLine("Create EDIValidator: " + prodKey);
 
                 EDIValidator validator = new EDIValidator();
-		validator.AutoDetectDelimiters = true;
-		validator.MaxErrorsBeforeThrowingException = 5000;
+                validator.AutoDetectDelimiters = true;
+                validator.MaxErrorsBeforeThrowingException = 5000;
 
-                Console.WriteLine("Using " + rulesPath + ruleFile + " for " + transaction +", SNIP:" + snipLevel);
+                string ediRulesFilePath = System.IO.Path.Combine(_rulesBasePath, ruleFile ?? string.Empty);
 
-                validator.EDIRulesFile = rulesPath + ruleFile;
+                Console.WriteLine("Using " + ediRulesFilePath + " for " + transaction +", SNIP:" + snipLevel);
+
+                validator.EDIRulesFile = ediRulesFilePath;
 
                 // Register for the appropriate event on the EDIValidator
 
@@ -87,16 +92,17 @@ namespace RdpValidationRestApi.Controllers
 
 
                 validator.EDIFile = dataFile;
-		FileInfo fileInfo = new FileInfo(dataFile);
-		if (fileInfo.Length > 1000000)
-		{
-			validator.LoadValidatedData = false;
-			Console.WriteLine("LoadValidatedData property is turned off ");
-		}
-		else
-		{
-                	Console.WriteLine("Load full X12");
-		}
+                FileInfo fileInfo = new FileInfo(dataFile);
+                if (fileInfo.Length > 1000000)
+                {
+                        validator.LoadValidatedData = false;
+                        Console.WriteLine("LoadValidatedData property is turned off ");
+                }
+                else
+                {
+                        Console.WriteLine("Load full X12");
+                }
+
                 validator.Validate();
 
                 if (validator.Passed)
@@ -141,34 +147,34 @@ namespace RdpValidationRestApi.Controllers
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Situational;
                     }
                     Console.WriteLine("Total # of errors: " + validator.Errors.Count + ", snipLevel: " + snipLevel +", snipCheck: " + snipCheck);
-		    if (validator.Errors.Count > MAX_ERRORS)
-		    {
-                	var err = new X12Response
-                	{
-                    	dataFile = $"{dataFile}!",
+                    if (validator.Errors.Count > MAX_ERRORS)
+                    {
+                        var err = new X12Response
+                        {
+                        dataFile = $"{dataFile}!",
                         validator = null,
-                    	ackStr = null,
-                    	status = "FAIL, Aborting. More than MAX_ERRORS errors: "+  MAX_ERRORS,
-                    	ediRulesFile = $"{validator.EDIRulesFile}"
-	
-                	};
+                        ackStr = null,
+                        status = "FAIL, Aborting. More than MAX_ERRORS errors: "+  MAX_ERRORS,
+                        ediRulesFile = $"{validator.EDIRulesFile}"
 
-                	return err;
-		    }
+                        };
+
+                        return err;
+                    }
 
                     foreach (EDIError error in validator.Errors)
                     {
 			Console.WriteLine(" - Line: " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment/Element: " + error.Segment + "/" + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
-			if (validationInd >= MAX_ERRORS)
-			{
-				break;
-			}
+                        if (validationInd >= MAX_ERRORS)
+                        {
+                                break;
+                        }
 
-                        if (error.SnipLevel > snipCheck )
+                        if (error.SnipLevel > snipCheck)
                         {
                             deleteErrors[validationInd++] = error;
                         }
-			if (segments != null && segments.Contains(error.Segment) )
+			if (segments != null && segments.Contains(error.Segment))
                         {
 				Console.WriteLine("Ignore segment: " +  error.Segment );
                             deleteErrors[validationInd++] = error;
@@ -178,7 +184,6 @@ namespace RdpValidationRestApi.Controllers
 
                     }
 
-		    Console.WriteLine("Delete errors");
                     foreach (RDPCrystalEDILibrary.EDIError delInd in deleteErrors)
                     {
                         if (delInd != null)
@@ -227,8 +232,8 @@ namespace RdpValidationRestApi.Controllers
                     dataFile = $"{dataFile}!",
                     validator = null,
                     ackStr = msg,
-                    status = "FAIL, Exception: " + ex,
-                    ediRulesFile = "NA"
+                    status = "FAIL, Exception: " + msg,
+                    ediRulesFile = "Invalid request"
 
                 };
 
@@ -238,10 +243,10 @@ namespace RdpValidationRestApi.Controllers
 
         }
 
-        private string getLicense()
+        private string getLicense(string rulesPath)
         {
 
-            string filePath = "/usr/local/dotnet/RdpValidationRestApi/RDPLicense.txt";
+            string filePath = System.IO.Path.Combine(rulesPath, "RDPLicense.txt");
             string licenseKey = "C0210e1f-7f40-4629-bdd5-a531f78222ec";
 
             try
@@ -311,17 +316,17 @@ namespace RdpValidationRestApi.Controllers
         		Console.WriteLine("NPI valid:" + e.ConditionValid);
     		}
 	    }
-	    else if (e.CodeCondition.Id == "prvValidation")
-		{
-    		if (e.CurrentSegment.Elements[1].ToString() == "HPI")
-    		{
-		    	string npiNum = e.CurrentSegment.Elements[2].ToString();
-				
-    			Console.WriteLine("HPI Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
-        		e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
-        		Console.WriteLine("PRV HPI NpiValidator:" + e.ConditionValid);
-    		}
-	    }
+        else if (e.CodeCondition.Id == "prvValidation")
+            {
+                        if (e.CurrentSegment.Elements[1].ToString() == "HPI")
+                {
+                        string npiNum = e.CurrentSegment.Elements[2].ToString();
+
+                        Console.WriteLine("HPI Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+                        e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+                        Console.WriteLine("PRV HPI NpiValidator:" + e.ConditionValid);
+                }
+        }
 	    else if (e.CodeCondition.Id == "dtpValidation")
 		{
 		    	string dob = e.CurrentSegment.Elements[2].ToString();
@@ -375,7 +380,7 @@ namespace RdpValidationRestApi.Controllers
 		    	string zip = e.CurrentSegment.Elements[2].ToString();
     			Console.WriteLine("ZIP Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + zip);
 				try {
-					string csvPath = "/usr/local/dotnet/rdp-api/Lookup/States.csv";
+                    string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "States.csv");
         				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, st);
         				Console.WriteLine(st + " CSV:" + val);
 					if (val == null || val == "")
@@ -412,6 +417,72 @@ namespace RdpValidationRestApi.Controllers
         			Console.WriteLine("NM 3 valid:" + e.ConditionValid);
 			}
 	    }
+        else if (e.CodeCondition.Id.StartsWith("valueFound-"))
+            {
+		Console.WriteLine("valueFound: " + e.CodeCondition.Id);
+                string[] condParts = e.CodeCondition.Id.Split('-');
+                if (condParts.Length < 3)
+                {
+                    e.ConditionValid = true;
+                    Console.WriteLine("Invalid valueFound condition format. Expected: valueFound-filename-fieldNumber, " + e.CodeCondition.Id);
+                    return;
+                }
+		int.TryParse(condParts[2], out int fieldNum);
+                if (fieldNum < 0 || fieldNum > e.CurrentSegment.Elements.Count)
+                {
+                    e.ConditionValid = true;
+                    Console.WriteLine("Invalid valueFound condition format.  " + e.CurrentSegment.Elements.Count +", " + condParts[2] +" = " + fieldNum +" Count: " + e.CurrentSegment.Elements.Count);
+                    return;
+                }
+
+                string lookupValue = e.CurrentSegment.Elements[fieldNum-1].ToString();
+                Console.WriteLine("valueFound Data field " + fieldNum + ": " + lookupValue);
+                try {
+                string lookupFile = condParts[1];
+                if (!lookupFile.Contains('.'))
+                {
+                    lookupFile += ".txt";
+                }
+                string lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
+                bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
+                // Condition is invalid when expected value is present.
+                e.ConditionValid = exists;
+                Console.WriteLine("valueFound exists:" + exists + ", ConditionValid:" + e.ConditionValid);
+                }
+                    catch (IOException ex)
+                    {
+                        Console.WriteLine($"Exception valueFound lookup: {ex.Message}");
+                    }
+            }
+        else if (e.CodeCondition.Id.StartsWith("valueNotFound-"))
+            {
+                string[] condParts = e.CodeCondition.Id.Split('-');
+                if (condParts.Length < 3 || !int.TryParse(condParts[2], out int fieldNum) || fieldNum < 0 || fieldNum > e.CurrentSegment.Elements.Count)
+                {
+                    e.ConditionValid = true;
+                    Console.WriteLine("Invalid valueNotFound condition format. Expected: valueNotFound-filename-fieldNumber");
+                    return;
+                }
+
+                string lookupValue = e.CurrentSegment.Elements[fieldNum-1].ToString();
+                Console.WriteLine("valueNotFound Data field " + fieldNum + ": " + lookupValue);
+                try {
+                string lookupFile = condParts[1];
+                if (!lookupFile.Contains('.'))
+                {
+                    lookupFile += ".txt";
+                }
+                string lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
+                bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
+                // Condition is invalid when the value not found.
+                e.ConditionValid = !exists;
+                Console.WriteLine("valueNotFound exists:" + exists + ", ConditionValid:" + e.ConditionValid);
+                }
+                    catch (IOException ex)
+                    {
+                        Console.WriteLine($"Exception valueNotFound lookup: {ex.Message}");
+                    }
+            }
 	    if (e.CodeCondition.Id == "eqLookup" && e.CurrentSegment.Elements.Count > 1)
 		{
 		    	string eq2 = e.CurrentSegment.Elements[2].ToString();
@@ -420,7 +491,7 @@ namespace RdpValidationRestApi.Controllers
 			if (eq2 != null && eq2.Length > 0)
                         {
 				try {
-					string csvPath = "/usr/local/dotnet/rdp-api/Lookup/EQ-02.csv";
+                    string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "EQ-02.csv");
         				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, eq2);
         				Console.WriteLine("CSV:" + val);
 					if (val == null || val == "")
