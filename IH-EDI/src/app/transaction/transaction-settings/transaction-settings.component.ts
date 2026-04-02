@@ -73,7 +73,7 @@ export class TransactionSettingsComponent implements OnInit, AfterViewInit {
 
   searchTime = ["Last 1 day", "Last 7 days", "Last 30 days", "Last 90 days", "Last 365 days",];
 
-  landingPage = ["Trading Partners", "Dashboard", "Transmissions", "Transactions", "Work Flow"];
+  landingPage = ["Trading Partners", "Transmissions", "Transactions", "Work Flow"];
 
   transactionTypes: string[] = ["270", "271","276", "277", "277CA", "835", "837I", "837P", "837D", "999", "TA1"];
 
@@ -285,7 +285,8 @@ searchTypeString:string = "";
   {
     console.info("Mode: " + this.form.controls.dispMode.value)
     this.formFields.modeString = this.form.controls.dispMode.value
-
+    // Re-filter columns when mode changes
+    this.transactionChange(this.form.controls.dispTransType.value);
   }
 
   cngfTranTypeChange(evt: any)

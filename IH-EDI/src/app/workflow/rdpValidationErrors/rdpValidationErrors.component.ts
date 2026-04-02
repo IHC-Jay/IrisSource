@@ -76,6 +76,8 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
   checked = false;
   wfInfo:string = "";
   errorStr:string = "";
+  isDataErrorPayload: boolean = false;
+  nonDataErrorMessage: string = "";
 
   errorSegmentText:string = "";
 
@@ -184,6 +186,7 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
     console.log( "ID: " + this.ID +", Transaction ID: "  + searchParams['TransId'] || '');
     this.sessionID = searchParams['sessionID'] || searchParams['SessionID'] || searchParams['SessionId'] || '';
     this.TransactionType = searchParams['TransactionType'];
+    this.searchParams = searchParams['searchParams'] || '';
     this.wfStatus = searchParams['Status'] || searchParams['status'] || this.wfStatus;
     if (this.form?.controls?.statusType && this.wfStatus) {
       this.form.controls.statusType.setValue(this.wfStatus);
@@ -256,6 +259,12 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
    * Process the response from fetchRdpCrytalEntries and update component state.
    */
   private processX12Response(res: any) {
+    // Update Workflow ID if available in fetch response
+    if (res && res[0] && res[0].WfId) {
+      this.ID = res[0].WfId;
+      console.info("Updated Workflow ID from fetch response: " + res[0].WfId);
+    }
+    
     if (!res || !res[0] || !res[0].X12) {
       this.canRenderDetails = true;
       return;
@@ -272,16 +281,24 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
     
     // Parse X12 data and error info
     const x12DataLns = x12String.split(String(res[0].X12).substr(105, 1));
-    const isDataErrorPayload =
+    // Determine if this is a Data Error payload (configurable)
+    this.isDataErrorPayload =
       Array.isArray(res) &&
       res.length > 2 &&
       String(res[0]?.Error || '').trim().toLowerCase() === 'data error';
-    const dataErrorLookup = isDataErrorPayload
+    const dataErrorLookup = this.isDataErrorPayload
       ? this.buildDataErrorLookup(res, x12DataLns)
       : new Map<number, { num: string; segment: string; element: string; error: string }>();
     this.separator = res[0].X12.substr(3, 1);
     console.log("Sep: " + this.separator);
     const wfErr = String(res[0].Error).replaceAll(";", "\n");
+    // Store non-data error message for display in error table area
+    if (!this.isDataErrorPayload) {
+      this.nonDataErrorMessage = wfErr;
+      console.info("Non-Data Error message: " + this.nonDataErrorMessage);
+    } else {
+      this.nonDataErrorMessage = "";
+    }
     this.handleTPNotFound(wfErr);
     this.x12Array.splice(0, this.x12Array.length);
     this.errArray.splice(0, this.errArray.length);
@@ -294,7 +311,7 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
       let err = '';
       let ind = 1;
       segEle = '';
-      if (isDataErrorPayload) {
+      if (this.isDataErrorPayload) {
         const mappedError = dataErrorLookup.get(lenNum);
         if (mappedError) {
           segEle = "Loop: -, " + mappedError.segment + "/" + mappedError.element;
@@ -319,7 +336,7 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
       }
       if (item !== '') {
         if (err !== '') {
-          const mappedError = isDataErrorPayload ? dataErrorLookup.get(lenNum) : null;
+          const mappedError = this.isDataErrorPayload ? dataErrorLookup.get(lenNum) : null;
           this.errArray.push({
             'Num': '' + ind,
             'LineNum': '' + lenNum,
@@ -469,10 +486,20 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
     }
     if (this.fileName == undefined || this.fileName == null || this.fileName == '') {
       this.wfInfo = "Workflow ID: " + this.ID + ", Filename:" + res[0].Filename;
-      this.errorStr += wfErr + ", WF Status: " + this.wfStatus;
+      // Only append wfErr to errorStr for Data Error payloads (avoid duplication with nonDataErrorMessage)
+      if (this.isDataErrorPayload) {
+        this.errorStr += wfErr + ", WF Status: " + this.wfStatus;
+      } else {
+        this.errorStr += "WF Status: " + this.wfStatus;
+      }
     } else {
       this.wfInfo = "Workflow ID: " + this.ID + ", Filename:" + this.fileName;
-      this.errorStr += wfErr + ", WF Status: " + this.wfStatus;
+      // Only append wfErr to errorStr for Data Error payloads (avoid duplication with nonDataErrorMessage)
+      if (this.isDataErrorPayload) {
+        this.errorStr += wfErr + ", WF Status: " + this.wfStatus;
+      } else {
+        this.errorStr += "WF Status: " + this.wfStatus;
+      }
     }
   }
 
@@ -582,7 +609,12 @@ export class RdpValidationErrorsComponent implements OnInit, OnDestroy {
       this.router.navigate(["/workflow/"],
 
       {
-        queryParams: {'searchParams': this.searchParams }
+        queryParams: {
+          'searchParams': this.searchParams,
+          'mode': this.wfMode,
+          'TransactionType': (this.transTypeStr || this.TransactionType || ''),
+          'Status': this.wfStatus
+        }
     }
 
        );

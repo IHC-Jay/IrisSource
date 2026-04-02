@@ -29,11 +29,13 @@ export class X12CompareComponent {
   savedRightFileName = '';
 
   working = signal(false);
+  compareReady = signal(true);
   pairs = signal<FilePair[]>([]);
   results = signal<PairResult[]>([]);
   summary = signal<RunSummary | null>(null);
   fullDiffRow = signal<PairResult | null>(null);
   fullDiffLines = signal<DiffLine[]>([]);
+  selectedNotEqualCursor = signal(-1);
 
   cfg: CompareConfig = {
     compareExactFilename: false,
@@ -122,6 +124,7 @@ export class X12CompareComponent {
     this.fullDiffRow.set(null);
     this.fullDiffLines.set([]);
     this.working.set(false);
+    this.compareReady.set(true);
     this.filter.set('');
     this.page.set(1);
   }
@@ -167,6 +170,7 @@ export class X12CompareComponent {
     if (input.files && input.files.length > 0) {
       this.leftFile = input.files[0];
       this.savedLeftFileName = this.leftFile?.name ?? this.savedLeftFileName;
+      this.clearState();
     }
     input.value = '';
   }
@@ -176,6 +180,7 @@ export class X12CompareComponent {
     if (input.files && input.files.length > 0) {
       this.rightFile = input.files[0];
       this.savedRightFileName = this.rightFile?.name ?? this.savedRightFileName;
+      this.clearState();
     }
     input.value = '';
   }
@@ -190,6 +195,7 @@ export class X12CompareComponent {
         files
       };
       this.savedLeftFolderName = this.leftDir?.name ?? this.savedLeftFolderName;
+      this.clearState();
     }
     input.value = '';
   }
@@ -204,6 +210,7 @@ export class X12CompareComponent {
         files
       };
       this.savedRightFolderName = this.rightDir?.name ?? this.savedRightFolderName;
+      this.clearState();
     }
     input.value = '';
   }
@@ -294,11 +301,16 @@ export class X12CompareComponent {
     if (!ok) return;
     if (!this.cfg.ignoreFields.includes(trimmed as any)) {
       this.cfg.ignoreFields = [...this.cfg.ignoreFields, trimmed as any];
+      this.compareReady.set(true);
     }
   }
 
   removeIgnoreField(value: string): void {
-    this.cfg.ignoreFields = this.cfg.ignoreFields.filter(v => v !== value);
+    const nextIgnoreFields = this.cfg.ignoreFields.filter(v => v !== value);
+    if (nextIgnoreFields.length !== this.cfg.ignoreFields.length) {
+      this.cfg.ignoreFields = nextIgnoreFields;
+      this.compareReady.set(true);
+    }
   }
 
   async pair(): Promise<void> {
@@ -350,6 +362,7 @@ export class X12CompareComponent {
       const summary = this.summary() || { compared: 0, identical: 0, different: 0, errors: [], leftOnly: [], rightOnly: [] };
       this.summary.set({ ...summary, compared: res.length, identical, different });
       this.results.set(res);
+      this.compareReady.set(false);
       this.page.set(1);
     } finally {
       this.working.set(false);
@@ -362,11 +375,72 @@ export class X12CompareComponent {
     const diffs = await this.svc.loadFullDiff(pair, this.cfg);
     this.fullDiffRow.set(row);
     this.fullDiffLines.set(diffs);
+    const notEqualIndexes = this.getNotEqualLineIndexes();
+    this.selectedNotEqualCursor.set(notEqualIndexes.length ? 0 : -1);
+  }
+
+  getFullDiffTitle(row: PairResult): string {
+    const left = row.leftName ?? '';
+    const right = row.rightName ?? '';
+    return left === right ? left : `${left} ⟷ ${right}`;
   }
 
   closeFullDiff(): void {
     this.fullDiffRow.set(null);
     this.fullDiffLines.set([]);
+    this.selectedNotEqualCursor.set(-1);
+  }
+
+  getNotEqualLineIndexes(): number[] {
+    const indexes: number[] = [];
+    for (let index = 0; index < this.fullDiffLines().length; index++) {
+      if (this.fullDiffLines()[index].isDifferent) {
+        indexes.push(index);
+      }
+    }
+    return indexes;
+  }
+
+  currentNotEqualPosition(): number {
+    return this.selectedNotEqualCursor() + 1;
+  }
+
+  getDiffRowId(index: number): string {
+    return `compare-diff-row-${index}`;
+  }
+
+  isSelectedNotEqualRow(index: number): boolean {
+    const notEqualIndexes = this.getNotEqualLineIndexes();
+    const cursor = this.selectedNotEqualCursor();
+    if (cursor < 0 || cursor >= notEqualIndexes.length) return false;
+    return notEqualIndexes[cursor] === index;
+  }
+
+  goToNextNotEqual(): void {
+    const notEqualIndexes = this.getNotEqualLineIndexes();
+    if (!notEqualIndexes.length) return;
+    const currentCursor = this.selectedNotEqualCursor();
+    const nextCursor = currentCursor < 0 ? 0 : (currentCursor + 1) % notEqualIndexes.length;
+    this.selectedNotEqualCursor.set(nextCursor);
+    this.scrollToSelectedNotEqual(notEqualIndexes[nextCursor]);
+  }
+
+  goToPreviousNotEqual(): void {
+    const notEqualIndexes = this.getNotEqualLineIndexes();
+    if (!notEqualIndexes.length) return;
+    const currentCursor = this.selectedNotEqualCursor();
+    const previousCursor = currentCursor < 0
+      ? notEqualIndexes.length - 1
+      : (currentCursor - 1 + notEqualIndexes.length) % notEqualIndexes.length;
+    this.selectedNotEqualCursor.set(previousCursor);
+    this.scrollToSelectedNotEqual(notEqualIndexes[previousCursor]);
+  }
+
+  private scrollToSelectedNotEqual(lineIndex: number): void {
+    setTimeout(() => {
+      const row = document.getElementById(this.getDiffRowId(lineIndex));
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   }
 
   private isIgnoredField(tag: string, fieldPosition: number): boolean {

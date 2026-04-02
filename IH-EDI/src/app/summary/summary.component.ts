@@ -127,6 +127,7 @@ export class SummaryComponent implements OnInit, AfterViewInit, OnDestroy {
   };
 
   sumUserFlds = "";
+  restoredSummarySearchValues: { [key: string]: string } = {};
   sub: Subscription | undefined;
   ngOnDestroy(): void {
     if (this.sub) {
@@ -217,6 +218,9 @@ export class SummaryComponent implements OnInit, AfterViewInit, OnDestroy {
       this.formFields = this.storage.getItem<any>('sumConfig');
       this.setEndTimeToNow();
     }
+
+    this.restoreSearchStateFromSessionStorage();
+
     if (this.formFields.currentTransType === '') {
       this.formFields.currentTransType = this.transactionTypes[0];
       this.formFields.disposition = this.dispositions[0];
@@ -232,6 +236,104 @@ export class SummaryComponent implements OnInit, AfterViewInit, OnDestroy {
 
       }
       this.setStartAndEndDateTimes(stDt);
+    }
+  }
+
+  private restoreSearchStateFromSessionStorage() {
+    const hasQueryParams = this.route.snapshot.queryParamMap.keys.length > 0;
+    if (hasQueryParams) {
+      return;
+    }
+
+    const savedSearchTypeString = this.storage.getItem<any>('sumUserFlds') || '';
+    if (!savedSearchTypeString || savedSearchTypeString.trim().length === 0) {
+      return;
+    }
+
+    this.sumUserFlds = savedSearchTypeString;
+    const entries = savedSearchTypeString
+      .split(';')
+      .map(value => (value || '').trim())
+      .filter(value => value.length > 0);
+
+    for (const entry of entries) {
+      if (entry.startsWith('mode::')) {
+        this.formFields.mode = entry.substring('mode::'.length).trim();
+      } else if (entry.startsWith('transaction::')) {
+        this.formFields.currentTransType = entry.substring('transaction::'.length).trim();
+      } else if (entry.startsWith('status::')) {
+        this.formFields.disposition = entry.substring('status::'.length).trim();
+      } else if (entry.startsWith('count::')) {
+        this.formFields.rowCnt = entry.substring('count::'.length).trim();
+      } else if (entry.startsWith('startDtTm::')) {
+        const startDtTm = entry.substring('startDtTm::'.length).trim();
+        const splitIndex = startDtTm.lastIndexOf(' ');
+        if (splitIndex > 0) {
+          this.formFields.startDate = startDtTm.substring(0, splitIndex).trim();
+          this.formFields.startTm = startDtTm.substring(splitIndex + 1).trim();
+        }
+      } else if (entry.startsWith('endDtTm::')) {
+        const endDtTm = entry.substring('endDtTm::'.length).trim();
+        const splitIndex = endDtTm.lastIndexOf(' ');
+        if (splitIndex > 0) {
+          this.formFields.endDate = endDtTm.substring(0, splitIndex).trim();
+          this.formFields.endTm = endDtTm.substring(splitIndex + 1).trim();
+        }
+      } else if (entry.startsWith('sql::')) {
+        this.restoredSummarySearchValues = this.parseSqlSearchValues(
+          entry.substring('sql::'.length).trim()
+        );
+      }
+    }
+
+    console.info('Restored summary search state from session storage', {
+      transType: this.formFields.currentTransType,
+      mode: this.formFields.mode,
+      disposition: this.formFields.disposition,
+      rowCnt: this.formFields.rowCnt,
+      restoredCustomKeys: Object.keys(this.restoredSummarySearchValues)
+    });
+  }
+
+  private parseSqlSearchValues(searchSql: string): { [key: string]: string } {
+    const result: { [key: string]: string } = {};
+    if (!searchSql || searchSql.trim().length === 0) {
+      return result;
+    }
+
+    const normalizedSql = searchSql.replaceAll('%25', '%');
+    const matcher = /([A-Za-z0-9_]+)\s*(?:=|LIKE)\s*'([^']*)'/gi;
+    let match = matcher.exec(normalizedSql);
+    while (match !== null) {
+      const key = (match[1] || '').trim();
+      const value = (match[2] || '').trim();
+      if (key.length > 0) {
+        result[key] = value;
+      }
+      match = matcher.exec(normalizedSql);
+    }
+
+    return result;
+  }
+
+  private applyRestoredCustomFieldValues(formArr: FormArray) {
+    if (!this.restoredSummarySearchValues || Object.keys(this.restoredSummarySearchValues).length === 0) {
+      return;
+    }
+
+    for (let i = 0; i < formArr.length; i++) {
+      const fGrp = formArr.at(i) as FormGroup;
+      const selectedLabel = fGrp.controls.fld.value;
+
+      for (const val of this.transSearchStructArr) {
+        if (val.label === selectedLabel && val.transactionCode === this.form.controls.transType.value) {
+          const restoredValue = this.restoredSummarySearchValues[val.key];
+          if (restoredValue !== undefined) {
+            fGrp.controls.newFldValue.setValue(restoredValue, { emitEvent: false });
+          }
+          break;
+        }
+      }
     }
   }
 
@@ -584,6 +686,37 @@ private clearCustomFlds() {
   }
 }
 
+resetCustomFields(): void {
+  const formArr = this.form.get('additional') as FormArray;
+
+  if (formArr.length >= 1) {
+    for (let i = 0; i < formArr.length; i++) {
+      const fGrp = formArr.at(i) as FormGroup;
+      fGrp.controls.newFldValue.setValue('');
+      fGrp.controls.newFldValue.markAsPristine();
+      fGrp.controls.newFldValue.markAsUntouched();
+    }
+  }
+}
+
+hasCustomFieldContent(): boolean {
+  const formArr = this.form.get('additional') as FormArray;
+
+  if (!formArr || formArr.length === 0) {
+    return false;
+  }
+
+  for (let i = 0; i < formArr.length; i++) {
+    const fGrp = formArr.at(i) as FormGroup;
+    const fieldValue = fGrp.controls.newFldValue.value;
+    if (fieldValue && String(fieldValue).trim() !== '') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 private readCustomFlds() {
 
   const formArr = this.form.get('additional') as FormArray
@@ -736,6 +869,8 @@ transactionChange(evt: any)
   const formArr = this.form.get('additional') as FormArray
 
 
+  this.transSearchStructArr = [];
+
 
   this.usrSearchColumns.forEach(element => {
     if(element.TransactionCode === this.form.controls.transType.value && element.Mode === this.form.controls.mode.value)
@@ -756,6 +891,8 @@ transactionChange(evt: any)
       }
     }
   });
+
+  this.applyRestoredCustomFieldValues(formArr);
   this.onSearchSummary();
 
 
@@ -878,7 +1015,7 @@ onContextMenu(event: MouseEvent, row:any, ind: number) {
 
   this.contextMenuPosition.x = event.clientX + 'px';
   this.contextMenuPosition.y = event.clientY + 'px';
-  let item: Item ={rowId: row.ID, FileName: row.FileName, sessionId: row.SessionID, status: row.Status};
+  let item: Item ={rowId: row.ID, FileName: row.FileName, sessionId: row.SessionID, status: row.Status, transactionType: row.TransactionType};
   this.contextMenu.menuData = { 'item': item };
   this.contextMenu.menu.focusFirstItem('mouse');
   this.contextMenu.openMenu();
@@ -896,11 +1033,25 @@ handleContextMenu(item: Item, menu: string)  {
       const baseHref = document.querySelector('base')?.getAttribute('href') || '/';
       const normalizedBase = baseHref.endsWith('/') ? baseHref.slice(0, -1) : baseHref;
       const query = new URLSearchParams();
-      query.set('TransId', String(item.rowId));
+      const modeValue = this.form.controls?.mode?.value || this.formFields.mode || 'RealTime';
+      const sourceTransactionType = item.transactionType || this.formFields.currentTransType || '';
+      const transactionType = this.normalizeWorkflowTransactionType(sourceTransactionType, modeValue);
+      const workflowStatus = (item.status === 'Processed' || item.status === 'Rejected' || item.status === 'Validation failed')
+        ? 'New'
+        : (item.status || 'New');
+      const searchParams =
+        'errorType::All;' +
+        'transaction::' + transactionType + ';' +
+        'mode::' + modeValue + ';' +
+        'status::' + workflowStatus + ';' +
+        'wfStartDtTm::' + this.formFields.startDate + ' ' + this.formFields.startTm + ';' +
+        'wfEndDtTm::' + this.formFields.endDate + ' ' + this.formFields.endTm + ';';
+
       query.set('sessionID', item.sessionId || '');
-      query.set('Status', item.status || '');
-      query.set('mode', this.formFields.mode || '');
-      query.set('TransactionType', this.formFields.currentTransType || '');
+      query.set('Status', workflowStatus);
+      query.set('mode', modeValue);
+      query.set('TransactionType', transactionType);
+      query.set('searchParams', searchParams);
       const url = `${normalizedBase}/workflow/rdpValidationErrors?${query.toString()}`;
       console.log("Open in new tab URL: " + url);
           const newTab = window.open(url, '_blank');
@@ -919,6 +1070,17 @@ handleContextMenu(item: Item, menu: string)  {
    else{
     this.onContextMenuNew(item)
    }
+}
+
+private normalizeWorkflowTransactionType(transactionType: string, mode: string): string {
+  const value = (transactionType || '').trim();
+  if (!value) {
+    return mode === 'Batch' ? 'All Batch' : 'All RT';
+  }
+  if (value === '837I' || value === '837P' || value === '837D') {
+    return '837';
+  }
+  return value;
 }
 
 private openInX12Viewer(fileName: string, sessionId?: string, status?: string, x12DataId?: string): void {
@@ -1071,6 +1233,7 @@ export interface Item {
   rowId: number;
   sessionId: string;
   status?: string;
+  transactionType?: string;
 }
 
 export interface customSearchStruct {

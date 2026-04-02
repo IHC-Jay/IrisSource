@@ -120,7 +120,10 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   searchColumns= this.transactionsFields.slice();
 
   sub: Subscription | undefined;
+  private formValueChangesSub: Subscription | undefined;
   private openDetailsRedirectHandled = false;
+  private requestId = '';
+  private enableUserEditReset = false;
 
   selDropdownList = [];
 
@@ -148,6 +151,7 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   additionalSearchStr = "";
   transUserFlds = "";
   fileName:string="";
+  restoredSearchValues: { [key: string]: string } = {};
 
 
   constructor(
@@ -189,6 +193,59 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
     // Call handleCustomFieldsAndSearch after all fields are initialized
     // This ensures additionalSearch filename filter is applied
     this.handleCustomFieldsAndSearch();
+
+    this.setupUserEditResetHandlers();
+    this.enableUserEditReset = true;
+  }
+
+  private setupUserEditResetHandlers() {
+    this.formValueChangesSub = this.form.valueChanges.subscribe(() => {
+      if (!this.enableUserEditReset) {
+        return;
+      }
+      this.resetQueryParamSearchValues('form value changed');
+    });
+  }
+
+  private resetQueryParamSearchValues(reason: string) {
+    const hadQuerySearchValues =
+      (this.requestId && this.requestId.trim().length > 0) ||
+      (this.additionalSearchStr && this.additionalSearchStr.trim().length > 0) ||
+      (this.fileName && this.fileName.trim().length > 0);
+
+    if (!hadQuerySearchValues) {
+      return;
+    }
+
+    console.info('Reset query-param search values due to user change: ' + reason, {
+      requestId: this.requestId,
+      additionalSearchStr: this.additionalSearchStr,
+      fileName: this.fileName
+    });
+
+    this.requestId = '';
+    this.additionalSearchStr = '';
+    this.fileName = '';
+    this.staticSearchStr = '';
+
+    this.clearQueryParamsFromUrl(reason);
+  }
+
+  private clearQueryParamsFromUrl(reason: string) {
+    const hasQueryParams = this.route.snapshot.queryParamMap.keys.length > 0;
+    if (!hasQueryParams) {
+      return;
+    }
+
+    console.info('Clearing URL query params due to user change: ' + reason, {
+      queryParams: this.route.snapshot.queryParams
+    });
+
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {},
+      replaceUrl: true
+    });
   }
 
   // =====================
@@ -281,11 +338,30 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
           return;
         }
 
-        if(params !== undefined) {
+        const hasQueryValues = params !== undefined && Object.keys(params).length > 0;
+        if (hasQueryValues) {
+          const hasTransactionNavigationContext =
+            !!params['ID'] ||
+            !!params['transaction'] ||
+            !!params['additionalSearch'] ||
+            !!params['searchTypeString'] ||
+            !!params['openDetails'] ||
+            !!params['sessionID'] ||
+            !!params['SessionID'] ||
+            !!params['SessionId'];
+
+          if (!hasTransactionNavigationContext) {
+            console.info('Ignoring non-transaction query params; preserving session-restored transaction state.', {
+              queryParams: params
+            });
+            return;
+          }
+
+          this.requestId = params['ID'] || '';
           let jsonString = params['transConfig'];
 
           // If transConfig not in URL params, try to get from localStorage
-          if (!jsonString) {
+          if (!jsonString && hasTransactionNavigationContext) {
             const transactionNavData = localStorage.getItem('transactionNavData');
             if (transactionNavData) {
               try {
@@ -300,10 +376,12 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
           if(jsonString !== undefined && jsonString !== null) {
             console.info("TransConfig from parent or sessionStorage: " + jsonString);
             this.formFields = JSON.parse(jsonString);
+            this.setEndTimeToNow();
             console.info('Parsed Object:', this.formFields);
           } else {
             this.formFields.currentTransType =  params['transaction'] || '';
             this.transUserFlds = params['transUserFlds'];
+            this.setEndTimeToNow();
           }
           this.additionalSearchStr = params['additionalSearch'] || '';
           console.info("Query params, additionalSearchStr: " + this.additionalSearchStr +", " + this.formFields.currentTransType +", " + this.transUserFlds)
@@ -311,6 +389,8 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
           let val = this.additionalSearchStr.substring( fInd)
           console.log(fInd + ". FileName:" + val )
           this.fileName = val
+        } else {
+          console.info('No query params found for Transactions route; preserving session-restored state.');
         }
 
       });
@@ -321,10 +401,134 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
         if (jsonString) {
           this.formFields = JSON.parse(jsonString) ;
           console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
-
-          this.setEndTimeToNow();
       }
     }
+
+    this.restoreSearchStateFromSessionStorage();
+  }
+
+  private restoreSearchStateFromSessionStorage() {
+    const hasQueryParams = this.route.snapshot.queryParamMap.keys.length > 0;
+    if (hasQueryParams) {
+      return;
+    }
+
+    const savedSearchTypeString = this.storageService.getItem<any>('transUserFlds') || '';
+    if (!savedSearchTypeString || savedSearchTypeString.trim().length === 0) {
+      return;
+    }
+
+    this.transUserFlds = savedSearchTypeString;
+    const entries = savedSearchTypeString
+      .split(';')
+      .map(value => (value || '').trim())
+      .filter(value => value.length > 0);
+
+    let restoredSql = '';
+    let restoredFileName = '';
+
+    for (const entry of entries) {
+      if (entry.startsWith('mode::')) {
+        this.formFields.mode = entry.substring('mode::'.length).trim();
+      } else if (entry.startsWith('transaction::')) {
+        this.formFields.currentTransType = entry.substring('transaction::'.length).trim();
+      } else if (entry.startsWith('status::')) {
+        this.formFields.disposition = entry.substring('status::'.length).trim();
+      } else if (entry.startsWith('count::')) {
+        this.formFields.rowCnt = entry.substring('count::'.length).trim();
+      } else if (entry.startsWith('ID::')) {
+        this.requestId = entry.substring('ID::'.length).trim();
+      } else if (entry.startsWith('startDtTm::')) {
+        const startDtTm = entry.substring('startDtTm::'.length).trim();
+        const splitIndex = startDtTm.lastIndexOf(' ');
+        if (splitIndex > 0) {
+          this.formFields.startDate = startDtTm.substring(0, splitIndex).trim();
+          this.formFields.startTm = startDtTm.substring(splitIndex + 1).trim();
+        }
+      } else if (entry.startsWith('endDtTm::')) {
+        const endDtTm = entry.substring('endDtTm::'.length).trim();
+        const splitIndex = endDtTm.lastIndexOf(' ');
+        if (splitIndex > 0) {
+          this.formFields.endDate = endDtTm.substring(0, splitIndex).trim();
+          this.formFields.endTm = endDtTm.substring(splitIndex + 1).trim();
+        }
+      } else if (entry.startsWith('sql::')) {
+        restoredSql = entry.substring('sql::'.length).trim();
+        const parsedValues = this.parseSqlSearchValues(restoredSql);
+        this.restoredSearchValues = { ...this.restoredSearchValues, ...parsedValues };
+      } else if (entry.startsWith("addSql::FileName=")) {
+        restoredFileName = this.normalizeFileNameFilterValue(
+          entry.substring("addSql::FileName=".length)
+        );
+      }
+    }
+
+    if (restoredSql.length > 0) {
+      this.additionalSearchStr = restoredSql;
+      const fileNameFromSql = this.extractFileNameFromAdditionalSearch(restoredSql);
+      if (fileNameFromSql.length > 0) {
+        this.fileName = fileNameFromSql;
+      }
+    } else if (restoredFileName.length > 0) {
+      this.fileName = restoredFileName;
+      this.additionalSearchStr = "FileName='" + restoredFileName.replaceAll("'", "''") + "'";
+    }
+
+    console.info('Restored transaction search state from session storage', {
+      transType: this.formFields.currentTransType,
+      mode: this.formFields.mode,
+      disposition: this.formFields.disposition,
+      rowCnt: this.formFields.rowCnt,
+      requestId: this.requestId,
+      additionalSearchStr: this.additionalSearchStr,
+      fileName: this.fileName,
+      restoredSearchKeys: Object.keys(this.restoredSearchValues)
+    });
+  }
+
+  private parseSqlSearchValues(searchSql: string): { [key: string]: string } {
+    const result: { [key: string]: string } = {};
+    if (!searchSql || searchSql.trim().length === 0) {
+      return result;
+    }
+
+    const normalizedSql = searchSql.replaceAll('%25', '%');
+    const matcher = /([A-Za-z0-9_]+)\s*(?:=|LIKE)\s*'([^']*)'/gi;
+    let match = matcher.exec(normalizedSql);
+
+    while (match !== null) {
+      const key = (match[1] || '').trim();
+      const value = (match[2] || '').trim();
+      if (key.length > 0) {
+        result[key] = value;
+      }
+      match = matcher.exec(normalizedSql);
+    }
+
+    return result;
+  }
+
+  private extractSqlValueForKey(searchSql: string, key: string): string {
+    if (!searchSql || !key) {
+      return '';
+    }
+
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escapedKey + "\\s*(?:=|LIKE)\\s*'([^']*)'", 'i');
+    const match = searchSql.match(regex);
+    if (!match || !match[1]) {
+      return '';
+    }
+
+    return match[1].replaceAll('%25', '%').trim();
+  }
+
+  private syncFormFieldsFromForm() {
+    this.formFields.currentTransType = this.form.controls.transType.value;
+    this.formFields.mode = this.form.controls.mode.value;
+    this.formFields.disposition = this.form.controls.disposition.value;
+    this.formFields.rowCnt = this.form.controls.rowCnt.value;
+    this.formFields.direction = this.form.controls.direction.value;
   }
 
   private setEndTimeToNow() {
@@ -339,11 +543,20 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private initFromUserConfig() {
-    let stDt = 1;
     console.info("Initialize from session UserConfig if available");
-    if (this.formFields.currentTransType === '') {
-      const parsedObject = JSON.parse(this.storageService.getItem<any>('UserConfig') || '{}' ) ;
-      if (parsedObject) {
+    const parsedObject = JSON.parse(this.storageService.getItem<any>('UserConfig') || '{}') ;
+    if (parsedObject && Object.keys(parsedObject).length > 0) {
+      let stDt = 1;
+      const hasTransactionQueryContext =
+        this.route.snapshot.queryParamMap.has('transaction') ||
+        this.route.snapshot.queryParamMap.has('transConfig') ||
+        this.route.snapshot.queryParamMap.has('ID');
+      const hasTransactionSessionContext =
+        !!(this.storageService.getItem<any>('transConfig')) ||
+        !!(this.storageService.getItem<any>('transUserFlds'));
+      const shouldApplyUserConfigDefaults = !hasTransactionQueryContext && !hasTransactionSessionContext;
+
+      if (shouldApplyUserConfigDefaults && parsedObject.TranType) {
         console.info("Init from session UserConfig: " + parsedObject.TranType + ", " + parsedObject.DispCnt + ", " + parsedObject.Mode);
         this.formFields.currentTransType = parsedObject.TranType;
         this.formFields.mode = parsedObject.Mode;
@@ -352,20 +565,38 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
         this.form.controls.rowCnt.setValue(this.formFields.rowCnt);
         this.form.controls.mode.setValue(this.formFields.mode);
         this.pageSize = parsedObject.DispCnt;
-        let stDtStr = parsedObject.TranTime;
-
-        stDt = parseDays(parsedObject.TranTime);
-
-        console.info("Init from UserConfig: " + this.formFields.currentTransType + ", Search from " + stDt + " days. " + stDtStr);
+      } else {
+        console.info('Skipping UserConfig transaction type override due to query context', {
+          hasTransactionQueryContext,
+          hasTransactionSessionContext,
+          currentTransType: this.formFields.currentTransType
+        });
       }
 
-      const dtObj = DateTimeUtils.GetStartEndDtTm(stDt);
-                this.formFields.startDate = dtObj.startDt;
-                this.formFields.startTm = dtObj.startTm;
-                this.formFields.endDate = dtObj.endDt;
-                this.formFields.endTm = dtObj.endTm;
+      if (shouldApplyUserConfigDefaults && parsedObject.TranTime) {
+        const stDtStr = parsedObject.TranTime;
+        stDt = parseDays(parsedObject.TranTime);
+        console.info("Init date range from UserConfig TranTime: Search from " + stDt + " days. " + stDtStr);
+      }
 
-      console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+      if (shouldApplyUserConfigDefaults) {
+        const dtObj = DateTimeUtils.GetStartEndDtTm(stDt);
+        this.formFields.startDate = dtObj.startDt;
+        this.formFields.startTm = dtObj.startTm;
+        this.formFields.endDate = dtObj.endDt;
+        this.formFields.endTm = dtObj.endTm;
+
+        console.info("Start Time: " + this.formFields.startDate + ", " + this.formFields.startTm);
+      } else {
+        console.info('Skipping UserConfig date range override due to transaction session/query context', {
+          hasTransactionQueryContext,
+          hasTransactionSessionContext,
+          startDate: this.formFields.startDate,
+          startTm: this.formFields.startTm,
+          endDate: this.formFields.endDate,
+          endTm: this.formFields.endTm
+        });
+      }
     }
   }
 
@@ -447,6 +678,9 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.sub) {
       this.sub.unsubscribe();
     }
+    if (this.formValueChangesSub) {
+      this.formValueChangesSub.unsubscribe();
+    }
   }
 
   get f() { return this.form.controls; }
@@ -479,8 +713,15 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
     this.paramsList.push("mode::" + this.form.controls.mode.value);
     this.paramsList.push("transaction::" + this.form.controls.transType.value);
     this.paramsList.push("status::" + this.form.controls.disposition.value);
-    this.paramsList.push("startDtTm::" + this.formFields.startDate + " " + this.formFields.startTm);
+    const fileNameFilter = this.getEffectiveFileNameFilter();
+    const hasFileNameFilter = fileNameFilter.length > 0;
+    if (!hasFileNameFilter) {
+      this.paramsList.push("startDtTm::" + this.formFields.startDate + " " + this.formFields.startTm);
+    }
     this.paramsList.push("endDtTm::" + this.formFields.endDate + " " + this.formFields.endTm);
+    if (!hasFileNameFilter && this.requestId && String(this.requestId).trim().length > 0) {
+      this.paramsList.push("ID::" + this.requestId);
+    }
     this.paramsList.push("count::" + this.form.controls.rowCnt.value);
   }
 
@@ -532,6 +773,10 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
     console.info("handleAdditionalSearchStr: START with additionalSearchStr = " + this.additionalSearchStr);
     this.staticSearchStr = this.additionalSearchStr;
     console.info("handleAdditionalSearchStr: SET staticSearchStr = " + this.staticSearchStr);
+
+    const parsedFromSql = this.parseSqlSearchValues(this.staticSearchStr);
+    this.restoredSearchValues = { ...this.restoredSearchValues, ...parsedFromSql };
+
     for (let i = 0; i < formArr.length; i++) {
       let fGrp = formArr.at(i) as FormGroup;
       for (let [ind, val] of this.transSearchStructArr.entries()) {
@@ -540,9 +785,12 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
           val.label === fGrp.controls.fld.value &&
           val.transactionCode === this.form.controls.transType.value
         ) {
-          let usrVal = this.staticSearchStr.substring(this.staticSearchStr.indexOf("=") + 1);
+          const restoredValueByKey = this.restoredSearchValues[val.key] || '';
+          const usrVal = restoredValueByKey || this.extractSqlValueForKey(this.staticSearchStr, val.key);
           console.info('handleAdditionalSearchStr: Set: ' + val.transactionCode + ", " + val.key + " = '" + usrVal + "', " + val.label);
-          fGrp.controls.newFldValue.setValue(usrVal.replaceAll("'", ""));
+          if (usrVal.length > 0) {
+            fGrp.controls.newFldValue.setValue(usrVal, { emitEvent: false });
+          }
           break;
         }
       }
@@ -551,7 +799,20 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private handleSqlParam() {
+    const fileNameFilter = this.getEffectiveFileNameFilter();
+    const hasFileNameFilter = fileNameFilter.length > 0;
+    if (hasFileNameFilter && (!this.staticSearchStr || this.staticSearchStr.trim().length === 0)) {
+      const escapedFileName = fileNameFilter.replaceAll("'", "''");
+      this.staticSearchStr = "FileName='" + escapedFileName + "'";
+    }
+
     console.info('handleSqlParam: staticSearchStr = "' + this.staticSearchStr + '", length = ' + this.staticSearchStr.length);
+    const isFileNameOnlySql = this.isFileNameOnlyFilter(this.staticSearchStr);
+    if (hasFileNameFilter && isFileNameOnlySql) {
+      console.info('handleSqlParam: Skipping sql::FileName to avoid duplicate with addSql::FileName');
+      return;
+    }
+
     if (this.staticSearchStr.length > 3) {
       this.staticSearchStr = this.staticSearchStr.replace('AND', '');
       this.staticSearchStr = this.staticSearchStr.replaceAll('%', '%25');
@@ -563,6 +824,8 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private saveSessionState() {
+    this.syncFormFieldsFromForm();
+
     this.transUserFlds = '';
     this.paramsList.forEach(val => {
       this.transUserFlds += val + ';';
@@ -575,6 +838,7 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
   private fetchTransactionData() {
     const transType = this.form.controls.transType.value;
     const mode = this.form.controls.mode.value;
+    this.appendFileNameAddSqlIfNeeded(transType);
     if (transType === '270') {
       this.TransactionService.fetchEligibilityRequests(mode, this.paramsList).subscribe((res: any) => {
         this.handleFetchResult(res);
@@ -594,17 +858,17 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
       });
     } else if (transType === '837P') {
       console.info("837P search: " + this.staticSearchStr);
-      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X222A1' ");
+      this.paramsList.push(this.buildClaimVersionAddSql("005010X222A1"));
       this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
         this.handleFetchResult(res);
       });
     } else if (transType === '837I') {
-      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X223A2' ");
+      this.paramsList.push(this.buildClaimVersionAddSql("005010X223A2"));
       this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
         this.handleFetchResult(res);
       });
     } else if (transType === '837D') {
-      this.paramsList.push("addSql::" + "VersionReleaseIndustryIdenti='005010X224A2' ");
+      this.paramsList.push(this.buildClaimVersionAddSql("005010X224A2"));
       this.TransactionService.fetchClaims(mode, this.paramsList).subscribe((res: any) => {
         this.handleFetchResult(res);
       });
@@ -637,6 +901,77 @@ export class TransactionComponent implements OnInit, AfterViewInit, OnDestroy {
       this.loading = false;
       console.info("NotImplementd array: " + this.dataSource.data.length);
     }
+  }
+
+  private buildClaimVersionAddSql(versionId: string): string {
+    let sql = "VersionReleaseIndustryIdenti='" + versionId + "'";
+    const fileNameFilter = this.getEffectiveFileNameFilter();
+    if (fileNameFilter.length > 0) {
+      const escapedFileName = fileNameFilter.replaceAll("'", "''");
+      sql += "::FileName='" + escapedFileName + "'";
+    }
+    return "addSql::" + sql;
+  }
+
+  private appendFileNameAddSqlIfNeeded(transType: string): void {
+    if (transType === '837P' || transType === '837I' || transType === '837D') {
+      return;
+    }
+    const fileNameFilter = this.getEffectiveFileNameFilter();
+    if (fileNameFilter.length > 0) {
+      const escapedFileName = fileNameFilter.replaceAll("'", "''");
+      this.paramsList.push("addSql::FileName='" + escapedFileName + "'");
+    }
+  }
+
+  private getEffectiveFileNameFilter(): string {
+    const fromAdditionalSearch = this.extractFileNameFromAdditionalSearch(this.additionalSearchStr || '');
+    if (fromAdditionalSearch.length > 0) {
+      return fromAdditionalSearch;
+    }
+
+    const fromStaticSearch = this.extractFileNameFromAdditionalSearch(this.staticSearchStr || '');
+    if (fromStaticSearch.length > 0) {
+      return fromStaticSearch;
+    }
+
+    return this.normalizeFileNameFilterValue(this.fileName || '');
+  }
+
+  private extractFileNameFromAdditionalSearch(search: string): string {
+    if (!search) return '';
+
+    const quotedMatch = search.match(/FileName\s*=\s*'([^']+)'/i);
+    if (quotedMatch && quotedMatch[1]) {
+      return this.normalizeFileNameFilterValue(quotedMatch[1]);
+    }
+
+    const unquotedMatch = search.match(/FileName\s*=\s*([^;\s]+)/i);
+    if (unquotedMatch && unquotedMatch[1]) {
+      return this.normalizeFileNameFilterValue(unquotedMatch[1]);
+    }
+
+    return '';
+  }
+
+  private normalizeFileNameFilterValue(raw: string): string {
+    let value = (raw || '').trim();
+    if (!value) return '';
+
+    if (value.startsWith("'")) value = value.substring(1);
+    if (value.endsWith("'")) value = value.substring(0, value.length - 1);
+    return value.trim();
+  }
+
+  private isFileNameOnlyFilter(search: string): boolean {
+    const value = (search || '').trim();
+    if (!value) return false;
+
+    if (value.indexOf(' AND ') >= 0 || value.indexOf(';') >= 0) {
+      return false;
+    }
+
+    return /^FileName\s*=\s*'[^']+'$/i.test(value);
   }
 
   private handleFetchResult(res: any) {
@@ -677,6 +1012,42 @@ private clearCustomFlds() {
   if (formArr.length >= 1) {
       formArr.clear()
   }
+}
+
+resetCustomFields(): void {
+  const formArr = this.form.get('additional') as FormArray;
+
+  if (formArr.length >= 1) {
+    for (let i = 0; i < formArr.length; i++) {
+      const fGrp = formArr.at(i) as FormGroup;
+      fGrp.controls.newFldValue.setValue('');
+      fGrp.controls.newFldValue.markAsPristine();
+      fGrp.controls.newFldValue.markAsUntouched();
+    }
+  }
+
+  this.additionalSearchStr = '';
+  this.staticSearchStr = '';
+  this.fileName = '';
+  this.requestId = '';
+}
+
+hasCustomFieldContent(): boolean {
+  const formArr = this.form.get('additional') as FormArray;
+
+  if (!formArr || formArr.length === 0) {
+    return false;
+  }
+
+  for (let i = 0; i < formArr.length; i++) {
+    const fGrp = formArr.at(i) as FormGroup;
+    const fieldValue = fGrp.controls.newFldValue.value;
+    if (fieldValue && String(fieldValue).trim() !== '') {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 private updateCustomFlds() {
@@ -916,6 +1287,7 @@ onStDateChange(event: Event)
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
   this.formFields.startDate = newValue;
+  this.resetQueryParamSearchValues('start date changed');
   console.log('Input value changed:', newValue +", " + this.formFields.startDate);
 }
 
@@ -926,6 +1298,7 @@ onStTimeChange(event: Event)
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
   this.formFields.startTm = newValue;
+  this.resetQueryParamSearchValues('start time changed');
   console.log('Input value changed:', newValue +", " + this.formFields.startTm);
 }
 
@@ -936,6 +1309,7 @@ onEndDateChange(event: Event)
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
   this.formFields.endDate = newValue;
+  this.resetQueryParamSearchValues('end date changed');
   console.log('Input value changed:', newValue +", " + this.formFields.endDate);
 }
 
@@ -946,6 +1320,7 @@ onEndTimeChange(event: Event)
   const newValue = (event.target as HTMLInputElement).value;
   // Perform actions based on the new value
   this.formFields.endTm = newValue;
+  this.resetQueryParamSearchValues('end time changed');
   console.log('Input value changed:', newValue +", " + this.formFields.endTm);
 }
 

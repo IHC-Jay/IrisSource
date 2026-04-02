@@ -24,9 +24,10 @@ import {RdpValidationErrorsComponent} from './workflow/rdpValidationErrors/rdpVa
 import { SummaryComponent } from './summary/summary.component';
 import {DashBoardComponent} from './dashboard/dashboard.component';
 import { PdfReaderComponent } from './pdf-reader/pdf-reader.component';
-import { CodeValueLookupComponent } from './codeValue-lookup/codeValue-lookup.component';
 import { X12ViewerComponent } from './x12-utility/x12-viewer.component';
 import { X12CompareComponent } from './x12-utility/x12-compare.component';
+import { TpConnectPageComponent } from './tp-manage-sync/connect-page.component';
+import { TpTradingPartnersPageComponent } from './tp-manage-sync/trading-partners-page.component';
 
 
 const appRoutes: Routes = [
@@ -48,7 +49,8 @@ const appRoutes: Routes = [
   {path: 'x12-viewer', component: X12ViewerComponent, canActivate: [AuthGuard], title: 'X12 Viewer + Validator'},
   {path: 'x12-compare', component: X12CompareComponent, canActivate: [AuthGuard], title: 'X12 Comparison'},
   {path: 'pdf-reader', component: PdfReaderComponent, canActivate: [AuthGuard], title: 'PDF Reader'},
-  {path: 'hl3-lookup', component: CodeValueLookupComponent, canActivate: [AuthGuard], title: 'HL3 Lookup'},
+  {path: 'tp-manage-sync', component: TpConnectPageComponent, canActivate: [AuthGuard], title: 'TP Manage Sync'},
+  {path: 'tp-manage-sync/trading-partners', component: TpTradingPartnersPageComponent, canActivate: [AuthGuard], title: 'TP Sync Partners'},
   {path: 'workflow', component: WorkflowComponent, canActivate: [AuthGuard] , title: 'WorkFlow'},
   {path: 'summary', component: SummaryComponent, canActivate: [AuthGuard] , title: 'Transmissions'},
   {path: 'dashboard', component: DashBoardComponent, canActivate: [AuthGuard], title: 'Dashboard'},

@@ -14,9 +14,12 @@ import { Title } from '@angular/platform-browser';
 import {MatIconModule} from '@angular/material/icon';
 import {MatButtonModule} from '@angular/material/button';
 import {MatBadgeModule} from '@angular/material/badge';
+import { MatDialog } from '@angular/material/dialog';
 import { tpLinks } from '../tradingPartners/tpIds/tp-links/tp-links';
 import { environment } from '../../environments/environment';
 import { StorageService } from '../services/storage.service';
+import { HelpService } from '../help/help.service';
+import { HelpDialogComponent } from '../help/help-dialog.component';
 
 const CHECK_INTERVAL = 5000 // in ms
 const STORE_KEY =  'lastAction';
@@ -185,6 +188,8 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
   private standaloneDetailMode = false;
 
   background = 'white';
+  currentTheme: 'light' | 'dark' = 'light';
+  private readonly themeStorageKey = 'appTheme';
 
   constructor(
     private router: Router,
@@ -193,7 +198,9 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
     private route: ActivatedRoute,
     private TransactionService: TransRestServiceComponent,
     private WfService: WfRestServiceComponent,
-    private storage: StorageService
+    private storage: StorageService,
+    private dialog: MatDialog,
+    private helpService: HelpService
   )
     {
       console.log('**** HeaderComponent constructor ****');
@@ -212,8 +219,19 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
 
     }
 
+    openHelp(): void {
+      const helpContent = this.helpService.getHelpForUrl(this.router.url || '');
+      this.dialog.open(HelpDialogComponent, {
+        width: '700px',
+        maxWidth: '95vw',
+        data: { ...helpContent, appVersion: this.appVersion }
+      });
+    }
+
     ngOnInit() {
       console.log('HeaderComponent ngOnInit')
+
+      this.initializeTheme();
 
       this.loginForm = this.formBuilder.group({
           username: ['', Validators.required],
@@ -279,19 +297,6 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
             if (this.paramsObject.transaction !== undefined)
             {
               this.searchStr = "Transaction: " + this.paramsObject.transaction
-              let element = document.getElementById('tabGrp') as HTMLElement | null;
-              if (element) {
-                element.setAttribute('hidden', 'true');
-                console.log("Disable: " + element);
-              }
-
-              element = document.getElementById('logout') as HTMLElement | null;
-              if (element) {
-                element.setAttribute('hidden', 'true');
-                console.log("Disable: " + element);
-              }
-
-
             }
 
 
@@ -393,6 +398,11 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
         {
           console.info('from  authenticationService.login : ' + this.firstPage);
           this.isLogin = true;
+
+          // Reset transaction-specific persisted search state for a fresh login session.
+          // This ensures Transactions initializes from UserConfig instead of stale tab state.
+          this.storage.removeItem('transConfig');
+          this.storage.removeItem('transUserFlds');
 
           this.TransactionService.deleteDisplayColumns('Session','','').subscribe((res: any) => {
 
@@ -513,7 +523,17 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
       }
 
       const currentPath = (this.router.url || '').split('?')[0];
-      if (selectedLink.link && (currentPath === selectedLink.link || currentPath.startsWith(`${selectedLink.link}/`))) {
+      // IMPORTANT: Must use startsWith to cover sub-routes (e.g. /workflow/rdpValidationErrors).
+      // Using exact match only (===) causes the header to re-navigate to the tab's root URL
+      // whenever a sub-route is active, breaking pages like rdpValidationErrors when called
+      // from Summary. Do NOT simplify this back to an exact match — see commits b2b12bf (fix)
+      // and 80c7cce (regression) for history.
+      const isWorkflowChildRoute =
+        selectedLink.name === 'Work Flow' &&
+        !!selectedLink.link &&
+        currentPath.startsWith(selectedLink.link + '/');
+
+      if (selectedLink.link && (currentPath === selectedLink.link || isWorkflowChildRoute)) {
         this.prevLnkIndex = this.selectedLnkIndex.value;
         return;
       }
@@ -675,6 +695,26 @@ export class HeaderComponent implements AfterViewInit, OnInit, OnDestroy {
 	  console.log("storage");
 	  this.val = this.storage.getItem<string>(STORE_KEY);
   }
+
+  toggleTheme(): void {
+    const nextTheme: 'light' | 'dark' = this.currentTheme === 'dark' ? 'light' : 'dark';
+    this.applyTheme(nextTheme);
+  }
+
+  private initializeTheme(): void {
+    const storedTheme = localStorage.getItem(this.themeStorageKey);
+    const initialTheme: 'light' | 'dark' = storedTheme === 'dark' ? 'dark' : 'light';
+    this.applyTheme(initialTheme);
+  }
+
+  private applyTheme(theme: 'light' | 'dark'): void {
+    this.currentTheme = theme;
+    localStorage.setItem(this.themeStorageKey, theme);
+
+    document.body.classList.remove('app-theme-light', 'app-theme-dark');
+    document.body.classList.add(theme === 'dark' ? 'app-theme-dark' : 'app-theme-light');
+  }
+
 
 
 }
