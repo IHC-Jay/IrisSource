@@ -443,11 +443,13 @@ BPL Definition</Description>
   
   #dim individualGroup As EnsLib.EDI.X12.Document 
        set individualGroup = context.inXmlDoc.getNthChild(1,2)
-       set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
-       set STRecord=individualGroup.getNthChild(1,2)
-       set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
+       if ($IsObject(individualGroup))
+       {
+         set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
+         set STRecord=individualGroup.getNthChild(1,2)
+         set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
            
-     set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(context.interchangeSenderID ,context.interchangeReceiverID , context.version, context.mode, context.direction, .lnkInfo, .errStr)
+         set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(context.interchangeSenderID ,context.interchangeReceiverID , context.version, context.mode, context.direction, .lnkInfo, .errStr)
             
             If $$$ISERR(tSC)
             {
@@ -456,15 +458,20 @@ BPL Definition</Description>
 	     }
 	     
    
-   if ($$$ISOK(tSC))
-   {
-       $$$TRACE( context.interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", Error: " _ errStr)
+         if ($$$ISOK(tSC))
+         {
+               $$$TRACE( context.interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", Error: " _ errStr)
                set lnkId = $PIECE(lnkInfo, ",", 1)
                set context.tpLinkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
                set context.storeX12.LinkId = lnkId
               
                $$$TRACE("IHC.TPManage.TRADELINKS:" _ context.tpLinkObj.%Id() _ ", Name: " _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
-   }]]]]><![CDATA[>
+          }
+       }
+       else
+       {
+          $$$TRACE("No GS, TA1")
+       }]]]]><![CDATA[>
 </code>
 <if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1550' xend='470' yend='2100' >
 <true>
@@ -482,7 +489,7 @@ BPL Definition</Description>
   
   $$$LOGERROR( "Insert TP error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID )
 	             
-	            set msgTrans = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTransTypeFromVersion(context.version)
+	            // set msgTrans = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTransTypeFromVersion(context.version)
 	            
 	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
 	            set str = $E(context.inXmlDoc.OutputToString(), 1, 5000)
@@ -493,7 +500,7 @@ BPL Definition</Description>
 			  " values (?,?,?,?,?,?,?,?,?,?)"
 			  #dim rset As %SQL.StatementResult
 			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
-			  context.interchangeSenderID, msgTrans,  "New", "TP", 
+			  context.interchangeSenderID, context.transactionType,  "New", "TP", 
 			  context.errStr, $USERNAME, dtTm, context.inXmlDoc.%Id(), $$$JobSessionId)
 			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
 			  if (rset.%SQLCODE < 0)
@@ -559,7 +566,7 @@ BPL Definition</Description>
 <if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2200' xend='470' yend='3900' >
 <true>
 <code name='Call RDP Validation ' xpos='740' ypos='2350' >
-<![CDATA[   $$$TRACE("RDP Validation operation")
+<![CDATA[   $$$TRACE("RDP Validation operation, SNIP: " _ context.tpLinkObj.SNIP)
    if (context.tpLinkObj.SNIP > 0)
   { 
         set context.storeX12.SNIP = context.tpLinkObj.SNIP 
@@ -570,7 +577,7 @@ BPL Definition</Description>
         set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.configValue)
                  if ( ($$$ISERR(pstatus)) || (configValue = ""))
                  {
-	             $$$LOGERROR("271 validation process not defined - Validate271TargetConfigName")
+	             $$$LOGERROR("RDP validation process not defined - RdpCrystalTargetConfigName")
 	             set context.SNIPValidationStat = $$$OK
 	         }
 	         else
