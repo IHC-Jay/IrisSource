@@ -20,13 +20,13 @@ namespace RdpValidationRestApi.Controllers
             int errNum = 0;
             // Display all errors
             errNum++;
-            const int MAX_ERRORS  = 999;
-	    Console.WriteLine("In ProcessX12, file:" + dataFile);
+            const int MAX_ERRORS = 999;
+            Console.WriteLine("In ProcessX12, file:" + dataFile);
 
 
             if (!System.IO.File.Exists(dataFile))
             {
-		Console.WriteLine("File do not Exists: " +dataFile);
+                Console.WriteLine("File do not Exists: " + dataFile);
                 var response = new X12Response
                 {
                     dataFile = $"{dataFile}!",
@@ -43,18 +43,18 @@ namespace RdpValidationRestApi.Controllers
 
             try
             {
-		string[] segments = null;
-		    if(ignoreSegments != null)
-		    {
-			segments = ignoreSegments.Split(",");
-		    }
+                string[] segments = null;
+                if (ignoreSegments != null)
+                {
+                    segments = ignoreSegments.Split(",");
+                }
                 _rulesBasePath = rulesPath ?? string.Empty;
 
                 string prodKey = getLicense(_rulesBasePath);
                 PackageLicense.Key = prodKey;
 
                 if (ruleFile == null || ruleFile == "")
-                { 
+                {
 
                     foreach (var con in X12Transactions.TransactionsArr)
                     {
@@ -69,8 +69,8 @@ namespace RdpValidationRestApi.Controllers
                         }
                     }
                 }
-            
-                
+
+
                 Console.WriteLine("Do RDP validation for " + dataFile);
 
                 Console.WriteLine("Create EDIValidator: " + prodKey);
@@ -81,7 +81,7 @@ namespace RdpValidationRestApi.Controllers
 
                 string ediRulesFilePath = System.IO.Path.Combine(_rulesBasePath, ruleFile ?? string.Empty);
 
-                Console.WriteLine("Using " + ediRulesFilePath + " for " + transaction +", SNIP:" + snipLevel);
+                Console.WriteLine("Using " + ediRulesFilePath + " for " + transaction + ", SNIP:" + snipLevel);
 
                 validator.EDIRulesFile = ediRulesFilePath;
 
@@ -95,12 +95,12 @@ namespace RdpValidationRestApi.Controllers
                 FileInfo fileInfo = new FileInfo(dataFile);
                 if (fileInfo.Length > 1000000)
                 {
-                        validator.LoadValidatedData = false;
-                        Console.WriteLine("LoadValidatedData property is turned off ");
+                    validator.LoadValidatedData = false;
+                    Console.WriteLine("LoadValidatedData property is turned off ");
                 }
                 else
                 {
-                        Console.WriteLine("Load full X12");
+                    Console.WriteLine("Load full X12");
                 }
 
                 validator.Validate();
@@ -117,7 +117,7 @@ namespace RdpValidationRestApi.Controllers
                         status = "PASS"
                     };
 
-                    
+
                     return response;
 
                 }
@@ -138,7 +138,7 @@ namespace RdpValidationRestApi.Controllers
                     {
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Requirement;
                     }
-                    else if(snipLevel == 3)
+                    else if (snipLevel == 3)
                     {
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Balance;
                     }
@@ -146,16 +146,16 @@ namespace RdpValidationRestApi.Controllers
                     {
                         snipCheck = RDPCrystalEDILibrary.SnipTestLevel.Situational;
                     }
-                    Console.WriteLine("Total # of errors: " + validator.Errors.Count + ", snipLevel: " + snipLevel +", snipCheck: " + snipCheck);
+                    Console.WriteLine("Total # of errors: " + validator.Errors.Count + ", snipLevel: " + snipLevel + ", snipCheck: " + snipCheck);
                     if (validator.Errors.Count > MAX_ERRORS)
                     {
                         var err = new X12Response
                         {
-                        dataFile = $"{dataFile}!",
-                        validator = null,
-                        ackStr = null,
-                        status = "FAIL, Aborting. More than MAX_ERRORS errors: "+  MAX_ERRORS,
-                        ediRulesFile = $"{validator.EDIRulesFile}"
+                            dataFile = $"{dataFile}!",
+                            validator = null,
+                            ackStr = null,
+                            status = "FAIL, Aborting. More than MAX_ERRORS errors: " + MAX_ERRORS,
+                            ediRulesFile = $"{validator.EDIRulesFile}"
 
                         };
 
@@ -164,23 +164,23 @@ namespace RdpValidationRestApi.Controllers
 
                     foreach (EDIError error in validator.Errors)
                     {
-			Console.WriteLine(" - Line: " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment/Element: " + error.Segment + "/" + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
+                        Console.WriteLine(" - Line: " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment/Element: " + error.Segment + "/" + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
                         if (validationInd >= MAX_ERRORS)
                         {
-                                break;
+                            break;
                         }
 
                         if (error.SnipLevel > snipCheck)
                         {
                             deleteErrors[validationInd++] = error;
                         }
-			if (segments != null && segments.Contains(error.Segment))
+                        if (segments != null && segments.Contains(error.Segment))
                         {
-				Console.WriteLine("Ignore segment: " +  error.Segment );
+                            Console.WriteLine("Ignore segment: " + error.Segment);
                             deleteErrors[validationInd++] = error;
                         }
-                                            
-                                            
+
+
 
                     }
 
@@ -192,7 +192,7 @@ namespace RdpValidationRestApi.Controllers
                             validator.Errors.Remove(delInd);
                         }
                     }
-                    Console.WriteLine("# of errors after deleting SnipLevel " + snipCheck +" = " + validator.Errors.Count);
+                    Console.WriteLine("# of errors after deleting SnipLevel " + snipCheck + " = " + validator.Errors.Count);
 
                     foreach (EDIError error in validator.Errors)
                     {
@@ -203,10 +203,10 @@ namespace RdpValidationRestApi.Controllers
                     foreach (EDIError error in validator.Warnings)
                     {
                         Console.WriteLine(" Warning Line # " + error.LineNumber.ToString() + ", SNIP: " + error.SnipLevel + ", Loop: " + error.Loop + ", Segment, Element: " + error.Segment + ", " + error.ElementOrdinal + ", Error: " + error.Message.ToString() + ", " + error.Description);
-                       
+
                     }
-		    
-                    
+
+
 
                     string edi997Data = CreateAck(validator);
 
@@ -215,7 +215,7 @@ namespace RdpValidationRestApi.Controllers
                         dataFile = $"{dataFile}!",
                         validator = validator,
                         ackStr = $"{edi997Data}",
-                        status = (validator.Errors.Count == 0) ? "PASS":"FAIL",
+                        status = (validator.Errors.Count == 0) ? "PASS" : "FAIL",
                         ediRulesFile = $"{validator.EDIRulesFile}"
 
                     };
@@ -249,6 +249,8 @@ namespace RdpValidationRestApi.Controllers
             string filePath = System.IO.Path.Combine(rulesPath, "RDPLicense.txt");
             string licenseKey = "C0210e1f-7f40-4629-bdd5-a531f78222ec";
 
+            /*
+
             try
             {
 
@@ -265,6 +267,7 @@ namespace RdpValidationRestApi.Controllers
             {
                 Console.WriteLine($"The License file could not be read: {e.Message}");
             }
+            */
 
             return licenseKey;
 
@@ -294,229 +297,166 @@ namespace RdpValidationRestApi.Controllers
         private void ediValidator_CustomCondition(object sender, CodeConditionEventArgs e)
         {
             e.ConditionValid = false;
-	    string fldVal = e.CurrentSegment.Elements[0].DataValue.ToString();
-	    Console.WriteLine(" ---- ");
-            Console.WriteLine("In RDP CustomCondition: " + e.CodeCondition.ToString() +", sender: " + sender);
-	    Console.WriteLine("Data: " + fldVal +  e.CurrentLoop);
-            foreach (LightWeightElement ele in e.CurrentSegment.Elements)
-            {
-                    Console.Write(ele.DataValue + ", ");
-            }
-            Console.WriteLine(" ---- Data count: " + e.CurrentSegment.Elements.Count);
+            Console.WriteLine(" ---- ");
+            Console.WriteLine("In RDP CustomCondition: " + e.CodeCondition.ToString() + ", sender: " + sender);
 
-
-	    if (e.CodeCondition.Id == "npiValidation")
-		{
-    		if (e.CurrentSegment.Elements[0].ToString() == "1P")
-    		{
-		    	string npiNum = e.CurrentSegment.Elements[8].ToString();
-				
-    			Console.WriteLine("NPI Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
-        		e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
-        		Console.WriteLine("NPI valid:" + e.ConditionValid);
-    		}
-	    }
-        else if (e.CodeCondition.Id == "prvValidation")
+            Console.WriteLine("Loop: " + e.CurrentLoop + "Data: " + ((e.CurrentSegment.Elements[0] != null && e.CurrentSegment.Elements[0].DataValue != null) ? ", Data: " + e.CurrentSegment.Elements[0].DataValue.ToString() : "Nested LightWeightElement") + ", Condition: " + e.CodeCondition.Id);
+            
+            if (e.CodeCondition.Id == "npiValidation")
             {
-                        if (e.CurrentSegment.Elements[1].ToString() == "HPI")
+                if (e.CurrentSegment.Elements[0].ToString() == "1P")
                 {
-                        string npiNum = e.CurrentSegment.Elements[2].ToString();
+                    string npiNum = e.CurrentSegment.Elements[8].ToString();
 
-                        Console.WriteLine("HPI Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
-                        e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
-                        Console.WriteLine("PRV HPI NpiValidator:" + e.ConditionValid);
+                    Console.WriteLine("NPI Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+                    e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+                    Console.WriteLine("NPI valid:" + e.ConditionValid);
                 }
-        }
-	    else if (e.CodeCondition.Id == "dtpValidation")
-		{
-		    	string dob = e.CurrentSegment.Elements[2].ToString();
-				
-    			Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[1] + ", " + dob);
-        		e.ConditionValid = !Util.DtpValidator.IsValid(e.CurrentSegment.Elements[1].ToString(), dob);
-        		Console.WriteLine("DTP valid:" + e.ConditionValid);
-	    }
-	    else if (e.CodeCondition.Id == "dobValidation")
-		{
-    		if (e.CurrentSegment.Elements[0].ToString() == "D8")
-    		{
-		    	string dob = e.CurrentSegment.Elements[1].ToString();
-				
-    			Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[0].ToString() + ", " + dob);
-        		e.ConditionValid = !Util.DobValidator.IsValid(dob);
-        		Console.WriteLine("DoB valid:" + e.ConditionValid);
-    		}
-	    }
-	    else if (e.CodeCondition.Id == "refValidation")
-		{
-    		if (e.CurrentSegment.Elements[0].ToString() == "SY")
-    		{
-		    	string ssnNum = e.CurrentSegment.Elements[1].ToString();
-				
-    			Console.WriteLine("SSN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + ssnNum);
-        		e.ConditionValid = !Util.SsnValidator.IsValid(ssnNum);
-        		Console.WriteLine("SSN valid:" + e.ConditionValid);
-    		}
+            }
+            else if (e.CodeCondition.Id == "prvValidation")
+            {
+                if (e.CurrentSegment.Elements[1].ToString() == "HPI")
+                {
+                    string npiNum = e.CurrentSegment.Elements[2].ToString();
+
+                    Console.WriteLine("HPI Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+                    e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+                    Console.WriteLine("PRV HPI NpiValidator:" + e.ConditionValid);
+                }
+            }
+            else if (e.CodeCondition.Id == "dtpValidation")
+            {
+                string dob = e.CurrentSegment.Elements[2].ToString();
+
+                Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[1] + ", " + dob);
+                e.ConditionValid = !Util.DtpValidator.IsValid(e.CurrentSegment.Elements[1].ToString(), dob);
+                Console.WriteLine("DTP valid:" + e.ConditionValid);
+            }
+            else if (e.CodeCondition.Id == "dobValidation")
+            {
+                if (e.CurrentSegment.Elements[0].ToString() == "D8")
+                {
+                    string dob = e.CurrentSegment.Elements[1].ToString();
+
+                    Console.WriteLine("Date 1, 9: " + e.CurrentSegment.Elements[0].ToString() + ", " + dob);
+                    e.ConditionValid = !Util.DobValidator.IsValid(dob);
+                    Console.WriteLine("DoB valid:" + e.ConditionValid);
+                }
+            }
+            else if (e.CodeCondition.Id == "refValidation")
+            {
+                if (e.CurrentSegment.Elements[0].ToString() == "SY")
+                {
+                    string ssnNum = e.CurrentSegment.Elements[1].ToString();
+
+                    Console.WriteLine("SSN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + ssnNum);
+                    e.ConditionValid = !Util.SsnValidator.IsValid(ssnNum);
+                    Console.WriteLine("SSN valid:" + e.ConditionValid);
+                }
                 if (e.CurrentSegment.Elements[0].ToString() == "EI" || e.CurrentSegment.Elements[0].ToString() == "TJ")
                 {
-                        string einNum = e.CurrentSegment.Elements[1].ToString();
+                    string einNum = e.CurrentSegment.Elements[1].ToString();
 
-                        Console.WriteLine("EIN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + einNum);
-                        e.ConditionValid = !Util.EinValidator.IsValid(einNum);
-                        Console.WriteLine("EIN valid:" + e.ConditionValid);
-                }
-
-		else if (e.CurrentSegment.Elements[0].ToString() == "EA")
-    		{
-		    	string medNum = e.CurrentSegment.Elements[1].ToString();
-    			Console.WriteLine("EA Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + medNum);
-			string pattern = @"^[a-zA-Z0-9]+$";
-    			e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(medNum, pattern);
-        		Console.WriteLine("EA valid:" + e.ConditionValid);
-    		}
-	    }
-	    else if ( e.CodeCondition.Id == "zipValidation")
-	    {
-		    	string st = e.CurrentSegment.Elements[1].ToString();
-		    	string zip = e.CurrentSegment.Elements[2].ToString();
-    			Console.WriteLine("ZIP Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + zip);
-				try {
-                    string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "States.csv");
-        				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, st);
-        				Console.WriteLine(st + " CSV:" + val);
-					if (val == null || val == "")
-					{
-				   		e.ConditionValid = true;
-					}
-				}
-                		catch (IOException ex)
-                		{
-                    			Console.WriteLine($"Exception Regular Exp: {ex.Message}");
-				}
-			if (zip.Length > 0)
-			{
-				string pattern = @"^\d{5}(-\d{4})?$|^(\d{5}|\d{9})$";
-    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(zip, pattern);
-        			Console.WriteLine("ZIP valid:" + e.ConditionValid);
-			}
-	    }
-	    else if ( e.CodeCondition.Id == "nmValidation")
-	    {
-		    	string nm2 = e.CurrentSegment.Elements[2].ToString();
-		    	string nm3 = e.CurrentSegment.Elements[3].ToString();
-    			Console.WriteLine("Name Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + nm2 +", " + nm3);
-			// [A-Za-z'-]+: Allows one or more letters, apostrophes ('), or hyphens (-).
-			string pattern = @"^[A-Za-z][A-Za-z'-]+([ A-Za-z][A-Za-z'-]+)*$";
-			if (nm2.Length > 0)
-			{
-    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm2, pattern);
-        			Console.WriteLine("NM 2 valid:" + e.ConditionValid);
-			}
-			if (nm3.Length > 0 && e.ConditionValid == false)
-			{
-    				e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm3, pattern);
-        			Console.WriteLine("NM 3 valid:" + e.ConditionValid);
-			}
-	    }
-        else if (e.CodeCondition.Id.StartsWith("valueFound-"))
-            {
-		Console.WriteLine("valueFound: " + e.CodeCondition.Id);
-                string[] condParts = e.CodeCondition.Id.Split('-');
-                if (condParts.Length < 3)
-                {
-                    e.ConditionValid = true;
-                    Console.WriteLine("Invalid valueFound condition format. Expected: valueFound-filename-fieldNumber, " + e.CodeCondition.Id);
-                    return;
-                }
-		int.TryParse(condParts[2], out int fieldNum);
-                if (fieldNum < 0 || fieldNum > e.CurrentSegment.Elements.Count)
-                {
-                    e.ConditionValid = true;
-                    Console.WriteLine("Invalid valueFound condition format.  " + e.CurrentSegment.Elements.Count +", " + condParts[2] +" = " + fieldNum +" Count: " + e.CurrentSegment.Elements.Count);
-                    return;
+                    Console.WriteLine("EIN Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + einNum);
+                    e.ConditionValid = !Util.EinValidator.IsValid(einNum);
+                    Console.WriteLine("EIN valid:" + e.ConditionValid);
                 }
 
-                string lookupValue = e.CurrentSegment.Elements[fieldNum-1].ToString();
-                Console.WriteLine("valueFound Data field " + fieldNum + ": " + lookupValue);
-                try {
-                string lookupFile = condParts[1];
-                if (!lookupFile.Contains('.'))
+                else if (e.CurrentSegment.Elements[0].ToString() == "EA")
                 {
-                    lookupFile += ".txt";
+                    string medNum = e.CurrentSegment.Elements[1].ToString();
+                    Console.WriteLine("EA Data 1, 2: " + e.CurrentSegment.Elements[0] + ", " + medNum);
+                    string pattern = @"^[a-zA-Z0-9]+$";
+                    e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(medNum, pattern);
+                    Console.WriteLine("EA valid:" + e.ConditionValid);
                 }
-                string lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
-                bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
-                // Condition is invalid when expected value is present.
-                e.ConditionValid = exists;
-                Console.WriteLine("valueFound exists:" + exists + ", ConditionValid:" + e.ConditionValid);
-                }
-                    catch (IOException ex)
-                    {
-                        Console.WriteLine($"Exception valueFound lookup: {ex.Message}");
-                    }
             }
-        else if (e.CodeCondition.Id.StartsWith("valueNotFound-"))
+            else if (e.CodeCondition.Id == "zipValidation")
             {
-                string[] condParts = e.CodeCondition.Id.Split('-');
-                if (condParts.Length < 3 || !int.TryParse(condParts[2], out int fieldNum) || fieldNum < 0 || fieldNum > e.CurrentSegment.Elements.Count)
-                {
-                    e.ConditionValid = true;
-                    Console.WriteLine("Invalid valueNotFound condition format. Expected: valueNotFound-filename-fieldNumber");
-                    return;
-                }
-
-                string lookupValue = e.CurrentSegment.Elements[fieldNum-1].ToString();
-                Console.WriteLine("valueNotFound Data field " + fieldNum + ": " + lookupValue);
-                try {
-                string lookupFile = condParts[1];
-                if (!lookupFile.Contains('.'))
-                {
-                    lookupFile += ".txt";
-                }
-                string lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
-                bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
-                // Condition is invalid when the value not found.
-                e.ConditionValid = !exists;
-                Console.WriteLine("valueNotFound exists:" + exists + ", ConditionValid:" + e.ConditionValid);
-                }
-                    catch (IOException ex)
+                string st = e.CurrentSegment.Elements[1].ToString();
+                string zip = e.CurrentSegment.Elements[2].ToString();
+                string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "States.csv");
+                Console.WriteLine("ZIP Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + zip);
+                try
+                {                 
+                    string val = Util.CsvLookup.GetSecondValueByKey(csvPath, st);
+                    Console.WriteLine(st + " CSV:" + val);
+                    if (val == null || val == "")
                     {
-                        Console.WriteLine($"Exception valueNotFound lookup: {ex.Message}");
+                        e.ConditionValid = true;
                     }
+                }
+                catch (IOException ex)
+                {
+                    Console.WriteLine($"Exception in zipValidation, Exp: {ex.Message}" +", File: " + csvPath);
+                }
+                if (zip.Length > 0)
+                {
+                    string pattern = @"^\d{5}(-\d{4})?$|^(\d{5}|\d{9})$";
+                    e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(zip, pattern);
+                    Console.WriteLine("ZIP valid:" + e.ConditionValid);
+                }
             }
-	    if (e.CodeCondition.Id == "eqLookup" && e.CurrentSegment.Elements.Count > 1)
-		{
-		    	string eq2 = e.CurrentSegment.Elements[2].ToString();
-				
-    			Console.WriteLine("EQ Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + eq2);
-			if (eq2 != null && eq2.Length > 0)
+            else if (e.CodeCondition.Id == "nmValidation")
+            {
+                string nm2 = e.CurrentSegment.Elements[2].ToString();
+                string nm3 = e.CurrentSegment.Elements[3].ToString();
+                Console.WriteLine("Name Data 1, 3: " + e.CurrentSegment.Elements[0] + ", " + nm2 + ", " + nm3);
+                // [A-Za-z'-]+: Allows one or more letters, apostrophes ('), or hyphens (-).
+                string pattern = @"^[A-Za-z][A-Za-z'-]+([ A-Za-z][A-Za-z'-]+)*$";
+                if (nm2.Length > 0)
+                {
+                    e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm2, pattern);
+                    Console.WriteLine("NM 2 valid:" + e.ConditionValid);
+                }
+                if (nm3.Length > 0 && e.ConditionValid == false)
+                {
+                    e.ConditionValid = !System.Text.RegularExpressions.Regex.IsMatch(nm3, pattern);
+                    Console.WriteLine("NM 3 valid:" + e.ConditionValid);
+                }
+            }
+            else if (e.CodeCondition.Id.StartsWith("valueFound-") || e.CodeCondition.Id.StartsWith("valueNotFound-"))
+            {
+                bool isValueFoundCondition = e.CodeCondition.Id.StartsWith("valueFound-");
+                HandleValueLookupCondition(e, isValueFoundCondition);
+            }
+            if (e.CodeCondition.Id == "eqLookup" && e.CurrentSegment.Elements.Count > 1)
+            {
+                string eq2 = e.CurrentSegment.Elements[2].ToString();
+
+                Console.WriteLine("EQ Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + eq2);
+                string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "EQ-02.csv");
+                if (eq2 != null && eq2.Length > 0)
+                {
+                    try
+                    {
+                        
+                        string val = Util.CsvLookup.GetSecondValueByKey(csvPath, eq2);
+                        Console.WriteLine("CSV:" + val);
+                        if (val == null || val == "")
                         {
-				try {
-                    string csvPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", "EQ-02.csv");
-        				string val = Util.CsvLookup.GetSecondValueByKey(csvPath, eq2);
-        				Console.WriteLine("CSV:" + val);
-					if (val == null || val == "")
-					{
-				   		e.ConditionValid = true;
-					}
-				}
-                		catch (IOException ex)
-                		{
-                    			Console.WriteLine($"Exception Regular Exp: {ex.Message}");
-                		}
-			}
-	    }
+                            e.ConditionValid = true;
+                        }
+                    }
+                    catch (IOException ex)
+                    {
+                        Console.WriteLine($"Exception in EQ lookup, Exp: {ex.Message}" +", File: " + csvPath);
+                    }
+                }
+            }
 
-	    else if (e.CodeCondition.Id == "shouldStartWithNumber")
+            else if (e.CodeCondition.Id == "shouldStartWithNumber")
             {
-                
-                
-                try { 
+
+
+                try
+                {
                     var expr = @"^\d.+$";
                     bool val = System.Text.RegularExpressions.Regex.IsMatch(e.CurrentSegment.Elements[0].DataValue.ToString(), expr);
-                    
+
                     if (val)
                     {
-                        e.ConditionValid = false;                        
+                        e.ConditionValid = false;
                     }
                     else
                     {
@@ -526,10 +466,116 @@ namespace RdpValidationRestApi.Controllers
                 }
                 catch (IOException ex)
                 {
-                    Console.WriteLine($"Exception Regular Exp: {ex.Message}");
+                    Console.WriteLine($"Exception in shouldStartWithNumber Exp: {ex.Message}");
                 }
             }
-	    Console.WriteLine(" **** " + e.CodeCondition.Id + "= " +  (e.ConditionValid? "FAIL" : "PASS") + " ---- ");
+            Console.WriteLine(" **** " + e.CodeCondition.Id + "= " + (e.ConditionValid ? "FAIL" : "PASS") + " ---- ");
+        }
+
+        private void HandleValueLookupCondition(CodeConditionEventArgs e, bool isValueFoundCondition)
+        {
+            string conditionName = isValueFoundCondition ? "valueFound" : "valueNotFound";
+            Console.WriteLine(conditionName + " condition: " + e.CodeCondition.Id);
+
+            string[] condParts = e.CodeCondition.Id.Split('-');
+
+            // Validate format: condParts[0]=condition, [1]=filename, [2]=fieldNum, [3]=nestedFieldNum (optional)
+            if (condParts.Length < 3 || condParts.Length > 4)
+            {
+                e.ConditionValid = true;
+                Console.WriteLine("Invalid " + conditionName + " condition format. Expected: " + conditionName + "-filename-fieldNumber or " + conditionName + "-filename-fieldNumber-nestedFieldNumber");
+                return;
+            }
+
+            // Parse field number (01-99)
+            if (!int.TryParse(condParts[2], out int fieldNum) || fieldNum <= 0 || fieldNum > e.CurrentSegment.Elements.Count)
+            {
+                e.ConditionValid = true;
+                Console.WriteLine("Invalid " + conditionName + " field number: " + condParts[2] + ". Expected 01-99 and <= " + e.CurrentSegment.Elements.Count);
+                return;
+            }
+
+            string lookupValue = null;
+            string debugInfo = "";
+
+            try
+            {
+                // Single-level access: e.CurrentSegment.Elements[fieldNum-1]
+                if (condParts.Length == 3)
+                {
+                    var element = e.CurrentSegment.Elements[fieldNum - 1];
+                    if (element == null)
+                    {
+                        e.ConditionValid = true;
+                        Console.WriteLine("Invalid " + conditionName + " access: field " + fieldNum + " is null.");
+                        return;
+                    }
+
+                    lookupValue = element.ToString();
+                    debugInfo = "Field " + fieldNum;
+                }
+                // Nested access: e.CurrentSegment.Elements[fieldNum-1].Elements[nestedFieldNum-1]
+                else if (condParts.Length == 4)
+                {
+                    if (!int.TryParse(condParts[3], out int nestedFieldNum) || nestedFieldNum <= 0)
+                    {
+                        e.ConditionValid = true;
+                        Console.WriteLine("Invalid " + conditionName + " nested field number: " + condParts[3] + ". Expected 01-99");
+                        return;
+                    }
+
+                    var element = e.CurrentSegment.Elements[fieldNum - 1];
+                    if (element == null || element.Elements == null || nestedFieldNum > element.Elements.Count)
+                    {
+                        e.ConditionValid = true;
+                        Console.WriteLine("Invalid " + conditionName + " nested access: field " + fieldNum + " has no Elements or nestedFieldNum " + nestedFieldNum + " out of range (max " + (element?.Elements?.Count ?? 0) + ")");
+                        return;
+                    }
+
+                    var nestedElement = element.Elements[nestedFieldNum - 1];
+                    if (nestedElement == null)
+                    {
+                        e.ConditionValid = true;
+                        Console.WriteLine("Invalid " + conditionName + " nested access: field " + fieldNum + ", nested field " + nestedFieldNum + " is null.");
+                        return;
+                    }
+
+                    lookupValue = nestedElement.ToString();
+                    debugInfo = "Field " + fieldNum + ".Elements[" + nestedFieldNum + "]";
+                }
+            }
+            catch (Exception ex)
+            {
+                e.ConditionValid = true;
+                Console.WriteLine("Exception accessing " + conditionName + " element: " + ex.Message);
+                return;
+            }
+
+            Console.WriteLine(conditionName + " Data " + debugInfo + ": " + lookupValue);
+
+           
+                string lookupFile = condParts[1];
+                if (!lookupFile.Contains('.'))
+                {
+                    lookupFile += ".txt";
+                }
+
+                string lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
+                try
+                {
+                    bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
+
+                    // Keep existing behavior:
+                    // valueFound => true when found, valueNotFound => true when not found.
+                    e.ConditionValid = isValueFoundCondition ? exists : !exists;
+                    Console.WriteLine(conditionName + " exists:" + exists + ", ConditionValid:" + e.ConditionValid +", file: " + lookupPath + ", value: " + lookupValue );
+                }
+                catch (IOException ex)
+                {   
+                    Console.WriteLine("Exception " + conditionName + " lookup: " + ex.Message +", file: " + lookupPath  );
+                    e.ConditionValid = true; // fail open on lookup error}
+                }
+            
         }
     }
 
