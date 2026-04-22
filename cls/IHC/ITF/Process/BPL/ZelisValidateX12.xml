@@ -6,13 +6,6 @@ X12 parsing</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>63813,49595.678916</TimeCreated>
 
-<Property name="AckTargetConfigName">
-<Description>
-Process to send the Ack, Routing information from the TP Link will be added to the name</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
 <Property name="Direction">
 <Description>
 Direction: In / Out </Description>
@@ -58,8 +51,34 @@ X12 - Create a new batch containing only those child documents which pass valida
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>-NEXTOPERATION,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,AckTargetConfigName:Acknowledgement</Default>
+<Default>-NEXTOPERATION,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional</Default>
 </Parameter>
+
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ZelisValidateX12DefaultData</DefaultData>
+<Data name="ZelisValidateX12DefaultData">
+<Subscript>"ZelisValidateX12"</Subscript>
+<Value name="1">
+<Value>AckTargetConfigName</Value>
+</Value>
+<Value name="2">
+<Value>Direction</Value>
+</Value>
+<Value name="3">
+<Value>Mode</Value>
+</Value>
+<Value name="4">
+<Value>Version</Value>
+</Value>
+<Value name="5">
+<Value>DuplicateCheck</Value>
+</Value>
+<Value name="6">
+<Value>CreateNewBatches</Value>
+</Value>
+</Data>
+</Storage>
 
 <XData name="BPL">
 <Description>
@@ -101,11 +120,6 @@ BPL Definition</Description>
 <property name='direction' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='5' />
-</parameters>
-</property>
-<property name='ackTargetConfigName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='200' />
 </parameters>
 </property>
 <property name='succBat' type='EnsLib.EDI.X12.Document' instantiate='0' />
@@ -160,8 +174,8 @@ BPL Definition</Description>
 </property>
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
 </context>
-<sequence xend='200' yend='4050' >
-<scope xpos='200' ypos='250' xend='200' yend='3950' >
+<sequence xend='200' yend='3950' >
+<scope xpos='200' ypos='250' xend='200' yend='3850' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId _", req: " _ process.%PrimaryRequestHeader.SourceConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -183,13 +197,6 @@ BPL Definition</Description>
    set context.targetConfigNames = configValue
  }
    
- 
-   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"AckTargetConfigName",.configValue)
- if ( ($$$ISERR(pstatus)) || (configValue = ""))
- {
- 	$$$LOGWARNING("Initialization error, No AckTargetConfigName found")
- }
-   set context.ackTargetConfigName = configValue
  
     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Direction",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
@@ -287,7 +294,7 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3700' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3600' >
 <true>
 <code name='Print file name' xpos='470' ypos='800' >
 <![CDATA[
@@ -413,78 +420,14 @@ BPL Definition</Description>
   $$$TRACE("PerformSNIPValidation not performed " _ tSc)
   ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='470' ypos='2200' xend='470' yend='3600' >
+<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='470' ypos='2200' xend='470' yend='3500' >
 <true>
 <if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='470' ypos='2350' xend='470' yend='2800' >
 <true>
 <code name='Send NACK' xpos='740' ypos='2500' >
-<![CDATA[  if '( context.tpLinkObj.GSAck [ "NEVER")
-  {
-	
-	$$$TRACE( " ---> Send NACK to " _ context.tpLinkObj.Routing)
-	try
-        {
-          set stat = ""
-	  set reply = ##class(EnsLib.EDI.X12.Util.Validator).ConstructBatchReply(context.inXmlDoc, .stat) 
-	  if ($IsObject(reply))
-	  {
-		 $$$TRACE("999:" _ reply.OutputToString() )
-		 
-	     
-	            set stream=##class(%Stream.GlobalCharacter).%New()
-	            Set tSC =reply.OutputToLibraryStream(stream, context.x12Sep)
-	            $$$TRACE("ACK Stream length: " _ stream.Size)
-	
-                    set x12StCon =##class(Ens.StreamContainer).%New(stream)
-                    set x12StCon.OriginalFilename = request.OriginalFilename _".999"
-              
-	 
-                    set compLen = $LENGTH(context.ackTargetConfigName, ",")
-                          set uhinComp = "", shJmsComp = ""
-                          for i=1:1:compLen
-                          {
-                            set compNm = $PIECE(context.ackTargetConfigName, ",", i)
-                            if (compNm [ "Uhin")
-                            {
-                               set uhinComp = compNm 
-                            }
-                            else
-                            {
-                               set shJmsComp = compNm 
-                               
-                            }
-                          }
-                          $$$TRACE("ACK components: " _ uhinComp _", " _ shJmsComp )
-                          
-                          if ( (shJmsComp '= "") && (process.%PrimaryRequestHeader.SourceConfigName [ "LOOPBACK") )
-                          {
-                              Set tSC1=process.SendRequestAsync(shJmsComp, reply)
-                              $$$TRACE("Sent Ack as JmsMessageWithProperties to Ack Process: " _ shJmsComp _ " , status: " _ tSC1)
-                          }
-                          elseif  (uhinComp '= "")
-                          {
-	 	
-		 	       Set tSC1=process.SendRequestAsync(uhinComp, x12StCon)
-		 	       $$$TRACE("Sent Ack as stream to Ack Process: " _ uhinComp _ " , status: " _ tSC1)
-	                       
-	                  }
-	         }
-              
-	 }
-	 catch err
-         {
-                 $$$LOGERROR("Exception in NACK: " _ err)
-                 
-                 set alert=##class(Ens.AlertRequest).%New()
-                 set alert.AlertText=err.Code _", " _ err.Location
-                 set alert.SourceConfigName = context.configName               
-                  do process.SendAlert(alert)
-         }         
-  }
-  else
-  {
+<![CDATA[
      $$$TRACE( " Do not send NACK " )
-  }
+  
   ]]]]><![CDATA[>
 </code>
 <code name='Send inbound X12 data' xpos='740' ypos='2600' >
@@ -550,7 +493,7 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1010' ypos='2350' xend='1010' yend='3400' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1010' ypos='2350' xend='1010' yend='3300' >
 <true>
 <trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1280' ypos='2500' />
 <code name='Get ISA values' xpos='1280' ypos='2600' >
@@ -580,73 +523,18 @@ BPL Definition</Description>
 		Set env = "QA"
 	}
 	
-  $$$TRACE("X12 data: " _ InterchangeSenderID  _"->" _ InterchangeReceiverID _", Ctrl: " _ InterchangeCtrlNum )
+  
   
   set flNm = env _ "_" _ InterchangeSenderID _"_"_ dtStr _tmStr _ "_" _ InterchangeReceiverID _"_"_ InterchangeCtrlNum _".Remit_Cirius_Import"
   
   set context.X12Filename = flNm 
-  set context.AckFilename = "999_" _ InterchangeSenderID _"_"_ dtStr _tmStr _ "_" _ InterchangeReceiverID _"_"_ InterchangeCtrlNum _".835"]]]]><![CDATA[>
+  $$$TRACE("X12 data: " _ InterchangeSenderID  _"->" _ InterchangeReceiverID _", Ctrl: " _ InterchangeCtrlNum _", FileName: " _ context.X12Filename)
+  ]]]]><![CDATA[>
 </code>
-<code name='Send Ack?' xpos='1280' ypos='2700' >
-<![CDATA[ $$$TRACE( "Inbound X12, Return ACKs- ISA:" _ context.tpLinkObj.ISAAck _", GS: " _ context.tpLinkObj.GSAck _", ST: " _ context.tpLinkObj.STAck _", SNIP: " _ context.tpLinkObj.SNIP)
-	if '( context.tpLinkObj.GSAck [ "NEVER")
-	{
-		$$$TRACE( " ---> Send ACK ")
-		set reply = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "All", "SNIP", context.tpLinkObj.SNIP, "All") 
-		 if ($IsObject(reply))
-		  {
-		   // Operation types:
-                         // EnsLib.FTP.PassthroughOperation
-                         // EnsLib.File.PassthroughOperation
-                         
-                          set x12StCon = ##class(Ens.StreamContainer).%New()
-                          set str = ##class(%Stream.GlobalCharacter).%New()
-                          set oStat = reply.OutputToLibraryStream(str)
-			
-                          set x12StCon.Stream = str
-                          set x12StCon.OriginalFilename = context.AckFilename 
-                          set compLen = $LENGTH(context.ackTargetConfigName, ",")
-                          set uhinComp = "", shJmsComp = ""
-                          for i=1:1:compLen
-                          {
-                            set compNm = $PIECE(context.ackTargetConfigName, ",", i)
-                            if (compNm [ "Uhin")
-                            {
-                               set uhinComp = compNm 
-                            }
-                            else
-                            {
-                               set shJmsComp = compNm 
-                               
-                            }
-                          }
-                          $$$TRACE("ACK components: " _ uhinComp _", " _ shJmsComp )
-                          
-                          if ( (shJmsComp '= "") && (process.%PrimaryRequestHeader.SourceConfigName [ "LOOPBACK") )
-                          {
-                              Set tSC1=process.SendRequestAsync(shJmsComp, reply)
-                              $$$TRACE("Sent Ack as JmsMessageWithProperties to Ack Process: " + shJmsComp + " , status: " _ tSC1)
-                          }
-                          elseif  (uhinComp '= "")
-                          {
-	 	
-		 	       Set tSC1=process.SendRequestAsync(uhinComp, x12StCon)
-		 	       $$$TRACE("Sent Ack as stream to Ack Process: " + uhinComp + " , status: " _ tSC1)
-	                       
-	                  }
-	                  
-	
-	
-		  }
-	}
-	
-	
-	]]]]><![CDATA[>
-</code>
-<transform name='837 X12Transform' class='IHC.ITF.Transform.Dtl.Zelis835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1280' ypos='2800' />
-<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1280' ypos='2900' />
-<trace name='Store X12?' value='"Store X12 in DB with new IDs"' xpos='1280' ypos='3000' />
-<code name='Send X12 messages to targetConfigNames ' xpos='1280' ypos='3100' >
+<transform name='837 X12Transform' class='IHC.ITF.Transform.Dtl.Zelis835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1280' ypos='2700' />
+<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1280' ypos='2800' />
+<trace name='Store X12?' value='"Store X12 in DB with new IDs"' xpos='1280' ypos='2900' />
+<code name='Send X12 messages to targetConfigNames ' xpos='1280' ypos='3000' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -683,7 +571,7 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<code name='Split X12 and get fileName' xpos='1280' ypos='3200' >
+<code name='Split X12 and get fileName' xpos='1280' ypos='3100' >
 <![CDATA[
    set segSep = $EXTRACT(context.inXmlDoc.Separators, 4)
    set eleSep = $EXTRACT(context.inXmlDoc.Separators, 1, 2)
@@ -736,9 +624,7 @@ BPL Definition</Description>
 		  #dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
 		  set strFacilityCode = "", strCLPCode = ""
 		  
-		  set isCprPlus835 = 0, is835ForMyriad = 0, is835PD = 0, isHs835 = 0, isCerner = 0, isTelcor835 = 0 
-		  set isTelcorCLIN835 = 0, isTelcorGenomics835 = 0
-
+		 
 		  FOR stInd=1:1:individualGroup.ChildCount
 		  
 		  {
@@ -748,121 +634,7 @@ BPL Definition</Description>
 	 				set STRecord.DocType = "HIPAA_5010:835"
 		 		}		  
 			  #dim x12Stream As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
-			  FOR ind=1:1:STRecord.SegCountGet()
-			  {					    
-				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
-			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
-			  	if ( $FIND(segVal, "BPR") = 4  )
-			  	{
-				  	set bpr04 = STRecord.GetValueAt(segPath_":4",, .stat)
-				  	if (bpr04 = "CHK")
-				  	{
-					  	set is835PDCHK  = 1
-				  	}
-			  	}
-			  	if ( $FIND(segVal, "CLP") = 4 )
-			  	{
-				  	set strFacilityCode = "", strCLPCode = ""
-				  	set clp01 = STRecord.GetValueAt(segPath_":1",, .stat)
-				  	
-				  	if ( ($E(clp01, 1) >= "A") && ($E(clp01, 1) <= "Z") )
-				  	{
-	
-					  	set strFacilityCode = $E(clp01, 2, 4)
-				  	}
-				  	else
-				  	{
-					  	set strFacilityCode = $E(clp01, 1, 3)
-				  	}
-				  	// WRITE !, " --- " _ clp01 _ "= " _ $E(clp01, 1) _ ": " _ strFacilityCode
-				  	
-				  	set strCLPCode = $E(clp01, 1, 4)
-				  	if ($L(clp01) < 2)
-				  	{
-					  	set strFacilityCode = "132"
-				  	}		  				  	
-				  	
-				  	set digPat1 = $MATCH(clp01, "^[0-9]{3}-[0-9]{3,4}")
-				  	set digPat2 = $MATCH(clp01, "^[0-9]{5}-[0-9]{3,4}")
-					set digPat3 = $MATCH(clp01, "^[0-9]{6}-[0-9]{3,4}")
-					set digPat4 = $MATCH(clp01, "^[0-9]{7}-[0-9]{3,4}" )
-					if ( (digPat1 = 1) || (digPat2 = 1) || (digPat3 = 1) || (digPat4 = 1))
-					{
-						set isCprPlus835 = 1
-						set strFacilityCode = "109"
-						// WRITE !, " -- FOUND number pattern"
-					}
-					
-				  	if ($FIND(clp01, "IPI") = 4)
-				  	{
-					  	set isImgGrp835 = 1
-				  	}
-				  	elseif ( ($FIND(clp01, "3I") = 3) || ($FIND(clp01, "4I") = 3) || ($FIND(clp01, "5I") = 3))
-				  	{
-					  	set is835PD = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 3, 5)
-						  	set strCLPCode = $E(clp01, 1, 5)
-					  	}
-				  	}
-				  	elseif ( ($FIND(clp01, "FA") = 3) || ($FIND(clp01, "FB") = 3) || ($FIND(clp01, "PA") = 3) || ($FIND(clp01, "PB") = 3))
-				  	{
-					  	set isHs835 = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 3, 5)
-						  	set strCLPCode = $E(clp01, 1, 5)
-					  	}
-				  	}
-				  	elseif ($FIND(clp01, "MY") = 3)
-				  	{
-					  	set is835ForMyriad = 1
-				  	}			  	
-				  	elseif ($FIND(clp01, "C") = 2)
-				  	{
-					  	set isCerner = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 2, 4)
-						  	set strCLPCode = $E(clp01, 1, 4)
-					  	}
-				  	}
-				  	elseif ($FIND(clp01, "X") = 2)
-				  	{
-					  	set isTelcor835 = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 2, 4)
-						  	set strCLPCode = $E(clp01, 1, 4)
-					  	}
-				  	}
-				  	elseif ($FIND(clp01, "Y") = 2)
-				  	{
-					  	set isTelcorCLIN835 = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 2, 4)
-						  	set strCLPCode = $E(clp01, 1, 4)
-					  	}
-				  	}
-				  	elseif ($FIND(clp01, "W") = 2)
-				  	{
-					  	set isTelcorGenomics835 = 1
-					  	if ($L(clp01) >= 4)
-					  	{
-						  	set strFacilityCode = $E(clp01, 2, 4)
-						  	set strCLPCode = $E(clp01, 1, 4)
-					  	}
-				  	}
-				  	if (strFacilityCode = "")
-				  	{
-				  		set strFacilityCode = "109"
-				  	}
-				  	
-				  	// WRITE !, " -- " _ strFacilityCode _ ", " _ strCLPCode  _ ", " _ recvTpId
-			  	}
-			  }
+		
 			  
 			  Do x12Stream.Write(isaSegVal _ segSep)  
 			  Do x12Stream.Write( gsSegVal _ segSep)
@@ -878,47 +650,15 @@ BPL Definition</Description>
 				  set dtTm = ##class(%TimeStamp).Normalize($ZDATETIME($SYSTEM.Util.UTCtoLocalWithZTIMEZONE($ZTIMESTAMP),3,,3))
 				  set dtStr = $REPLACE($PIECE(dtTm, " ", 1), "-", "")
 				  set tmStr = $REPLACE($REPLACE($PIECE(dtTm, " ", 2), ":", ""), ".", "")
-				  if (strFacilityCode = "")
-				  	{
-				  		set strFacilityCode = "154"
-				  	}
-
-				  if ( (recvTpId = "HT000394-001") || (strCLPCode = "C003") ||  (strCLPCode = "C004") )
-				  {
-					  // WRITE !, "{CDT[yyyyMMdd]}.A400.83501D.ICENTRA_{Prp[InterchangeSenderID]}_${HOSTNUMBER}_{CDT[HHmmssSSS]}.TXT"
+				  
 					  
-					  set fileName = $ZSTRIP(dtStr _".A400.83501D.ICENTRA_" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
-				  }
-				  elseif ( (recvTpId = "HT000005-002") || (recvTpId = "HT000005-001") )
-				  {
-					  if (isCerner = 1)
-					  {			  
-					  		set fileName = $ZSTRIP(dtStr _ ".A" _ strFacilityCode _ ".83501D.ICENTRA_" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
-					  }
-					  else
-					  {
-						  set fileName = $ZSTRIP(dtStr _ ".A" _ strFacilityCode _ ".83501D.ISERIES_" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
-					  }
-				  }
-				  elseif (isTelcor835 = 1)
-				  {
-					  // WRITE !, "{CDT[yyyyMMdd]}.A153.83501D_{Prp[InterchangeSenderID]}_${HOSTNUMBER}_{CDT[HHmmssSSS]}.TXT"
-					  set fileName = $ZSTRIP(dtStr _ ".A153.83501D_" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
-				  }
-				  elseif ( (recvTpId = "HT000911-109") || (recvTpId = "HT000005-221") || (isCprPlus835 = 1) )
-				  {
-					  // WRITE !, "{CDT[yyyyMMdd]}.A109.83501D_{Prp[InterchangeSenderID]}_${HOSTNUMBER}_{CDT[HHmmssSSS]}.TXT"
-					  set fileName = $ZSTRIP(dtStr _ ".A109.83501D_" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
-				  }
-				  else
-				  {
-					  WRITE !, "File did not match any destination filter"
-				  }
-				  if (fileName '= "")
-				  {
-				  	Do $INCREMENT( numFiles )
-				  	do context.routeArr.SetAt(x12Stream, fileName)
-				  }
+				  set fileName = $ZSTRIP(dtStr _"." _ recvTpId  _"-" _ sendTpId _ "_" _ tmStr _".TXT", "*W")
+				 
+				  
+				
+				  Do $INCREMENT( numFiles )
+				  do context.routeArr.SetAt(x12Stream, fileName)
+	
 				  
 				  // WRITE !, numFiles _". " _ fileName _ ": " _ newInXmlDoc.OutputToString()
 			  }
@@ -933,7 +673,7 @@ BPL Definition</Description>
     }
     ]]]]><![CDATA[>
 </code>
-<code name='Send X12 messages to R1 ' xpos='1280' ypos='3300' >
+<code name='Send X12 messages to R1 ' xpos='1280' ypos='3200' >
 <![CDATA[  // Send Split X12 to R1
            set tOneTarget = "Out-R1-835-Sftp" 
            
@@ -976,7 +716,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<trace name='Continue processing X12' value='"Processing complete"' xpos='1010' ypos='3500' />
+<trace name='Continue processing X12' value='"Processing complete"' xpos='1010' ypos='3400' />
 </false>
 </if>
 </true>
@@ -988,7 +728,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3800' xend='200' yend='350' >
+<catchall xpos='200' ypos='3700' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
@@ -1002,32 +742,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>ZelisValidateX12DefaultData</DefaultData>
-<Data name="ZelisValidateX12DefaultData">
-<Structure>listnode</Structure>
-<Subscript>"ZelisValidateX12"</Subscript>
-<Value name="1">
-<Value>AckTargetConfigName</Value>
-</Value>
-<Value name="2">
-<Value>Direction</Value>
-</Value>
-<Value name="3">
-<Value>Mode</Value>
-</Value>
-<Value name="4">
-<Value>Version</Value>
-</Value>
-<Value name="5">
-<Value>DuplicateCheck</Value>
-</Value>
-<Value name="6">
-<Value>CreateNewBatches</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
