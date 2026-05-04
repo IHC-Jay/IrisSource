@@ -38,6 +38,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				{
 					
 					$$$TRACE( "**** Process X12 file: " _ $List(tRow, 1) _", " _ $List(tRow, 3)) 
+					// WRITE !, "**** Process X12 file: " _ $List(tRow, 1) _", " _ $List(tRow, 3)
 										 
 					Do ..ProcessFile($List(tRow, 1))
 					
@@ -365,6 +366,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		 set elObj.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
 	 }
 	 $$$TRACE( "Process835 ID: " _ ^ItfGlobalX12IdKey("X12Data" _ transType))
+	 // WRITE !, "Process835 ID: " _ ^ItfGlobalX12IdKey("X12Data" _ transType)
 	set parentId = "", objCnt =0
 	set GSCounter = x12Doc.ChildCount
 	
@@ -603,6 +605,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
      }
      
 	$$$TRACE(  " --- Processing complete: IHC.X12.Data835, ClaimPayment, # rows:" _ objCnt)
+	WRITE !, " --- Processing complete: IHC.X12.Data835, ClaimPayment, # rows:" _ objCnt
 	return elObj.%Id()
 ]]></Implementation>
 </Method>
@@ -2438,32 +2441,52 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 		      $$$TRACE( "Inbound X12 length: " _ $L(elObj.x12Data))
 	      }
 	  }
-	  
-	  
-	   
+	  	   
 	   /// Create 999 by calling X12BatchReply, Update 3 fields from 999 
 	   	  #dim rep As EnsLib.EDI.X12.Document = ##class(Ens.X12.FunctionSet).X12BatchReply(x12Doc,, "SNIP", 2)
 	   	  if ( ($ISOBJECT(rep)) && (rep.%Extends("EnsLib.EDI.X12.Document")) )
   		  {	  
   		  	  set repStr = rep.OutputToString()
+  		  	  set elObj.TransactionsReceived = 0, elObj.TransactionsAccepted = 0
   		  	  if ($L(repStr) > 1)
   		  	  {
 	  		  	  $$$TRACE( "X12BatchReply: " _ repStr)
-	  		  	  
-				  set ak9Pos = $FIND(repStr, "AK9")
-				  set batchReply = $E(repStr, ak9Pos, ($FIND(repStr, $E(rep.Separators, 4), ak9Pos) - 2))
-				  
-				  if (batchReply '= "")
-				  {
-					  $$$TRACE(   batchReply _" Seg sep: " _ $E(rep.Separators, 4) _", Ele Sep " _ rep.ElementSeparator)
-					  set fifthStr = $PIECE(batchReply, rep.ElementSeparator , 5) 
-					  // WRITE !, "Accepted: " _ $NUMBER($REPLACE(fifthStr, $E(rep.Separators, 4), ""),"I")
-					  set elObj.TransactionsStatus = $PIECE(batchReply, rep.ElementSeparator , 2)
-					  set elObj.TransactionsReceived = $NUMBER($PIECE(batchReply, rep.ElementSeparator , 4),"I")
-					  set elObj.TransactionsAccepted = $NUMBER($REPLACE(fifthStr, $E(rep.Separators, 4), ""),"I")
+	  		  	  set repGSCounter = rep.ChildCount
+                  set segX12Data = "", repGSnum = 1
+		          while ( repGSnum <= repGSCounter)
+		          { 
+		            set repGrp = rep.getNthChild(repGSnum,2)
+		            set repGrp.DocType = "HIPAA_5010:Group"
+			        
+			      
+			        set repSTCounter = repGrp.ChildCount 
+
+			        #dim repST As EnsLib.EDI.X12.Document
+			        set repSTnum = 1
+			        while ( repSTnum <= repSTCounter)
+			        { 
+			          set repST = repGrp.getNthChild(repSTnum)
+			          
+			          set GroupRespAckCode = repST.GetValueAt("AK9")
+					  set elObj.TransactionsStatus = $PIECE(GroupRespAckCode, rep.ElementSeparator , 2)
+			          				  
+					  set elObj.TransactionsReceived = elObj.TransactionsReceived + $NUMBER($PIECE(GroupRespAckCode, rep.ElementSeparator, 3),"I")
+					  if (elObj.TransactionsStatus = "A")
+					  {
+					  	set elObj.TransactionsAccepted = elObj.TransactionsAccepted + $NUMBER($PIECE(GroupRespAckCode, rep.ElementSeparator, 4), "I")
+					  }
 					  
-					  $$$TRACE( "Transactions values from AK9: " _ elObj.TransactionsStatus _", Received: " _ elObj.TransactionsReceived _", TransactionsAccepted: " _ elObj.TransactionsAccepted)
-				  }
+					  			  
+			          Do $INCREMENT(repSTnum)
+			        }
+			        Do $INCREMENT(repGSnum) 
+			        
+		          
+          		  } 
+	  		  	  
+				  
+				  $$$TRACE( "Transactions values from AK9: " _ elObj.TransactionsStatus _", Received: " _ elObj.TransactionsReceived _", TransactionsAccepted: " _ elObj.TransactionsAccepted)
+				  
   		  	  }
   		  	  else
   		  	  {
