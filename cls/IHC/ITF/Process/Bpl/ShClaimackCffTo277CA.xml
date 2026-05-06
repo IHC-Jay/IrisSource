@@ -116,9 +116,9 @@ BPL Definition</Description>
  $$$TRACE("Total # of records: " _ context.recCnt)
    set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
 </code>
-<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1400' >
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='750' xend='200' yend='1500' >
 <assign name="Get the record" property="caRec" value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
-<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1200' >
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1300' >
 <true>
 <trace value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
 <code name='create list' xpos='470' ypos='600' >
@@ -134,187 +134,7 @@ BPL Definition</Description>
   $$$TRACE("TP: " _ request.Records.GetAt(context.recFirst).ENVSNDER _ " -> " _ request.Records.GetAt(context.recFirst).ENVRCVER _ ", from " _ context.recFirst _ "->" _ (context.recFirst + context.recOthers) _ ", # CFF records: " _ context.cffRecs.Size)]]]]><![CDATA[>
 </code>
 <transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Output' xpos='470' ypos='700' />
-<code name='Print X12' xpos='470' ypos='800' >
-<![CDATA[ set context.x12Num = context.x12Num + 1
- 
- $$$TRACE(context.x12Num _ ". Size of X12 Doc from DTL: " _ context.x12Output.FullSize )
- 
-  if (context.x12File)
-  {
-   set flNm = "/itf-share/itf-tmp/277CA/tmp/" _ process.%ConfigName _ "-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
-                            set stat = context.x12Output.OutputToFile(flNm , 1)
-                            $$$TRACE("Generated X12 File: " _ flNm _", status: " _ stat)
-  }
-]]]]><![CDATA[>
-</code>
-<code name='Validate and Route' xpos='470' ypos='900' >
-<![CDATA[ // Route the X12 based on TP
-
-	 if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
-	 {
-	    if (context.x12Output.DocType = "")
-	    {
-	      set context.x12Output.DocType ="277_X0B3:Interchange"
-	      set tSC =context.x12Output.BuildMap()
-	      $$$TRACE("From ImportFromString - BuildMap: " _ tSC )
-	      If $$$ISERR(tSC)
-              {
-                  Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
-              }
-	    }
-	    $$$TRACE("X12.Document DocType: " _ context.x12Output.DocType)
-            set interchangeReceiverID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
-	    set interchangeSenderID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeSenderID"), "<>W")
-	    
-            set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , "V5010X214", "Batch", "Out", .lnkInfo, .errStr)
-            
-            If $$$ISERR(tSC)
-            {
-	            $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
-	            set context.errRoute = context.errRoute + 1
-	            
-	            set msgTrans ="277"
-	            set msgTransVer ="V5010X214"
-	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
-	            set str = $E(context.x12Output.OutputToString(), 1, 5000)
-	            
-	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
-			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
-			  " values (?,?,?,?,?,?,?,?,?,?,?)"
-			  #dim rset As %SQL.StatementResult
-			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
-			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-			  if (rset.%SQLCODE < 0)
-			  {
-			  $$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-			  }
-
-            }
-            else
-            {
-            		 
-               $$$TRACE( interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
-               set lnkId = $PIECE(lnkInfo, ",", 1)
-               set lnkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
-
-               $$$TRACE( context.x12Output.Name _ " - SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
-            
-                       set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12Output, "SNIP", lnkObj.SNIP)
-
-			if ($$$ISERR(tSC))
-			{
-			    $$$TRACE(" -*- X12 Validation failed for DTL output, " _ $System.Status.GetErrorText(tSC) _", Validate from the file data")
-			    set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
-			    if ($IsObject(replyDoc))
-			    {
-				      $$$TRACE("Reply 999 to identify the issues in 277CA: " _ replyDoc.RawContent)
-			    }
-			    
-			    // Export to a file and validate X12 again. If any empty segments are copied in DTL, they will not be in the new X12 Doc from the file    
-                            set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
-                            set stat = context.x12Output.OutputToFile(flNm , 1)
-                            $$$TRACE("OutputToFile: " _ stat)
-    
-                            set context.x12FromFile =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
-                            $$$TRACE("ImportFromFile: " _ flNm  _", Stat: " _ stat _", " _ context.x12FromFile.FullSize)
-				  
-			    if (context.x12FromFile.DocType = "")
-	                    {
-	                         set context.x12FromFile.DocType ="277_X0B3:Interchange"
-	                         set tSC =context.x12FromFile.BuildMap()
-	                         $$$TRACE("From ImportFromString - BuildMap: " _ tSC )
-	                         If $$$ISERR(tSC)
-                                 {
-                                         Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
-                                 }
-                            }
-                            $$$TRACE("x12FromFile: " _ context.x12FromFile.DocTypeCategory _ " / " _ context.x12FromFile.DocType)
-              
-			    set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12FromFile, "SNIP", lnkObj.SNIP)
-			}
-			if ($$$ISERR(tSC))
-			{
-			    set str = context.x12Output.OutputToString()
-			    $$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
-				#dim replyDoc as EnsLib.EDI.X12.Document
-				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
-				  if ($IsObject(replyDoc))
-				  {
-				  	 
-					  $$$TRACE( "X12 Reply Error: " _  replyDoc.RawContent)
-					  #dim lst As %ListOfObjects
-					  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetAckDetails(replyDoc, .msgTyp, .msgVer, .retStr, "", .lst, 1)
-					  $$$TRACE( "GetAckDetails: " _ tSC _ retStr _", " _ lst)
-					  					  
-					 
-				  }
-				  Set status = $$$ERROR($$$GeneralError, "X12 Validation failed, "  _ ", RawContent length: " _ $L(context.x12Output.RawContent) _", Str length: " _ $L(str))
-
-                        }
-                        else
-                        {
-                            $$$TRACE("Validation passed. SNIP level: " _ lnkObj.SNIP)
-                            $$$TRACE("Send X12 to " _ lnkObj.Routing)
-                            set route = $ZCONVERT(lnkObj.Routing, "U")
-                            set target = ""
-                            if (route  [ "UHIN")
-                            {
-                                set target = "Out-Uhin-277CA-Sftp-SH"
-                            }
-                            elseif (route  [ "UMR")
-                            {
-                                set target = "Out-Umr-277CA-Sftp-SH"
-                            }
-                            elseif (route  [ "INTERMOUNTAIN")
-                            {
-                                set target = "Out-IhcRco-277CA-File-SH"
-                            }
-                            else
-                            {
-                                set errStr = "Target route " _ lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
-                                $$$LOGERROR(errStr)
-                                set context.errRoute = context.errRoute + 1
-                                set msgTrans ="277"
-	                        set msgTransVer ="V5010X214"
-	                        set dtTm = $ZDATETIME($HOROLOG,3, 1)
-	                        set str = $E(context.x12Output.OutputToString(), 1, 5000)
-	            
-	                        set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
-			        " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
-			        " values (?,?,?,?,?,?,?,?,?,?,?)"
-			        #dim rset As %SQL.StatementResult
-			        set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.receiverId, context.senderId, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
-			        $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-			        if (rset.%SQLCODE < 0)
-			        {
-			           $$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-			        }
-			  
-                            }
-                            if (target '= "")
-                            {
-                                set tRequest = ##class(Ens.StreamContainer).%New("")
-                                set tStream=##Class(%Library.GlobalCharacterStream).%New()
-                                set pStatus = context.x12Output.OutputToLibraryStream(tStream)
-                                set tRequest.Stream = tStream  
-
-	                        set tStatus = process.SendRequestAsync(target ,tRequest)
-	                        $$$TRACE("X12 stream is sent to the operation: " _ target  _", Status: " _ tStatus )
-	                        set context.sentRoute = context.sentRoute + 1
-	                    }
-
-	                     
-                        } 
-                }
- }
- else
- {
-     $$$LOGERROR(context.x12Output  _ " - Not a X12 document")
- }]]]]><![CDATA[>
-</code>
-<code name='Send to the operation Sh-Claimack-Store_277CA' xpos='470' ypos='1000' >
+<code name='Send to Store' xpos='470' ypos='800' disabled="true">
 <![CDATA[	 if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
 	 {    
 	    set reqId = request.%Id()
@@ -342,7 +162,227 @@ BPL Definition</Description>
 	                    $$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
 	 }]]]]><![CDATA[>
 </code>
-<code name='Reset counts' xpos='470' ypos='1100' >
+<code name='Print X12' xpos='470' ypos='900' >
+<![CDATA[ set context.x12Num = context.x12Num + 1
+ 
+ $$$TRACE(context.x12Num _ ". Size of X12 Doc from DTL: " _ context.x12Output.FullSize )
+ 
+  if (context.x12File)
+  {
+   set flNm = "/itf-share/itf-tmp/277CA/tmp/" _ process.%ConfigName _ "-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+                            set stat = context.x12Output.OutputToFile(flNm , 1)
+                            $$$TRACE("Generated X12 File: " _ flNm _", status: " _ stat)
+  }
+]]]]><![CDATA[>
+</code>
+<code name='Validate and Route' xpos='470' ypos='1000' >
+<![CDATA[ // Route the X12 based on TP
+
+	if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		if (context.x12Output.DocType = "")
+		{
+			set context.x12Output.DocType ="277_X0B3:Interchange"
+			set tSC =context.x12Output.BuildMap()
+			$$$TRACE("From ImportFromString - BuildMap: " _ tSC )
+			If $$$ISERR(tSC)
+				{
+					Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
+				}
+		}
+		$$$TRACE("X12.Document DocType: " _ context.x12Output.DocType)
+		set interchangeReceiverID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+		set interchangeSenderID = $ZSTRIP(context.x12Output.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	
+		set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , "V5010X214", "Batch", "Out", .lnkInfo, .errStr)
+		
+		//If there was an error getting the link from B2B
+		If $$$ISERR(tSC)
+		{
+			$$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
+			set context.errRoute = context.errRoute + 1
+			
+			set msgTrans ="277"
+			set msgTransVer ="V5010X214"
+			set dtTm = $ZDATETIME($HOROLOG,3, 1)
+			set str = $E(context.x12Output.OutputToString(), 1, 5000)
+			
+			set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			" (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
+			" values (?,?,?,?,?,?,?,?,?,?,?)"
+			#dim rset As %SQL.StatementResult
+			set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+			$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+			if (rset.%SQLCODE < 0)
+			{
+			$$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+			Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			}
+		}
+
+		//If there was NOT an error getting a link from B2B
+		else
+		{		 
+			$$$TRACE( interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+			set lnkId = $PIECE(lnkInfo, ",", 1)
+			set lnkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
+
+			$$$TRACE( context.x12Output.Name _ " - SNIP: " _ lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)
+		
+			set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12Output, "SNIP", lnkObj.SNIP)
+
+			//If there was an error validating the document
+			if ($$$ISERR(tSC))
+			{
+				$$$TRACE(" -*- X12 Validation failed for DTL output, " _ $System.Status.GetErrorText(tSC) _", Validate from the file data")
+				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
+				if ($IsObject(replyDoc))
+				{
+					$$$TRACE("Reply 999 to identify the issues in 277CA: " _ replyDoc.RawContent)
+				}
+				
+				// Export to a file and validate X12 again. If any empty segments are copied in DTL, they will not be in the new X12 Doc from the file    
+				set flNm = "/itf-share/itf-tmp/277CA/tmp/DTLoutput-" _context.senderId _"-" _ context.receiverId _"-" _ context.recNum _"-" _ $HOROLOG _ ".txt"
+				set stat = context.x12Output.OutputToFile(flNm , 1)
+				$$$TRACE("OutputToFile: " _ stat)
+
+				set context.x12FromFile =  ##class(EnsLib.EDI.X12.Document).ImportFromFile(flNm ,, .stat) 
+				$$$TRACE("ImportFromFile: " _ flNm  _", Stat: " _ stat _", " _ context.x12FromFile.FullSize)
+				
+				if (context.x12FromFile.DocType = "")
+				{
+					set context.x12FromFile.DocType ="277_X0B3:Interchange"
+					set tSC =context.x12FromFile.BuildMap()
+					$$$TRACE("From ImportFromString - BuildMap: " _ tSC )
+					If $$$ISERR(tSC)
+					{
+						Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
+					}
+				}
+				$$$TRACE("x12FromFile: " _ context.x12FromFile.DocTypeCategory _ " / " _ context.x12FromFile.DocType)
+			
+				set tSC = ##class(Ens.X12.FunctionSet).X12ValidateDocument(context.x12FromFile, "SNIP", lnkObj.SNIP)
+			}
+			if ($$$ISERR(tSC))
+			{
+				set str = context.x12Output.OutputToString()
+				$$$TRACE(  " -*- X12 Validation failed, "  _ context.x12Output.DocType _ ", RawContent length: " _ $L(context.x12Output.RawContent) )
+				#dim replyDoc as EnsLib.EDI.X12.Document
+				set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.x12Output, "All", "SNIP", lnkObj.SNIP, "All") 
+				if ($IsObject(replyDoc))
+				{
+					
+					$$$TRACE( "X12 Reply Error: " _  replyDoc.RawContent)
+					#dim lst As %ListOfObjects
+					set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetAckDetails(replyDoc, .msgTyp, .msgVer, .retStr, "", .lst, 1)
+					$$$TRACE( "GetAckDetails: " _ tSC _ retStr _", " _ lst)
+				}
+				Set status = $$$ERROR($$$GeneralError, "X12 Validation failed, "  _ ", RawContent length: " _ $L(context.x12Output.RawContent) _", Str length: " _ $L(str))
+			}
+			else
+			{
+				$$$TRACE("Validation passed. SNIP level: " _ lnkObj.SNIP)
+				
+				
+				
+				///
+				/// Determine Routing
+				///
+				$$$TRACE("Send X12 to " _ lnkObj.Routing)
+				set route = $ZCONVERT(lnkObj.Routing, "U")
+				$$$TRACE("route=" _ route)
+				$$$TRACE("lnkObj.Routing="_lnkObj.Routing)
+				set targetOperation = ""
+				if (route  [ "UHIN")
+				{
+					set targetOperation = "Out-Uhin-277CA-Sftp-SH"
+				}
+				elseif (route  [ "UMR")
+				{
+					set targetOperation = "Out-Umr-277CA-Sftp-SH"
+				}
+
+  				elseif (route  [ "SDS")
+				{
+					set targetOperation = "Out-Sds-277CA-Sftp-SH"
+				}
+				elseif (route  [ "BITBUCKET")
+				{
+					$$$TRACE("Sending to BitBucket.")
+					quit
+					set targetOperation = ""
+				}
+				else
+				{
+				        ///There was an error finding the route; send to workflow
+					set errStr = "Target route " _ lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
+					$$$LOGERROR(errStr)
+					set context.errRoute = context.errRoute + 1
+					set msgTrans ="277"
+					set msgTransVer ="V5010X214"
+					set dtTm = $ZDATETIME($HOROLOG,3, 1)
+					set str = $E(context.x12Output.OutputToString(), 1, 5000)
+		
+					set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _ " values (?,?,?,?,?,?,?,?,?,?,?)"
+					#dim rset As %SQL.StatementResult
+					set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.receiverId, context.senderId, msgTrans, msgTransVer, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+					$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+					if (rset.%SQLCODE < 0)
+					{
+						$$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ msgTransVer_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+						Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+					}
+				}
+				
+				if (targetOperation '= "")
+				{
+					set tRequest = ##class(Ens.StreamContainer).%New("")
+					set tStream=##Class(%Library.GlobalCharacterStream).%New()
+					set pStatus = context.x12Output.OutputToLibraryStream(tStream)
+					set tRequest.Stream = tStream  
+
+					set tStatus = process.SendRequestAsync(targetOperation ,tRequest)
+					$$$TRACE("X12 stream is sent to the operation: " _ targetOperation  _", Status: " _ tStatus )
+					set context.sentRoute = context.sentRoute + 1
+				}         
+			} 
+		}
+	}
+	else
+	{
+		$$$LOGERROR(context.x12Output  _ " - Not a X12 document")
+	}]]]]><![CDATA[>
+</code>
+<code name='Send to Store' xpos='470' ypos='1100' >
+<annotation><![CDATA[This has been moved to BEFORE validation]]]]><![CDATA[></annotation>
+<![CDATA[	 if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
+	 {    
+	    set reqId = request.%Id()
+            $$$TRACE("Request ID: " _ reqId)
+            &SQL(SELECT id, TimeCreated , MessageBodyClassName into id, tm, cls from Ens.MessageHeader where MessageBodyId = :reqId)
+            $$$TRACE( id _": "_ tm _", "_ cls)  
+                        
+	                    set stCon = ##class(Ens.StreamContainer).%New()
+	                    set stCon.Stream = ##class(%Stream.FileCharacter).%New()
+	  
+	                    Set stat = context.x12Output.OutputToLibraryStream(stCon.Stream)
+	                    $$$TRACE("X12 stream: " _ stat _", size: " _ stCon.Stream.Size)
+	 
+	                    set stCon.OutputFilename =   interchangeSenderID _"-" _ interchangeReceiverID _"-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
+	                    set stCon.OriginalFilename = stCon.OutputFilename
+	                    
+	                    set stX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New()
+	                    set stX12.status = "Processed"
+	                    set stX12.createDtTm = tm
+	                    set stX12.streamContainer = stCon
+	 
+	                    set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", stX12)
+	  
+
+	                    $$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
+	 }]]]]><![CDATA[>
+</code>
+<code name='Reset counts' xpos='470' ypos='1200' >
 <![CDATA[  set context.recFirst = context.recNum + 1
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
@@ -351,13 +391,13 @@ BPL Definition</Description>
 <assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
 </false>
 </if>
-<code name='UnSwizzleAt' xpos='200' ypos='1300' >
+<code name='UnSwizzleAt' xpos='200' ypos='1400' >
 <![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
- 	// $$$TRACE("UnSwizzleAt stat: " _ sc)
+ 	 $$$TRACE("UnSwizzleAt stat: " _ sc)
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
 </code>
 </while>
-<trace value='"BPL complete, X12 created: " _ context.x12Num _". Sent: " _ context.sentRoute _", TP/Route Error: " _context.errRoute' xpos='200' ypos='850' />
+<trace name='BPL Complete' value='"BPL complete, X12 created: " _ context.x12Num _". Sent: " _ context.sentRoute _", TP/Route Error: " _context.errRoute' xpos='200' ypos='850' />
 <faulthandlers>
 <catchall xpos='200' ypos='950' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
