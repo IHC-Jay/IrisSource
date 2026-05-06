@@ -190,9 +190,15 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='senderId' type='%String' initialexpression='452579291' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='storeX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
 </context>
-<sequence xend='200' yend='3950' >
-<scope xpos='200' ypos='250' xend='200' yend='3850' >
+<sequence xend='200' yend='4050' >
+<scope xpos='200' ypos='250' xend='200' yend='3950' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId _", req: " _ process.%PrimaryRequestHeader.SourceConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -321,32 +327,109 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3600' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3700' >
 <true>
 <code name='Print file name' xpos='470' ypos='800' >
 <![CDATA[
  $$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ $L(context.inXmlDoc))
 			]]]]><![CDATA[>
 </code>
-<code name='Send Stream to Store in DB' xpos='470' ypos='900' >
-<![CDATA[  set stream=##class(%Stream.GlobalCharacter).%New()
+<code name='Check N1 PR' xpos='470' ypos='900' >
+<![CDATA[ Do context.inpStream.Rewind()
+  set x12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(context.inpStream, .tSC1 )
+  if ( ($$$ISERR(tSC1)) || ('$IsObject(x12Doc)) )
+  {
+	  $$$LOGERROR("X12 can't be parsed from: " _ context.inpStream  _", status: " _ tSC1 )
+	  
+  }
+  else
+  {
+	set GSCounter = x12Doc.ChildCount 
+	#dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF
+	for gsInt=1:1:GSCounter
+	{ 
+	
+	 set individualGroup = x12Doc.NextChild(individualGroup) // x12Doc.getNthChild(gsInt,2)
 
-    Set tSC = stream.CopyFromAndSave(context.inpStream)
+	 if (individualGroup.DocType = "")
+	 {
+		set individualGroup.DocType = "HIPAA_5010:Group"
+	 }
+	 #dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
+						  
+	 FOR stInd=1:1:individualGroup.ChildCount
+	  
+	 {
+		  set STRecord=individualGroup.NextChild(STRecord) 
+		  if (STRecord.DocType = "")
+		  {
+			set STRecord.DocType = "HIPAA_5010:835"
+		  }		  
+		  FOR ind=1:1:STRecord.SegCountGet()
+		  {					    
+			set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			set segVal = STRecord.GetValueAt(segPath,, .stat)
+			if ( $FIND(segVal, "N1") = 3  )
+			{
+				set val01 = STRecord.GetValueAt(segPath_":1",, .stat)
+				set val02 = STRecord.GetValueAt(segPath_":2",, .stat)
+				
+				if (val01 = "PR")
+				{
+					
+					set lookupTbl  = "IHC.ITF.Process.BPL.Zelis-835-Validate-X12.Lookup.ZelisPartners"
+					set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(lookupTbl, val02, .value)
+					if ( ($$$ISOK(stat)) && (value '= "Unknown") )
+					{
+					   $$$TRACE( segPath _ ": " _ segVal _", Value is found in Lookup: " _ lookupTbl)
+					   set context.senderId = value 									  									}
+					else
+					{
+						 $$$TRACE( segPath _ ": " _ segVal _", Value NOT found in Lookup: " _ lookupTbl)
+					}
+					QUIT
+					
+				}
+			}
+		  }
+		  
+	   }
+	} 
+   }]]]]><![CDATA[>
+</code>
+<code name='Send Stream to Store in DB' xpos='470' ypos='1000' >
+<![CDATA[
+        set configValue = "Rco-X12-Store-DB"
+	set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
+	set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
+	Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(context.inpStream)
+	$$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size)
 	
-	$$$TRACE(context.FileName_" (ID "_ request.%Id()_") has been successfully saved to database. Stream OID is "_stream.%Oid()_"; Stream ID is "_stream.%Id()_".")
-	set pResponse=##class(Ens.StreamContainer).%New(stream)
-	set pResponse.OriginalFilename = context.FileName
+	set context.storeX12.streamContainer.OriginalFilename = request.OriginalFilename
+		
+        set context.storeX12.interchangeSenderID = context.senderId 
+    
 	
-  
-                          Set tSC1=process.SendRequestAsync("Rco-X12-Store-DB", pResponse)
-                          $$$TRACE("Send Async Incoming Stream to Store in DB, status: " _ tSC1 )
+	set context.storeX12.direction = context.direction
+	set context.storeX12.status = "Received"
+	set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+	
+	$$$TRACE("Sending X12 to " _ configValue)
+
+
+	Set tSC1=process.SendRequestAsync(configValue, context.storeX12)
+	
+	$$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
+			  
+
+ 
                           
 
  ]]]]><![CDATA[>
 </code>
-<if name='duplicateCheck = "Yes"' condition='context.duplicateCheck = "Yes"' xpos='470' ypos='1000' xend='470' yend='1250' >
+<if name='duplicateCheck = "Yes"' condition='context.duplicateCheck = "Yes"' xpos='470' ypos='1100' xend='470' yend='1350' >
 <true>
-<code name='Check for Duplicate' xpos='605' ypos='1150' >
+<code name='Check for Duplicate' xpos='605' ypos='1250' >
 <![CDATA[  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).IsDuplicate(context.inXmlDoc, .tPrelationDocumentId ) 
 
    $$$TRACE("IsDuplicate: " _ tSC  _", tPrelationDocumentId: " _ tPrelationDocumentId)
@@ -359,7 +442,7 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<code name='Get TP information' xpos='470' ypos='1350' >
+<code name='Get TP information' xpos='470' ypos='1450' >
 <![CDATA[  if (context.inXmlDoc.DocType = "")
   {
      set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group"
@@ -392,13 +475,13 @@ BPL Definition</Description>
                $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
    }]]]]><![CDATA[>
 </code>
-<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1450' xend='470' yend='2000' >
+<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1550' xend='470' yend='2100' >
 <true>
-<trace name='Link found' value='"TP Link found"' xpos='470' ypos='1600' />
+<trace name='Link found' value='"TP Link found"' xpos='470' ypos='1700' />
 </true>
 <false>
-<trace name='Error' value='"TP link not found, send to WF "' xpos='740' ypos='1600' />
-<code name='Store in WorkFlow' xpos='740' ypos='1700' >
+<trace name='Error' value='"TP link not found, send to WF "' xpos='740' ypos='1700' />
+<code name='Store in WorkFlow' xpos='740' ypos='1800' >
 <![CDATA[ $$$TRACE("origX12Doc: " _  context.inXmlDoc.%Id() _", " _ context.errStr)
  
   $$$TRACE("SessionId = " _ $$$JobSessionId)
@@ -432,32 +515,32 @@ BPL Definition</Description>
 			  }
   ]]]]><![CDATA[>
 </code>
-<code name='set default values' xpos='740' ypos='1800' >
+<code name='set default values' xpos='740' ypos='1900' >
 <![CDATA[ set context.tpLinkObj.SNIP = 1
  set context.tpLinkObj.Direction = "In"
  set context.tpLinkObj.GSAck = "ALWAYS"]]]]><![CDATA[>
 </code>
-<trace name='stored in WF' value='"Stored the TP error into the WF table"' xpos='740' ypos='1900' />
+<trace name='stored in WF' value='"Stored the TP error into the WF table"' xpos='740' ypos='2000' />
 </false>
 </if>
-<code name='X12 Validate Document' xpos='470' ypos='2100' >
+<code name='X12 Validate Document' xpos='470' ypos='2200' >
 <![CDATA[  
   set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group:835"
   set tSc = $$$OK // ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(context.inXmlDoc, 1, "All")
   $$$TRACE("PerformSNIPValidation not performed " _ tSc)
   ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='470' ypos='2200' xend='470' yend='3500' >
+<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='470' ypos='2300' xend='470' yend='3600' >
 <true>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='470' ypos='2350' xend='470' yend='2800' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='470' ypos='2450' xend='470' yend='2900' >
 <true>
-<code name='Send NACK' xpos='740' ypos='2500' >
+<code name='Send NACK' xpos='740' ypos='2600' >
 <![CDATA[
      $$$TRACE( " Do not send NACK " )
   
   ]]]]><![CDATA[>
 </code>
-<code name='Send inbound X12 data' xpos='740' ypos='2600' >
+<code name='Send inbound X12 data' xpos='740' ypos='2700' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -491,11 +574,11 @@ BPL Definition</Description>
 	
 ]]]]><![CDATA[>
 </code>
-<trace name='To Inbound data error WF' value='"X12 validation failed inbound X12, Send to WF"' xpos='740' ypos='2700' />
+<trace name='To Inbound data error WF' value='"X12 validation failed inbound X12, Send to WF"' xpos='740' ypos='2800' />
 </true>
 <false>
-<trace name='To Outbound error WF' value='"X12 validation failed in outgoing X12, Send to WF"' xpos='470' ypos='2500' />
-<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='470' ypos='2600' >
+<trace name='To Outbound error WF' value='"X12 validation failed in outgoing X12, Send to WF"' xpos='470' ypos='2600' />
+<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='470' ypos='2700' >
 <![CDATA[ $$$TRACE("set reportWF,  origX12Doc: " _  context.inXmlDoc.%Id())
  
  set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "Errors", "SNIP", context.tpLinkObj.SNIP, "All") 
@@ -514,10 +597,10 @@ BPL Definition</Description>
 </if>
 </true>
 <false>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1010' ypos='2350' xend='1010' yend='3300' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1010' ypos='2450' xend='1010' yend='3400' >
 <true>
-<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1280' ypos='2500' />
-<code name='Get ISA values' xpos='1280' ypos='2600' >
+<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1280' ypos='2600' />
+<code name='Get ISA values' xpos='1280' ypos='2700' >
 <![CDATA[  $$$TRACE("Parse ISA")
   set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group"
   Set tSC = context.inXmlDoc.BuildMap()
@@ -551,10 +634,10 @@ BPL Definition</Description>
   $$$TRACE("X12 data: " _ InterchangeSenderID  _"->" _ InterchangeReceiverID _", Ctrl: " _ InterchangeCtrlNum _", FileName: " _ context.X12Filename)
   ]]]]><![CDATA[>
 </code>
-<transform name='837 X12Transform' class='IHC.ITF.Transform.Dtl.Zelis835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1280' ypos='2700' />
-<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1280' ypos='2800' />
-<trace name='Store X12?' value='"Store X12 in DB with new IDs: " _ $E(context.inXmlDoc.RawContent, 1, 210)' xpos='1280' ypos='2900' />
-<code name='Send X12 messages to targetConfigNames ' xpos='1280' ypos='3000' >
+<transform name='837 X12Transform' class='IHC.ITF.Transform.Dtl.Zelis835X12Transform' source='context.inXmlDoc' target='context.modX12' xpos='1280' ypos='2800' />
+<assign property="context.inXmlDoc" value="context.modX12" action="set" xpos='1280' ypos='2900' />
+<trace name='Store X12?' value='"Store X12 in DB with new IDs: " _ $E(context.inXmlDoc.RawContent, 1, 210)' xpos='1280' ypos='3000' />
+<code name='Send X12 messages to targetConfigNames ' xpos='1280' ypos='3100' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -586,7 +669,7 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<code name='Split X12 and get fileName' xpos='1280' ypos='3100' >
+<code name='Split X12 and get fileName' xpos='1280' ypos='3200' >
 <![CDATA[
    set segSep = $EXTRACT(context.inXmlDoc.Separators, 4)
    set eleSep = $EXTRACT(context.inXmlDoc.Separators, 1, 2)
@@ -688,7 +771,7 @@ BPL Definition</Description>
     }
     ]]]]><![CDATA[>
 </code>
-<code name='Send X12 messages to R1 ' xpos='1280' ypos='3200' >
+<code name='Send X12 messages to R1 ' xpos='1280' ypos='3300' >
 <![CDATA[  // Send Split X12 to R1 and Cirius
    For iTarget=1:1:$L(context.nextConfigNames, ",") 
    {
@@ -728,8 +811,8 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='Out' value='"Outbound Data: " _ context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1010' ypos='2500' />
-<code name='Send X12 messages to next components' xpos='1010' ypos='2600' >
+<trace name='Out' value='"Outbound Data: " _ context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1010' ypos='2600' />
+<code name='Send X12 messages to next components' xpos='1010' ypos='2700' >
 <![CDATA[ if (context.targetConfigNames = "")
  {
     Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
@@ -749,7 +832,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<trace name='Continue processing X12' value='"Processing complete"' xpos='1010' ypos='3400' />
+<trace name='Continue processing X12' value='"Processing complete"' xpos='1010' ypos='3500' />
 </false>
 </if>
 </true>
@@ -761,7 +844,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3700' xend='200' yend='350' >
+<catchall xpos='200' ypos='3800' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
