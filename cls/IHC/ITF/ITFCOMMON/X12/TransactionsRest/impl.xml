@@ -157,30 +157,68 @@ The method arguments hold values for:<br/>
 <Method name="GetRows">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>tableName:%String,searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
-<ReturnType>%Stream.Object</ReturnType>
+<ReturnType>%Library.DynamicObject</ReturnType>
 <Implementation><![CDATA[
-    
-    Set tArr = [], summary = 0
+    set dynObj = {}
+    Set tArr = [], summary = 0, MAXROWS = 25
     set propertyList = ##class(%Library.ListOfDataTypes).%New()
     		
 	Do ..getColumnNames(tableName, .summary, propertyList, searchStr)
 	
-    set sqlStr = ..CreateSql(searchStr, tableName, summary)
+    set sqlArr = ..CreateSql(searchStr, tableName, summary, .startInd, .MAXROWS)
     
     #dim rs As %SQL.StatementResult
     
     Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
-    if (sqlStr '= "")
+    if (sqlArr.GetAt(1) '= "")
     {
-	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
-	    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
-		Do ..populateArray(tableName, rs , tArr, propertyList)
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlArr.GetAt(1) )
+	    set ^webService(tableName _" ExecDirect: ") = sqlArr.GetAt(1) _ ": " _ rs.%SQLCODE _", from " _ startInd _" Max:  " _ MAXROWS
+		Do ..populateArray(tableName, rs , tArr, startInd, MAXROWS, propertyList)	
+		set ^webService(tableName _" Array Size: ")  = 	tArr.%Size() _", MAXROWS: "  _ MAXROWS	
     }
     
-	set ^webService(tableName _ " End") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+     
+    if (tArr.%Size >= MAXROWS)
+    {
+	    Set rs2 = ##class(%SQL.Statement).%ExecDirect(,sqlArr.GetAt(2) )
+	    While rs2.%Next() {
+			
+	    	if ( rs2.%SQLCODE = 0)
+	    	{
+			    set totCnt = rs2.%Get("totCnt")
+			    set ^webService(tableName _" ExecDirect Count: ") = sqlArr.GetAt(2) _ ": " _ rs2.%SQLCODE _", ROWCOUNT: " _ rs2.%ROWCOUNT _", totCnt: " _ totCnt
+	    	}
+	    }
+    }
+    else
+    {
+	    set totCnt = tArr.%Size()
+	}
+    
+       
 	Do ..%SetStatusCode(200)
+	
+	set startIndex = 1
+	
+	set iter = tArr.%GetIterator()
+    if iter.%GetNext(.key, .value, .type ) 
+    {     
+        set startIndex = value.ROWCOUNT
+        set ^webService(tableName _ " " _ key) = "startIndex = "_ startIndex
+        
+    }
+     
+	do dynObj.%Set("Transaction",tableName)
+	do dynObj.%Set("Items", tArr)
+	do dynObj.%Set("startIndex", startIndex)
+	do dynObj.%Set("batchCount", tArr.%Size())
+	do dynObj.%Set("totalCount", totCnt)
+	
+	set ^webService(tableName _ " End") = "Array Count:  " _ tArr.%Size() _", Total count: "_ totCnt _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
 
-	return tArr
+	
+	return dynObj
 ]]></Implementation>
 </Method>
 
@@ -235,14 +273,18 @@ The method arguments hold values for:<br/>
 
 <Method name="populateArray">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>tableName:%String,rs:%SQL.StatementResult,tArr:%Library.DynamicArray,propertyList:%Library.ListOfDataTypes</FormalSpec>
+<FormalSpec>tableName:%String,rs:%SQL.StatementResult,tArr:%Library.DynamicArray,startInd:%Integer,MAXROWS:%Integer,propertyList:%Library.ListOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 	set transType = "%" _ $REPLACE(tableName, "IHC_X12.Data", "")_ "%"
-	set MAXROWS = 25000	
+
 	While rs.%Next() 
 	{
-		
-    	if ( (tArr.%Size() < MAXROWS) && (rs.%SQLCODE = 0))
+		if (rs.%ROWCOUNT <= (startInd * MAXROWS) ){
+			set ^webService(tableName _ " Skip: ") = rs.%ROWCOUNT
+		}
+		else
+		{
+    	if ( (tArr.%Size() <= MAXROWS) && (rs.%SQLCODE = 0))
     	{
 			
     		set ^webService(tableName _ " rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", ID: " _ (rs.%Get("ID"))
@@ -254,10 +296,10 @@ The method arguments hold values for:<br/>
     		for ind=1:1:propertyList.Count()
     		{
     		    set column = propertyList.GetAt(ind)
-    		    if (rs.%ROWCOUNT = 1) // Get fields for all columns only once
+    		    if (rs.%ROWCOUNT = (startInd * MAXROWS + 1)) // Get fields for all columns only once
     		    {
     		    
-	    		    set ^webService(tableName _ " get column") = column 
+	    		    set ^webService(tableName _ " get column") = "ROW: " _ rs.%ROWCOUNT _", " _ column 
 	    		    NEW SQLCODE
     		        &SQL(select Type into :dataType from IHC_ITF_ITFCOMMON_X12.TransactionFields where Key =:column and TransactionCode like :transType)
     		        IF ((SQLCODE<0) || (SQLCODE=100))
@@ -388,17 +430,14 @@ The method arguments hold values for:<br/>
 		    {
 	    		if (ind=1)
 				{
-					set innerArr={}.%Set(column,(val))
-				}
-				elseif (tArr.%Size() < MAXROWS)
-				{
-	    			Do innerArr.%Set(column,(val))
+					set innerArr={}.%Set("ROWCOUNT", rs.%ROWCOUNT)
+					Do innerArr.%Set(column,(val))
 				}
 				else
 				{
-					set ^webService(tableName _ " max reached ") = rs.%ROWCOUNT 
-					QUIT
+	    			Do innerArr.%Set(column,(val))
 				}
+				
 			} catch err
 			{
 				set ^webService(tableName _ "excp: ") = rs.%ROWCOUNT _ ", err"
@@ -424,6 +463,7 @@ The method arguments hold values for:<br/>
 				set ^webService(tableName _ "excp: ") = rs.%ROWCOUNT _ ", " _ err _ ", count: " _ tArr.%Size()
 			}
 		
+		}
 		}
 		
 	
@@ -495,8 +535,11 @@ The method arguments hold values for:<br/>
     	
 	set tableName = "IHC_X12.Data835"
 	
+	
 	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1)
-	return ..GetRows(tableName, searchStr)
+	set dynObj = ..GetRows(tableName, searchStr)	
+	
+	return dynObj
 ]]></Implementation>
 </Method>
 
@@ -1124,26 +1167,30 @@ The method arguments hold values for:<br/>
 
 <Method name="CreateSql">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>searchArr:%ListOfDataTypes(ELEMENTTYPE="%String"),table:%String,summary:%Integer</FormalSpec>
-<ReturnType>%String</ReturnType>
+<FormalSpec><![CDATA[searchArr:%ListOfDataTypes(ELEMENTTYPE="%String"),table:%String,summary:%Integer,&startInd:%Integer,&batchCnt:%Integer]]></FormalSpec>
+<ReturnType>%ListOfDataTypes</ReturnType>
 <Implementation><![CDATA[
    
-    set count = 10, stDtTm = "", endDtTm="",stat="", addSql="",ID=""
+    set stDtTm = "", endDtTm="",stat="", sqlStr  = "", sqlCntStr  = "", addSql="",ID=""
     set ^webService("CreateSql") = $ZDATETIME($HOROLOG,3, 1) _", Array count: " _ searchArr.Count()
     for ind=1:1:searchArr.Count()
     {
 	   set param = searchArr.GetAt(ind) 
-	   if ( param [ "count")
-	   {
-		   set count = $ZSTRIP($PIECE(param, "::", 2), "<>W")
-	   }
+	   set ^webService("searchArr " _ ind) = param
 	   if ( param [ "ID::")
 	   {
 		   set ID = $ZSTRIP($PIECE(param, "::", 2), "<>W")
-		   set count = 1
 		   QUIT
 	   }
-	   if ( param [ "startDtTm")
+	   elseif ( param [ "pageIndex")
+	   {
+		   set startInd = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "pageSize")
+	   {
+		   set batchCnt = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "startDtTm")
 	   {
 		   set stDtTm = $ZSTRIP($PIECE(param, "::", 2), "<>W")
 	   }
@@ -1179,57 +1226,62 @@ The method arguments hold values for:<br/>
     if (table [ "TA1")
     {
 	    set sqlStr = "SELECT  * FROM " _ table _ " WHERE X12DataParentId is null "
+	    set sqlCntStr = "SELECT  count(*) As totCnt FROM " _ table _ " WHERE X12DataParentId is null "
     }
     elseif (ID '= "")
 	{
 		set sqlStr = "SELECT * FROM " _ table _ " WHERE ID = '" _ ID _"'"
+		
+		set sqlCntStr = "SELECT  count(*) As totCnt FROM " _ table _ " WHERE ID = '" _ ID _"'"
 	}
 	elseif (summary = 1)
 	{
-				set sqlStr = "SELECT   *, data.ID as ID FROM " _ table _ " data WHERE X12DataParentId is null "
+		set sqlStr = "SELECT   *, data.ID as ID FROM " _ table _ " data WHERE X12DataParentId is null "
+		set sqlCntStr = "SELECT  count(*) As totCnt FROM " _ table _ " data WHERE X12DataParentId is null "
 	}	
     else
     {
 		set sqlStr = "SELECT  *, data.ID as ID FROM " _ table _ " data WHERE X12DataParentId is not null "
+		set sqlCntStr = "SELECT  count(*) As totCnt FROM " _ table  _ " data WHERE X12DataParentId is not null "
     }
-	/***
-	elseif (summary = 1)
-	{
-				set sqlStr = "SELECT  rtp.Name as Receiver,  stp.Name as Sender, *, data.ID as ID FROM " _ table _ " data, IHC_TPManage.TradingPartner stp, IHC_TPManage.TradingPartner rtp, IHC_TPManage.TPIDS rtpid, IHC_TPManage.TPIDS stpid WHERE X12DataParentId is null AND InterchangeReceiverID = rtpid.TPID and InterchangeSenderID = stpid.TPID and stpid.TPFK = stp.ID and rtpid.TPFK = rtp.ID "
-	}	
-    else
-    {
-		set sqlStr = "SELECT  rtp.Name as Receiver,  stp.Name as Sender, *, data.ID as ID FROM " _ table _ " data, IHC_TPManage.TradingPartner stp, IHC_TPManage.TradingPartner rtp, IHC_TPManage.TPIDS rtpid, IHC_TPManage.TPIDS stpid WHERE X12DataParentId is not null AND InterchangeReceiverID = rtpid.TPID and InterchangeSenderID = stpid.TPID and stpid.TPFK = stp.ID and rtpid.TPFK = rtp.ID "
-    }
-    ****/
+	
+    set dtCriteriaStr = ""
 	
 	if ( (stDtTm '= "") && (endDtTm '= ""))
 	{
-		set sqlStr = sqlStr _ " AND ProcessDtTm between '" _ stDtTm _"' AND '" _ endDtTm _"'"
+		set dtCriteriaStr =  " AND ProcessDtTm between '" _ stDtTm _"' AND '" _ endDtTm _"'"
 	}
 	elseif (endDtTm '= "")
 	{
-		set sqlStr = sqlStr _ " AND ProcessDtTm <= '" _ endDtTm _"'"
+		set dtCriteriaStr = dtCriteriaStr _ " AND ProcessDtTm <= '" _ endDtTm _"'"
 	}
 	elseif (stDtTm '= "")
 	{
-		set sqlStr = sqlStr _ " AND ProcessDtTm >= '" _ stDtTm _"'"
+		set dtCriteriaStr = dtCriteriaStr _ " AND ProcessDtTm >= '" _ stDtTm _"'"
 	}
 	
 	if ( (stat '= "") && (stat '= "All") )
 	{
-		set sqlStr = sqlStr _ " AND Status = '" _ stat _"'"
+		set dtCriteriaStr = dtCriteriaStr _ " AND Status = '" _ stat _"'"
 	}
+	
 	if (addSql '= "")
 	{
-		set sqlStr = sqlStr _ " AND " _addSql
+		set sqlStr = sqlStr _ dtCriteriaStr _ " AND " _addSql
+		set sqlCntStr = sqlCntStr _ dtCriteriaStr _ " AND " _addSql
 	}
 	if (sqlStr [ "data.ID as ID")
 	{
-		set sqlStr = sqlStr _ " ORDER BY data.ID desc"
+		set sqlStr = sqlStr _ dtCriteriaStr _ " ORDER BY data.ID desc"
+		set sqlCntStr = sqlCntStr _ dtCriteriaStr 
 	}
 	set ^webService("CreateSql SQL") = sqlStr
-	return sqlStr
+	set ^webService("CreateSql Cnt SQL") = sqlCntStr
+	
+	set sqlArr = ##class(%ListOfDataTypes).%New()
+	Do sqlArr.Insert(sqlStr)
+	Do sqlArr.Insert(sqlCntStr)
+	return sqlArr
 ]]></Implementation>
 </Method>
 
