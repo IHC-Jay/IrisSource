@@ -312,6 +312,14 @@ namespace RdpValidationRestApi.Controllers
                     e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
                     Console.WriteLine("NPI valid:" + e.ConditionValid);
                 }
+                else if (e.CurrentSegment.Elements[0].ToString() != "null")
+                {
+                     string npiNum = e.CurrentSegment.Elements[8].ToString();
+
+                    Console.WriteLine("NPI Data 1, 9: " + e.CurrentSegment.Elements[0] + ", " + npiNum);
+                    e.ConditionValid = !Util.NpiValidator.IsValidNpi(npiNum);
+                    Console.WriteLine("NPI valid:" + e.ConditionValid);
+                }
             }
             else if (e.CodeCondition.Id == "prvValidation")
             {
@@ -381,9 +389,9 @@ namespace RdpValidationRestApi.Controllers
                 {                 
                     string val = Util.CsvLookup.GetSecondValueByKey(csvPath, st);
                     Console.WriteLine(st + " CSV:" + val);
-                    if (val == null || val == "")
+                    if (val != null || val != "")
                     {
-                        e.ConditionValid = true;
+                        e.ConditionValid = false;
                     }
                 }
                 catch (IOException ex)
@@ -419,6 +427,11 @@ namespace RdpValidationRestApi.Controllers
             {
                 bool isValueFoundCondition = e.CodeCondition.Id.StartsWith("valueFound-");
                 HandleValueLookupCondition(e, isValueFoundCondition);
+            }
+            else if (e.CodeCondition.Id.StartsWith("ICDCodevalueFound-") || e.CodeCondition.Id.StartsWith("ICDCodevalueNotFound-"))
+            {
+                bool isValueFoundCondition = e.CodeCondition.Id.StartsWith("ICDCodevalueNotFound-");
+                HandleICDCodeValueLookupCondition(e, isValueFoundCondition);
             }
             if (e.CodeCondition.Id == "eqLookup" && e.CurrentSegment.Elements.Count > 1)
             {
@@ -501,7 +514,7 @@ namespace RdpValidationRestApi.Controllers
             try
             {
                 // Single-level access: e.CurrentSegment.Elements[fieldNum-1]
-                if (condParts.Length == 3)
+                if (condParts.Length == 2)
                 {
                     var element = e.CurrentSegment.Elements[fieldNum - 1];
                     if (element == null)
@@ -515,16 +528,16 @@ namespace RdpValidationRestApi.Controllers
                     debugInfo = "Field " + fieldNum;
                 }
                 // Nested access: e.CurrentSegment.Elements[fieldNum-1].Elements[nestedFieldNum-1]
-                else if (condParts.Length == 4)
+                else if (condParts.Length == 3)
                 {
-                    if (!int.TryParse(condParts[3], out int nestedFieldNum) || nestedFieldNum <= 0)
+                    if (!int.TryParse(condParts[2], out int nestedFieldNum) || nestedFieldNum <= 0)
                     {
                         e.ConditionValid = true;
                         Console.WriteLine("Invalid " + conditionName + " nested field number: " + condParts[3] + ". Expected 01-99");
                         return;
                     }
 
-                    var element = e.CurrentSegment.Elements[fieldNum - 1];
+                    var element = e.CurrentSegment.Elements[0];
                     if (element == null || element.Elements == null || nestedFieldNum > element.Elements.Count)
                     {
                         e.ConditionValid = true;
@@ -567,7 +580,7 @@ namespace RdpValidationRestApi.Controllers
 
                     // Keep existing behavior:
                     // valueFound => true when found, valueNotFound => true when not found.
-                    e.ConditionValid = isValueFoundCondition ? exists : !exists;
+                    e.ConditionValid = isValueFoundCondition ? !exists : exists;
                     Console.WriteLine(conditionName + " exists:" + exists + ", ConditionValid:" + e.ConditionValid +", file: " + lookupPath + ", value: " + lookupValue );
                 }
                 catch (IOException ex)
@@ -577,6 +590,50 @@ namespace RdpValidationRestApi.Controllers
                 }
             
         }
-    }
+        private void HandleICDCodeValueLookupCondition(CodeConditionEventArgs e, bool isValueFoundCondition)
+        {
+            string conditionName = isValueFoundCondition ? "ICD10CodevalueNotFound" : "ICD10CodevalueFound";
+            int loopCount = e.CurrentSegment.Elements.Count();
+            string[] condParts = e.CodeCondition.Id.Split('-');
+            string lookupValue = "";                      
+            //string debugInfo = "";
+            var element = e.CurrentSegment.Elements[0];
+            string lookupFile = "";
+            string lookupPath = "";
+            
+            e.ConditionValid = false; //assume success
+            if(!int.TryParse(condParts[2], out int fieldNum))
+            {
+                e.ConditionValid = true;
+                Console.WriteLine("Invalid " + conditionName + " field number: " + condParts[2] + ". Expected 01-99 and <= " + e.CurrentSegment.Elements.Count);
+                return;
+            }
 
+            for (int cnt = 0; cnt < loopCount; cnt++)
+            {
+                element = e.CurrentSegment.Elements[cnt];
+                //lookupValue = nestedElement.ToString();
+                lookupValue = element.Elements[1].ToString();                
+                lookupFile = condParts[1];
+                if (!lookupFile.Contains('.'))
+                {
+                    lookupFile += ".txt";
+                }
+                lookupPath = System.IO.Path.Combine(_rulesBasePath, "Lookup", lookupFile);
+                try
+                {
+                    bool exists = Util.ValueLookup.ExistsInFile(lookupPath, lookupValue);
+                    // valueFound => true when found, valueNotFound => true when not found.
+                    e.ConditionValid = isValueFoundCondition ? exists : !exists;
+                    Console.WriteLine(conditionName + " exists:" + exists + ", ConditionValid:" + e.ConditionValid +", file: " + lookupPath + ", value: " + lookupValue );
+                }
+                catch (IOException ex)
+                {   
+                    Console.WriteLine("Exception " + conditionName + " lookup: " + ex.Message +", file: " + lookupPath  );
+                    e.ConditionValid = true; // fail open on lookup error}
+                    return;
+                }       
+            }
+        }
+    }
 }
