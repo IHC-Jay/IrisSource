@@ -422,5 +422,272 @@ One-call JSON summary (ALL are "to date"):
     Quit "{""as_of"":"""_ts_""",""day_to_date"":"_day_",""week_to_date"":"_wtd_",""month_to_date"":"_mtd_"}"
 ]]></Implementation>
 </Method>
+
+<Method name="GetSummaryJSONByNamespace">
+<Description>
+One-call JSON summary with per-namespace breakdowns (ALL are "to date").
+Returns:
+{
+  "as_of":"YYYY-MM-DD HH:MM:SS",
+  "day_to_date":{"total":N,"by_namespace":{...},"excluded":{...}},
+  "week_to_date":{"total":N,"by_namespace":{...},"excluded":{...}},
+  "month_to_date":{"total":N,"by_namespace":{...},"excluded":{...}}
+}</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow:%TimeStamp=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
+
+    ; ----- DAY-TO-DATE window -----
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set dayEnd=h
+
+    ; ----- WTD (Mon -> NOW) window -----
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)  ; 1=Sun..7=Sat
+    Set offset=(dow+5)#7
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtdEnd=h
+
+    ; ----- MTD (1st -> NOW) window -----
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtdEnd=h
+
+    ; ----- Build breakdowns -----
+    Kill dayCounts,dayExcluded,wtdCounts,wtdExcluded,mtdCounts,mtdExcluded
+    Set dayTotal=0, wtdTotal=0, mtdTotal=0
+
+    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,.dayExcluded,.dayTotal)
+    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,.wtdExcluded,.wtdTotal)
+    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,.mtdExcluded,.mtdTotal)
+
+    ; ----- JSON assemble -----
+    Set json="{"
+    Set json=json_"""as_of"":"""_..JsonEsc(ts)_""","
+    Set json=json_"""day_to_date"":"_..MetricToJSON(dayTotal,.dayCounts,.dayExcluded)_","
+    Set json=json_"""week_to_date"":"_..MetricToJSON(wtdTotal,.wtdCounts,.wtdExcluded)_","
+    Set json=json_"""month_to_date"":"_..MetricToJSON(mtdTotal,.mtdCounts,.mtdExcluded)
+    Set json=json_"}"
+
+    Quit json
+]]></Implementation>
+</Method>
+
+<Method name="BuildWindowCounts">
+<Description><![CDATA[
+Build counts/exclusions for a window across all namespaces.
+- pCounts(ns)=count (only for count>0)
+- pExcluded(ns)=status (for count=0 where status is meaningful)
+- pTotal=total count]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pStart:%TimeStamp,pEnd:%TimeStamp,&pCounts,&pExcluded,&pTotal]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+    Kill pCounts, pExcluded
+    Set pTotal=0
+
+    Set startTS=..NormTS(pStart)
+    Set endTS=..NormTS(pEnd)
+
+    Kill nsList
+    Do ##class(%SYS.Namespace).ListAll(.nsList)
+
+    Set ns=""
+    For  {
+        Set ns=$Order(nsList(ns))
+        Quit:ns=""
+
+        Continue:$Extract(ns,1,1)="%"
+
+        Set status=""
+        Set c=..ProbeNamespace(ns,startTS,endTS,.status)
+
+        If c>0 {
+            Set pCounts(ns)=c
+            Set pTotal=pTotal+c
+        } Else {
+            ; keep exclusions only if we have a useful status
+            If status'="" Set pExcluded(ns)=status
+        }
+    }
+
+    Quit
+]]></Implementation>
+</Method>
+
+<Method name="MetricToJSON">
+<Description>
+Turn one metric into JSON:
+{"total":N,"by_namespace":{...},"excluded":{...}}</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pTotal:%Integer,&pCounts,&pExcluded]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set json="{"
+    Set json=json_"""total"":"_pTotal_","
+    Set json=json_"""by_namespace"":"_..JsonObjFromNumericArray(.pCounts)_","
+    Set json=json_"""excluded"":"_..JsonObjFromStringArray(.pExcluded)
+    Set json=json_"}"
+    Quit json
+]]></Implementation>
+</Method>
+
+<Method name="JsonObjFromNumericArray">
+<Description>
+JSON object from array values that are NUMERIC: { "EAI":123, "ORDERS":5 }</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&a]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set json="{"
+    Set key=""
+    Set first=1
+    For  {
+        Set key=$Order(a(key))
+        Quit:key=""
+
+        If 'first Set json=json_","
+        Set first=0
+
+        Set json=json_""""_..JsonEsc(key)_""":"_+$Get(a(key))
+    }
+    Set json=json_"}"
+    Quit json
+]]></Implementation>
+</Method>
+
+<Method name="JsonObjFromStringArray">
+<Description>
+JSON object from array values that are STRINGS: { "ADTLEGACY":"NO INDEX", ... }</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[&a]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set json="{"
+    Set key=""
+    Set first=1
+    For  {
+        Set key=$Order(a(key))
+        Quit:key=""
+
+        If 'first Set json=json_","
+        Set first=0
+
+        Set json=json_""""_..JsonEsc(key)_""":"""_..JsonEsc($Get(a(key)))_""""
+    }
+    Set json=json_"}"
+    Quit json
+]]></Implementation>
+</Method>
+
+<Method name="JsonEsc">
+<Description>
+Minimal JSON string escape</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>s:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set s=$Get(s)
+    Set s=$Replace(s,"\","\\")
+    Set s=$Replace(s,"""","\""")
+    Set s=$Replace(s,$Char(13),"")
+    Set s=$Replace(s,$Char(10),"\n")
+    Quit s
+]]></Implementation>
+</Method>
+
+<Method name="PrintSummaryTable">
+<Description>
+Prints DAY / WTD / MTD with per-namespace columns</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow:%TimeStamp=""</FormalSpec>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
+
+    ; ----- Windows -----
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set dayEnd=h
+
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+    Set offset=(dow+5)#7
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtdEnd=h
+
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtdEnd=h
+
+    ; ----- Build counts -----
+    Kill dayCounts,wtdCounts,mtdCounts
+    Set dayTotal=0,wtdTotal=0,mtdTotal=0
+
+    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,,.dayTotal)
+    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,,.wtdTotal)
+    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,,.mtdTotal)
+
+    ; ----- Collect namespaces -----
+    Kill seen
+    Set n=""
+
+    Set n=""
+    For  {
+        Set n=$Order(dayCounts(n)) Quit:n=""
+        Set seen(n)=""
+    }
+
+    Set n=""
+    For  {
+        Set n=$Order(wtdCounts(n)) Quit:n=""
+        Set seen(n)=""
+    }
+
+    Set n=""
+    For  {
+        Set n=$Order(mtdCounts(n)) Quit:n=""
+        Set seen(n)=""
+    }
+
+    ; ----- Print -----
+    Write !!,"Message Summary (as of ",ts,")",!
+    Write "Namespace",?25,"DAY",?40,"WTD",?55,"MTD",!
+
+    Set ns=""
+    For  {
+        Set ns=$Order(seen(ns)) Quit:ns=""
+
+        Write ns
+        Write ?25,+$Get(dayCounts(ns))
+        Write ?40,+$Get(wtdCounts(ns))
+        Write ?55,+$Get(mtdCounts(ns))
+        Write !
+    }
+
+    Write !,"TOTAL"
+    Write ?25,dayTotal
+    Write ?40,wtdTotal
+    Write ?55,mtdTotal,!!
+
+    Quit
+]]></Implementation>
+</Method>
 </Class>
 </Export>
