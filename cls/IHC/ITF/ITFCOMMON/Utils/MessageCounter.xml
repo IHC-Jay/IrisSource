@@ -1,0 +1,426 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Utils.MessageCounter">
+<TimeCreated>67717,48560.094030817</TimeCreated>
+
+<Method name="CountAll">
+<Description>
+Count messages across ALL namespaces in the instance for a time window.
+pStart/pEnd can be $H ("day,seconds") or timestamp string ("YYYY-MM-DD HH:MM:SS").</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set total=0
+
+    Kill nsList
+    Do ##class(%SYS.Namespace).ListAll(.nsList)
+
+    Set ns=""
+    For  {
+        Set ns=$Order(nsList(ns))
+        Quit:ns=""
+
+        Continue:$Extract(ns,1,1)="%"
+
+        Set total = total + ..CountNamespace(ns,pStart,pEnd)
+    }
+
+    Quit total
+]]></Implementation>
+</Method>
+
+<Method name="DebugAll">
+<Description>
+Debug helper: prints per-namespace counts for a window.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set total=0
+    Set startTS=..NormTS(pStart)
+    Set endTS=..NormTS(pEnd)
+
+    Kill nsList
+    Do ##class(%SYS.Namespace).ListAll(.nsList)
+
+    Write !,"MessageCounter DebugAll",!
+    Write "Start=",pStart,"  End=",pEnd,!
+    Write "StartTS=",startTS,"  EndTS=",endTS,!!
+    Write "Namespace",?18,"Count",?30,"Status",!
+
+    Set ns=""
+    For  {
+        Set ns=$Order(nsList(ns))
+        Quit:ns=""
+
+        Continue:$Extract(ns,1,1)="%"
+
+        Set status=""
+        Set c=..ProbeNamespace(ns,startTS,endTS,.status)
+
+        Write ns,?18,c,?30,status,!
+
+        Set total = total + c
+    }
+
+    Write !,"TOTAL=",total,!!
+    Quit total
+]]></Implementation>
+</Method>
+
+<Method name="CountNamespace">
+<Description>
+Count messages in ONE namespace for a time window.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNamespace:%String,pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set status=""
+    Set startTS=..NormTS(pStart)
+    Set endTS=..NormTS(pEnd)
+    Quit ..ProbeNamespace(pNamespace,startTS,endTS,.status)
+]]></Implementation>
+</Method>
+
+<Method name="NormTS">
+<Description>
+Normalize input timestamp to the string format used by ^Ens.MessageHeaderI("TimeCreated",...)
+If passed $H (contains a comma), convert with $ZDATETIME(h,3).</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTS</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If ($Get(pTS)[",") Quit $ZDATETIME(pTS,3)
+    Quit $Get(pTS)
+]]></Implementation>
+</Method>
+
+<Method name="ToHorolog">
+<Description>
+Convert input (either $H or timestamp string) to $H</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTS</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If ($Get(pTS)[",") Quit pTS
+    Quit $ZDATETIMEH(pTS,3)
+]]></Implementation>
+</Method>
+
+<Method name="Pad2">
+<Description>
+Pad integer to 2 digits (month)</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pN:%Integer</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[    Quit $Select(pN<10:"0"_pN,1:""_pN)
+]]></Implementation>
+</Method>
+
+<Method name="ProbeNamespace">
+<Description>
+Core worker: returns count; sets pStatus with reason.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pNamespace:%String,pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set pStatus=""
+    Set count=0
+
+    New $NAMESPACE
+    Try {
+        Set $NAMESPACE=pNamespace
+    } Catch ex {
+        Set pStatus="CANNOT ENTER NAMESPACE"
+        Goto Done
+    }
+
+    If '$Data(^Ens.MessageHeaderI("TimeCreated")) {
+        If $Data(^Ens.MessageHeaderD) {
+            Set pStatus="HAS MessageHeaderD, NO TimeCreated INDEX"
+        } Else {
+            Set pStatus="NO MessageHeaderD / MessageHeaderI"
+        }
+        Goto Done
+    }
+
+    Set minTS=$Order(^Ens.MessageHeaderI("TimeCreated",""))
+    Set maxTS=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
+
+    If minTS="" {
+        Set pStatus="TimeCreated INDEX EMPTY"
+        Goto Done
+    }
+
+    ; Use ]] for string-collation comparisons on timestamps
+    If (minTS ]] pEndTS) || (pStartTS ]] maxTS) {
+        Set pStatus="OUTSIDE RANGE min="_minTS_" max="_maxTS
+        Set count=0
+        Goto Done
+    }
+
+    Set count=..CountUsingTimeCreatedIndex(pStartTS,pEndTS)
+    Set pStatus="OK min="_minTS_" max="_maxTS
+
+Done
+    Quit count
+]]></Implementation>
+</Method>
+
+<Method name="CountUsingTimeCreatedIndex">
+<Description>
+Fast count using ^Ens.MessageHeaderI("TimeCreated",ts,id)</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pStartTS:%String,pEndTS:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set count=0
+    Set ts=""
+
+    For  {
+        Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
+        Quit:ts=""
+
+        ; ts < pStartTS  <=>  pStartTS sorts after ts
+        Continue:(pStartTS ]] ts)
+
+        ; ts > pEndTS <=> ts sorts after pEndTS
+        Quit:(ts ]] pEndTS)
+
+        Set id=""
+        For  {
+            Set id=$Order(^Ens.MessageHeaderI("TimeCreated",ts,id))
+            Quit:id=""
+            Set count=count+1
+        }
+    }
+
+    Quit count
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ===== Calendar week / month (full-window) =====
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 
+
+]]></Content>
+</UDLText>
+
+<Method name="CountWeek">
+<Description>
+Calendar week containing pAnyTS. Week start = Sunday.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set h=..ToHorolog(pAnyTS)
+    Set day=$Piece(h,",",1)
+
+    ; 1=Sun..7=Sat
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+
+    ; Sunday-start week: subtract (dow-1) days
+    Set startDay=day-(dow-1)
+
+    Set startH=startDay_",0"
+    Set endH=(startDay+6)_",86399"
+
+    Quit ..CountAll(startH,endH)
+]]></Implementation>
+</Method>
+
+<Method name="CountWeekMon">
+<Description>
+Calendar week containing pAnyTS. Week start = Monday.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set h=..ToHorolog(pAnyTS)
+    Set day=$Piece(h,",",1)
+
+    ; 1=Sun..7=Sat
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+
+    ; Monday-start offset: Sun(1)->6, Mon(2)->0, Tue(3)->1, ... Sat(7)->5
+    Set offset=(dow+5)#7
+    Set startDay=day-offset
+
+    Set startH=startDay_",0"
+    Set endH=(startDay+6)_",86399"
+
+    Quit ..CountAll(startH,endH)
+]]></Implementation>
+</Method>
+
+<Method name="CountMonth">
+<Description><![CDATA[
+Full calendar month containing pAnyTS (1st -> last day).]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set ts=..NormTS(pAnyTS)
+
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set firstH=$ZDATETIMEH(firstStr,3)
+
+    ; next month first day
+    If mon=12 {
+        Set nextYear=year+1
+        Set nextMon=1
+    } Else {
+        Set nextYear=year
+        Set nextMon=mon+1
+    }
+
+    Set nextMon2=..Pad2(nextMon)
+    Set nextStr=nextYear_"-"_nextMon2_"-01 00:00:00"
+    Set nextH=$ZDATETIMEH(nextStr,3)
+
+    ; last day = day-before next month first day
+    Set endDay=$Piece(nextH,",",1)-1
+
+    Set startH=$Piece(firstH,",",1)_",0"
+    Set endH=endDay_",86399"
+
+    Quit ..CountAll(startH,endH)
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ===== To-date metrics =====
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// 
+
+]]></Content>
+</UDLText>
+
+<Method name="CountWTD">
+<Description><![CDATA[
+Week-to-date (Monday -> NOW)]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set h=..ToHorolog(pNow)
+    Set day=$Piece(h,",",1)
+
+    ; 1=Sun..7=Sat
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+
+    ; Monday-start offset
+    Set offset=(dow+5)#7
+    Set startDay=day-offset
+
+    Set startH=startDay_",0"
+    Set endH=h
+
+    Quit ..CountAll(startH,endH)
+]]></Implementation>
+</Method>
+
+<Method name="CountMTD">
+<Description><![CDATA[
+Month-to-date (1st -> NOW)]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow:%TimeStamp</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set ts=..NormTS(pNow)
+
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set startH=$ZDATETIMEH(firstStr,3)
+
+    Set endH=..ToHorolog(pNow)
+
+    Quit ..CountAll(startH,endH)
+]]></Implementation>
+</Method>
+
+<Method name="GetSummaryJSON">
+<Description>
+One-call JSON summary (ALL are "to date"):
+{ "as_of":"...", "day_to_date":N, "week_to_date":N, "month_to_date":N }</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow:%TimeStamp</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
+
+    ; ----- DAY-TO-DATE (00:00 -> NOW) -----
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set dayEnd=h
+    Set day=..CountAll(dayStart,dayEnd)
+
+    ; ----- WTD (Mon -> NOW) -----
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+    Set offset=(dow+5)#7
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtdEnd=h
+    Set wtd=..CountAll(wtdStart,wtdEnd)
+
+    ; ----- MTD (1st -> NOW) -----
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtdEnd=h
+    Set mtd=..CountAll(mtdStart,mtdEnd)
+
+    Quit "{""as_of"":"""_ts_""",""day_to_date"":"_day_",""week_to_date"":"_wtd_",""month_to_date"":"_mtd_"}"
+]]></Implementation>
+</Method>
+</Class>
+</Export>
