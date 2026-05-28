@@ -46,7 +46,7 @@ pStart/pEnd can be $H ("day,seconds") or timestamp string ("YYYY-MM-DD HH:MM:SS"
         Continue:$Extract(ns,1,1)="%"
 
         Set status=""
-        Set total = total + ..CountOneNamespace(ns,startTS,endTS,.status)
+        Set total=total + ..CountOneNamespace(ns,startTS,endTS,.status)
     }
 
     Quit total
@@ -115,13 +115,13 @@ pNow can be "" (now), $H, or "YYYY-MM-DD HH:MM:SS"</Description>
     Set h=..ToHorolog(pNow)
     Set ts=..NormTS(pNow)
 
-    ; ---- windows (to-date) ----
+    ; DAY: 00:00 -> now
     Set dayStart=$Piece(h,",",1)_",0"
     Set dayEnd=h
 
     ; WTD: Monday -> now
     Set dow=$SYSTEM.SQL.DAYOFWEEK(h)     ; 1=Sun..7=Sat
-    Set offset=(dow+5)#7                ; Mon offset: Sun->6, Mon->0, Tue->1...
+    Set offset=(dow+5)#7
     Set startDay=$Piece(h,",",1)-offset
     Set wtdStart=startDay_",0"
     Set wtdEnd=h
@@ -134,7 +134,6 @@ pNow can be "" (now), $H, or "YYYY-MM-DD HH:MM:SS"</Description>
     Set mtdStart=$ZDATETIMEH(firstStr,3)
     Set mtdEnd=h
 
-    ; ---- compute per-namespace counts for each window ----
     Kill dayCounts,dayExcl,wtdCounts,wtdExcl,mtdCounts,mtdExcl
     Set dayTotal=0,wtdTotal=0,mtdTotal=0
 
@@ -142,18 +141,13 @@ pNow can be "" (now), $H, or "YYYY-MM-DD HH:MM:SS"</Description>
     Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,.wtdExcl,.wtdTotal)
     Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,.mtdExcl,.mtdTotal)
 
-    ; ---- union namespace keys ----
     Kill seen
     Set n=""
 
-    Set n=""
-    For  { Set n=$Order(dayCounts(n)) Quit:n=""  Set seen(n)="" }
-    Set n=""
-    For  { Set n=$Order(wtdCounts(n)) Quit:n=""  Set seen(n)="" }
-    Set n=""
-    For  { Set n=$Order(mtdCounts(n)) Quit:n=""  Set seen(n)="" }
+    Set n="" For  { Set n=$Order(dayCounts(n)) Quit:n=""  Set seen(n)="" }
+    Set n="" For  { Set n=$Order(wtdCounts(n)) Quit:n=""  Set seen(n)="" }
+    Set n="" For  { Set n=$Order(mtdCounts(n)) Quit:n=""  Set seen(n)="" }
 
-    ; ---- print ----
     Write !!,"Message Summary (as of ",ts,")",!
     Write "Namespace",?25,"DAY",?40,"WTD",?55,"MTD",!
 
@@ -178,7 +172,7 @@ pNow can be "" (now), $H, or "YYYY-MM-DD HH:MM:SS"</Description>
 
 <Method name="GetSummaryJSON">
 <Description>
-JSON summary (to-date): {"as_of":"...","day_to_date":N,"week_to_date":N,"month_to_date":N}</Description>
+JSON summary (to-date)</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pNow=""</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -187,18 +181,15 @@ JSON summary (to-date): {"as_of":"...","day_to_date":N,"week_to_date":N,"month_t
     Set h=..ToHorolog(pNow)
     Set ts=..NormTS(pNow)
 
-    ; day-to-date
     Set dayStart=$Piece(h,",",1)_",0"
     Set day=..CountAll(dayStart,h)
 
-    ; wtd (Mon -> now)
     Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
     Set offset=(dow+5)#7
     Set startDay=$Piece(h,",",1)-offset
     Set wtdStart=startDay_",0"
     Set wtd=..CountAll(wtdStart,h)
 
-    ; mtd (1st -> now)
     Set year=+$Extract(ts,1,4)
     Set mon=+$Extract(ts,6,7)
     Set mon2=..Pad2(mon)
@@ -222,7 +213,6 @@ JSON summary by namespace (to-date) with totals + exclusions.</Description>
     Set h=..ToHorolog(pNow)
     Set ts=..NormTS(pNow)
 
-    ; windows
     Set dayStart=$Piece(h,",",1)_",0"
     Set dayEnd=h
 
@@ -265,7 +255,7 @@ Calendar week containing pAnyTS. Week start = Sunday.</Description>
 <Implementation><![CDATA[
     Set h=..ToHorolog(pAnyTS)
     Set day=$Piece(h,",",1)
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)   ; 1=Sun..7=Sat
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
 
     Set startDay=day-(dow-1)
     Set startH=startDay_",0"
@@ -311,7 +301,6 @@ Full calendar month containing pAnyTS (1st -> last day).]]></Description>
     Set firstStr=year_"-"_mon2_"-01 00:00:00"
     Set firstH=$ZDATETIMEH(firstStr,3)
 
-    ; next month first day
     If mon=12 {
         Set nextYear=year+1
         Set nextMon=1
@@ -334,11 +323,8 @@ Full calendar month containing pAnyTS (1st -> last day).]]></Description>
 
 <Method name="PrintRangeRollups">
 <Description>
-Rollup report for any range:
-- Monthly totals (YYYY-MM)
-- Weekly totals (Week Of YYYY-MM-DD Monday start)
-- Grand total + checks
-- Shows which namespaces used INDEX vs SQL vs GLOBAL</Description>
+Rollup report for any range with BEST FIX:
+uses index for overlap, fills gaps with SQL/global so nothing is missed.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pStart,pEnd</FormalSpec>
 <Implementation><![CDATA[
@@ -349,7 +335,7 @@ Rollup report for any range:
     Write "RangeStart=",startTS,!
     Write "RangeEnd  =",endTS,!!
 
-    Kill monthCounts,weekCounts,excluded,indexUsed,sqlUsed,globalUsed
+    Kill monthCounts,weekCounts,excluded,indexOnly,hybrid,sqlUsed,globalUsed
     Set grandTotal=0
 
     Kill nsList
@@ -362,40 +348,60 @@ Rollup report for any range:
         Continue:$Extract(ns,1,1)="%"
 
         ; switch namespace
-        Set ok=1
+        Set okNs=1
         New $NAMESPACE
-        Try { Set $NAMESPACE=ns } Catch ex { Set ok=0 }
-        If 'ok {
-            Set excluded(ns)="CANNOT ENTER NAMESPACE"
-            Continue
-        }
+        Try { Set $NAMESPACE=ns } Catch ex { Set okNs=0 }
+        If 'okNs { Set excluded(ns)="CANNOT ENTER NAMESPACE" Continue }
 
+        ; index coverage if present
+        Set idxMin="", idxMax=""
         If $Data(^Ens.MessageHeaderI("TimeCreated")) {
-            Set indexUsed(ns)=""
-            Do ..RollupFromIndex(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
-            Continue
+            Set idxMin=$Order(^Ens.MessageHeaderI("TimeCreated",""))
+            Set idxMax=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
         }
 
-        ; If no records at all, skip cleanly
-        If $Order(^Ens.MessageHeaderD(""))="" {
+        ; no data at all?
+        If (idxMin="")&( $Order(^Ens.MessageHeaderD(""))="" ) {
             Set excluded(ns)="NO MESSAGE DATA"
             Continue
         }
 
-        ; Try SQL rollup first (fast)
-        Set okSQL=..RollupFromSQL(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
-        If okSQL {
-            Set sqlUsed(ns)=""
+        Set usedI=0, usedS=0, usedG=0, usedH=0
+
+        If idxMin'="" {
+            ; overlap range
+            Set ovStart=..MaxTS(startTS,idxMin)
+            Set ovEnd=..MinTS(endTS,idxMax)
+
+            If ..TSLeq(ovStart,ovEnd) {
+                Do ..RollupFromIndexRange(ovStart,ovEnd,1,1,.monthCounts,.weekCounts,.grandTotal)
+                Set usedI=1
+            }
+
+            ; left gap [start .. idxMin) if start < idxMin
+            If (idxMin ]] startTS) {
+                Do ..RollupFallbackRange(startTS,idxMin,1,0,.monthCounts,.weekCounts,.grandTotal,.usedS,.usedG)
+                Set usedH=1
+            }
+
+            ; right gap (idxMax .. end] if end > idxMax
+            If (endTS ]] idxMax) {
+                Do ..RollupFallbackRange(idxMax,endTS,0,1,.monthCounts,.weekCounts,.grandTotal,.usedS,.usedG)
+                Set usedH=1
+            }
+
+            If usedI & usedH Set hybrid(ns)=""
+            If usedI & ('usedH) Set indexOnly(ns)=""
+            If usedS Set sqlUsed(ns)=""
+            If usedG Set globalUsed(ns)=""
             Continue
         }
 
-        ; Final fallback: global scan rollup
-        Set okG=..RollupFromGlobal(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
-        If okG {
-            Set globalUsed(ns)=""
-        } Else {
-            Set excluded(ns)="NO TimeCreated INDEX; SQL failed; GLOBAL fallback failed"
-        }
+        ; no index => full fallback
+        Do ..RollupFallbackRange(startTS,endTS,1,1,.monthCounts,.weekCounts,.grandTotal,.usedS,.usedG)
+        If usedS Set sqlUsed(ns)=""
+        If usedG Set globalUsed(ns)=""
+        If ('usedS)&('usedG) Set excluded(ns)="NO INDEX; SQL failed; GLOBAL failed"
     }
 
     ; ---- print months ----
@@ -429,34 +435,33 @@ Rollup report for any range:
     }
     Write "WEEK TOTAL",?30,weekTotal,!!
 
-    ; ---- totals check ----
     Write "GRAND TOTAL",?15,grandTotal,!
     Write "CHECK (months sum)",?15,monthTotal,!
     Write "CHECK (weeks sum)",?15,weekTotal,!!
 
-    ; ---- transparency ----
-    If $Data(indexUsed) {
-        Write "NAMESPACES COUNTED VIA TimeCreated INDEX",!
-        Set n=""
-        For  { Set n=$Order(indexUsed(n)) Quit:n=""  Write n,! }
+    If $Data(hybrid) {
+        Write "NAMESPACES COUNTED VIA HYBRID (INDEX + GAP FILL)",!
+        Set n="" For  { Set n=$Order(hybrid(n)) Quit:n=""  Write n,! }
+        Write !
+    }
+    If $Data(indexOnly) {
+        Write "NAMESPACES COUNTED VIA INDEX ONLY",!
+        Set n="" For  { Set n=$Order(indexOnly(n)) Quit:n=""  Write n,! }
         Write !
     }
     If $Data(sqlUsed) {
-        Write "NAMESPACES COUNTED VIA SQL FALLBACK",!
-        Set n=""
-        For  { Set n=$Order(sqlUsed(n)) Quit:n=""  Write n,! }
+        Write "NAMESPACES USING SQL (some/all segments)",!
+        Set n="" For  { Set n=$Order(sqlUsed(n)) Quit:n=""  Write n,! }
         Write !
     }
     If $Data(globalUsed) {
-        Write "NAMESPACES COUNTED VIA GLOBAL FALLBACK",!
-        Set n=""
-        For  { Set n=$Order(globalUsed(n)) Quit:n=""  Write n,! }
+        Write "NAMESPACES USING GLOBAL (some/all segments)",!
+        Set n="" For  { Set n=$Order(globalUsed(n)) Quit:n=""  Write n,! }
         Write !
     }
     If $Data(excluded) {
-        Write "EXCLUDED NAMESPACES (not counted)",!
-        Set e=""
-        For  { Set e=$Order(excluded(e)) Quit:e=""  Write e,": ",excluded(e),! }
+        Write "EXCLUDED NAMESPACES",!
+        Set e="" For  { Set e=$Order(excluded(e)) Quit:e=""  Write e,": ",excluded(e),! }
         Write !
     }
 
@@ -473,7 +478,7 @@ Rollup report for any range:
 
 <UDLText name="T">
 <Content><![CDATA[
-// Core per-namespace counting (INDEX -> SQL -> GLOBAL)
+// BEST FIX: Per-namespace counting uses index overlap + gap fill
 
 ]]></Content>
 </UDLText>
@@ -486,71 +491,116 @@ Rollup report for any range:
 </UDLText>
 
 <Method name="CountOneNamespace">
-<Description>
-Count one namespace for a window.
-Uses index when available; falls back to SQL count when index missing; then global scan.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[pNamespace:%String,pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set pStatus=""
-    Set count=0
+    Set total=0
 
     ; switch namespace
     Set ok=1
     New $NAMESPACE
     Try { Set $NAMESPACE=pNamespace } Catch ex { Set ok=0 }
-    If 'ok {
-        Set pStatus="CANNOT ENTER NAMESPACE"
-        Quit 0
-    }
+    If 'ok { Set pStatus="CANNOT ENTER NAMESPACE" Quit 0 }
 
-    ; Fast path
+    ; index coverage if present
+    Set idxMin="", idxMax=""
     If $Data(^Ens.MessageHeaderI("TimeCreated")) {
-        Set count=..CountUsingIndex(pStartTS,pEndTS,.pStatus)
-        Quit count
+        Set idxMin=$Order(^Ens.MessageHeaderI("TimeCreated",""))
+        Set idxMax=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
     }
 
-    ; No message data at all?
-    If $Order(^Ens.MessageHeaderD(""))="" {
+    ; no data at all?
+    If (idxMin="")&( $Order(^Ens.MessageHeaderD(""))="" ) {
         Set pStatus="NO MESSAGE DATA"
         Quit 0
     }
 
-    ; Try SQL
-    Set count=..CountUsingSQL(pStartTS,pEndTS,.pStatus)
-    If pStatus="OK (SQL)" Quit count
+    Set usedI=0, usedS=0, usedG=0, usedH=0
 
-    ; Final fallback: global scan
-    Set count=..CountUsingGlobal(pStartTS,pEndTS,.pStatus)
-    Quit count
+    If idxMin'="" {
+        Set ovStart=..MaxTS(pStartTS,idxMin)
+        Set ovEnd=..MinTS(pEndTS,idxMax)
+
+        If ..TSLeq(ovStart,ovEnd) {
+            Set total=total + ..CountUsingIndexRange(ovStart,ovEnd,1,1)
+            Set usedI=1
+        }
+
+        If (idxMin ]] pStartTS) {
+            Set total=total + ..CountFallbackRange(pStartTS,idxMin,1,0,.usedS,.usedG)
+            Set usedH=1
+        }
+
+        If (pEndTS ]] idxMax) {
+            Set total=total + ..CountFallbackRange(idxMax,pEndTS,0,1,.usedS,.usedG)
+            Set usedH=1
+        }
+
+        If usedI & usedH Set pStatus="OK (HYBRID)"
+        If usedI & ('usedH) Set pStatus="OK (INDEX)"
+        If usedS Set pStatus=pStatus_" + SQL"
+        If usedG Set pStatus=pStatus_" + GLOBAL"
+        Quit total
+    }
+
+    ; no index => fallback full range
+    Set total=..CountFallbackRange(pStartTS,pEndTS,1,1,.usedS,.usedG)
+    If usedS Set pStatus="OK (SQL)"
+    If ('usedS)&(usedG) Set pStatus="OK (GLOBAL)"
+    If ('usedS)&('usedG) Set pStatus="SQL FAILED; GLOBAL FAILED"
+    Quit total
 ]]></Implementation>
 </Method>
 
-<Method name="CountUsingIndex">
-<Description>
-Fast count using ^Ens.MessageHeaderI("TimeCreated",ts,id)</Description>
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Counting primitives (INDEX / SQL / GLOBAL) with inclusive/exclusive
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<Method name="CountUsingIndexRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<FormalSpec>pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    Set pStatus="OK (INDEX)"
     Set count=0
-
-    Set minTS=$Order(^Ens.MessageHeaderI("TimeCreated",""))
-    Set maxTS=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
-    If minTS="" { Set pStatus="TimeCreated INDEX EMPTY"  Quit 0 }
-    If (minTS ]] pEndTS) || (pStartTS ]] maxTS) { Set pStatus="OUTSIDE RANGE"  Quit 0 }
-
     Set ts=""
+
     For  {
         Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
         Quit:ts=""
 
-        Continue:(pStartTS ]] ts)
-        Quit:(ts ]] pEndTS)
+        ; NOTE: entire boolean inside postconditional. No trailing tokens. [1](https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=GCOS_booleans)[2](https://docs.intersystems.com/irislatest/csp/docbook/DocBook.UI.Page.cls?KEY=RCOS_SYMBOLS)
+        If pStartIncl {
+            Continue:(pStartTS ]] ts)
+        } Else {
+            Continue:((pStartTS ]] ts)||(ts=pStartTS))
+        }
+
+        If pEndIncl {
+            Quit:(ts ]] pEndTS)
+        } Else {
+            Quit:((ts ]] pEndTS)||(ts=pEndTS))
+        }
 
         Set id=""
         For  {
@@ -564,32 +614,28 @@ Fast count using ^Ens.MessageHeaderI("TimeCreated",ts,id)</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="CountUsingSQL">
-<Description>
-SQL fallback count.
-Returns count and sets pStatus to OK (SQL) or a failure string.</Description>
+<Method name="CountUsingSQLRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&ok:%Boolean]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    Set pStatus="SQL FAILED"
+    Set ok=0
     Set count=0
+    Set op1=$Select(pStartIncl:">=",1:">")
+    Set op2=$Select(pEndIncl:"<=",1:"<")
+    Set q="SELECT COUNT(*) FROM Ens.MessageHeader WHERE TimeCreated "_op1_" ? AND TimeCreated "_op2_" ?"
 
+    Set stmt="", rset="", sc=0
     Try {
         Set stmt=##class(%SQL.Statement).%New()
-        Set sc=stmt.%Prepare("SELECT COUNT(*) FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ?")
-        If sc'=1 { Set pStatus="SQL PREPARE FAILED"  Goto Done }
-
+        Set sc=stmt.%Prepare(q)
+        If sc'=1 { Set ok=0  Goto Done }
         Set rset=stmt.%Execute(pStartTS,pEndTS)
-        If rset.%Next() {
-            Set count=+$Get(rset.%Get(1))
-        } Else {
-            Set count=0
-        }
-        Set pStatus="OK (SQL)"
+        If rset.%Next() Set count=+$Get(rset.%Get(1))
+        Set ok=1
     } Catch ex {
-        Set pStatus="SQL EXECUTE ERROR"
+        Set ok=0
         Set count=0
     }
 
@@ -598,22 +644,19 @@ Done
 ]]></Implementation>
 </Method>
 
-<Method name="CountUsingGlobal">
-<Description>
-GLOBAL fallback count: scans ^Ens.MessageHeaderD(id) and uses list piece 15 for TimeCreated.
-Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description>
+<Method name="CountUsingGlobalRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&ok:%Boolean]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    Set pStatus="OK (GLOBAL)"
+    Set ok=0
     Set count=0
 
     Set id=""
     Set prevTC=""
-    Set monotonic=1     ; assume monotonic until proven otherwise
-    Set seenInOrAfterStart=0
+    Set monotonic=1
+    Set seenAfterStart=0
 
     For  {
         Set id=$Order(^Ens.MessageHeaderD(id))
@@ -622,38 +665,66 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
         Set row=$Get(^Ens.MessageHeaderD(id))
         Continue:row=""
 
-        ; TimeCreated is list piece 15 (validated in PROD SHEDI sample)
         Set tc=$ListGet(row,15)
         Continue:tc=""
 
-        ; detect non-monotonicity (time went backwards)
+        Set ok=1
+
         If prevTC'="" {
             If (prevTC ]] tc) Set monotonic=0
         }
         Set prevTC=tc
 
-        ; skip before start: tc < start  <=> start sorts after tc
-        If (pStartTS ]] tc) {
-            Continue
+        ; start filter
+        If pStartIncl {
+            If (pStartTS ]] tc) Continue
         } Else {
-            Set seenInOrAfterStart=1
+            If (pStartTS ]] tc)!(tc=pStartTS)  Continue
         }
+        Set seenAfterStart=1
 
-        ; past end: tc > end <=> tc sorts after end
-        If (tc ]] pEndTS) {
-            ; Early stop ONLY if (a) we’ve reached start already and (b) still monotonic
-            If seenInOrAfterStart, monotonic {
-                Quit
-            } Else {
+        ; end filter + early stop when monotonic
+        If pEndIncl {
+            If (tc ]] pEndTS) {
+                If seenAfterStart,monotonic Quit
+                Continue
+            }
+        } Else {
+            If (tc ]] pEndTS)!(tc=pEndTS) {
+                If seenAfterStart,monotonic Quit
                 Continue
             }
         }
 
-        ; tc in [start,end]
         Set count=count+1
     }
 
     Quit count
+]]></Implementation>
+</Method>
+
+<Method name="CountFallbackRange">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&usedS:%Boolean,&usedG:%Boolean]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set usedS=+$Get(usedS)
+    Set usedG=+$Get(usedG)
+
+    If $Order(^Ens.MessageHeaderD(""))="" Quit 0
+
+    Set okSQL=0
+    Set cnt=..CountUsingSQLRange(pStartTS,pEndTS,pStartIncl,pEndIncl,.okSQL)
+    If okSQL {
+        Set usedS=1
+        Quit cnt
+    }
+
+    Set okG=0
+    Set cnt=..CountUsingGlobalRange(pStartTS,pEndTS,pStartIncl,pEndIncl,.okG)
+    If okG Set usedG=1
+    Quit cnt
 ]]></Implementation>
 </Method>
 
@@ -666,7 +737,7 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
 
 <UDLText name="T">
 <Content><![CDATA[
-// Window helpers (used by table + JSON summaries)
+// Window helpers (used by PrintSummaryTable + JSON summaries)
 
 ]]></Content>
 </UDLText>
@@ -794,7 +865,7 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
 
 <UDLText name="T">
 <Content><![CDATA[
-// Rollup internals (INDEX / SQL / GLOBAL)
+// Rollup primitives (INDEX / SQL / GLOBAL) with inclusive/exclusive
 
 ]]></Content>
 </UDLText>
@@ -806,9 +877,9 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
 ]]></Content>
 </UDLText>
 
-<Method name="RollupFromIndex">
+<Method name="RollupFromIndexRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
     Set ts=""
@@ -816,8 +887,17 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
         Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
         Quit:ts=""
 
-        Continue:(pStartTS ]] ts)
-        Quit:(ts ]] pEndTS)
+        If pStartIncl {
+            Continue:(pStartTS ]] ts)
+        } Else {
+            Continue:((pStartTS ]] ts)||(ts=pStartTS))
+        }
+
+        If pEndIncl {
+            Quit:(ts ]] pEndTS)
+        } Else {
+            Quit:((ts ]] pEndTS)||(ts=pEndTS))
+        }
 
         Set cntAtTs=0
         Set id=""
@@ -845,21 +925,45 @@ Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description
 ]]></Implementation>
 </Method>
 
-<Method name="RollupFromSQL">
-<Description>
-SQL rollup for unindexed namespaces (fast when permitted).
-Returns 1 on success, 0 on failure.</Description>
+<Method name="RollupFallbackRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&monthCounts,&weekCounts,&grandTotal,&usedS:%Boolean,&usedG:%Boolean]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
-    Set ok=1
+    Set usedS=+$Get(usedS)
+    Set usedG=+$Get(usedG)
+
+    If $Order(^Ens.MessageHeaderD(""))="" Quit 0
+
+    ; try SQL first
+    Set okSQL=0
+    Do ..RollupFromSQLRange(pStartTS,pEndTS,pStartIncl,pEndIncl,.monthCounts,.weekCounts,.grandTotal,.okSQL)
+    If okSQL { Set usedS=1 Quit 1 }
+
+    ; then global
+    Set okG=0
+    Do ..RollupFromGlobalRange(pStartTS,pEndTS,pStartIncl,pEndIncl,.monthCounts,.weekCounts,.grandTotal,.okG)
+    If okG Set usedG=1
+    Quit okG
+]]></Implementation>
+</Method>
+
+<Method name="RollupFromSQLRange">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&monthCounts,&weekCounts,&grandTotal,&ok:%Boolean]]></FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+    Set ok=0
+    Set op1=$Select(pStartIncl:">=",1:">")
+    Set op2=$Select(pEndIncl:"<=",1:"<")
+
+    Set stmt="",stmt2="",sc=0,sc2=0
 
     Try {
-        ; months
         Set stmt=##class(%SQL.Statement).%New()
-        Set sc=stmt.%Prepare("SELECT {fn SUBSTRING(TimeCreated,1,7)} AS mon, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ? GROUP BY {fn SUBSTRING(TimeCreated,1,7)} ORDER BY mon")
+        Set q1="SELECT {fn SUBSTRING(TimeCreated,1,7)} AS mon, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated "_op1_" ? AND TimeCreated "_op2_" ? GROUP BY {fn SUBSTRING(TimeCreated,1,7)} ORDER BY mon"
+        Set sc=stmt.%Prepare(q1)
         If sc'=1 { Set ok=0  Goto Done }
 
         Set rset=stmt.%Execute(pStartTS,pEndTS)
@@ -872,44 +976,38 @@ Returns 1 on success, 0 on failure.</Description>
             }
         }
 
-        ; weeks (Monday start)
         Set stmt2=##class(%SQL.Statement).%New()
-        Set sc2=stmt2.%Prepare("SELECT DATEADD('day', -MOD(DAYOFWEEK(TimeCreated)+5,7), CAST(TimeCreated AS DATE)) AS wkStart, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ? GROUP BY wkStart ORDER BY wkStart")
+        Set q2="SELECT DATEADD('day', -MOD(DAYOFWEEK(TimeCreated)+5,7), CAST(TimeCreated AS DATE)) AS wkStart, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated "_op1_" ? AND TimeCreated "_op2_" ? GROUP BY wkStart ORDER BY wkStart"
+        Set sc2=stmt2.%Prepare(q2)
         If sc2'=1 { Set ok=0  Goto Done }
 
         Set rset2=stmt2.%Execute(pStartTS,pEndTS)
         While rset2.%Next() {
             Set wkStart=$Get(rset2.%Get(1))
             Set cnt=+$Get(rset2.%Get(2))
-            If wkStart'="" {
-                Set weekCounts(wkStart)=$Get(weekCounts(wkStart))+cnt
-            }
+            If wkStart'="" Set weekCounts(wkStart)=$Get(weekCounts(wkStart))+cnt
         }
 
+        Set ok=1
     } Catch ex {
         Set ok=0
     }
 
 Done
-    Quit ok
+    Quit
 ]]></Implementation>
 </Method>
 
-<Method name="RollupFromGlobal">
-<Description>
-GLOBAL rollup fallback (slow but works when SQL is blocked and no index).
-Speed-up: early-stop only when TimeCreated appears monotonic by ID.
-Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCreated values.</Description>
+<Method name="RollupFromGlobalRange">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,pStartIncl:%Boolean,pEndIncl:%Boolean,&monthCounts,&weekCounts,&grandTotal,&ok:%Boolean]]></FormalSpec>
 <Private>1</Private>
-<ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
     Set ok=0
     Set id=""
     Set prevTC=""
     Set monotonic=1
-    Set seenInOrAfterStart=0
+    Set seenAfterStart=0
 
     For  {
         Set id=$Order(^Ens.MessageHeaderD(id))
@@ -923,26 +1021,32 @@ Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCrea
 
         Set ok=1
 
-        ; detect non-monotonicity
         If prevTC'="" {
             If (prevTC ]] tc) Set monotonic=0
         }
         Set prevTC=tc
 
-        ; before start
-        If (pStartTS ]] tc) Continue
-        Set seenInOrAfterStart=1
+        ; start filter
+        If pStartIncl {
+            If (pStartTS ]] tc) Continue
+        } Else {
+            If (pStartTS ]] tc)!(tc=pStartTS) Continue
+        }
+        Set seenAfterStart=1
 
-        ; after end
-        If (tc ]] pEndTS) {
-            If seenInOrAfterStart, monotonic {
-                Quit
-            } Else {
+        ; end filter + early stop
+        If pEndIncl {
+            If (tc ]] pEndTS) {
+                If seenAfterStart,monotonic Quit
+                Continue
+            }
+        } Else {
+            If (tc ]] pEndTS)!(tc=pEndTS) {
+                If seenAfterStart,monotonic Quit
                 Continue
             }
         }
 
-        ; in range: bucket
         Set monKey=$Extract(tc,1,7)
         Set monthCounts(monKey)=$Get(monthCounts(monKey))+1
 
@@ -952,12 +1056,12 @@ Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCrea
         Set offset=(dow+5)#7
         Set wkStartDay=day-offset
         Set wkKey=$ZDATE(wkStartDay,3)
-
         Set weekCounts(wkKey)=$Get(weekCounts(wkKey))+1
+
         Set grandTotal=grandTotal+1
     }
 
-    Quit ok
+    Quit
 ]]></Implementation>
 </Method>
 
@@ -970,7 +1074,7 @@ Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCrea
 
 <UDLText name="T">
 <Content><![CDATA[
-// Date/time helpers
+// Comparison/time helpers
 
 ]]></Content>
 </UDLText>
@@ -982,10 +1086,44 @@ Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCrea
 ]]></Content>
 </UDLText>
 
+<Method name="MaxTS">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>a:%String,b:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If a="" Quit b
+    If b="" Quit a
+    If (a ]] b) Quit a
+    Quit b
+]]></Implementation>
+</Method>
+
+<Method name="MinTS">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>a:%String,b:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If a="" Quit b
+    If b="" Quit a
+    If (a ]] b) Quit b
+    Quit a
+]]></Implementation>
+</Method>
+
+<Method name="TSLeq">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>a:%String,b:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[    Quit '(a ]] b)
+]]></Implementation>
+</Method>
+
 <Method name="NormTS">
 <Description>
-Normalize input timestamp to the string format used by TimeCreated index.
-If passed $H, convert using $ZDATETIME(h,3).</Description>
+Normalize input timestamp to the string format used by TimeCreated index.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pTS</FormalSpec>
 <Private>1</Private>
@@ -1010,8 +1148,6 @@ Convert input (either $H or timestamp string) to $H.</Description>
 </Method>
 
 <Method name="Pad2">
-<Description>
-Pad integer to 2 digits (month)</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pN:%Integer</FormalSpec>
 <Private>1</Private>
