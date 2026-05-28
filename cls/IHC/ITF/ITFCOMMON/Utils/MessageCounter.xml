@@ -3,15 +3,38 @@
 <Class name="IHC.ITF.ITFCOMMON.Utils.MessageCounter">
 <TimeCreated>67717,48560.094030817</TimeCreated>
 
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Public entry points
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
 <Method name="CountAll">
 <Description>
 Count messages across ALL namespaces in the instance for a time window.
 pStart/pEnd can be $H ("day,seconds") or timestamp string ("YYYY-MM-DD HH:MM:SS").</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<FormalSpec>pStart,pEnd</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set total=0
+    Set startTS=..NormTS(pStart)
+    Set endTS=..NormTS(pEnd)
 
     Kill nsList
     Do ##class(%SYS.Namespace).ListAll(.nsList)
@@ -20,10 +43,10 @@ pStart/pEnd can be $H ("day,seconds") or timestamp string ("YYYY-MM-DD HH:MM:SS"
     For  {
         Set ns=$Order(nsList(ns))
         Quit:ns=""
-
         Continue:$Extract(ns,1,1)="%"
 
-        Set total = total + ..CountNamespace(ns,pStart,pEnd)
+        Set status=""
+        Set total = total + ..CountOneNamespace(ns,startTS,endTS,.status)
     }
 
     Quit total
@@ -34,7 +57,7 @@ pStart/pEnd can be $H ("day,seconds") or timestamp string ("YYYY-MM-DD HH:MM:SS"
 <Description>
 Debug helper: prints per-namespace counts for a window.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<FormalSpec>pStart,pEnd</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set total=0
@@ -45,23 +68,20 @@ Debug helper: prints per-namespace counts for a window.</Description>
     Do ##class(%SYS.Namespace).ListAll(.nsList)
 
     Write !,"MessageCounter DebugAll",!
-    Write "Start=",pStart,"  End=",pEnd,!
-    Write "StartTS=",startTS,"  EndTS=",endTS,!!
+    Write "StartTS=",startTS,!
+    Write "EndTS  =",endTS,!!
     Write "Namespace",?18,"Count",?30,"Status",!
 
     Set ns=""
     For  {
         Set ns=$Order(nsList(ns))
         Quit:ns=""
-
         Continue:$Extract(ns,1,1)="%"
 
         Set status=""
-        Set c=..ProbeNamespace(ns,startTS,endTS,.status)
-
+        Set c=..CountOneNamespace(ns,startTS,endTS,.status)
         Write ns,?18,c,?30,status,!
-
-        Set total = total + c
+        Set total=total+c
     }
 
     Write !,"TOTAL=",total,!!
@@ -73,175 +93,181 @@ Debug helper: prints per-namespace counts for a window.</Description>
 <Description>
 Count messages in ONE namespace for a time window.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNamespace:%String,pStart:%TimeStamp,pEnd:%TimeStamp</FormalSpec>
+<FormalSpec>pNamespace:%String,pStart,pEnd</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    Set status=""
     Set startTS=..NormTS(pStart)
     Set endTS=..NormTS(pEnd)
-    Quit ..ProbeNamespace(pNamespace,startTS,endTS,.status)
+    Set status=""
+    Quit ..CountOneNamespace(pNamespace,startTS,endTS,.status)
 ]]></Implementation>
 </Method>
 
-<Method name="NormTS">
+<Method name="PrintSummaryTable">
 <Description>
-Normalize input timestamp to the string format used by ^Ens.MessageHeaderI("TimeCreated",...)
-If passed $H (contains a comma), convert with $ZDATETIME(h,3).</Description>
+Human readable “as of now” table: DAY/WTD/MTD per namespace + totals.
+pNow can be "" (now), $H, or "YYYY-MM-DD HH:MM:SS"</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pTS</FormalSpec>
-<Private>1</Private>
-<ReturnType>%String</ReturnType>
+<FormalSpec>pNow=""</FormalSpec>
 <Implementation><![CDATA[
-    If ($Get(pTS)[",") Quit $ZDATETIME(pTS,3)
-    Quit $Get(pTS)
-]]></Implementation>
-</Method>
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
 
-<Method name="ToHorolog">
-<Description>
-Convert input (either $H or timestamp string) to $H</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>pTS</FormalSpec>
-<Private>1</Private>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-    If ($Get(pTS)[",") Quit pTS
-    Quit $ZDATETIMEH(pTS,3)
-]]></Implementation>
-</Method>
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
 
-<Method name="Pad2">
-<Description>
-Pad integer to 2 digits (month)</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>pN:%Integer</FormalSpec>
-<Private>1</Private>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[    Quit $Select(pN<10:"0"_pN,1:""_pN)
-]]></Implementation>
-</Method>
+    ; ---- windows (to-date) ----
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set dayEnd=h
 
-<Method name="ProbeNamespace">
-<Description>
-Core worker: returns count; sets pStatus with reason.</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pNamespace:%String,pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
-<Private>1</Private>
-<ReturnType>%Integer</ReturnType>
-<Implementation><![CDATA[
-    Set pStatus=""
-    Set count=0
+    ; WTD: Monday -> now
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)     ; 1=Sun..7=Sat
+    Set offset=(dow+5)#7                ; Mon offset: Sun->6, Mon->0, Tue->1...
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtdEnd=h
 
-    New $NAMESPACE
-    Try {
-        Set $NAMESPACE=pNamespace
-    } Catch ex {
-        Set pStatus="CANNOT ENTER NAMESPACE"
-        Goto Done
-    }
+    ; MTD: 1st -> now
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtdEnd=h
 
-    If '$Data(^Ens.MessageHeaderI("TimeCreated")) {
-        If $Data(^Ens.MessageHeaderD) {
-            Set pStatus="HAS MessageHeaderD, NO TimeCreated INDEX"
-        } Else {
-            Set pStatus="NO MessageHeaderD / MessageHeaderI"
-        }
-        Goto Done
-    }
+    ; ---- compute per-namespace counts for each window ----
+    Kill dayCounts,dayExcl,wtdCounts,wtdExcl,mtdCounts,mtdExcl
+    Set dayTotal=0,wtdTotal=0,mtdTotal=0
 
-    Set minTS=$Order(^Ens.MessageHeaderI("TimeCreated",""))
-    Set maxTS=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
+    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,.dayExcl,.dayTotal)
+    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,.wtdExcl,.wtdTotal)
+    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,.mtdExcl,.mtdTotal)
 
-    If minTS="" {
-        Set pStatus="TimeCreated INDEX EMPTY"
-        Goto Done
-    }
+    ; ---- union namespace keys ----
+    Kill seen
+    Set n=""
 
-    ; Use ]] for string-collation comparisons on timestamps
-    If (minTS ]] pEndTS) || (pStartTS ]] maxTS) {
-        Set pStatus="OUTSIDE RANGE min="_minTS_" max="_maxTS
-        Set count=0
-        Goto Done
-    }
+    Set n=""
+    For  { Set n=$Order(dayCounts(n)) Quit:n=""  Set seen(n)="" }
+    Set n=""
+    For  { Set n=$Order(wtdCounts(n)) Quit:n=""  Set seen(n)="" }
+    Set n=""
+    For  { Set n=$Order(mtdCounts(n)) Quit:n=""  Set seen(n)="" }
 
-    Set count=..CountUsingTimeCreatedIndex(pStartTS,pEndTS)
-    Set pStatus="OK min="_minTS_" max="_maxTS
+    ; ---- print ----
+    Write !!,"Message Summary (as of ",ts,")",!
+    Write "Namespace",?25,"DAY",?40,"WTD",?55,"MTD",!
 
-Done
-    Quit count
-]]></Implementation>
-</Method>
-
-<Method name="CountUsingTimeCreatedIndex">
-<Description>
-Fast count using ^Ens.MessageHeaderI("TimeCreated",ts,id)</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>pStartTS:%String,pEndTS:%String</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Integer</ReturnType>
-<Implementation><![CDATA[
-    Set count=0
-    Set ts=""
-
+    Set ns=""
     For  {
-        Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
-        Quit:ts=""
-
-        ; ts < pStartTS  <=>  pStartTS sorts after ts
-        Continue:(pStartTS ]] ts)
-
-        ; ts > pEndTS <=> ts sorts after pEndTS
-        Quit:(ts ]] pEndTS)
-
-        Set id=""
-        For  {
-            Set id=$Order(^Ens.MessageHeaderI("TimeCreated",ts,id))
-            Quit:id=""
-            Set count=count+1
-        }
+        Set ns=$Order(seen(ns)) Quit:ns=""
+        Write ns
+        Write ?25,+$Get(dayCounts(ns))
+        Write ?40,+$Get(wtdCounts(ns))
+        Write ?55,+$Get(mtdCounts(ns))
+        Write !
     }
 
-    Quit count
+    Write !,"TOTAL"
+    Write ?25,dayTotal
+    Write ?40,wtdTotal
+    Write ?55,mtdTotal,!!
+
+    Quit
 ]]></Implementation>
 </Method>
 
-<UDLText name="T">
-<Content><![CDATA[
-// 
+<Method name="GetSummaryJSON">
+<Description>
+JSON summary (to-date): {"as_of":"...","day_to_date":N,"week_to_date":N,"month_to_date":N}</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
 
-]]></Content>
-</UDLText>
+    ; day-to-date
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set day=..CountAll(dayStart,h)
 
-<UDLText name="T">
-<Content><![CDATA[
-// ===== Calendar week / month (full-window) =====
+    ; wtd (Mon -> now)
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+    Set offset=(dow+5)#7
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtd=..CountAll(wtdStart,h)
 
-]]></Content>
-</UDLText>
+    ; mtd (1st -> now)
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtd=..CountAll(mtdStart,h)
 
-<UDLText name="T">
-<Content><![CDATA[
-// 
+    Quit "{""as_of"":"""_..JsonEsc(ts)_""",""day_to_date"":"_day_",""week_to_date"":"_wtd_",""month_to_date"":"_mtd_"}"
+]]></Implementation>
+</Method>
 
-]]></Content>
-</UDLText>
+<Method name="GetSummaryJSONByNamespace">
+<Description>
+JSON summary by namespace (to-date) with totals + exclusions.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pNow=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+
+    Set h=..ToHorolog(pNow)
+    Set ts=..NormTS(pNow)
+
+    ; windows
+    Set dayStart=$Piece(h,",",1)_",0"
+    Set dayEnd=h
+
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+    Set offset=(dow+5)#7
+    Set startDay=$Piece(h,",",1)-offset
+    Set wtdStart=startDay_",0"
+    Set wtdEnd=h
+
+    Set year=+$Extract(ts,1,4)
+    Set mon=+$Extract(ts,6,7)
+    Set mon2=..Pad2(mon)
+    Set firstStr=year_"-"_mon2_"-01 00:00:00"
+    Set mtdStart=$ZDATETIMEH(firstStr,3)
+    Set mtdEnd=h
+
+    Kill dayCounts,dayExcluded,wtdCounts,wtdExcluded,mtdCounts,mtdExcluded
+    Set dayTotal=0,wtdTotal=0,mtdTotal=0
+
+    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,.dayExcluded,.dayTotal)
+    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,.wtdExcluded,.wtdTotal)
+    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,.mtdExcluded,.mtdTotal)
+
+    Set json="{"
+    Set json=json_"""as_of"":"""_..JsonEsc(ts)_""","
+    Set json=json_"""day_to_date"":"_..MetricToJSON(dayTotal,.dayCounts,.dayExcluded)_","
+    Set json=json_"""week_to_date"":"_..MetricToJSON(wtdTotal,.wtdCounts,.wtdExcluded)_","
+    Set json=json_"""month_to_date"":"_..MetricToJSON(mtdTotal,.mtdCounts,.mtdExcluded)
+    Set json=json_"}"
+    Quit json
+]]></Implementation>
+</Method>
 
 <Method name="CountWeek">
 <Description>
 Calendar week containing pAnyTS. Week start = Sunday.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<FormalSpec>pAnyTS</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set h=..ToHorolog(pAnyTS)
     Set day=$Piece(h,",",1)
+    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)   ; 1=Sun..7=Sat
 
-    ; 1=Sun..7=Sat
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
-
-    ; Sunday-start week: subtract (dow-1) days
     Set startDay=day-(dow-1)
-
     Set startH=startDay_",0"
     Set endH=(startDay+6)_",86399"
 
@@ -253,19 +279,15 @@ Calendar week containing pAnyTS. Week start = Sunday.</Description>
 <Description>
 Calendar week containing pAnyTS. Week start = Monday.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<FormalSpec>pAnyTS</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set h=..ToHorolog(pAnyTS)
     Set day=$Piece(h,",",1)
-
-    ; 1=Sun..7=Sat
     Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
 
-    ; Monday-start offset: Sun(1)->6, Mon(2)->0, Tue(3)->1, ... Sat(7)->5
     Set offset=(dow+5)#7
     Set startDay=day-offset
-
     Set startH=startDay_",0"
     Set endH=(startDay+6)_",86399"
 
@@ -277,7 +299,7 @@ Calendar week containing pAnyTS. Week start = Monday.</Description>
 <Description><![CDATA[
 Full calendar month containing pAnyTS (1st -> last day).]]></Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pAnyTS:%TimeStamp</FormalSpec>
+<FormalSpec>pAnyTS</FormalSpec>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
     Set ts=..NormTS(pAnyTS)
@@ -302,9 +324,7 @@ Full calendar month containing pAnyTS (1st -> last day).]]></Description>
     Set nextStr=nextYear_"-"_nextMon2_"-01 00:00:00"
     Set nextH=$ZDATETIMEH(nextStr,3)
 
-    ; last day = day-before next month first day
     Set endDay=$Piece(nextH,",",1)-1
-
     Set startH=$Piece(firstH,",",1)_",0"
     Set endH=endDay_",86399"
 
@@ -312,183 +332,355 @@ Full calendar month containing pAnyTS (1st -> last day).]]></Description>
 ]]></Implementation>
 </Method>
 
-<UDLText name="T">
-<Content><![CDATA[
-// 
-
-]]></Content>
-</UDLText>
-
-<UDLText name="T">
-<Content><![CDATA[
-// ===== To-date metrics =====
-
-]]></Content>
-</UDLText>
-
-<UDLText name="T">
-<Content><![CDATA[
-// 
-
-]]></Content>
-</UDLText>
-
-<Method name="CountWTD">
-<Description><![CDATA[
-Week-to-date (Monday -> NOW)]]></Description>
+<Method name="PrintRangeRollups">
+<Description>
+Rollup report for any range:
+- Monthly totals (YYYY-MM)
+- Weekly totals (Week Of YYYY-MM-DD Monday start)
+- Grand total + checks
+- Shows which namespaces used INDEX vs SQL vs GLOBAL</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNow:%TimeStamp</FormalSpec>
+<FormalSpec>pStart,pEnd</FormalSpec>
+<Implementation><![CDATA[
+    Set startTS=..NormTS(pStart)
+    Set endTS=..NormTS(pEnd)
+
+    Write !!,"MessageCounter Rollups",!
+    Write "RangeStart=",startTS,!
+    Write "RangeEnd  =",endTS,!!
+
+    Kill monthCounts,weekCounts,excluded,indexUsed,sqlUsed,globalUsed
+    Set grandTotal=0
+
+    Kill nsList
+    Do ##class(%SYS.Namespace).ListAll(.nsList)
+
+    Set ns=""
+    For  {
+        Set ns=$Order(nsList(ns))
+        Quit:ns=""
+        Continue:$Extract(ns,1,1)="%"
+
+        ; switch namespace
+        Set ok=1
+        New $NAMESPACE
+        Try { Set $NAMESPACE=ns } Catch ex { Set ok=0 }
+        If 'ok {
+            Set excluded(ns)="CANNOT ENTER NAMESPACE"
+            Continue
+        }
+
+        If $Data(^Ens.MessageHeaderI("TimeCreated")) {
+            Set indexUsed(ns)=""
+            Do ..RollupFromIndex(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
+            Continue
+        }
+
+        ; If no records at all, skip cleanly
+        If $Order(^Ens.MessageHeaderD(""))="" {
+            Set excluded(ns)="NO MESSAGE DATA"
+            Continue
+        }
+
+        ; Try SQL rollup first (fast)
+        Set okSQL=..RollupFromSQL(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
+        If okSQL {
+            Set sqlUsed(ns)=""
+            Continue
+        }
+
+        ; Final fallback: global scan rollup
+        Set okG=..RollupFromGlobal(startTS,endTS,.monthCounts,.weekCounts,.grandTotal)
+        If okG {
+            Set globalUsed(ns)=""
+        } Else {
+            Set excluded(ns)="NO TimeCreated INDEX; SQL failed; GLOBAL fallback failed"
+        }
+    }
+
+    ; ---- print months ----
+    Write "MONTHLY TOTALS",!
+    Write "Month",?15,"Count",!
+    Set mon=""
+    Set monthTotal=0
+    For  {
+        Set mon=$Order(monthCounts(mon))
+        Quit:mon=""
+        Write mon,?15,+$Get(monthCounts(mon)),!
+        Set monthTotal=monthTotal+$Get(monthCounts(mon))
+    }
+    Write "MONTH TOTAL",?15,monthTotal,!!
+    
+    ; ---- print weeks ----
+    Write "WEEKLY TOTALS (Monday start)",!
+    Write "Week Of",?15,"Week End",?30,"Count",!
+    Set wk=""
+    Set weekTotal=0
+    For  {
+        Set wk=$Order(weekCounts(wk))
+        Quit:wk=""
+
+        Set wkH=$ZDATETIMEH(wk_" 00:00:00",3)
+        Set wkDay=$Piece(wkH,",",1)
+        Set wkEndStr=$ZDATE(wkDay+6,3)
+
+        Write wk,?15,wkEndStr,?30,+$Get(weekCounts(wk)),!
+        Set weekTotal=weekTotal+$Get(weekCounts(wk))
+    }
+    Write "WEEK TOTAL",?30,weekTotal,!!
+
+    ; ---- totals check ----
+    Write "GRAND TOTAL",?15,grandTotal,!
+    Write "CHECK (months sum)",?15,monthTotal,!
+    Write "CHECK (weeks sum)",?15,weekTotal,!!
+
+    ; ---- transparency ----
+    If $Data(indexUsed) {
+        Write "NAMESPACES COUNTED VIA TimeCreated INDEX",!
+        Set n=""
+        For  { Set n=$Order(indexUsed(n)) Quit:n=""  Write n,! }
+        Write !
+    }
+    If $Data(sqlUsed) {
+        Write "NAMESPACES COUNTED VIA SQL FALLBACK",!
+        Set n=""
+        For  { Set n=$Order(sqlUsed(n)) Quit:n=""  Write n,! }
+        Write !
+    }
+    If $Data(globalUsed) {
+        Write "NAMESPACES COUNTED VIA GLOBAL FALLBACK",!
+        Set n=""
+        For  { Set n=$Order(globalUsed(n)) Quit:n=""  Write n,! }
+        Write !
+    }
+    If $Data(excluded) {
+        Write "EXCLUDED NAMESPACES (not counted)",!
+        Set e=""
+        For  { Set e=$Order(excluded(e)) Quit:e=""  Write e,": ",excluded(e),! }
+        Write !
+    }
+
+    Quit
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Core per-namespace counting (INDEX -> SQL -> GLOBAL)
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<Method name="CountOneNamespace">
+<Description>
+Count one namespace for a window.
+Uses index when available; falls back to SQL count when index missing; then global scan.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pNamespace:%String,pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+    Set pStatus=""
+    Set count=0
 
-    Set h=..ToHorolog(pNow)
-    Set day=$Piece(h,",",1)
+    ; switch namespace
+    Set ok=1
+    New $NAMESPACE
+    Try { Set $NAMESPACE=pNamespace } Catch ex { Set ok=0 }
+    If 'ok {
+        Set pStatus="CANNOT ENTER NAMESPACE"
+        Quit 0
+    }
 
-    ; 1=Sun..7=Sat
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+    ; Fast path
+    If $Data(^Ens.MessageHeaderI("TimeCreated")) {
+        Set count=..CountUsingIndex(pStartTS,pEndTS,.pStatus)
+        Quit count
+    }
 
-    ; Monday-start offset
-    Set offset=(dow+5)#7
-    Set startDay=day-offset
+    ; No message data at all?
+    If $Order(^Ens.MessageHeaderD(""))="" {
+        Set pStatus="NO MESSAGE DATA"
+        Quit 0
+    }
 
-    Set startH=startDay_",0"
-    Set endH=h
+    ; Try SQL
+    Set count=..CountUsingSQL(pStartTS,pEndTS,.pStatus)
+    If pStatus="OK (SQL)" Quit count
 
-    Quit ..CountAll(startH,endH)
+    ; Final fallback: global scan
+    Set count=..CountUsingGlobal(pStartTS,pEndTS,.pStatus)
+    Quit count
 ]]></Implementation>
 </Method>
 
-<Method name="CountMTD">
-<Description><![CDATA[
-Month-to-date (1st -> NOW)]]></Description>
+<Method name="CountUsingIndex">
+<Description>
+Fast count using ^Ens.MessageHeaderI("TimeCreated",ts,id)</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNow:%TimeStamp</FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<Private>1</Private>
 <ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+    Set pStatus="OK (INDEX)"
+    Set count=0
 
-    Set ts=..NormTS(pNow)
+    Set minTS=$Order(^Ens.MessageHeaderI("TimeCreated",""))
+    Set maxTS=$Order(^Ens.MessageHeaderI("TimeCreated",""),-1)
+    If minTS="" { Set pStatus="TimeCreated INDEX EMPTY"  Quit 0 }
+    If (minTS ]] pEndTS) || (pStartTS ]] maxTS) { Set pStatus="OUTSIDE RANGE"  Quit 0 }
 
-    Set year=+$Extract(ts,1,4)
-    Set mon=+$Extract(ts,6,7)
-    Set mon2=..Pad2(mon)
+    Set ts=""
+    For  {
+        Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
+        Quit:ts=""
 
-    Set firstStr=year_"-"_mon2_"-01 00:00:00"
-    Set startH=$ZDATETIMEH(firstStr,3)
+        Continue:(pStartTS ]] ts)
+        Quit:(ts ]] pEndTS)
 
-    Set endH=..ToHorolog(pNow)
+        Set id=""
+        For  {
+            Set id=$Order(^Ens.MessageHeaderI("TimeCreated",ts,id))
+            Quit:id=""
+            Set count=count+1
+        }
+    }
 
-    Quit ..CountAll(startH,endH)
+    Quit count
 ]]></Implementation>
 </Method>
 
-<Method name="GetSummaryJSON">
+<Method name="CountUsingSQL">
 <Description>
-One-call JSON summary (ALL are "to date"):
-{ "as_of":"...", "day_to_date":N, "week_to_date":N, "month_to_date":N }</Description>
+SQL fallback count.
+Returns count and sets pStatus to OK (SQL) or a failure string.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNow:%TimeStamp</FormalSpec>
-<ReturnType>%String</ReturnType>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+    Set pStatus="SQL FAILED"
+    Set count=0
 
-    Set h=..ToHorolog(pNow)
-    Set ts=..NormTS(pNow)
+    Try {
+        Set stmt=##class(%SQL.Statement).%New()
+        Set sc=stmt.%Prepare("SELECT COUNT(*) FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ?")
+        If sc'=1 { Set pStatus="SQL PREPARE FAILED"  Goto Done }
 
-    ; ----- DAY-TO-DATE (00:00 -> NOW) -----
-    Set dayStart=$Piece(h,",",1)_",0"
-    Set dayEnd=h
-    Set day=..CountAll(dayStart,dayEnd)
+        Set rset=stmt.%Execute(pStartTS,pEndTS)
+        If rset.%Next() {
+            Set count=+$Get(rset.%Get(1))
+        } Else {
+            Set count=0
+        }
+        Set pStatus="OK (SQL)"
+    } Catch ex {
+        Set pStatus="SQL EXECUTE ERROR"
+        Set count=0
+    }
 
-    ; ----- WTD (Mon -> NOW) -----
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
-    Set offset=(dow+5)#7
-    Set startDay=$Piece(h,",",1)-offset
-    Set wtdStart=startDay_",0"
-    Set wtdEnd=h
-    Set wtd=..CountAll(wtdStart,wtdEnd)
-
-    ; ----- MTD (1st -> NOW) -----
-    Set year=+$Extract(ts,1,4)
-    Set mon=+$Extract(ts,6,7)
-    Set mon2=..Pad2(mon)
-
-    Set firstStr=year_"-"_mon2_"-01 00:00:00"
-    Set mtdStart=$ZDATETIMEH(firstStr,3)
-    Set mtdEnd=h
-    Set mtd=..CountAll(mtdStart,mtdEnd)
-
-    Quit "{""as_of"":"""_ts_""",""day_to_date"":"_day_",""week_to_date"":"_wtd_",""month_to_date"":"_mtd_"}"
+Done
+    Quit count
 ]]></Implementation>
 </Method>
 
-<Method name="GetSummaryJSONByNamespace">
+<Method name="CountUsingGlobal">
 <Description>
-One-call JSON summary with per-namespace breakdowns (ALL are "to date").
-Returns:
-{
-  "as_of":"YYYY-MM-DD HH:MM:SS",
-  "day_to_date":{"total":N,"by_namespace":{...},"excluded":{...}},
-  "week_to_date":{"total":N,"by_namespace":{...},"excluded":{...}},
-  "month_to_date":{"total":N,"by_namespace":{...},"excluded":{...}}
-}</Description>
+GLOBAL fallback count: scans ^Ens.MessageHeaderD(id) and uses list piece 15 for TimeCreated.
+Speed-up: early-stop only when TimeCreated appears monotonic by ID.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNow:%TimeStamp=""</FormalSpec>
-<ReturnType>%String</ReturnType>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&pStatus]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Integer</ReturnType>
 <Implementation><![CDATA[
-    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
+    Set pStatus="OK (GLOBAL)"
+    Set count=0
 
-    Set h=..ToHorolog(pNow)
-    Set ts=..NormTS(pNow)
+    Set id=""
+    Set prevTC=""
+    Set monotonic=1     ; assume monotonic until proven otherwise
+    Set seenInOrAfterStart=0
 
-    ; ----- DAY-TO-DATE window -----
-    Set dayStart=$Piece(h,",",1)_",0"
-    Set dayEnd=h
+    For  {
+        Set id=$Order(^Ens.MessageHeaderD(id))
+        Quit:id=""
 
-    ; ----- WTD (Mon -> NOW) window -----
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)  ; 1=Sun..7=Sat
-    Set offset=(dow+5)#7
-    Set startDay=$Piece(h,",",1)-offset
-    Set wtdStart=startDay_",0"
-    Set wtdEnd=h
+        Set row=$Get(^Ens.MessageHeaderD(id))
+        Continue:row=""
 
-    ; ----- MTD (1st -> NOW) window -----
-    Set year=+$Extract(ts,1,4)
-    Set mon=+$Extract(ts,6,7)
-    Set mon2=..Pad2(mon)
-    Set firstStr=year_"-"_mon2_"-01 00:00:00"
-    Set mtdStart=$ZDATETIMEH(firstStr,3)
-    Set mtdEnd=h
+        ; TimeCreated is list piece 15 (validated in PROD SHEDI sample)
+        Set tc=$ListGet(row,15)
+        Continue:tc=""
 
-    ; ----- Build breakdowns -----
-    Kill dayCounts,dayExcluded,wtdCounts,wtdExcluded,mtdCounts,mtdExcluded
-    Set dayTotal=0, wtdTotal=0, mtdTotal=0
+        ; detect non-monotonicity (time went backwards)
+        If prevTC'="" {
+            If (prevTC ]] tc) Set monotonic=0
+        }
+        Set prevTC=tc
 
-    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,.dayExcluded,.dayTotal)
-    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,.wtdExcluded,.wtdTotal)
-    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,.mtdExcluded,.mtdTotal)
+        ; skip before start: tc < start  <=> start sorts after tc
+        If (pStartTS ]] tc) {
+            Continue
+        } Else {
+            Set seenInOrAfterStart=1
+        }
 
-    ; ----- JSON assemble -----
-    Set json="{"
-    Set json=json_"""as_of"":"""_..JsonEsc(ts)_""","
-    Set json=json_"""day_to_date"":"_..MetricToJSON(dayTotal,.dayCounts,.dayExcluded)_","
-    Set json=json_"""week_to_date"":"_..MetricToJSON(wtdTotal,.wtdCounts,.wtdExcluded)_","
-    Set json=json_"""month_to_date"":"_..MetricToJSON(mtdTotal,.mtdCounts,.mtdExcluded)
-    Set json=json_"}"
+        ; past end: tc > end <=> tc sorts after end
+        If (tc ]] pEndTS) {
+            ; Early stop ONLY if (a) we’ve reached start already and (b) still monotonic
+            If seenInOrAfterStart, monotonic {
+                Quit
+            } Else {
+                Continue
+            }
+        }
 
-    Quit json
+        ; tc in [start,end]
+        Set count=count+1
+    }
+
+    Quit count
 ]]></Implementation>
 </Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Window helpers (used by table + JSON summaries)
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
 
 <Method name="BuildWindowCounts">
-<Description><![CDATA[
-Build counts/exclusions for a window across all namespaces.
-- pCounts(ns)=count (only for count>0)
-- pExcluded(ns)=status (for count=0 where status is meaningful)
-- pTotal=total count]]></Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[pStart:%TimeStamp,pEnd:%TimeStamp,&pCounts,&pExcluded,&pTotal]]></FormalSpec>
+<FormalSpec><![CDATA[pStart,pEnd,&pCounts,&pExcluded,&pTotal]]></FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
     Kill pCounts, pExcluded
@@ -504,17 +696,15 @@ Build counts/exclusions for a window across all namespaces.
     For  {
         Set ns=$Order(nsList(ns))
         Quit:ns=""
-
         Continue:$Extract(ns,1,1)="%"
 
         Set status=""
-        Set c=..ProbeNamespace(ns,startTS,endTS,.status)
+        Set c=..CountOneNamespace(ns,startTS,endTS,.status)
 
         If c>0 {
             Set pCounts(ns)=c
             Set pTotal=pTotal+c
         } Else {
-            ; keep exclusions only if we have a useful status
             If status'="" Set pExcluded(ns)=status
         }
     }
@@ -524,9 +714,6 @@ Build counts/exclusions for a window across all namespaces.
 </Method>
 
 <Method name="MetricToJSON">
-<Description>
-Turn one metric into JSON:
-{"total":N,"by_namespace":{...},"excluded":{...}}</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[pTotal:%Integer,&pCounts,&pExcluded]]></FormalSpec>
 <Private>1</Private>
@@ -542,8 +729,6 @@ Turn one metric into JSON:
 </Method>
 
 <Method name="JsonObjFromNumericArray">
-<Description>
-JSON object from array values that are NUMERIC: { "EAI":123, "ORDERS":5 }</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[&a]]></FormalSpec>
 <Private>1</Private>
@@ -555,10 +740,8 @@ JSON object from array values that are NUMERIC: { "EAI":123, "ORDERS":5 }</Descr
     For  {
         Set key=$Order(a(key))
         Quit:key=""
-
         If 'first Set json=json_","
         Set first=0
-
         Set json=json_""""_..JsonEsc(key)_""":"_+$Get(a(key))
     }
     Set json=json_"}"
@@ -567,8 +750,6 @@ JSON object from array values that are NUMERIC: { "EAI":123, "ORDERS":5 }</Descr
 </Method>
 
 <Method name="JsonObjFromStringArray">
-<Description>
-JSON object from array values that are STRINGS: { "ADTLEGACY":"NO INDEX", ... }</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[&a]]></FormalSpec>
 <Private>1</Private>
@@ -580,10 +761,8 @@ JSON object from array values that are STRINGS: { "ADTLEGACY":"NO INDEX", ... }<
     For  {
         Set key=$Order(a(key))
         Quit:key=""
-
         If 'first Set json=json_","
         Set first=0
-
         Set json=json_""""_..JsonEsc(key)_""":"""_..JsonEsc($Get(a(key)))_""""
     }
     Set json=json_"}"
@@ -592,8 +771,6 @@ JSON object from array values that are STRINGS: { "ADTLEGACY":"NO INDEX", ... }<
 </Method>
 
 <Method name="JsonEsc">
-<Description>
-Minimal JSON string escape</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>s:%String</FormalSpec>
 <Private>1</Private>
@@ -608,85 +785,238 @@ Minimal JSON string escape</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="PrintSummaryTable">
-<Description>
-Prints DAY / WTD / MTD with per-namespace columns</Description>
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Rollup internals (INDEX / SQL / GLOBAL)
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<Method name="RollupFromIndex">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pNow:%TimeStamp=""</FormalSpec>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<Private>1</Private>
 <Implementation><![CDATA[
-    If pNow="" Set pNow=$ZDATETIME($HOROLOG,3)
-
-    Set h=..ToHorolog(pNow)
-    Set ts=..NormTS(pNow)
-
-    ; ----- Windows -----
-    Set dayStart=$Piece(h,",",1)_",0"
-    Set dayEnd=h
-
-    Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
-    Set offset=(dow+5)#7
-    Set startDay=$Piece(h,",",1)-offset
-    Set wtdStart=startDay_",0"
-    Set wtdEnd=h
-
-    Set year=+$Extract(ts,1,4)
-    Set mon=+$Extract(ts,6,7)
-    Set mon2=..Pad2(mon)
-    Set firstStr=year_"-"_mon2_"-01 00:00:00"
-    Set mtdStart=$ZDATETIMEH(firstStr,3)
-    Set mtdEnd=h
-
-    ; ----- Build counts -----
-    Kill dayCounts,wtdCounts,mtdCounts
-    Set dayTotal=0,wtdTotal=0,mtdTotal=0
-
-    Do ..BuildWindowCounts(dayStart,dayEnd,.dayCounts,,.dayTotal)
-    Do ..BuildWindowCounts(wtdStart,wtdEnd,.wtdCounts,,.wtdTotal)
-    Do ..BuildWindowCounts(mtdStart,mtdEnd,.mtdCounts,,.mtdTotal)
-
-    ; ----- Collect namespaces -----
-    Kill seen
-    Set n=""
-
-    Set n=""
+    Set ts=""
     For  {
-        Set n=$Order(dayCounts(n)) Quit:n=""
-        Set seen(n)=""
+        Set ts=$Order(^Ens.MessageHeaderI("TimeCreated",ts))
+        Quit:ts=""
+
+        Continue:(pStartTS ]] ts)
+        Quit:(ts ]] pEndTS)
+
+        Set cntAtTs=0
+        Set id=""
+        For  {
+            Set id=$Order(^Ens.MessageHeaderI("TimeCreated",ts,id))
+            Quit:id=""
+            Set cntAtTs=cntAtTs+1
+        }
+        Continue:cntAtTs=0
+
+        Set monKey=$Extract(ts,1,7)
+        Set monthCounts(monKey)=$Get(monthCounts(monKey))+cntAtTs
+
+        Set h=$ZDATETIMEH(ts,3)
+        Set day=$Piece(h,",",1)
+        Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+        Set offset=(dow+5)#7
+        Set wkStartDay=day-offset
+        Set wkKey=$ZDATE(wkStartDay,3)
+
+        Set weekCounts(wkKey)=$Get(weekCounts(wkKey))+cntAtTs
+        Set grandTotal=grandTotal+cntAtTs
     }
-
-    Set n=""
-    For  {
-        Set n=$Order(wtdCounts(n)) Quit:n=""
-        Set seen(n)=""
-    }
-
-    Set n=""
-    For  {
-        Set n=$Order(mtdCounts(n)) Quit:n=""
-        Set seen(n)=""
-    }
-
-    ; ----- Print -----
-    Write !!,"Message Summary (as of ",ts,")",!
-    Write "Namespace",?25,"DAY",?40,"WTD",?55,"MTD",!
-
-    Set ns=""
-    For  {
-        Set ns=$Order(seen(ns)) Quit:ns=""
-
-        Write ns
-        Write ?25,+$Get(dayCounts(ns))
-        Write ?40,+$Get(wtdCounts(ns))
-        Write ?55,+$Get(mtdCounts(ns))
-        Write !
-    }
-
-    Write !,"TOTAL"
-    Write ?25,dayTotal
-    Write ?40,wtdTotal
-    Write ?55,mtdTotal,!!
-
     Quit
+]]></Implementation>
+</Method>
+
+<Method name="RollupFromSQL">
+<Description>
+SQL rollup for unindexed namespaces (fast when permitted).
+Returns 1 on success, 0 on failure.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+    Set ok=1
+
+    Try {
+        ; months
+        Set stmt=##class(%SQL.Statement).%New()
+        Set sc=stmt.%Prepare("SELECT {fn SUBSTRING(TimeCreated,1,7)} AS mon, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ? GROUP BY {fn SUBSTRING(TimeCreated,1,7)} ORDER BY mon")
+        If sc'=1 { Set ok=0  Goto Done }
+
+        Set rset=stmt.%Execute(pStartTS,pEndTS)
+        While rset.%Next() {
+            Set mon=$Get(rset.%Get(1))
+            Set cnt=+$Get(rset.%Get(2))
+            If mon'="" {
+                Set monthCounts(mon)=$Get(monthCounts(mon))+cnt
+                Set grandTotal=grandTotal+cnt
+            }
+        }
+
+        ; weeks (Monday start)
+        Set stmt2=##class(%SQL.Statement).%New()
+        Set sc2=stmt2.%Prepare("SELECT DATEADD('day', -MOD(DAYOFWEEK(TimeCreated)+5,7), CAST(TimeCreated AS DATE)) AS wkStart, COUNT(*) AS cnt FROM Ens.MessageHeader WHERE TimeCreated >= ? AND TimeCreated <= ? GROUP BY wkStart ORDER BY wkStart")
+        If sc2'=1 { Set ok=0  Goto Done }
+
+        Set rset2=stmt2.%Execute(pStartTS,pEndTS)
+        While rset2.%Next() {
+            Set wkStart=$Get(rset2.%Get(1))
+            Set cnt=+$Get(rset2.%Get(2))
+            If wkStart'="" {
+                Set weekCounts(wkStart)=$Get(weekCounts(wkStart))+cnt
+            }
+        }
+
+    } Catch ex {
+        Set ok=0
+    }
+
+Done
+    Quit ok
+]]></Implementation>
+</Method>
+
+<Method name="RollupFromGlobal">
+<Description>
+GLOBAL rollup fallback (slow but works when SQL is blocked and no index).
+Speed-up: early-stop only when TimeCreated appears monotonic by ID.
+Returns 1 on success (saw at least one tc), 0 if it can’t find usable TimeCreated values.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[pStartTS:%String,pEndTS:%String,&monthCounts,&weekCounts,&grandTotal]]></FormalSpec>
+<Private>1</Private>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+    Set ok=0
+    Set id=""
+    Set prevTC=""
+    Set monotonic=1
+    Set seenInOrAfterStart=0
+
+    For  {
+        Set id=$Order(^Ens.MessageHeaderD(id))
+        Quit:id=""
+
+        Set row=$Get(^Ens.MessageHeaderD(id))
+        Continue:row=""
+
+        Set tc=$ListGet(row,15)
+        Continue:tc=""
+
+        Set ok=1
+
+        ; detect non-monotonicity
+        If prevTC'="" {
+            If (prevTC ]] tc) Set monotonic=0
+        }
+        Set prevTC=tc
+
+        ; before start
+        If (pStartTS ]] tc) Continue
+        Set seenInOrAfterStart=1
+
+        ; after end
+        If (tc ]] pEndTS) {
+            If seenInOrAfterStart, monotonic {
+                Quit
+            } Else {
+                Continue
+            }
+        }
+
+        ; in range: bucket
+        Set monKey=$Extract(tc,1,7)
+        Set monthCounts(monKey)=$Get(monthCounts(monKey))+1
+
+        Set h=$ZDATETIMEH(tc,3)
+        Set day=$Piece(h,",",1)
+        Set dow=$SYSTEM.SQL.DAYOFWEEK(h)
+        Set offset=(dow+5)#7
+        Set wkStartDay=day-offset
+        Set wkKey=$ZDATE(wkStartDay,3)
+
+        Set weekCounts(wkKey)=$Get(weekCounts(wkKey))+1
+        Set grandTotal=grandTotal+1
+    }
+
+    Quit ok
+]]></Implementation>
+</Method>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// Date/time helpers
+
+]]></Content>
+</UDLText>
+
+<UDLText name="T">
+<Content><![CDATA[
+// ==========================================================
+
+]]></Content>
+</UDLText>
+
+<Method name="NormTS">
+<Description>
+Normalize input timestamp to the string format used by TimeCreated index.
+If passed $H, convert using $ZDATETIME(h,3).</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTS</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If ($Get(pTS)[",") Quit $ZDATETIME(pTS,3)
+    Quit $Get(pTS)
+]]></Implementation>
+</Method>
+
+<Method name="ToHorolog">
+<Description>
+Convert input (either $H or timestamp string) to $H.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTS</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    If ($Get(pTS)[",") Quit pTS
+    Quit $ZDATETIMEH(pTS,3)
+]]></Implementation>
+</Method>
+
+<Method name="Pad2">
+<Description>
+Pad integer to 2 digits (month)</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pN:%Integer</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[    Quit $Select(pN<10:"0"_pN,1:""_pN)
 ]]></Implementation>
 </Method>
 </Class>
