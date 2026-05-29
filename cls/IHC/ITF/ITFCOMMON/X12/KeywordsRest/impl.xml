@@ -1,0 +1,475 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.X12.KeywordsRest.impl">
+<Description><![CDATA[
+Business logic class defined by OpenAPI in IHC.ITF.ITFCOMMON.X12.KeywordsRest.spec<br/>
+Updated May 25, 2026 10:16:13]]></Description>
+<ProcedureBlock>1</ProcedureBlock>
+<Super>%REST.Impl</Super>
+<TimeCreated>67715,33000.074783821</TimeCreated>
+
+<Parameter name="ExposeServerExceptions">
+<Description>
+If ExposeServerExceptions is true, then details of internal errors will be exposed.</Description>
+<Default>0</Default>
+</Parameter>
+
+<Method name="ping">
+<Description>
+This request returns a reply message in response to a /ping request.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    Do ..%SetStatusCode(200)
+    Quit "Reply from IHC.ITF.ITFCOMMON.X12.KeywordsRest"
+]]></Implementation>
+</Method>
+
+<Method name="KeywordsFields">
+<Description>
+This request returns KeywordsFields in response</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec/>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    //(Place business logic here)
+    //Do ..%SetStatusCode(<HTTP_status_code>)
+    //Do ..%SetHeader(<name>,<value>)
+    //Quit (Place response here) ; response may be a string, stream or dynamic object
+]]></Implementation>
+</Method>
+
+<Method name="Keywords">
+<Description><![CDATA[
+This request returns Keywords in response<br/>
+The method arguments hold values for:<br/>
+    searchArr, array for SQL<br/>
+WARNING: This method's signature has changed.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>searchArr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    set tableName = "IHC_KW.Data837"
+	set ^webService(tableName _ " Start:") = $USERNAME _ ", " _  $ZDATETIME($HOROLOG,3, 1) _", Array count: " _ searchArr.Count()  
+	return ..GetRows(tableName, searchArr)
+]]></Implementation>
+</Method>
+
+<Method name="GetRows">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tableName:%String,searchStr:%ListOfDataTypes(ELEMENTTYPE="%String")</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+    
+    Set tArr = [], summary = 0, MAXROWS = 25, startInd = 0
+    set propertyList = ##class(%Library.ListOfDataTypes).%New()
+    		
+	Do ..getColumnNames(tableName, .summary, propertyList, searchStr)
+	
+    set sqlStr = ..CreateSql(searchStr, tableName, summary, .startInd, .MAXROWS)
+    
+    #dim rs As %SQL.StatementResult
+    
+    Do $SYSTEM.SQL.Util.SetOption("SelectMode",2)
+    if (sqlStr '= "")
+    {
+	    Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+	    set ^webService(tableName _" ExecDirect: ") = rs.%SQLCODE
+		Do ..populateArray(tableName, rs, tArr, startInd, MAXROWS, propertyList)
+    }
+    
+	set ^webService(tableName _ " End") = sqlStr _ " - End, count: " _ rs.%ROWCOUNT _ " @ " _ $ZDATETIME($HOROLOG,3, 1)
+	Do ..%SetStatusCode(200)
+
+	return tArr
+]]></Implementation>
+</Method>
+
+<Method name="getColumnNames">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[tableName:%String,&summary:%Integer,propertyList:%Library.ListOfDataTypes,searchArr:%ListOfDataTypes(ELEMENTTYPE="%String")]]></FormalSpec>
+<Implementation><![CDATA[
+	// All Column names 
+	    
+		Set prop=""
+		Do propertyList.Insert("ID")
+		set clsNm = $REPLACE(tableName,"_",".")
+		For {
+			Set prop=$$$comMemberNext(clsNm,$$$cCLASSproperty,prop) Quit:prop=""
+			If (' ((prop [ "OID") || (prop [ "%") ) )
+			{							
+				Do propertyList.Insert(prop) 
+			}
+		}
+		set ^webService(tableName _ " Columns") =  propertyList.Count()
+]]></Implementation>
+</Method>
+
+<Method name="populateArray">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tableName:%String,rs:%SQL.StatementResult,tArr:%Library.DynamicArray,startInd:%Integer,MAXROWS:%Integer,propertyList:%Library.ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	set transType = "%" _ $REPLACE(tableName, "IHC_X12.Data", "")_ "%"
+
+	While rs.%Next() 
+	{
+		
+    	if ( (tArr.%Size() < MAXROWS) && (rs.%SQLCODE = 0))
+    	
+    	{
+			
+    		set ^webService(tableName _ " rs: ") = rs.%SQLCODE _ " at " _ $ZDATETIME($HOROLOG,3, 1) _ ", ID: " _ (rs.%Get("ID"))
+    		set innerArr = []
+    		set val = ""
+    		set dataType = propertyList.Count()
+    		set ^webService(tableName _ " Columns Count ") = propertyList.Count()
+    		
+    		for ind=1:1:propertyList.Count()
+    		{
+    		    set column = propertyList.GetAt(ind)
+    		    
+    		    if (rs.%ROWCOUNT = (startInd * MAXROWS + 1)) // Get fields for all columns only once
+    		    {
+    		    
+	    		    set ^webService(tableName _ " get column") = column 
+	    		    NEW SQLCODE
+    		        &SQL(select Type into :dataType from IHC_ITF_ITFCOMMON_X12.TransactionFields where Key =:column and TransactionCode like :transType)
+    		        IF ((SQLCODE<0) || (SQLCODE=100))
+    		        {
+	    		       set ^webService(tableName _ " SQLCODE" ) = column _", " _ SQLCODE
+    		        }
+    		        else
+    		        {
+	    		        set dataType(column) = $zconvert(dataType, "l")
+    		        }
+    		    }
+    		        
+		    	if (column '= "x12DataStream")
+		    	{	    
+    		        set val = rs.%Get(column)
+		    	}
+		    	else
+		    	{
+			    	set x12Str = rs.%Get("x12Data")
+			    	if ( x12Str ="" )
+			    	{
+						try 
+						{ 
+						   set x12Stream = rs.%Get("x12DataStream")
+						} catch (er)
+						{
+							set ^webService(tableName _ " x12DataStream") = "NO"
+						}
+						if ( ($CLASSNAME(x12Stream) [ "GlobalCharacter") )
+						{
+							
+							set x12Str = "X12 is stored as a Stream, X12 Size: " _ ##class(%Stream.Object).%Open(x12Stream).Size
+						}
+			   						
+				    	set val = x12Str
+				    	set ^webService(tableName _ " x12DataStream") = val
+			    	}
+			    	else
+			    	{
+				    	set val = ""
+			    	}
+			    	
+		    	}
+    		    set ^webService(tableName _ " get data") = ind _", column: " _ column _", val: " _ val
+    		    
+    		    if ($GET(dataType(column)) '= "") // if datatype is defined
+    		    {
+		    		    
+	    		    if ($zconvert(dataType(column), "l") [ "date")
+	    		    {
+		    		    set dtTm = rs.%Get(column)
+		    		    if ($LENGTH(dtTm) >= 17) // Range
+		    		    {
+		    		    	
+							 set val =  $E(dtTm, 1, 4) _ "-"_   $E(dtTm, 5, 6) _ "-"_  $E(dtTm, 7, 8) _ " -> "
+							           _ $E(dtTm, 10, 13) _ "-"_   $E(dtTm, 14, 15) _ "-"_  $E(dtTm, 16, 17)
+							
+							 
+		    		    }
+		    		    elseif ($LENGTH(dtTm) >= 10) // DtTm
+		    		    {
+		    		    	
+							 set val =  $E(dtTm, 1, 2) _ "-"_  $E(dtTm, 3, 4) _ "-"_  $E(dtTm, 5, 6) _ " "_  $E(dtTm, 7, 8) _ ":"_  $E(dtTm, 9, 10)
+							 if ($E(dtTm, 1, 2) < 70) // Decide 19 or 20?
+							 {
+							 	set val = "20" _ val
+							 }
+							 else
+							 {
+								 set val = "19" _ val
+							 }
+							 
+		    		    }
+		    		    elseif ($LENGTH(dtTm) >= 8) //YYYYMMDD
+		    		    {
+		    		    	
+							 set val =  $E(dtTm, 1, 4) _ "-"_   $E(dtTm, 5, 6) _ "-"_  $E(dtTm, 7, 8) 
+							 
+		    		    }
+		    		    elseif ($LENGTH(dtTm) >= 6) //YYDDMM
+		    		    {
+		    		    	
+							 set val =  $E(dtTm, 1, 2) _ "-"_   $E(dtTm, 3, 4) _ "-"_  $E(dtTm, 5, 6)
+							 if ($E(dtTm, 1, 2) < 70) // Decide 19 or 20?
+							 {
+							 	set val = "20" _ val
+							 }
+							 else
+							 {
+								 set val = "19" _ val
+							 }
+							 
+		    		    }
+		    		    else
+		    		    {
+			    		    set val = dtTm
+		    		    }
+	    		    }
+
+	    		    elseif ($zconvert(dataType(column), "l") = "currency")
+	    		    {
+		    		     // collect 3 digits as a group
+		    		     set dec = $PIECE(val, ".", 2)
+		    		     set matcher=##class(%Regex.Matcher).%New("(\d)(?=(\d{3})+(?!\d))")
+						 set matcher.Text=$PIECE(val, ".", 1)
+						 set newStr = ""
+
+						 while matcher.Locate() 
+						 {
+							 // write !,  "Found ",matcher.Group," at position ",matcher.Start, !
+							 if (newStr = "")
+							 {
+								 set newStr = $E(matcher.Text, 1, matcher.Start)
+							 }
+
+						 	 set newStr = newStr _ "," _ $E(matcher.Text, matcher.Start+1 , matcher.Start + 3)
+
+						 } 
+						 if (newStr = "")
+						 {
+							 set newStr = matcher.Text
+						 }
+						 
+						 set val = "$" _ $SELECT((dec = ""): newStr, 1 : newStr _ "." _ dec)
+	    		    }
+		    }
+		    try
+		    {
+	    		if (ind=1)
+				{
+					set innerArr={}.%Set("ROWCOUNT", rs.%ROWCOUNT)
+					Do innerArr.%Set(column,(val))
+				}
+				else
+				{
+	    			Do innerArr.%Set(column,(val))
+				}
+			} catch err
+			{
+				set ^webService(tableName _ "excp: ") = rs.%ROWCOUNT _ ", err"
+			}
+    		   		
+    		
+    	 }
+    	 try
+    	 {
+	    	 if (tArr.%Size() < MAXROWS)
+				{
+	    			Do tArr.%Push((innerArr)) 
+				}
+				else
+				{
+					set ^webService(tableName _ " max reached ") = rs.%ROWCOUNT 
+					QUIT
+				}
+    		
+    		set ^webService(tableName _ " Array inserted" ) = rs.%ROWCOUNT _ ", count: " _ tArr.%Size()
+    	 } catch err
+			{
+				set ^webService(tableName _ "excp: ") = rs.%ROWCOUNT _ ", " _ err _ ", count: " _ tArr.%Size()
+			}
+		
+		}
+		
+	
+    }
+    set ^webService(tableName _ " array size: ") = tArr.%Size()
+]]></Implementation>
+</Method>
+
+<Method name="CreateSql">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[searchArr:%ListOfDataTypes(ELEMENTTYPE="%String"),table:%String,summary:%Integer,&startInd:%Integer,&batchCnt:%Integer]]></FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+   
+    set count = 10, stDtTm = "", endDtTm="", addSql="",ID=""
+    set ^webService("KW CreateSql") = $ZDATETIME($HOROLOG,3, 1) _", Array count: " _ searchArr.Count()
+    for ind=1:1:searchArr.Count()
+    {
+	   set param = searchArr.GetAt(ind) 
+	   set ^webService("KW CreateSql " _ param) = " where clause"
+	   if ( param [ "count")
+	   {
+		   set count = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   if ( param [ "ID::")
+	   {
+		   set ID = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+		   set count = 1
+		   QUIT
+	   }
+	   if ( param [ "startDate")
+	   {
+		   set stDtTm = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "endDate")
+	   {
+		   set endDtTm = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "pageIndex")
+	   {
+		   set startInd = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "pageSize")
+	   {
+		   set batchCnt = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	   elseif ( param [ "startX12Id")
+	   {
+		   set startX12Id = $ZSTRIP($PIECE(param, "::", 2), "<>W")
+	   }
+	  
+	   
+	   elseif (( param [ "sql") || ( param [ "Sql"))
+	   {
+		   
+		   set paramsLen = $L(param, "::")
+		   set ^webService("KW CreateSql sql add param") = param _", " _ paramsLen
+		   FOR paramInd=2:1:paramsLen
+		   {
+			   if (addSql = "")
+			   {
+			   	set addSql = $ZSTRIP($PIECE(param, "::", paramInd), "<>W")
+			   }
+			   else
+			   {
+				   set addSql = addSql _ " AND "_ $ZSTRIP($PIECE(param, "::", paramInd), "<>W")
+			   }
+	 		}
+	 		set ^webService("KW CreateSql sql add param SQL") = addSql
+	   }
+    }
+    
+    if (ID '= "")
+	{
+		set sqlStr = "SELECT * FROM " _ table _ " WHERE ID = '" _ ID _"'"
+	}
+	
+	set sqlStr = "SELECT  *, data.ID as ID FROM " _ table _ " data WHERE ID is not null "
+    
+	if (startX12Id > 1) 
+	{
+		set sqlStr = sqlStr _  " AND ID < " _ startX12Id
+	}
+	if ( (stDtTm '= "") && (endDtTm '= ""))
+	{
+		set sqlStr = sqlStr _ " AND ProcessDtTm between '" _ stDtTm _"' AND '" _ endDtTm _"'"
+	}
+	elseif (endDtTm '= "")
+	{
+		set sqlStr = sqlStr _ " AND ProcessDtTm <= '" _ endDtTm _"'"
+	}
+	elseif (stDtTm '= "")
+	{
+		set sqlStr = sqlStr _ " AND ProcessDtTm >= '" _ stDtTm _"'"
+	}
+	
+	
+	if (addSql '= "")
+	{
+		set sqlStr = sqlStr _ " AND " _addSql
+	}
+	if (sqlStr [ "data.ID as ID")
+	{
+		set sqlStr = sqlStr _ " ORDER BY data.ID desc"
+	}
+	set ^webService("KW CreateSql SQL") = sqlStr
+	return sqlStr
+]]></Implementation>
+</Method>
+
+<Method name="GetColumnsFromSql">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>tblNm:%String,whereStr:%String,tArr:%ArrayOfDataTypes,transList:%ListOfDataTypes</FormalSpec>
+<Implementation><![CDATA[
+	#dim rs As %SQL.StatementResult
+	
+	
+	set temptransList = ##class(%ListOfDataTypes).%New()
+	
+	    
+    set ^webService(tblNm _ " where") = whereStr
+    Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT * FROM " _ tblNm _ " where " _ whereStr)
+    While rs.%Next() {
+	    
+	    set trans = rs.%Get("TransactionCode")
+	    set mode = rs.%Get("Mode")
+	    set key = rs.%Get("Key")
+	    if (tblNm [ "DisplayColumns") 
+	    {
+		    
+		    set dispType = rs.%Get("DispType")
+		    
+		    if (transList.Find(trans_","_dispType_","_mode) = "")
+		    {
+		    	Do temptransList.Insert(trans_","_dispType_","_mode)
+		    	Do tArr.%Push({
+						"Operation":(tblNm),
+						"ID": (rs.%Get("ID")),
+						"key": (key),
+						"Mode": (mode),
+						"Order": (rs.%Get("Order")),
+						"Setting": (rs.%Get("Setting")),
+						"DispType": (dispType),
+						"TransactionCode": (trans)
+				})
+		    }
+		}
+		else
+	    {
+		    
+		    set dispType = rs.%Get("DispType")
+		    
+		    if (transList.Find(trans_","_dispType_","_mode) = "")
+		    {
+		    	Do temptransList.Insert(trans_","_dispType_","_mode)
+		    	Do tArr.%Push({
+						"Operation":(tblNm),
+						"ID": (rs.%Get("ID")),
+						"key": (key),
+						"Mode": (mode),
+						"Setting": (rs.%Get("Setting")),
+						"DispType": (dispType),
+						"TransactionCode": (trans)
+				})
+		    }
+		}
+		
+	
+	}
+	for i=1:1:temptransList.Count()
+	{
+		Do transList.Insert(temptransList.GetAt(i))
+	}
+	set ^webService(tblNm _ whereStr _ " ROW COUNT:") = rs.%ROWCOUNT _ ", Array size: " _ tArr.%Size()
+]]></Implementation>
+</Method>
+</Class>
+</Export>
