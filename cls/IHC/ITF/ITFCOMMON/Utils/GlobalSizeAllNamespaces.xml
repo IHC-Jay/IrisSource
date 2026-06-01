@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Utils.GlobalSizeAllNamespaces">
+<TimeCreated>67718,46738.964736033</TimeCreated>
+
+<Method name="Run">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pTopN:%Integer=0,pFastFlag:%Integer=1,pDebug:%Boolean=0</FormalSpec>
+<Implementation><![CDATA[
+    kill dirToNS, sizes
+
+    set nsCount=0, dirCount=0, rowCount=0
+
+    // 1) List namespaces via %SYS.Namespace:List
+    set stmtNS=##class(%SQL.Statement).%New()
+    set sc=stmtNS.%PrepareClassQuery("%SYS.Namespace","List")
+    if $system.Status.IsError(sc) do  quit
+    . write !,"ERROR preparing %SYS.Namespace:List - ",$system.Status.GetErrorText(sc),!
+
+    set rsNS=stmtNS.%Execute()
+    for  quit:'rsNS.%Next()  do
+    . set ns=$zconvert(rsNS.%Get("Nsp"),"U")
+    . quit:ns=""
+    . set nsCount=nsCount+1
+    .
+    . kill info
+    . do ##class(%SYS.Namespace).GetAllNSInfo(ns,.info,0)
+    . set dir=$get(info("GlobalDB","Directory"))
+    . set sys=$get(info("GlobalDB","System"))
+    . set mounted=$get(info("GlobalDB","Mounted"))
+    .
+    . if pDebug write "NS=",ns,"  Dir=",dir,"  System=",sys,"  Mounted=",mounted,!
+    .
+    . // Skip remote/ECP
+    . quit:sys'=""
+    . quit:dir=""
+    .
+    . // Normalize slashes
+    . set dir=$replace(dir,"//","/")
+    . if $extract(dir,*-1)'="/" set dir=dir_"/"
+    .
+    . if '$data(dirToNS(dir)) set dirCount=dirCount+1
+    . if $data(dirToNS(dir)) set dirToNS(dir)=dirToNS(dir)_","_ns
+    . else  set dirToNS(dir)=ns
+
+    if '$data(dirToNS) do  quit
+    . write !,"No GlobalDB directories discovered. Namespaces found: ",nsCount,!
+
+    // 2) Scan each directory with %ResultSet (InterSystems-documented usage)
+    // Size query signature: Size(Directory, System, Mask, SystemGlobals, Index, FastFlag) [2](https://docs.intersystems.com/latest/csp/documatic/%25CSP.Documatic.cls?LIBRARY=ENSLIB&CLASSNAME=EnsLib.HL7.Message)
+    // Known-good usage pattern uses only dir plus trailing FastFlag. [3](https://community.intersystems.com/post/how-get-size-global-programmatically)
+    set dir=""
+    for  set dir=$order(dirToNS(dir)) quit:dir=""  do
+    . if pDebug write !,"Scanning: ",dir,!
+    . set rs=##class(%ResultSet).%New("%SYS.GlobalQuery:Size")
+    .
+    . // Call in the same style as the working example:
+    . // - pass directory (folder containing IRIS.DAT)
+    . // - pass FastFlag only as the 6th arg (simple mode => Allocated only)
+    . // NOTE: do NOT try to fill intermediate args with "" unless you really need to.
+    . do rs.Execute(dir,,,,,pFastFlag)
+    .
+    . set localRows=0
+    . for  quit:'rs.Next()  do
+    . . set gname=rs.Get("Name")
+    . . set mb=+rs.Get("Allocated MB")
+    . . set sizes(mb,gname,dir)=""
+    . . set rowCount=rowCount+1
+    . . set localRows=localRows+1
+    . if pDebug write "  Rows returned: ",localRows,!
+
+    // 3) Output
+    write !,"===== GLOBAL SIZE REPORT (ALL NAMESPACES) =====",!
+    write "Namespaces found: ",nsCount,"  |  Unique GlobalDB dirs: ",dirCount,"  |  Rows: ",rowCount,!!
+    write $justify("MB",12),"  ",$justify("Global",32),"  ","Directory","  ","Namespaces",!
+    write $translate($justify("",120)," ","-"),!
+
+    if '$data(sizes) do  quit
+    . write !,"No size rows returned.",!
+    . write "If pDebug=1 shows Rows returned: 0 for every directory, then Size query isn't seeing those DBs.",!
+
+    set printed=0
+    set mb=""
+    for  set mb=$order(sizes(mb),-1) quit:mb=""  do
+    . if (pTopN>0),(printed>=pTopN) quit
+    . set gname=""
+    . for  set gname=$order(sizes(mb,gname)) quit:gname=""  do
+    . . if (pTopN>0),(printed>=pTopN) quit
+    . . set dir=""
+    . . for  set dir=$order(sizes(mb,gname,dir)) quit:dir=""  do
+    . . . if (pTopN>0),(printed>=pTopN) quit
+    . . . write $justify(mb,12),"  ",$justify(gname,32),"  ",dir,"  ",$get(dirToNS(dir)),!
+    . . . set printed=printed+1
+
+    write !,"===== DONE =====",!
+]]></Implementation>
+</Method>
+</Class>
+</Export>
