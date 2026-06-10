@@ -132,117 +132,70 @@ BPL Definition</Description>
 </code>
 <if name='EndOfRun' condition='context.inpDnd [ "Status#EndOfRun"' xpos='200' ypos='750' xend='200' yend='1650' >
 <true>
-<code name='Validate and Merge X12' xpos='200' ypos='900' >
+<code name='Merge X12 835s' xpos='200' ypos='900' >
 <![CDATA[ // EndOfRecord will have timestamp (TriggerTime) of the batch as CKPYREFID
  // CKPYREFID = triggerTime
  //ID#18064# CKPYREFID#2024-01-25 08:58:45# Status#EndOfRun
  set context.CKPYREFID = $PIECE(context.inpDnd, "#", 4)
  
  $$$TRACE("EndOfRun for " _ context.CKPYREFID )
-  
-  Do ##class(IHC.ITF.ITFCOMMON.X12.MergeX12).ProcessX12Records(context.CKPYREFID)
-  
+ 
+ $$$TRACE("Starting Merge / Batching process")
+ 
+  Do ##class(IHC.ITF.ITFCOMMON.X12.MergeX12Dnd835).ProcessX12Records(context.CKPYREFID)
+ 
+ $$$TRACE("Merge / Batching process completed for " _ context.CKPYREFID )  
 ]]]]><![CDATA[>
 </code>
 <code name='Get X12 messages from SQL' xpos='200' ypos='1000' >
 <![CDATA[	// rs As %SQL.StatementResult
 	Set context.rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT ID FROM IHC_ITF_DStruc.DndCoreEraX12Record where status like 'Processed%'")]]]]><![CDATA[>
 </code>
-<while name='Process each X12' condition='context.rs.%Next()' xpos='200' ypos='1100' xend='200' yend='950' >
+<while name='Process each X12' condition='context.rs.%Next()' xpos='200' ypos='1100' xend='200' yend='650' >
 <assign name="Get x12RecordId" property="context.x12RecordId" value="context.rs.%Get(&quot;ID&quot;)" action="set" xpos='200' ypos='250' />
 <trace name='x12RecordId' value='"Process X12: " _ context.x12RecordId' xpos='200' ypos='350' />
 <assign name="Get DndCoreEraX12Record" property="context.x12Rec" value="##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(context.x12RecordId)" action="set" xpos='200' ypos='450' />
-<code name='Send X12 with routing' xpos='200' ypos='550' disabled="true">
+<code name='Send X12 with routing' xpos='200' ypos='550' >
 <![CDATA[  // Send the X12 to next components
 
   if ($IsObject(context.x12Rec))
   {
 	  set stCon = ##class(Ens.StreamContainer).%New()
 	  set stCon.Stream = ##class(%Stream.FileCharacter).%New()
-	  
 	  Set stCon.Stream = context.x12Rec.X12stream
-	  set route = context.x12Rec.Route
-	  if (route = "")
-	  {
-		 set route = "UnknownRoute"
-		 $$$LOGERROR( " -*- Route not found for " _ context.x12Rec.ReceiverId)
-	  }
 	  
-	  set stCon.OutputFilename = context.x12Rec.IsaUniqId _ "-" _ route _ "-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
+	  //TODO: Need to come back and change this to get the validation comp from the target configuration list rather than hard code to and to Change this to handle multiple targets.
+	  set operation = "SH-835-Validate"
+	  
+	  //TODO: Change the name to default to the UNIN naming convention 
+	  set stCon.OutputFilename = context.x12Rec.IsaUniqId _ "-" _ operation _ "-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
 	  set stCon.OriginalFilename = stCon.OutputFilename
-	  set tStatus = $$$OK
-	  set route = $ZCONVERT(route, "U")	
-	  
-	  set operation = ""
-	  if (route  = "INTERMOUNTAINHEALTHCARE")
-	  {
-	     set operation ="Out-Sh-835-File-DNDERA835-IH"    
-	  }
-	  else
-	  {
-	      set operation = "Out-Sh-835-Sftp-DNDERA835-" _ route
-	  }
-	  set tStatus = process.SendRequestAsync(operation, stCon)
-	  
+
+  	  set tStatus = $$$OK
+    	  set tStatus = process.SendRequestAsync(operation, stCon)
 	    	  
-	  $$$TRACE(stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", Route: " _ route _ ", TpLinkId: " _ context.x12Rec.TpLinkId _", tStatus = " _ tStatus) 
+	  $$$TRACE(stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", target: " _ operation _ ", TpLinkId: " _ context.x12Rec.TpLinkId _", tStatus = " _ tStatus) 
 	  
-	  // Long term storage
-	  set tStatus = process.SendRequestAsync("Sh-Remit_835-Store-DNDERA835", stCon)
-	  
+	  //TODO: Update this to a status more like created or complete if that doesn't have negative affects 
+	  //as we are not sending out form this comp but instead passing on to validation and storage
 	  set context.x12Rec.Status = "Sent-" _ context.x12Rec.Status
 	  
 	  set context.x12Rec.FileName = stCon.OutputFilename
 	  set context.x12Rec.ProcessedTime = $ZDATETIME($HOROLOG,3, 1)
 	  Do context.x12Rec.%Save()
 	  
+	  /*  TODO: Need to figure out if this needs to be here and if so how to make it work OR if it needs to be moved the operations that do the final send.  
 	  // Trans tracking
 	  set strCon = ##class(Ens.StringRequest).%New()
 	  set strCon.StringValue = context.x12Rec.%Id()
 	  set tStatus = process.SendRequestAsync("Sh835ToTransTrackRemitCff", strCon)
 	  
 	  $$$TRACE("Sent StringRequest to Sh835ToTransTrackRemitCff: " _ tStatus )
+	  */
 
 	  
   }
 		
-]]]]><![CDATA[>
-</code>
-<code name='Send X12 Single Target' xpos='200' ypos='650' >
-<![CDATA[  // Prep X12 to send to next components
-
-  if ($IsObject(context.x12Rec))
-  {
-	  set stCon = ##class(Ens.StreamContainer).%New()
-	  set stCon.Stream = ##class(%Stream.FileCharacter).%New()
-	  
-	  Set stCon.Stream = context.x12Rec.X12stream
-	  	  	  
-	  set stCon.OutputFilename = context.x12Rec.IsaUniqId _ "-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
-	  set stCon.OriginalFilename = stCon.OutputFilename
-	  set tStatus = $$$OK
-	  
-	  	     	  
-	  $$$TRACE(stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " Ready to send, Receiver: " _ context.x12Rec.ReceiverId _ ", TpLinkId: " _ context.x12Rec.TpLinkId _", tStatus = " _ tStatus)  
-  }
-		
-]]]]><![CDATA[>
-</code>
-<foreach name='Send To Each Target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='750' xend='200' yend='350' >
-<code name='Send X12 to Target at index' xpos='200' ypos='250' >
-<![CDATA[   set operation = context.targetList.GetAt(context.targetConfigIndex)
-   set tStatus = process.SendRequestAsync(operation, stCon)
-   $$$TRACE(stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", Route: " _ operation _ ", TpLinkId: " _ context.x12Rec.TpLinkId _", tStatus = " _ tStatus) 
-	]]]]><![CDATA[>
-</code>
-</foreach>
-<code name='Send trans Tracking' xpos='200' ypos='850' >
-<![CDATA[ // Trans tracking - James 2026-6-3 not sure this is needed here or if it should be on the final outbound operation.  Need to look into what Edifecs is doing
- set strCon = ##class(Ens.StringRequest).%New()
- set strCon.StringValue = context.x12Rec.%Id()
- set tStatus = process.SendRequestAsync("Sh835ToTransTrackRemitCff", strCon)
-	  
- $$$TRACE("Sent StringRequest to Sh835ToTransTrackRemitCff: " _ tStatus )
 ]]]]><![CDATA[>
 </code>
 </while>
@@ -569,7 +522,8 @@ BPL Definition</Description>
 	 
 	  set stCon.OutputFilename = context.dndId _ "-" _  context.ReceiverId _"-InProcess-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
 	  set stCon.OriginalFilename = stCon.OutputFilename
-	 
+	  
+	 //James - Not sure what this is used for as I don't see where we pull the data back in anywhere
 	  set tStatus = process.SendRequestAsync("Out-Sh-835-File-DNDERA835-InProcess", stCon)
 	  
 	  ]]]]><![CDATA[>
