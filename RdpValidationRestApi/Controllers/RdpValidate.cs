@@ -296,7 +296,8 @@ namespace RdpValidationRestApi.Controllers
 
         private void ediValidator_CustomCondition(object sender, CodeConditionEventArgs e)
         {
-            e.ConditionValid = false;
+            //e.ConditionValid = false;
+            e.ConditionValid = true;
             Console.WriteLine(" ---- ");
             Console.WriteLine("In RDP CustomCondition: " + e.CodeCondition.ToString() + ", sender: " + sender);
 
