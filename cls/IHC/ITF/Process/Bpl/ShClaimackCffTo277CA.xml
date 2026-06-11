@@ -155,6 +155,17 @@ Routes to different process</Description>
 ]]></Content>
 </UDLText>
 
+<Storage name="Default">
+<Type>%Storage.Persistent</Type>
+<DefaultData>ShClaimackCffTo277CADefaultData</DefaultData>
+<Data name="ShClaimackCffTo277CADefaultData">
+<Subscript>"ShClaimackCffTo277CA"</Subscript>
+<Value name="1">
+<Value>GenerateX12File</Value>
+</Value>
+</Data>
+</Storage>
+
 <XData name="BPL">
 <Description>
 BPL Definition</Description>
@@ -308,7 +319,7 @@ BPL Definition</Description>
 	
 	//Get the trading partner link information from the B2B application
 	//If we are successful, the information about the link is received as b2bLnkInfo
-	set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , "V5010X214", "Batch", "Out", .b2bLnkInfo, .errStr)
+	set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(interchangeSenderID ,interchangeReceiverID , context.version, "Batch", "Out", .b2bLnkInfo, .errStr)
 	
 	
 	
@@ -325,7 +336,7 @@ BPL Definition</Description>
 	
 	
 	               	
-	//If there was an error getting the link from B2B
+	//If there was an error getting the link from B2B, store in B2B workflow
 	If $$$ISERR(tSC)
 	{
 	     $$$LOGERROR( "Could not get Link for "_interchangeSenderID _"->"_interchangeReceiverID )
@@ -334,31 +345,23 @@ BPL Definition</Description>
 	     set dtTm = $ZDATETIME($HOROLOG,3, 1)
 	     set str = $E(context.x12Output.OutputToString(), 1, 5000)
 			
-	     //set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
-			//" (InterchangeReceiverID, InterchangeSenderID, TransactionType, TransactionVersion, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
-			//" values (?,?,?,?,?,?,?,?,?,?,?)"
 	     set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			" (InterchangeReceiverID, InterchangeSenderID, TransactionType, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
 			" values (?,?,?,?,?,?,?,?,?,?,?)"
 			
 	     #dim rset As %SQL.StatementResult
-	     set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, context.transactionType, context.version, "New", "TP", errStr, $USERNAME, dtTm, str, 0)
+	     set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, context.transactionType, context.version, "New", "TP", errStr, $USERNAME, dtTm, context.x12Output.%Id(),$$$JobSessionId)
 			$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
 	     if (rset.%SQLCODE < 0)
 	     {
 	          $$$LOGERROR(sqlStr _", Recv: " _ interchangeReceiverID _", Send: " _ interchangeSenderID _",Tran: " _ context.transactionType_",Ver: " _ context.version_ ", New, TP" _ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
 		  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
 	     }
-	} // end If there was an error getting the link from B2B
-		
-	//$$$TRACE( interchangeReceiverID  _ ": Tp Info : " _ b2bLnkInfo _", " _ errStr)
-		
-	////Get the ID number used to identify the link from b2bLnkInfo
-	//set lnkId = $PIECE(b2bLnkInfo, ",", 1)
-		
-	//set context.lnkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
-
-	//$$$TRACE( context.x12Output.Name _ " - SNIP: " _ context.lnkObj.SNIP _ ", DocType: " _ context.x12Output.DocType)]]]]><![CDATA[>
+	     else
+	     {
+		$$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
+	     }
+	} // end If there was an error getting the link from B2B]]]]><![CDATA[>
 </code>
 <code name='Send to Store' xpos='740' ypos='1150' >
 <![CDATA[ if ( ($ISOBJECT(context.x12Output)) && (context.x12Output.%Extends("EnsLib.EDI.X12.Document")) )
@@ -406,17 +409,33 @@ BPL Definition</Description>
 </code>
 <code name='RDP Validation' xpos='740' ypos='1350' >
 <annotation><![CDATA[Validate the data with RDP crystal]]]]><![CDATA[></annotation>
-<![CDATA[   if (context.lnkObj.SNIP > 0)
+<![CDATA[
+   if context.lnkObj="" {
+     $$$LOGERROR("context.lnkObj is NULL - cannot perform SNIP validation")
+     set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "Missing link object")
+     quit
+   }
+
+   
+   $$$TRACE("RDP Validation operation, SNIP: " _ context.lnkObj.SNIP)
+   if (context.lnkObj.SNIP > 0)
    { 
    
       //Recreate the stream container so we are not sending RDP the OriginalFilename and OutputFilename
-      //Other interfaces work without this information
+      //With the filenames being sent, we get errors from RDP Crystal
       set stConForRDP = ##class(Ens.StreamContainer).%New()
       set stConForRDP.Stream = ##class(%Stream.FileCharacter).%New()  
       Set stat = context.x12Output.OutputToLibraryStream(stConForRDP.Stream)
       $$$TRACE("X12 stream: " _ stat _", size: " _ stConForRDP.Stream.Size)
-      set context.stX12.streamContainer = stConForRDP 
+      Set context.stX12.streamContainer = stConForRDP 
     
+    
+      if context.stX12="" 
+      {
+          $$$LOGERROR("context.stX12 is NULL")
+          quit
+      }
+
     
       //suppress <createDtTm> since other interfaces work successfully without it
       //set context.stX12.createDtTm = ""
@@ -424,17 +443,27 @@ BPL Definition</Description>
       set context.stX12.SNIP = context.lnkObj.SNIP // lnkObj.SNIP
       set context.stX12.version = context.version
       set context.stX12.transactionType = context.transactionType
-      set context.stX12.direction = "Out"
-      set context.stX12.LinkId = context.lnkObj.%Id()
-      set context.stX12.ValidationRuleFile = context.lnkObj.ValidationRuleFile        
+      set context.stX12.ValidationRuleFile = context.lnkObj.ValidationRuleFile 
+      //set context.stX12.direction = "Out"
+      //set context.stX12.LinkId = context.lnkObj.%Id()
+       
         	
       try
       {      
-          $$$TRACE("Sending data to RDP Crystal Validation...")
-         
-         Set tSC1=process.SendRequestSync("Op-RdpCrystal-Http-X12VALIDATION", context.stX12, .resp)
+         $$$TRACE("Sending data to RDP Crystal Validation...")
+         Set tSC1=process.SendRequestSync("Op-RdpCrystal-Http-X12VALIDATION", context.stX12, .resp, 10)
+        
       
-         $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", " _ resp.jsonMessage.%ToJSON())
+         if $isobject(resp) && $isobject(resp.jsonMessage) 
+         {
+            $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", " _ resp.jsonMessage.%ToJSON())
+         }
+         else 
+         {
+            $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", NO RESPONSE!")
+            Set status = $$$ERROR($$$GeneralError, "RDP Crystal process did not send a response!")
+         }
+
         
          if $$$ISOK(tSC1)
          {
@@ -454,10 +483,21 @@ BPL Definition</Description>
          {  
             set context.SNIPValidationStat = tSC1
          }
-     } catch err
+     } 
+     catch err
      {
-        set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
-        $$$LOGERROR("RDPCrystal Exception: " _ err)
+        //set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
+        set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed: " _ err.DisplayString())
+
+        //$$$LOGERROR("RDPCrystal Exception: " _ err.DisplayString())
+        $$$LOGERROR("RDPCrystal Exception: " _ err.DisplayString() _ " | Name: " _ err.Name _" | Code: "_ err.Code _" | Location: " _ err.Location)
+
+        if $isobject(err.InnerException) 
+        {
+           $$$LOGERROR("Inner Exception: " _ err.InnerException.DisplayString())
+        }
+
+
      }
    } // end if (context.lnkObj.SNIP > 0)
    else
@@ -576,17 +616,5 @@ BPL Definition</Description>
 </process>
 ]]></Data>
 </XData>
-
-<Storage name="Default">
-<Type>%Storage.Persistent</Type>
-<DefaultData>ShClaimackCffTo277CADefaultData</DefaultData>
-<Data name="ShClaimackCffTo277CADefaultData">
-<Structure>listnode</Structure>
-<Subscript>"ShClaimackCffTo277CA"</Subscript>
-<Value name="1">
-<Value>GenerateX12File</Value>
-</Value>
-</Data>
-</Storage>
 </Class>
 </Export>
