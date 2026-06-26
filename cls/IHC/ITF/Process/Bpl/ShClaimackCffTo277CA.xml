@@ -222,8 +222,8 @@ BPL Definition</Description>
 <property name='jsonMessage' type='%Library.DynamicObject' instantiate='0' />
 <property name='x12asStream' type='Ens.StreamContainer' instantiate='0' />
 </context>
-<sequence xend='200' yend='1400' >
-<scope xpos='200' ypos='250' xend='200' yend='1300' >
+<sequence xend='200' yend='1300' >
+<scope xpos='200' ypos='250' xend='200' yend='1200' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[BPL Router]]]]><![CDATA[></annotation>
 </trace>
@@ -246,30 +246,22 @@ BPL Definition</Description>
    set context.targetConfigNames = configValue
  }]]]]><![CDATA[>
 </code>
-<code name='Check GenerateX12File' xpos='200' ypos='650' disabled="true">
-<![CDATA[  set context.generateX12File =##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","GenerateX12File",.pstatus)
- if ($$$ISOK(pstatus)){
- 	$$$TRACE("GenerateX12File: " _ context.generateX12File ) 	
- }else{
-	 Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, GenerateX12File not found.")   	
- }]]]]><![CDATA[>
-</code>
-<code name='Set MaxErrors' xpos='200' ypos='750' >
+<code name='Set MaxErrors' xpos='200' ypos='650' >
 <annotation><![CDATA[Trace MaxError]]]]><![CDATA[></annotation>
 <![CDATA[ set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
  	$$$TRACE("Max Errors: " _ maxErr)  
  ]]]]><![CDATA[>
 </code>
-<code name='Get Number of Records' xpos='200' ypos='850' >
+<code name='Get Number of Records' xpos='200' ypos='750' >
 <![CDATA[  
  set context.recCnt =  request.Records.Count()
  
  $$$TRACE("Total # of records: " _ context.recCnt)
    set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
 </code>
-<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='950' xend='200' yend='1950' >
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='850' xend='200' yend='2150' >
 <assign name="Get the record" property="caRec" value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
-<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1750' >
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='1950' >
 <true>
 <trace name='Which records we are looking at' value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
 <code name='create list' xpos='470' ypos='600' >
@@ -285,11 +277,13 @@ BPL Definition</Description>
   $$$TRACE("TP: " _ request.Records.GetAt(context.recFirst).ENVSNDER _ " -> " _ request.Records.GetAt(context.recFirst).ENVRCVER _ ", from " _ context.recFirst _ "->" _ (context.recFirst + context.recOthers) _ ", # CFF records: " _ context.cffRecs.Size)]]]]><![CDATA[>
 </code>
 <transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Document' xpos='470' ypos='700' />
-<if name='Is X12 Document?' condition='($ISOBJECT(context.x12Document)) &amp;&amp; (context.x12Document.%Extends("EnsLib.EDI.X12.Document"))' xpos='470' ypos='800' xend='470' yend='1550' >
+<if name='Is X12 Document?' condition='($ISOBJECT(context.x12Document)) &amp;&amp; (context.x12Document.%Extends("EnsLib.EDI.X12.Document"))' xpos='470' ypos='800' xend='470' yend='1750' >
 <true>
-<trace name='Trace X12 Document' value='"X12.Document.RawContent: " _ context.x12Document.RawContent' xpos='740' ypos='950' />
-<code name='B2B Partner Lookup' xpos='740' ypos='1050' >
+<trace name='Trace X12 Document' value='"X12.Document.RawContent: " _ context.x12Document.RawContent' xpos='740' ypos='950' disabled="true"/>
+<code name='Pull Envelope Data' xpos='740' ypos='1050' >
 <![CDATA[ //context.x12Document is the X12 document the DTL constructed from the incoming data
+ $$$TRACE("context.x12Document.DocType = "_context.x12Document.DocType)
+ //TODO: what do we do if context.x12Document.DocType IS NOT "" ???
  if (context.x12Document.DocType = "")
 	{
 	     set context.x12Document.DocType ="277_X0B3:Interchange"
@@ -323,6 +317,104 @@ BPL Definition</Description>
         set STRecord=individualGroup.getNthChild(1,2)
         set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
         $$$TRACE("context.transactionType=" _ context.transactionType )
+        
+
+  
+  
+  
+  
+  
+
+  
+   if ( ($ISOBJECT(context.x12Document)) && (context.x12Document.%Extends("EnsLib.EDI.X12.Document")) )
+ {   
+    set reqId = request.%Id()
+    $$$TRACE("Request ID: " _ reqId)
+    
+    &SQL(SELECT id, TimeCreated , MessageBodyClassName into id, tm, cls from Ens.MessageHeader where MessageBodyId = :reqId)
+    $$$TRACE( id _": "_ tm _", "_ cls)  
+    
+    //Put the data going to the store into a stream container called context.x12asStream
+    set context.x12asStream = ##class(Ens.StreamContainer).%New()
+    set context.x12asStream.Stream = ##class(%Stream.FileCharacter).%New()
+	  
+    Set stat = context.x12Document.OutputToLibraryStream(context.x12asStream.Stream)
+    $$$TRACE("X12 stream: " _ stat _", size: " _ context.x12asStream.Stream.Size)
+    
+    $$$TRACE(interchangeSenderID)
+    $$$TRACE(interchangeReceiverID)
+    $$$TRACE($TRANSLATE($ZDATETIME($HOROLOG,8,1) _ ".txt"," ",""))
+    set context.x12asStream.OriginalFilename = $ZSTRIP(interchangeSenderID _"-" _ interchangeReceiverID _"-" _ ($ZDATETIME($HOROLOG,8,1)) _ ".txt","*W")                  
+    set context.storeX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New() 
+    set context.storeX12.status = "Processed"
+    set context.storeX12.createDtTm = tm 
+    set context.storeX12.transactionType = context.transactionType
+    set context.storeX12.streamContainer = context.x12asStream 
+    set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId 
+    //set context.storeX12.LinkId = context.lnkObj.%Id() 
+ } //end if ( ($ISOBJECT(context.x12Document)) && (context.x12Document.%Extends("EnsLib.EDI.X12.Document")) )
+ 
+
+        
+        
+        
+        
+        
+        
+        
+]]]]><![CDATA[>
+</code>
+<code name='Pre B2B Send to Store' xpos='740' ypos='1150' >
+<![CDATA[
+ 
+    //Send the X12 and metadata to the component that will store it in the cache database
+    set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
+    $$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
+    $$$TRACE("Pre B2B Send to Store")
+]]]]><![CDATA[>
+</code>
+<code name='B2B Partner Lookup' xpos='740' ypos='1250' >
+<![CDATA[ /*
+   //context.x12Document is the X12 document the DTL constructed from the incoming data
+ if (context.x12Document.DocType = "")
+	{
+	     set context.x12Document.DocType ="277_X0B3:Interchange"
+	     set tSC =context.x12Document.BuildMap()
+	     $$$TRACE("From ImportFromString - BuildMap: " _ tSC )
+	     If $$$ISERR(tSC)
+	     {
+	          Set status = $$$ERROR($$$GeneralError, "X12 BuildMap failed: " _ tSC)
+	     }
+	}
+	$$$TRACE("X12.Document DocType: " _ context.x12Document.DocType)
+	
+	set interchangeSenderID = $ZSTRIP(context.x12Document.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+	$$$TRACE("interchangeSenderID = "_interchangeSenderID)
+		
+	set interchangeReceiverID = $ZSTRIP(context.x12Document.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+	$$$TRACE("interchangeReceiverID = "_interchangeReceiverID)
+	
+	
+	//
+	//Pull the individual group (GS-GE) and derive the version number
+	//
+	#dim individualGroup As EnsLib.EDI.X12.Document
+	set individualGroup = context.x12Document.getNthChild(1,2)
+        set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
+        $$$TRACE("context.version=" _ context.version )
+                
+        //
+        // pull the transaction set (ST-SE) and derive the transaction type
+        //  
+        set STRecord=individualGroup.getNthChild(1,2)
+        set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
+        $$$TRACE("context.transactionType=" _ context.transactionType )
+ */
+ 
+ 
+ 
+ 
+ 
 	
 	
 	//Get the trading partner link information from the B2B application
@@ -352,13 +444,24 @@ BPL Definition</Description>
 			
 	     set dtTm = $ZDATETIME($HOROLOG,3, 1)
 	     set str = $E(context.x12Document.OutputToString(), 1, 5000)
-			
-	     set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
-			" (InterchangeReceiverID, InterchangeSenderID, TransactionType, WorkStatus, ErrorType, Error, WorkUser, CreateDtTm, x12Data, OrigX12Id) " _
-			" values (?,?,?,?,?,?,?,?,?,?,?)"
+	
+	     $$$TRACE("AssignedUser="_$USERNAME)
+	     $$$TRACE("CreateDtTm="_dtTm)
+	     $$$TRACE("Error="_errStr)
+	     $$$TRACE("InterchangeReceiverID="_interchangeReceiverID)
+	     $$$TRACE("InterchangeSenderID="_interchangeSenderID)
+	     $$$TRACE("ErrorType="_"TP")
+	     $$$TRACE("OrigX12Id="_context.x12Document.%Id())
+	     $$$TRACE("SessionID="_$$$JobSessionId)
+	     $$$TRACE("TransactionType="_context.transactionType)
+	     $$$TRACE("WorkStatus="_"New")
+	     
+	     
+	
+             set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
 			
 	     #dim rset As %SQL.StatementResult
-	     set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, interchangeReceiverID, interchangeSenderID, context.transactionType, context.version, "New", "TP", errStr, $USERNAME, dtTm, context.x12Document.%Id(),$$$JobSessionId)
+             set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , errStr, interchangeReceiverID, interchangeSenderID, "TP"     , context.x12Document.%Id(), $$$JobSessionId, context.transactionType,"New"     )
 	     $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
 	     if (rset.%SQLCODE < 0)
 	     {
@@ -371,44 +474,16 @@ BPL Definition</Description>
 	     }
 	} // end If there was an error getting the link from B2B]]]]><![CDATA[>
 </code>
-<code name='Send to Store' xpos='740' ypos='1150' >
-<![CDATA[ if ( ($ISOBJECT(context.x12Document)) && (context.x12Document.%Extends("EnsLib.EDI.X12.Document")) )
- {   
-    set reqId = request.%Id()
-    $$$TRACE("Request ID: " _ reqId)
-    
-    &SQL(SELECT id, TimeCreated , MessageBodyClassName into id, tm, cls from Ens.MessageHeader where MessageBodyId = :reqId)
-    $$$TRACE( id _": "_ tm _", "_ cls)  
-    
-    //Put the data going to the store into a stream container called context.x12asStream
-    set context.x12asStream = ##class(Ens.StreamContainer).%New()
-    set context.x12asStream.Stream = ##class(%Stream.FileCharacter).%New()
-	  
-    Set stat = context.x12Document.OutputToLibraryStream(context.x12asStream.Stream)
-    $$$TRACE("X12 stream: " _ stat _", size: " _ context.x12asStream.Stream.Size)
-	
-    //Suppress the OutputFilename and OriginalFilename because their inclusion breaks the later call to RDP Crystal
-    set context.x12asStream.OriginalFilename = $ZSTRIP(interchangeSenderID _"-" _ interchangeReceiverID _"-" _ ($ZDATETIME($HOROLOG,8,1)) _ ".txt","*W")
-    $$$TRACE("OriginalFilename=" _ context.x12asStream.OriginalFilename)
-    //set context.x12asStream.OriginalFilename =   interchangeSenderID _"-" _ interchangeReceiverID _"-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
-    //set context.x12asStream.OutputFilename =   interchangeSenderID _"-" _ interchangeReceiverID _"-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
-    //set context.x12asStream.OriginalFilename = context.x12asStream.OutputFilename
-	                    
-    set context.storeX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New()
-    set context.storeX12.status = "Processed"
-    set context.storeX12.createDtTm = tm
-    set context.storeX12.transactionType = context.transactionType
-    set context.storeX12.streamContainer = context.x12asStream
-    set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
-    set context.storeX12.LinkId = context.lnkObj.%Id()
-
-    //Send the X12 and metadata to the component tha will store it in the cache database
+<code name='Post B2B Send to Store' xpos='740' ypos='1350' disabled="true">
+<![CDATA[
+ 
+    //Send the X12 and metadata to the component that will store it in the cache database
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
-	  
     $$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
- } //end if ( ($ISOBJECT(context.x12Document)) && (context.x12Document.%Extends("EnsLib.EDI.X12.Document")) )]]]]><![CDATA[>
+    $$$TRACE("Post B2B Send to Store")
+]]]]><![CDATA[>
 </code>
-<code name='Print X12' xpos='740' ypos='1250' >
+<code name='Print X12' xpos='740' ypos='1450' >
 <![CDATA[ set context.x12Num = context.x12Num + 1
  
  $$$TRACE(context.x12Num _ ". Size of X12 Doc from DTL: " _ context.x12Document.FullSize )
@@ -419,7 +494,7 @@ BPL Definition</Description>
 
 ]]]]><![CDATA[>
 </code>
-<code name='RDP Validation' xpos='740' ypos='1350' >
+<code name='RDP Validation' xpos='740' ypos='1550' >
 <annotation><![CDATA[Validate the data with RDP crystal]]]]><![CDATA[></annotation>
 <![CDATA[
    if context.lnkObj="" {
@@ -432,41 +507,12 @@ BPL Definition</Description>
    $$$TRACE("RDP Validation operation, SNIP: " _ context.lnkObj.SNIP)
    if (context.lnkObj.SNIP > 0)
    { 
-   
-      //Recreate the stream container so we are not sending RDP the OriginalFilename and OutputFilename
-      //With the filenames being sent, we get errors from RDP Crystal
-      //set stConForRDP = ##class(Ens.StreamContainer).%New()
-      //set stConForRDP.Stream = ##class(%Stream.FileCharacter).%New()  
-      //Set stat = context.x12Document.OutputToLibraryStream(stConForRDP.Stream)
-      //$$$TRACE("X12 stream: " _ stat _", size: " _ stConForRDP.Stream.Size)
-      //Set context.storeX12 .streamContainer = stConForRDP
-      
-      //Remove the OutputFilename and OriginalFilename from the Stream, since they appear to make RDP crash
-      $$$TRACE("context.x12asStream.OriginalFilename="_context.x12asStream.OriginalFilename)
-      //set context.x12asStream.OriginalFilename = ""
-      //set context.x12asStream.OutputFilename =   interchangeSenderID _"-" _ interchangeReceiverID _"-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
-      
-      //set context.x12asStream.OutputFilename = ""
-      //set context.storeX12 .streamContainer = context.x12asStream
-    
       if context.storeX12 ="" 
       {
           $$$LOGERROR("context.storeX12 is NULL")
           quit
       }
 
-    
-      //suppress <createDtTm> since other interfaces work successfully without it
-      //set context.storeX12.createDtTm = ""
-      
-      //set context.storeX12.SNIP = context.lnkObj.SNIP // lnkObj.SNIP
-      //set context.storeX12.version = context.version
-      //set context.storeX12.transactionType = context.transactionType
-      //set context.storeX12.ValidationRuleFile = context.lnkObj.ValidationRuleFile 
-      //set context.storeX12.direction = "Out"
-      //set context.storeX12.LinkId = context.lnkObj.%Id()
-       
-        	
       try
       {      
          $$$TRACE("Sending data to RDP Crystal Validation...")
@@ -508,7 +554,6 @@ BPL Definition</Description>
         //set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
         set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed: " _ err.DisplayString())
 
-        //$$$LOGERROR("RDPCrystal Exception: " _ err.DisplayString())
         $$$LOGERROR("RDPCrystal Exception: " _ err.DisplayString() _ " | Name: " _ err.Name _" | Code: "_ err.Code _" | Location: " _ err.Location)
 
         if $isobject(err.InnerException) 
@@ -535,7 +580,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='Route' xpos='740' ypos='1450' >
+<code name='Route' xpos='740' ypos='1650' >
 <![CDATA[ ///
 				/// Determine Routing
 				///
@@ -609,7 +654,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='Reset counts' xpos='470' ypos='1650' >
+<code name='Reset counts' xpos='470' ypos='1850' >
 <![CDATA[  set context.recFirst = context.recNum + 1
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
@@ -618,15 +663,15 @@ BPL Definition</Description>
 <assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
 </false>
 </if>
-<code name='UnSwizzleAt' xpos='200' ypos='1850' >
+<code name='UnSwizzleAt' xpos='200' ypos='2050' >
 <![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
  	 $$$TRACE("UnSwizzleAt stat: " _ sc)
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
 </code>
 </while>
-<trace name='BPL Complete' value='"BPL complete, X12 created: " _ context.x12Num _". Sent: " _ context.sentRoute _", TP/Route Error: " _ context.routingErrors' xpos='200' ypos='1050' />
+<trace name='BPL Complete' value='"BPL complete, X12 created: " _ context.x12Num _". Sent: " _ context.sentRoute _", TP/Route Error: " _ context.routingErrors' xpos='200' ypos='950' />
 <faulthandlers>
-<catchall xpos='200' ypos='1150' xend='200' yend='350' >
+<catchall xpos='200' ypos='1050' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
