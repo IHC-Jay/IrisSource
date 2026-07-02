@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Task.CleanGlobals">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%SYS.Task.Definition</Super>
+<TimeCreated>65532,43423.465137</TimeCreated>
+
+<Parameter name="TaskName">
+<Description>
+This defines the user-visible name of this task;
+This is defined in subclasses.</Description>
+<Type>%STRING</Type>
+<Default>Global Purge</Default>
+</Parameter>
+
+<Property name="EDINAME">
+<Type>%String</Type>
+<InitialExpression>"X12,XML"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
+<Property name="NumDays">
+<Type>%Integer</Type>
+<InitialExpression>7</InitialExpression>
+</Property>
+
+<Property name="EmailAddrs">
+<Type>%String</Type>
+<InitialExpression>"Jay.Narasipura@imail.org"</InitialExpression>
+<Parameter name="MAXLEN" value="2000"/>
+</Property>
+
+<Method name="OnTask">
+<Description>
+The OnTask() method is called to execute the task</Description>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ set ServiceName = "GetSettingsDiffReport"	
+ 	
+ set message = "Global Cleanup - <I> System: " _ $SYSTEM _ ", Date: " _ $ZDATETIME($HOROLOG,3, 1)  _ "</I><br /><br />"
+ set num =1
+ set sendEmail = 0
+ set tSc = $$$OK
+ set svnUser = ""
+ set svnPassWd = ""
+ try {
+	  		
+  		 
+  		set env = ""
+		set sysEnv = $ZCVT($SYSTEM, "U")
+		if ( $FIND(sysEnv, "PRD") > 0)
+		{
+			set env = "PROD"
+		}
+		elseif ( $FIND(sysEnv, "UAT") > 0)
+		{
+			set env = "UAT"
+		}
+		elseif ( $FIND(sysEnv, "QA") > 0)
+		{
+			set env = "QA"
+		}
+		else
+		{
+			set env = "DEV"
+		}
+		
+		  set newDirec = "/itf-share/itf-tmp/" _ env _ "/"
+		  
+		  set message =  message _  "<B>Clean Globals: </B>" _ ..EDINAME _ ", Num Days: " _ ..NumDays _ ", Environment: " _ env
+		  
+		  set message =  message _  "   -- <br /><br />"
+	
+		  SET gList=$LISTBUILD(..EDINAME)
+		  
+		    SET ptr=0
+		    set count=$LENGTH(gList, ",")
+		    FOR ptr=1:1:count
+		    {
+			     set value  = $PIECE(gList, ",", ptr)
+			     set message =  message _ "<br />" _ ptr _". EDI Purge: " _ value
+			     if (value = "X12")
+			     {
+		      	 	set stat = ##class(EnsLib.EDI.X12.Document).Purge(.delCnt, ..NumDays)
+		      	 	set message =  message  _ ", Status: " _ stat _", Deleted count: " _ delCnt
+			     }
+			     else
+			     {
+				     set stat = ##class(EnsLib.EDI.XML.Document).Purge(.delCnt, ..NumDays)
+		      	 	set message =  message _  ", Status: " _ stat _", Deleted count: " _ delCnt
+
+			     }
+		   }
+		   
+		   set message =  message _  "<br /><br />-=-= Completed Purge -=-=" 
+    
+     } Catch eException {
+		set message =  message _  eException.AsStatus()
+	}
+    
+   
+  	set $NAMESPACE = "ITFCOMMON"
+  	$$$LOGINFO( "Send email, message size: " _ $L(message))
+  	Set msg = ##class(%Net.MailMessage).%New()
+    set msg.From = "itfims@imail.org"
+   
+    SET count=$LENGTH(..EmailAddrs, ",")
+    SET countup=1
+    for reps=1:1:count
+    {
+	    SET extract=$PIECE(..EmailAddrs, ",", countup)
+	    Do msg.To.Insert(extract)
+	    SET countup=countup+1
+    }
+    
+    Set msg.Subject="Purge of EDI GLobals on " _ $SYSTEM 
+    if (count >= 1)
+  	{
+	    	  	
+	    set message =  " - Purge Report - <br /> " _ message  
+		Do msg.TextData.Write(message)
+  	
+	    Set msg.IsBinary=0
+	    Set msg.IsHTML=1
+	    
+	    
+	    $$$LOGINFO( "Created message")
+	    Set adp= ##class(EnsLib.EMail.OutboundAdapter).%New()
+	    set adp.SMTP = ##class(%Net.SMTP).%New()
+	    Do adp.SMTPServerSet("smtp.co.ihc.com")
+	    Do adp.SMTPPortSet(25)
+	    
+	    set tSc= adp.SendMail(msg, .list)
+	    $$$LOGINFO( "SendMail: " _ tSc)
+  	}
+  
+  return tSc
+]]></Implementation>
+</Method>
+</Class>
+</Export>
