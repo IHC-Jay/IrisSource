@@ -85,9 +85,9 @@ X12 - Create a new batch containing only those child documents which pass valida
 
 <Storage name="Default">
 <Type>%Storage.Persistent</Type>
-<DefaultData>Route27xRTDefaultData</DefaultData>
-<Data name="Route27xRTDefaultData">
-<Subscript>"Route27xRT"</Subscript>
+<DefaultData>Route270X12RTDefaultData</DefaultData>
+<Data name="Route270X12RTDefaultData">
+<Subscript>"Route270X12RT"</Subscript>
 <Value name="1">
 <Value>X12StoreTargetConfigName</Value>
 </Value>
@@ -126,7 +126,7 @@ X12 - Create a new batch containing only those child documents which pass valida
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' response='Ens.StringContainer' height='4950' width='2420' >
+<process language='objectscript' request='Ens.Request' height='4950' width='2420' >
 <context>
 <property name='configName' type='%String' instantiate='0' >
 <parameters>
@@ -224,9 +224,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
+<property name='failureTimeout' type='%Integer' initialexpression='10' instantiate='0' />
 </context>
-<sequence xend='200' yend='4450' >
-<scope xpos='200' ypos='250' xend='200' yend='4350' >
+<sequence xend='200' yend='4650' >
+<scope xpos='200' ypos='250' xend='200' yend='4550' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -247,16 +248,6 @@ BPL Definition</Description>
  {
    set context.targetConfigNames = configValue
  }
- if ( (context.targetConfigNames [ "270") || (context.targetConfigNames [ "271") )
- {
-	 set context.inbound = 270
-	 set context.outbound = 271
- }
- else
- {
-	 set context.inbound = 276
-	 set context.outbound = 277
- }
     
     set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"Direction",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
@@ -273,11 +264,23 @@ BPL Definition</Description>
  }
    set context.mode = configValue
    
-  
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"FailureTimeout",.configValue)
+   if ( ($$$ISERR(pstatus)) || (configValue = ""))
+   {
+ 	Set status = $$$ERROR("Initialization error, FailureTimeout not defined")
+   }
+   set context.failureTimeout = configValue
+   $$$TRACE("FailureTimeout: " _ context.failureTimeout)
+ 
    ]]]]><![CDATA[>
 </code>
 <code name='get EnsLib.EDI.X12.Document' xpos='200' ypos='550' >
-<![CDATA[ if (request.%IsA("EnsLib.EDI.X12.Document"))
+<![CDATA[ 
+ if '($IsObject(request))
+ {
+   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process Null Object")
+ }
+ elseif (request.%IsA("EnsLib.EDI.X12.Document"))
  {
     set context.inXmlDoc = request
     set context.FileName = request.Source
@@ -306,7 +309,7 @@ BPL Definition</Description>
     set context.inXmlDoc = request.origMsg
     set context.FileName = request.origMsg.Source
  }
- elseif (request.%IsA("IHC.ITF.Request.x12MessageReq")) // (RT from CORERULES.Service.CoreSoapPort)
+ elseif (request.%IsA("IHC.ITF.Request.x12MessageReq")) // (RT 270, 270 from CORERULES.Service.CoreSoapPort)
  {
     set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromString(request.Payload, .status)
     set context.FileName = request.pTransactionFileName
@@ -316,7 +319,7 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='4000' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='4100' >
 <true>
 <code name='Print file name' xpos='470' ypos='800' >
 <![CDATA[
@@ -427,7 +430,7 @@ BPL Definition</Description>
 	set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
 	set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
 	
-	if (request.%IsA("IHC.ITF.Request.x12MessageReq")) 
+	if (request.%IsA("IHC.ITF.Request.x12MessageReq")) // (270, 270)
         {
            set context.storeX12.streamContainer.OutputFilename = request.pTransactionFileName
 	   Do context.storeX12.streamContainer.Stream.Write(request.Payload)
@@ -469,7 +472,7 @@ BPL Definition</Description>
         $$$TRACE("Sending X12 to " _ configValue)
   
 	
-        Set tSC1=process.SendRequestAsync(configValue, context.storeX12)
+        Set tSC1=process.SendRequestAsync(configValue, context.storeX12, 0)
         
         $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _ ", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
         
@@ -550,16 +553,16 @@ BPL Definition</Description>
 	            
 	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
-			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id, SessionID) " _
-			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id, SessionID, Mode) " _
+			  " values (?,?,?,?,?,?,?,?,?,?,?)"
 			  #dim rset As %SQL.StatementResult
 			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
 			  context.interchangeSenderID, context.transactionType,  "New", "TP", 
-			  context.errStr, $USERNAME, dtTm, context.inXmlDoc.%Id(), $$$JobSessionId)
+			  context.errStr, $USERNAME, dtTm, context.inXmlDoc.%Id(), $$$JobSessionId, "RealTime")
 			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
 			  if (rset.%SQLCODE < 0)
 			  {
-			  $$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ msgTrans _",Ver: " _ context.version _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+			  $$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ context.transactionType _",Ver: " _ context.version _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
 				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
 			  }
 			  else
@@ -588,7 +591,7 @@ BPL Definition</Description>
                        set x12StCon.Stream = str
                        set x12StCon.OriginalFilename = context.FileName
 	 	
-		       set tSC1=process.SendRequestAsync(context.ackConnUnknownTP, x12StCon)
+		       set tSC1=process.SendRequestAsync(context.ackConnUnknownTP, x12StCon, 0)
 	               $$$TRACE("Sent Ack as stream to Process: " _ context.ackConnUnknownTP _ ", status: " _ tSC1)
 	
 	
@@ -616,7 +619,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2200' xend='470' yend='3900' >
+<if name='context.continueProcess' condition='context.continueProcess' xpos='470' ypos='2200' xend='470' yend='4000' >
 <true>
 <code name='Call RDP Validation' xpos='740' ypos='2350' >
 <![CDATA[  $$$TRACE("RDP Validation operation")
@@ -637,7 +640,7 @@ BPL Definition</Description>
                  {
 	              $$$TRACE("Call: " _ configValue)
 	              try {
-	                Set tSC1=process.SendRequestSync(configValue, context.storeX12, .resp, 10)
+	                Set tSC1=process.SendRequestSync(configValue, context.storeX12, .resp, context.failureTimeout - 1)
         
                         $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", " _ resp.jsonMessage.%ToJSON())
         
@@ -695,7 +698,7 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='2450' xend='740' yend='2800' >
+<if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='2450' xend='740' yend='2900' >
 <true>
 <code name='ContinueAfterValidationError' xpos='1010' ypos='2600' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"ContinueAfterValidationError",.configValue)
@@ -706,13 +709,33 @@ BPL Definition</Description>
  else
  {
      set context.continueProcess = 0
- }
- $$$TRACE("ContinueAfterValidationError: " _ context.continueProcess)]]]]><![CDATA[>
+ }]]]]><![CDATA[>
 </code>
-<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='1010' ypos='2700' >
+<code name='Create Success batch' xpos='1010' ypos='2700' >
+<![CDATA[ /**** No success and bad batches
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"CreateNewBatches",.configValue)
+  if (configValue = "Yes")
+  {
+         set succBat = ##class(Ens.X12.FunctionSet).X12BatchSuccesses(context.inXmlDoc, "SNIP", context.tpLinkObj.SNIP)
+	 $$$TRACE("Create X12BatchSuccesses: " _ succBat)
+	 if ($IsObject(succBat))
+	 {
+	   $$$TRACE("Success X12 data: " _ succBat.RawContent)
+	   set context.succBat = succBat
+
+	 }
+	 else
+	 {
+	       $$$TRACE("No success X12 from X12BatchSuccesses")
+	 }
+  }
+  ***/
+]]]]><![CDATA[>
+</code>
+<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='1010' ypos='2800' >
 <![CDATA[ $$$TRACE("set reportWF,  origX12Doc: " _  context.inXmlDoc.%Id())
  
- $$$LOGERROR( "Insert Validation error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID )
+ $$$LOGERROR( "Insert TP error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID )
 	             
 	            set msgTrans = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetTransTypeFromVersion(context.version)
 	            
@@ -721,12 +744,12 @@ BPL Definition</Description>
 	            
 	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
-			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id, SessionID) " _
-			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id, SessionID, Mode) " _
+			  " values (?,?,?,?,?,?,?,?,?,?,?)"
 			  #dim rset As %SQL.StatementResult
 			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
 			  context.interchangeSenderID, msgTrans,  "New", "Data", 
-			  context.jsonMessage.details, $USERNAME, dtTm, context.inXmlDoc.%Id(), $$$JobSessionId)
+			  context.jsonMessage.details, $USERNAME, dtTm, context.inXmlDoc.%Id(), $$$JobSessionId, "RealTime")
 			  
 			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
 			  if (rset.%SQLCODE < 0)
@@ -736,7 +759,7 @@ BPL Definition</Description>
 			  }
 			  else
 			  {
-			   $$$TRACE("Validation error WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
+			   $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
 			  }
   ]]]]><![CDATA[>
 </code>
@@ -748,12 +771,12 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<if name='continueProcess and valid X12' condition='(context.continueProcess) &amp;&amp; ($IsObject(context.succBat))' xpos='740' ypos='2900' xend='740' yend='3800' >
+<if name='continueProcess and valid X12' condition='(context.continueProcess) &amp;&amp; ($IsObject(context.succBat))' xpos='740' ypos='3000' xend='740' yend='3900' >
 <true>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1280' ypos='3050' xend='1280' yend='3600' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='1280' ypos='3150' xend='1280' yend='3700' >
 <true>
-<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1550' ypos='3200' />
-<code name='Send Ack? - tpLinkObj.Routing' xpos='1550' ypos='3300' >
+<trace name='In' value='context.tpLinkObj.Direction _  ", " _ context.tpLinkObj.Mode _ "- process X12"' xpos='1550' ypos='3300' />
+<code name='Send Ack? - tpLinkObj.Routing' xpos='1550' ypos='3400' >
 <![CDATA[ $$$TRACE( "Return ACKs- ISA:" _ context.tpLinkObj.ISAAck _", GS: " _ context.tpLinkObj.GSAck _", ST: " _ context.tpLinkObj.STAck _", SNIP: " _ context.tpLinkObj.SNIP)
  if ( $zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS")
  {
@@ -792,7 +815,7 @@ BPL Definition</Description>
 	   					set compName = $PIECE(compList, ",", j)
 	   					if ((compName '= "") && '($zconvert(compName, "u") [ "BITBUCKET"))
 	     				{
-						    Set tSC1=process.SendRequestAsync(compName, x12StCon)
+						    Set tSC1=process.SendRequestAsync(compName, x12StCon, 0)
 						    $$$TRACE("Send ACK from RDPCrystal, Async Outgoing message to: " _ compName_ ", status: " _ tSC1)
 	     				}
  				 }
@@ -812,7 +835,7 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<code name='Send X12 to TargetConfigNames' xpos='1550' ypos='3400' >
+<code name='Send X12 to TargetConfigNames' xpos='1550' ypos='3500' >
 <![CDATA[
  	if (context.targetConfigNames = "")
         {
@@ -822,7 +845,7 @@ BPL Definition</Description>
         else
         {
    
-          if (request.%IsA("IHC.ITF.Request.x12MessageReq")) 
+          if (request.%IsA("IHC.ITF.Request.x12MessageReq")) // (270, 270)
           {
              set x12StCon = request
 	   }
@@ -839,20 +862,28 @@ BPL Definition</Description>
           For iTarget=1:1:$L(context.targetConfigNames, ",") 
           {
              
-	     Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
-	     if ((tOneTarget '= "") && '($zconvert(tOneTarget, "u") [ "BITBUCKET"))
-	     {
-	        Set tSC1=process.SendRequestSync(tOneTarget, x12StCon,.response, 10)
-	        $$$TRACE("Send Sync Incoming X12 message to Process: " _ tOneTarget _ ", status: " _ tSC1 _", Resp: " _ response)
-	     }
-	     if ( (request.%IsA("IHC.ITF.Request.x12MessageReq")) && ($IsObject(response)) ) 
-	     {
-	        $$$TRACE("X12 from: " _tOneTarget _"= " _ response.StringValue)
-	     }
-	     else
-	     {
-	         set response.StringValue = ""
-	     } 
+		     Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+		     if ((tOneTarget '= "") && '($zconvert(tOneTarget, "u") [ "BITBUCKET"))
+		     {
+		        Set tSC1=process.SendRequestSync(tOneTarget, x12StCon,.response, context.failureTimeout - 1)
+		        if ($$$ISERR(tSC1))
+		        {
+	  	            set status = $$$ERROR($$$GeneralError, "Call to " _ context.targetConfigNames _" failed: " _ tSC1 _", FailureTimeout " _ context.failureTimeout)
+		        }
+		        else
+		        {
+		            $$$TRACE("Send Sync Incoming X12 message to Process: " _ tOneTarget _ ", status: " _ tSC1 _", Resp: " _ response)
+		        }
+		     }
+		     if (  ($IsObject(response)) && (response.%IsA("Ens.StringContainer")) ) 
+		     {
+		        $$$TRACE("X12 from: " _tOneTarget _"= " _ response.StringValue)
+		     }
+		     else
+		     {
+		         set response = ##class(Ens.StringContainer).%New()
+		         set response.StringValue = ""
+		     } 
 			
           }
         }
@@ -860,7 +891,7 @@ BPL Definition</Description>
  
  ]]]]><![CDATA[>
 </code>
-<code name='Send 271 to Validate' xpos='1550' ypos='3500' >
+<code name='Send 271 to Validate' xpos='1550' ypos='3600' >
 <![CDATA[  
           if (response.StringValue '= "")
           {
@@ -886,8 +917,7 @@ BPL Definition</Description>
 	  
 	               		$$$TRACE("271 validation, Call: " _ configValue)
 				  try {
-				        set sv = response.StringValue
-					Set tSC1=process.SendRequestSync(configValue, context.succBat, .response, 10)
+					Set tSC1=process.SendRequestSync(configValue, context.succBat, .response, context.failureTimeout - 1)
 		
 						$$$TRACE("271 RDP Validation process, status: " _ tSC1 )
 						
@@ -932,8 +962,8 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='Out' value='context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1280' ypos='3200' />
-<code name='Route X12 using tpLinkObj.Routing' xpos='1280' ypos='3300' >
+<trace name='Out' value='context.tpLinkObj.Direction _ ", Send to next out component, Routing: " _ context.tpLinkObj.Routing' xpos='1280' ypos='3300' />
+<code name='Route X12 using tpLinkObj.Routing' xpos='1280' ypos='3400' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") || (configValue [ "None") || ($zconvert(configValue, "u") [ "BITBUCKET"))
  {
@@ -970,7 +1000,7 @@ BPL Definition</Description>
 			if ((compName '= "") && '($zconvert(compName, "u") [ "BITBUCKET"))
 	     	{
 			
-			   Set tSC1=process.SendRequestAsync(compName, x12StCon)
+			   Set tSC1=process.SendRequestAsync(compName, x12StCon, 0)
 			   $$$TRACE("Send Async Outgoing message to: " _ compName_ ", status: " _ tSC1)
 	     	}
 		 }
@@ -992,7 +1022,7 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<code name='Send StringContainer' xpos='1280' ypos='3400' >
+<code name='Send StringContainer' xpos='1280' ypos='3500' >
 <![CDATA[ set response = ##class(Ens.StringContainer).%New()
  
  set response.StringValue = request.OutputToString(, .status)
@@ -1002,7 +1032,7 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<code name='Update X12 data' xpos='1280' ypos='3700' >
+<code name='Update X12 data' xpos='1280' ypos='3800' >
 <![CDATA[
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StoreTargetConfigName",.configValue)
   
@@ -1012,7 +1042,7 @@ BPL Definition</Description>
         set context.storeX12.status = "Processed"
         
   
-        Set tSC1=process.SendRequestAsync(configValue, context.storeX12)
+        Set tSC1=process.SendRequestAsync(configValue, context.storeX12, 0)
         
         $$$TRACE("Send Async Stream to the Store operation, status: " _ tSC1 )
  } 
@@ -1025,13 +1055,13 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='740' ypos='3050' xend='740' yend='3300' >
+<if name='Direction = In' condition='(context.tpLinkObj.Direction = "In")' xpos='740' ypos='3150' xend='740' yend='3400' >
 <true>
-<code name='Send NACK' xpos='1010' ypos='3200' >
+<code name='Send NACK' xpos='1010' ypos='3300' >
 <![CDATA[ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = "") || ($zconvert(configValue, "u") [ "BITBUCKET"))
  {
- 	$$$TRACE("TargetMasksLookup not defined to send NACK")
+ 	$$$TRACE("TargetMasksLookup not defined to send ACK")
  	
         
  }
@@ -1047,7 +1077,7 @@ BPL Definition</Description>
       if (compList '= "")
       {
         
-       
+        
 				 
 				  set x12StCon = ##class(Ens.StreamContainer).%New()
 				  set str = ##class(%Stream.GlobalCharacter).%New()
@@ -1060,15 +1090,17 @@ BPL Definition</Description>
 				 {
 					set compName = $PIECE(compList, ",", j)
 					if ((compName '= "") && '($zconvert(compName, "u") [ "BITBUCKET"))
-	     			        {
-					     Set tSC1=process.SendRequestAsync(compName, x12StCon)
-					     $$$TRACE("Send NACK message to: " _ compName_ ", status: " _ tSC1)
-	     			        }
+	     			{
+					   Set tSC1=process.SendRequestAsync(compName, x12StCon, 0)
+					   $$$TRACE("Send NACK, Async Ack message to: " _ compName_ ", status: " _ tSC1)
+	     			}
 				 }
-        }
-	else{
+
+		
+	  }
+	  else{
 		$$$LOGERROR("Value not found in Outgoing Lookup table for: " _ context.tpLinkObj.Routing)
-       }
+      }
     }  catch err
     {
         $$$LOGERROR("Value not found in Outgoing Lookup table for: " _ context.tpLinkObj.Routing)
@@ -1082,10 +1114,10 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<trace name='error' value='"X12 validation failed in the Outbound interface"' xpos='740' ypos='3200' />
+<trace name='error' value='"X12 validation failed in the Outbound interface"' xpos='740' ypos='3300' />
 </false>
 </if>
-<code name='Update X12 data' xpos='740' ypos='3400' >
+<code name='Update X12 data' xpos='740' ypos='3500' >
 <![CDATA[
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StoreTargetConfigName",.configValue)
   
@@ -1095,7 +1127,7 @@ BPL Definition</Description>
         set context.storeX12.status = "Validation failed"
         
   
-        Set tSC1=process.SendRequestAsync(configValue, context.storeX12)
+        Set tSC1=process.SendRequestAsync(configValue, context.storeX12, 0)
         
         $$$TRACE("Send Async Outcoming Stream to the Store operation, status: " _ tSC1 _", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
  } 
@@ -1106,21 +1138,21 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<code name='Send StringContainer' xpos='740' ypos='3500' >
+<code name='Send StringContainer' xpos='740' ypos='3600' >
 <![CDATA[ set response = ##class(Ens.StringContainer).%New()
  
  set response.StringValue = context.jsonMessage.ack
  
-
+ $$$TRACE("Sending ACK in a StringContainer, length: " _ $L(response.StringValue))
  	]]]]><![CDATA[>
 </code>
-<code name='Store 999 X12 data' xpos='740' ypos='3600' >
+<code name='Store 999 X12 data' xpos='740' ypos='3700' >
 <![CDATA[
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StoreTargetConfigName",.configValue)
   
  if ( ($$$ISOK(pstatus)) && (configValue '= "") && '($zconvert(configValue, "u") [ "BITBUCKET"))
  {
- 	$$$TRACE("Sending 999 to " _ configValue _" to update status")
+ 	$$$TRACE("Sending X12 to " _ configValue _" to update status")
  	set store999 = context.storeX12.%ConstructClone()
         set store999.status = "Processed"
         set store999.version = "005010X231A1"
@@ -1132,7 +1164,7 @@ BPL Definition</Description>
         Do store999.streamContainer.Stream.Write(response.StringValue) 
         Do store999.streamContainer.Stream.Rewind()
   
-        Set tSC1=process.SendRequestAsync(configValue, store999 )
+        Set tSC1=process.SendRequestAsync(configValue, store999, 0 )
         
         $$$TRACE("Send Async Outcoming 999 to the Store operation, status: " _ tSC1 _", Stream ID: "_ store999.streamContainer.Stream.%Id()_", Size: "_ store999.streamContainer.Stream.Size)
  } 
@@ -1158,7 +1190,7 @@ BPL Definition</Description>
         set context.storeX12.status = "TP Link not found"
         
   
-        Set tSC1=process.SendRequestAsync(configValue, context.storeX12)
+        Set tSC1=process.SendRequestAsync(configValue, context.storeX12, 0)
         
         $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
  } 
@@ -1181,9 +1213,31 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<trace name='done' value='"processing complete"' xpos='200' ypos='4100' />
+<code name='To File out' xpos='200' ypos='4200' >
+<![CDATA[ if (request.%IsA("Ens.StreamContainer")) // from File or SFTP
+ {  
+   
+   Do request.Stream.Rewind()
+   
+   Set tSC1=process.SendRequestAsync("Sh-TestX12", request, 0)
+   
+   $$$TRACE("Send Async Incoming Stream file, status: " _ tSC1 )
+   
+    
+    set flResp = ##class(Ens.StreamContainer).%New()
+    set flResp.Stream = ##class(%Stream.GlobalCharacter).%New()
+    Do flResp.Stream.Write(response.StringValue)
+    set flResp.OriginalFilename = request.OriginalFilename _ ".271"
+    
+   Set tSC1=process.SendRequestAsync("Sh-TestX12", flResp, 0)
+        
+   $$$TRACE("Send Async Incoming Stream file, status: " _ tSC1 )
+                        
+ }]]]]><![CDATA[>
+</code>
+<trace name='done' value='"processing complete"' xpos='200' ypos='4300' />
 <faulthandlers>
-<catchall xpos='200' ypos='4200' xend='200' yend='350' >
+<catchall xpos='200' ypos='4400' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
