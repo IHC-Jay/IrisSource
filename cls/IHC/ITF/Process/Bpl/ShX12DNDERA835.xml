@@ -119,7 +119,7 @@ BPL Definition</Description>
    }
 
 
- // $$$TRACE( "Process DndCoreEraRecord Id: " _ context.dndId)
+ $$$TRACE( "Process DndCoreEraRecord Id: " _ context.dndId)
  
  if ( (context.dndId = "") || (context.dndId = 0))
  {
@@ -154,35 +154,62 @@ BPL Definition</Description>
 <while name='Process each X12' condition='context.rs.%Next()' xpos='200' ypos='1100' xend='200' yend='650' >
 <assign name="Get x12RecordId" property="context.x12RecordId" value="context.rs.%Get(&quot;ID&quot;)" action="set" xpos='200' ypos='250' />
 <trace name='x12RecordId' value='"Process X12: " _ context.x12RecordId' xpos='200' ypos='350' />
-<assign name="Get DndCoreEraX12Record" property="context.x12Rec" value="##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(context.x12RecordId)" action="set" xpos='200' ypos='450' />
+<assign name="Get DndCoreEraX12Record" property="context.x12Rec" value="##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(context.x12RecordId)" action="set" xpos='200' ypos='454' />
 <code name='Send X12 with routing' xpos='200' ypos='550' >
 <![CDATA[  // Send the X12 to next components
-
+  $$$TRACE( " *** SEND X12 *** context.x12Rec: " _ context.x12Rec )
   if ($IsObject(context.x12Rec))
   {
 	  set stCon = ##class(Ens.StreamContainer).%New()
 	  set stCon.Stream = ##class(%Stream.FileCharacter).%New()
+	  Do context.x12Rec.X12stream.Rewind()
 	  Set stCon.Stream = context.x12Rec.X12stream
+	  $$$TRACE( " *** SEND X12 *** stCon.Stream: "_stCon.Stream )
 	  
-	  //TODO: Need to come back and change this to get the validation comp from the target configuration list rather than hard code to and to Change this to handle multiple targets.
-	  set operation = "SH-835-Validate"
+	  //Send X12 to the validation comp from the target configuration list 
 	  
 	  //TODO: Change the name to default to the UNIN naming convention 
-	  set stCon.OutputFilename = context.x12Rec.IsaUniqId _ "-" _ operation _ "-" _ $ZDATETIME($HOROLOG,8, 1) _ ".txt"
+	  $$$TRACE( " *** SEND X12 *** IsaUniqId: " _ context.x12Rec.IsaUniqId)
+	  $$$TRACE( " *** SEND X12 *** CKPYREFID: " _ context.x12Rec.CKPYREFID)
+	  set dateTime = $ZDATETIME($HOROLOG,8, 1)
+	  $$$TRACE( " *** SEND X12 *** DateTime: " _ dateTime)
+	  
+	  set stCon.OutputFilename = "SH-835-" _ context.x12Rec.IsaUniqId _ "-" _ context.x12Rec.CKPYREFID _ "-" _ dateTime _ ".txt"
+	  $$$TRACE( " *** SEND X12 *** OutputFilename: " _ stCon.OutputFilename )
+	  
 	  set stCon.OriginalFilename = stCon.OutputFilename
+	  $$$TRACE( " *** SEND X12 *** OriginalFilename set to OutputFilename: " _ stCon.OriginalFilename )
+	  
+	  
+	  /*Temp hard code target	  
+	  set tOneTarget= "SH-835-Validate"
+ 	  set tStatus = process.SendRequestAsync(tOneTarget, stCon)
+  
+	  $$$TRACE(" *** SEND X12 *** " _ stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", target: " _ tOneTarget _ ", tStatus = " _ tStatus) 
+	  
+	    
+	   set context.x12Rec.Status = "Sent-" _ context.x12Rec.Status
+	   set context.x12Rec.FileName = stCon.OutputFilename
+	   set context.x12Rec.ProcessedTime = $ZDATETIME($HOROLOG,3, 1)
+	   Do context.x12Rec.%Save()
+	  */  		  
 
-  	  set tStatus = $$$OK
-    	  set tStatus = process.SendRequestAsync(operation, stCon)
+	  
+	  For iTarget=1:1:$L(context.targetConfigNames, ",") 
+          {
+	         Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+
+    	         set tStatus = process.SendRequestAsync(tOneTarget, stCon)
 	    	  
-	  $$$TRACE(stCon.OriginalFilename _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", target: " _ operation _ ", TpLinkId: " _ context.x12Rec.TpLinkId _", tStatus = " _ tStatus) 
+	         $$$TRACE("*** SEND X12 *** Sent: " _ stCon.OriginalFilename _ " to comp: " _ tOneTarget _ " - Stream size: " _ stCon.Stream.Size _ " sent, Receiver: " _ context.x12Rec.ReceiverId _ ", target: " _ tOneTarget _ ", tStatus = " _ tStatus) 
 	  
-	  //TODO: Update this to a status more like created or complete if that doesn't have negative affects 
-	  //as we are not sending out form this comp but instead passing on to validation and storage
-	  set context.x12Rec.Status = "Sent-" _ context.x12Rec.Status
-	  
-	  set context.x12Rec.FileName = stCon.OutputFilename
-	  set context.x12Rec.ProcessedTime = $ZDATETIME($HOROLOG,3, 1)
-	  Do context.x12Rec.%Save()
+	         //TODO: Update this to a status more like created or complete if that doesn't have negative affects 
+	           //as we are not sending out form this comp but instead passing on to validation and storage
+	          set context.x12Rec.Status = "Sent-" _ context.x12Rec.Status
+	  	      set context.x12Rec.FileName = stCon.OutputFilename
+	          set context.x12Rec.ProcessedTime = $ZDATETIME($HOROLOG,3, 1)
+	          Do context.x12Rec.%Save()
+	  }
 	  
 	  /*  TODO: Need to figure out if this needs to be here and if so how to make it work OR if it needs to be moved the operations that do the final send.  
 	  // Trans tracking
