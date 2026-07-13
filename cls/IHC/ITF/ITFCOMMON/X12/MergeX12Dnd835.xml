@@ -28,30 +28,43 @@
 		Set rs = ##class(%SQL.Statement).%ExecDirect(,"SELECT x.ID FROM IHC_ITF_DStruc.DndCoreEraX12Record x, IHC_ITF_DStruc.DndCoreEraRecord r " _
                  " where x.status = 'InProcess' and x.CKPYREFID = r.CKPYREFID " _
                  " and TriggerTime = '" _ trigStr _ "' order by ReceiverId")
-
+                 
+        $$$TRACE( "Got list of IDs in Status of InProcess from IHC_ITF_DStruc.DndCoreEraX12Record for TriggerTime: " _ trigStr _ "starting to loop through them")
+        
 		While rs.%Next() {
 			
 			set id = rs.%Get("ID")
 			set x12Rec = ##class(IHC.ITF.DStruc.DndCoreEraX12Record).%OpenId(id)
+			$$$TRACE( "Working on IHC_ITF_DStruc.DndCoreEraX12Record ID: " _ id)
 			
 			if ($IsObject(x12Rec))
 			{
-				$$$TRACE( " -- ReceiverId: " _x12Rec.ReceiverId _", Prev ReceiverId: " _ prevX12Rec.ReceiverId) 
+				
+				$$$TRACE(" Setting source to X12 from table IHC.ITF.DStruc.DndCoreEraX12Record for ID: " _ id)
+				set pDocIn = ##class(EnsLib.EDI.X12.Document).%New()
+	            set pDocIn = pDocIn.ImportFromLibraryStream(x12Rec.X12stream, .tSC)
+				SET source = pDocIn	
+					
+				$$$TRACE( " -- ReceiverId: " _x12Rec.ReceiverId _", Prev ReceiverId: " _ prevX12Rec.ReceiverId _ ", interchange: "_interchange) 
+				$$$TRACE(" tpInfo :"_tpInfo)
+				
 				if ( x12Rec.ReceiverId '= prevX12Rec.ReceiverId)
 				{	
 					$$$TRACE( "New ReceiverId: " _x12Rec.ReceiverId _", " _ x12Rec.CKPYREFID)
 					
 					if (prevX12Rec.ReceiverId '= "") // Not First record
-					{
+					{   
+					    $$$TRACE(" interchange: "_interchange_ " tpInfo: "_tpInfo)
 						Do ..MergeSTs(prevX12Rec, interchange, group , ST, tpInfo) //This is calling merger for the last record as we got a new Reciver ID on this record.
 					}
 					
 					Do interchange.Clear()
 					Do group.Clear()
 					Do ST.Clear()
-			
+										
 					// Get Merge option for the TP
 					set tpInfo = ..GetTpLinkInfo(x12Rec.ReceiverId) //This is getting the TP Link info for the current record with the new Reciver ID
+					$$$TRACE(" tpInfo1 :"_tpInfo)
 					if (tpInfo = "")
 					{
 						Do ..CreateWfEntry(id)
@@ -59,14 +72,18 @@
 					}
 					elseif (tpInfo [ "Batched")
 					{	
+					    $$$TRACE( " *** Batched *** ")
 						DO ..GetISA(source, interchange)				
 						DO ..GetGS(source, group)					
 						Do ..GetST(source, ST)
 					}
 					else //Single, Not batched
 					{
+						$$$TRACE(" interchange :"_interchange)
 						DO ..GetISA(source, interchange)
 					}
+					
+					
 
 				} //Repeat TP
 				elseif (tpInfo [ "Batched")
@@ -218,12 +235,14 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 <FormalSpec>source:EnsLib.EDI.X12.Document,interchange:%ArrayOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 		
+		$$$TRACE( " *** GetISA *** ")
     Try {
 		
 		 if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
 		 {
 			
 				Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 
+				$$$TRACE( " *** GetISA *** - Source is an X12. Now looping through segment to find ISA and IEA")
 													
 			// $$$TRACE("ISA - IDs: " _ source.GetValueAt("ISA:InterchangeReceiverId")   _" -> " _ source.GetValueAt("ISA:InterchangeReceiverID"))
 
@@ -233,10 +252,11 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 
 			for segNum=1:1:source.SegCountGet()
 			{
-				
+				$$$TRACE( " *** GetISA *** Segment Number" _ segNum )
 				set seg = source.GetSegmentAt(segNum)
+				$$$TRACE( " *** GetISA *** segment: " _ seg)
 				set segPath = source.GetSegmentPath(segNum, .segStat)
-						
+								
 				set stat = seg.GetContentArray(.pContents,"source", "HIPAA_5010:" _ seg.Name)
 				if $$$ISERR(stat)
 				{
@@ -246,13 +266,19 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 				if (segPath [ "ISA")
 				{		
 					Do interchange.SetAt(seg, 1)
+					$$$TRACE( " *** GetISA *** Set ISA")
 				}
 				elseif (segPath [ "IEA")
 				{		
 					Do interchange.SetAt(seg, 2)
+					$$$TRACE( " *** GetISA *** Set IEA")
 				}
 				
 			}
+		 }
+		 else
+		 {
+			 $$$TRACE( " *** GetISA *** - Source is either not an object or not of type EnsLib.EDI.X12.Document")
 		 }
 	 }
 	 Catch thrownErr {
@@ -272,6 +298,8 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 <FormalSpec>source:EnsLib.EDI.X12.Document,group:%ArrayOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 	Set k1="",tSC=1
+	
+	$$$TRACE( " *** GetGS *** ")
 	
 	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
 	{
@@ -329,7 +357,13 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 <FormalSpec>source:EnsLib.EDI.X12.Document,ST:%ArrayOfDataTypes</FormalSpec>
 <Implementation><![CDATA[
 	Set k1="",tSC=1
-	set source.DocType="HIPAA_5010:Interchange:Group"
+	
+	$$$TRACE( " *** GetST *** ")
+	
+	if ( ($ISOBJECT(source)) && (source.%Extends("EnsLib.EDI.X12.Document")) )
+	{
+		
+	Set tBlankSrc=1, source.DocType="HIPAA_5010:Interchange:Group" 				
 					
 	For {
 		Set k1=source.NextChild(k1,source.GetSegmentIndex("GroupDocsRef",.tSCTrans))
@@ -382,6 +416,7 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 
         }  
 	}
+	}
 ]]></Implementation>
 </Method>
 
@@ -389,6 +424,7 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 <ClassMethod>1</ClassMethod>
 <FormalSpec>x12Rec:IHC.ITF.DStruc.DndCoreEraX12Record,interchange:%ArrayOfDataTypes,group:%ArrayOfDataTypes,ST:%ArrayOfDataTypes,tpInfo:%String</FormalSpec>
 <Implementation><![CDATA[
+	$$$TRACE(" MergeSTs: interchange.Count:: "_interchange.Count())
 	if (interchange.Count() > 1)
 	{
 		#dim isaDoc As EnsLib.EDI.X12.Segment
@@ -396,6 +432,7 @@ ClassMethod ParseX12(fileStream As %Stream.GlobalCharacter, ByRef source)
 		set tSC = isaDoc.DocTypeSet("HIPAA_5010:ISA")
 		set isaUniqId = $ZSTRIP(isaDoc.GetValueAt("InterchangeSenderId"), "*W")   _"-" _ $ZSTRIP(isaDoc.GetValueAt("InterchangeReceiverID"), "*W")  _"-" _ $ZSTRIP(isaDoc.GetValueAt("InterchangeControlNumber"), "*W")
 		
+		$$$TRACE(ST.Count())
 		if (ST.Count() > 1)
 		{
 				
