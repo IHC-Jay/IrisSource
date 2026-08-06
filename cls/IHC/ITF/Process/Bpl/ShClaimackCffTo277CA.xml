@@ -184,7 +184,9 @@ BPL Definition</Description>
 <property name='recNum' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='recFirst' type='%Integer' initialexpression='1' instantiate='0' />
 <property name='recOthers' type='%Integer' initialexpression='0' instantiate='0' />
-<property name='x12Num' type='%Integer' instantiate='0' />
+<property name='x12Num' type='%Integer' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[The index number of the current X12]]]]><![CDATA[></annotation>
+</property>
 <property name='cffRecs' type='%String' collection='list' instantiate='0' />
 <property name='x12Document' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='senderId' type='%String' instantiate='0' >
@@ -197,8 +199,12 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='routingErrors' type='%Integer' initialexpression='0' instantiate='0' />
-<property name='sentRoute' type='%Integer' initialexpression='0' instantiate='0' />
+<property name='routingErrors' type='%Integer' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[Number of X12s that have encountered errors and were not sent]]]]><![CDATA[></annotation>
+</property>
+<property name='sentRoute' type='%Integer' initialexpression='0' instantiate='0' >
+<annotation><![CDATA[The number of X12s successfully processed and sent to their applicable route]]]]><![CDATA[></annotation>
+</property>
 <property name='x12FromFile' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='generateX12File' type='%Boolean' instantiate='0' />
 <property name='targetConfigNames' type='%String' initialexpression='""' instantiate='0' >
@@ -292,31 +298,59 @@ BPL Definition</Description>
 <![CDATA[  
  set context.recCnt =  request.Records.Count()
  
- $$$TRACE("Total # of records: " _ context.recCnt)
-   set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
+ $$$TRACE("Total # of records in transmission: " _ context.recCnt)
+   //context.recFirst is the record number (index) of the first record in a given X12
+   //context.recOthers is the NUMBER of records in the given X12
+   //context.x12Num is the index of the current X12 in the current process (ie, if the CFF contains records for 5 x12, context.x12Num will go from 1 to 5
+   //set context.recFirst = 1, context.recOthers = 0, context.x12Num = 0]]]]><![CDATA[>
 </code>
-<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='850' xend='200' yend='3700' >
+<while name='Process all records' condition='context.recNum &lt;= context.recCnt' xpos='200' ypos='850' xend='200' yend='3800' >
 <assign name="Get the record" property="caRec" value="request.Records.GetAt(context.recNum)" action="set" xpos='200' ypos='250' />
-<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='3500' >
+<if name='is last record - 99' condition='caRec.LSTREC &apos;= ""' xpos='200' ypos='350' xend='200' yend='3600' >
 <true>
-<trace name='Which records we are looking at' value='"Call DTL from " _ context.recFirst _ "-&gt;" _ (context.recFirst + context.recOthers)' xpos='470' ypos='500' />
-<code name='create list' xpos='470' ypos='600' >
-<![CDATA[ set context.cffRecs = ##class(%ListOfDataTypes).%New()
+<code name='Increment the X12 counter' xpos='470' ypos='500' >
+<![CDATA[ set context.x12Num = context.x12Num+1]]]]><![CDATA[>
+</code>
+<trace name='Which records we are looking at' value='"X12 number "_context.x12Num_ " is being created with CFF records from " _ context.recFirst _ " to " _ (context.recFirst + context.recOthers)' xpos='470' ypos='600' />
+<code name='create list' xpos='470' ypos='700' >
+<![CDATA[ //Instantiate the list of CFF records to be used to build the current X12
+ set context.cffRecs = ##class(%ListOfDataTypes).%New()
+
  
- for i= context.recFirst :1: 
+ // Reset per-X12 state
+ set context.routeFound = 0 //Did we find a route for this particular record
+ set context.targetOperation = "" //Which operation (route) we are sending to
+ set context.b2bLnkInfo = "" //This is the actual link information returned from B2B
+ set context.lnkObj = "" //contains the actual information about the B2B link between sender and receiver, derived from b2bLnkInfo
+ set context.SNIPValidationStat = ""
+ set context.errStr = "" //The error message (if any) for the current record
+ set context.jsonMessage = "" //This is the response from the RDP Crystal validation
+ set context.x12Document = "" //The actual X12 we are currently working with; built
+ set context.storeX12 = "" //This is the data object (IHC.ITF.ITFCOMMON.DStruc.StoreX12) sent to the store, it contains the X12 as a stream, as well as several pieces of metadata
+ set context.x12asStream = ""
+ set context.interchangeSenderID = "" //The ID of the sending system (ISA06)
+ set context.interchangeReceiverID = "" //The ID of the receiving system (ISA08)
+ set context.version = "" //X12 version of the current X12 message
+ set context.transactionType = "" //Transaction Type of the current message; should be 277CA
+ 
+ 
+ //For each CFF record to be used in the current X12...
+ for i= context.recFirst :1:
+  //...add one to the number of CFF records in the current X12...
   (context.recFirst + context.recOthers)
   {
+   //...and add the record to the list of CFF records to be used in this X12
    Do context.cffRecs.Insert(i)
   }
   
 
   $$$TRACE("TP: " _ request.Records.GetAt(context.recFirst).ENVSNDER _ " -> " _ request.Records.GetAt(context.recFirst).ENVRCVER _ ", from " _ context.recFirst _ "->" _ (context.recFirst + context.recOthers) _ ", # CFF records: " _ context.cffRecs.Size)]]]]><![CDATA[>
 </code>
-<transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Document' xpos='470' ypos='700' />
-<if name='Is X12 Document?' condition='($ISOBJECT(context.x12Document)) &amp;&amp; (context.x12Document.%Extends("EnsLib.EDI.X12.Document"))' xpos='470' ypos='800' xend='470' yend='3200' >
+<transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Document' xpos='470' ypos='800' />
+<if name='Is X12 Document?' condition='($ISOBJECT(context.x12Document)) &amp;&amp; (context.x12Document.%Extends("EnsLib.EDI.X12.Document"))' xpos='470' ypos='900' xend='470' yend='3300' >
 <true>
-<trace name='Trace X12 Document' value='"X12.Document.RawContent: " _ context.x12Document.RawContent' xpos='740' ypos='950' disabled="true"/>
-<code name='Pull Envelope Data' xpos='740' ypos='1050' >
+<trace name='Trace X12 Document' value='"X12.Document.RawContent: " _ context.x12Document.RawContent' xpos='740' ypos='1050' disabled="true"/>
+<code name='Pull Envelope Data' xpos='740' ypos='1150' >
 <![CDATA[ //context.x12Document is the X12 document the DTL constructed from the incoming data
  $$$TRACE("context.x12Document.DocType = "_context.x12Document.DocType)
  if (context.x12Document.DocType = "")
@@ -374,7 +408,8 @@ BPL Definition</Description>
  set context.storeX12.createDtTm = tm 
  set context.storeX12.transactionType = context.transactionType
  set context.storeX12.streamContainer = context.x12asStream 
- set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+ //set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+ set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId _ context.x12Num
  set context.storeX12.version = context.version
 
 
@@ -390,17 +425,16 @@ BPL Definition</Description>
         
 ]]]]><![CDATA[>
 </code>
-<code name='Store as Received' xpos='740' ypos='1150' >
+<code name='Store as Received' xpos='740' ypos='1250' disabled="true">
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
     set context.storeX12.status = "Received"
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
-    $$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
+    $$$TRACE("X12 number "_context.x12Num_" sent to the Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )
 
-    $$$TRACE("Sent to Store as Received, Status: " _ tStatus)
 ]]]]><![CDATA[>
 </code>
-<code name='B2B Partner Lookup' xpos='740' ypos='1250' >
+<code name='B2B Partner Lookup' xpos='740' ypos='1350' >
 <annotation><![CDATA[get lnkObj, which contains the information about the link between sender and receiver
 ]]]]><![CDATA[></annotation>
 <![CDATA[	//Get the trading partner link information from the B2B application
@@ -428,20 +462,20 @@ BPL Definition</Description>
 	   $$$TRACE("context.storeX12.ValidationRuleFile="_context.storeX12.ValidationRuleFile) 
 	}]]]]><![CDATA[>
 </code>
-<if name='B2B Link Found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.lnkObj)) )' xpos='740' ypos='1350' xend='740' yend='1800' >
+<if name='B2B Link Found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.lnkObj)) )' xpos='740' ypos='1450' xend='740' yend='1900' >
 <true>
-<trace name='SNIP for TP' value='context.x12Document.Name _ " - SNIP: " _ context.lnkObj.SNIP _ ", DocType: " _ context.x12Document.DocType' xpos='740' ypos='1500' />
-<code xpos='740' ypos='1600' >
+<trace name='SNIP for TP' value='context.x12Document.Name _ " - SNIP: " _ context.lnkObj.SNIP _ ", DocType: " _ context.x12Document.DocType' xpos='740' ypos='1600' />
+<code xpos='740' ypos='1700' >
 <![CDATA[ set context.storeX12.SNIP = context.lnkObj.SNIP
  $$$TRACE("context.storeX12.SNIP="_context.storeX12.SNIP)]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<code name='Send to Workflow' xpos='1010' ypos='1500' >
+<code name='Send to Workflow' xpos='1010' ypos='1600' >
 <![CDATA[
  
              $$$LOGERROR( "Could not get Link for "_context.interchangeSenderID _"->"_context.interchangeReceiverID )
-	     //set context.routingErrors = context.routingErrors + 1
+	     set context.routingErrors = context.routingErrors + 1
 			
 	     set dtTm = $ZDATETIME($HOROLOG,3, 1)
 	     set str = $E(context.x12Document.OutputToString(), 1, 5000)
@@ -476,23 +510,24 @@ BPL Definition</Description>
 	     }
 ]]]]><![CDATA[>
 </code>
-<code name='Store as Rejected' xpos='1010' ypos='1600' >
+<code name='Store as Rejected' xpos='1010' ypos='1700' >
 <![CDATA[
  
     //Send the X12 and metadata to the component that will store it in the cache database
     set context.storeX12.status = "Rejected"
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
+    
+    $$$TRACE("X12 number "_context.x12Num_" sent to the Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )
 
-    $$$TRACE("Sent to Store as Rejected, Status: " _ tStatus)
 ]]]]><![CDATA[>
 </code>
-<code name='Error' xpos='1010' ypos='1700' >
+<code name='Error' xpos='1010' ypos='1800' >
 <![CDATA[ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Could not find B2B link; message has been sent to workflow "_ context.interchangeSenderID _"->"_ context.interchangeReceiverID_" SessionID="_$$$JobSessionId)]]]]><![CDATA[>
 </code>
 </false>
 </if>
-<code name='RDP Validation' xpos='740' ypos='1900' >
+<code name='RDP Validation' xpos='740' ypos='2000' >
 <annotation><![CDATA[Validate the data with RDP crystal]]]]><![CDATA[></annotation>
 <![CDATA[
    if context.lnkObj="" {
@@ -519,18 +554,9 @@ BPL Definition</Description>
          $$$TRACE("Sending data to RDP Crystal Validation...")
          Set tSC1=process.SendRequestSync("Op-RdpCrystal-Http-X12VALIDATION", context.storeX12, .resp, 10)
         set context.jsonMessage = resp.jsonMessage
+        //set errText = context.jsonMessage.%ToJSON()
       
-      ///////////////////////
-      set errText = context.jsonMessage.%ToJSON()
-      $$$TRACE("blah"_errText)
-      
-      set iter = context.jsonMessage.%GetIterator()
 
- while iter.%GetNext(.key,.value)
- {
-    $$$TRACE(key_"="_value)
- }
-      ////////////////////////////
          if $isobject(resp) && $isobject(resp.jsonMessage) 
          {
             
@@ -593,9 +619,9 @@ BPL Definition</Description>
 
  ]]]]><![CDATA[>
 </code>
-<if name='Error in Validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='2000' xend='740' yend='2450' >
+<if name='Error in Validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='2100' xend='740' yend='2550' >
 <true>
-<code name='Send to Workflow' xpos='1010' ypos='2150' >
+<code name='Send to Workflow' xpos='1010' ypos='2250' >
 <![CDATA[
 
 	     $$$LOGERROR( "Could not validate "_context.interchangeSenderID _"->"_context.interchangeReceiverID )
@@ -635,27 +661,24 @@ BPL Definition</Description>
 	     }
 	]]]]><![CDATA[>
 </code>
-<code name='Store as Validation Failed' xpos='1010' ypos='2250' >
+<code name='Store as Validation Failed' xpos='1010' ypos='2350' >
 <![CDATA[
  
     //Send the X12 and metadata to the component that will store it in the cache database
     set context.storeX12.status = "Validation Failed"
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
-
-
-    $$$TRACE("Sent to Store as Validation Failed, Status: " _ tStatus)
-]]]]><![CDATA[>
+    $$$TRACE("X12 number "_context.x12Num_" sent to the Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )]]]]><![CDATA[>
 </code>
-<code name='Error' xpos='1010' ypos='2350' >
+<code name='Error' xpos='1010' ypos='2450' >
 <![CDATA[ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Message failed validation and has been sent to workflow. "_ context.interchangeSenderID _"->"_ context.interchangeReceiverID_" SessionID="_$$$JobSessionId)]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<trace name='RDPCrystal Validation Successful' value='"context.SNIPValidationStat is not Error.  RDPCrystal validation successful."' xpos='740' ypos='2150' />
+<trace name='RDPCrystal Validation Successful' value='"context.SNIPValidationStat is not Error.  RDPCrystal validation successful."' xpos='740' ypos='2250' />
 </false>
 </if>
-<code name='Determine Route' xpos='740' ypos='2550' >
+<code name='Determine Route' xpos='740' ypos='2650' >
 <![CDATA[ ///
  /// Determine Routing
  ///
@@ -669,17 +692,17 @@ BPL Definition</Description>
 
  if (route  [ "UHIN")
  {
-    set context.targetOperation = "Out-Uhin-277CA-Sftp-SH"
+    set context.targetOperation = "Out-Uhin-BATCH-Sftp-SH"
     set context.routeFound = 1
  }
  elseif (route  [ "UMR")
  {
-    set context.targetOperation = "Out-Umr-277CA-Sftp-SH"
+    set context.targetOperation = "Out-Umr-BATCH-Sftp-SH"
     set context.routeFound = 1
  }
  elseif (route  [ "SDS")
  {
-    set context.targetOperation = "Out-Sds-277CA-Sftp-SH"
+    set context.targetOperation = "Out-Sds-BATCH-Sftp-SH"
     set context.routeFound = 1
  }
  elseif (route  [ "BITBUCKET")
@@ -723,16 +746,44 @@ BPL Definition</Description>
      //set context.sentRoute = context.sentRoute + 1
  //}]]]]><![CDATA[>
 </code>
-<if name='Route Found' condition='context.routeFound' xpos='740' ypos='2650' xend='740' yend='3100' >
+<if name='Route Found' condition='context.routeFound' xpos='740' ypos='2750' xend='740' yend='3200' >
 <annotation><![CDATA[If we got a valid route from B2B]]]]><![CDATA[></annotation>
 <true>
-<code name='Trace Route Found' xpos='740' ypos='2800' >
+<code name='Trace Route Found' xpos='1010' ypos='2900' >
 <![CDATA[ $$$TRACE("Route found; target operation is " _  context.targetOperation)]]]]><![CDATA[>
+</code>
+<code name='Send to Operation' xpos='1010' ypos='3000' >
+<![CDATA[ if (context.targetOperation '= "")
+ {
+     set tRequest = ##class(Ens.StreamContainer).%New("")
+     set tStream=##Class(%Library.GlobalCharacterStream).%New()
+     set pStatus = context.x12Document.OutputToLibraryStream(tStream)
+     set tRequest.Stream = tStream  
+     //set tStatus = process.SendRequestAsync(context.targetOperation ,tRequest)
+     //set tStatus = process.SendRequestAsync(context.targetOperation, context.stX12)
+     set tStatus = process.SendRequestAsync(context.targetOperation, context.x12asStream)					
+     $$$TRACE("X12 stream number "_context.x12Num_" is sent to the operation: " _ context.targetOperation  _", Status: " _ tStatus )
+ }]]]]><![CDATA[>
+</code>
+<code name='Store as Processed' xpos='1010' ypos='3100' >
+<![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
+    set context.storeX12.status = "Processed"
+    
+    set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12 )
+          
+           
+    $$$TRACE("X12 number "_context.x12Num_" sent to the Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )
+
+
+
+    //Increment the number of X12 successfully sent
+    set context.sentRoute = context.sentRoute + 1]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<code name='Send to Workflow' xpos='1010' ypos='2800' >
-<![CDATA[
+<code name='Send to Workflow' xpos='740' ypos='2900' >
+<![CDATA[ ///Note: This error may be impossible to throw since the TP Links all have a fixed dropdown for routes to select from; I don't see a way to NOT have a route when you DID have a successful partner lookup
+ 
    set errorMessage = "Target route " _ context.lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
    
    $$$LOGERROR(errorMessage)
@@ -752,7 +803,7 @@ BPL Definition</Description>
    $$$TRACE("SessionID="_$$$JobSessionId)
    $$$TRACE("TransactionType="_context.transactionType)
    $$$TRACE("WorkStatus="_"New")
- ///Note: This error may be impossible to throw since the TP Links all have a fixed dropdown for routes to select from; I don't see a way to NOT have a route when you DID have a successful partner lookup	     
+	     
 	     
 	
    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
@@ -771,7 +822,7 @@ BPL Definition</Description>
   }
 	]]]]><![CDATA[>
 </code>
-<code name='Store as Rejected' xpos='1010' ypos='2900' >
+<code name='Store as Rejected' xpos='740' ypos='3000' >
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
     set context.storeX12.status = "Rejected"
     
@@ -780,20 +831,20 @@ BPL Definition</Description>
     $$$TRACE("Sent to Store as Rejected, Status: " _ tStatus)
 ]]]]><![CDATA[>
 </code>
-<code name='Error' xpos='1010' ypos='3000' >
+<code name='Error' xpos='740' ypos='3100' >
 <![CDATA[ Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," A route could not be determined for this message and it has been sent to workflow. "_ context.interchangeSenderID _"->"_ context.interchangeReceiverID_" SessionID="_$$$JobSessionId)]]]]><![CDATA[>
 </code>
 </false>
 </if>
 </true>
 <false>
-<code name='NOT an X12 document' xpos='470' ypos='950' >
+<code name='NOT an X12 document' xpos='470' ypos='1050' >
 <![CDATA[ $$$LOGERROR(context.x12Document  _ " - Not a X12 document")
    set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"CFF to X12 DTL did not return an X12 document; we may have gotten a bad CFF.")]]]]><![CDATA[>
 </code>
 </false>
 </if>
-<code name='Store as Processed' xpos='470' ypos='3300' >
+<code name='Store as Processed' xpos='470' ypos='3400' disabled="true">
 <![CDATA[
  
     //Send the X12 and metadata to the component that will store it in the cache database
@@ -803,20 +854,26 @@ BPL Definition</Description>
     //$$$TRACE("IHC.ITF.ITFCOMMON.DStruc.StoreX12 is sent to the operation Sh-Claimack-Store_277CA to store X12, Status: " _ tStatus )
 
     $$$TRACE("Sent to Store as Processed, Status: " _ tStatus)
-]]]]><![CDATA[>
+
+    //Increment the number of X12 successfully sent
+    set context.sentRoute = context.sentRoute + 1]]]]><![CDATA[>
 </code>
-<code name='Reset counts' xpos='470' ypos='3400' >
-<![CDATA[  set context.recFirst = context.recNum + 1
+<code name='Reset CFF record counts' xpos='470' ypos='3500' >
+<![CDATA[  //Set the CFF record number for the first record in the next X12 to be the number AFTER the current record number (ie the next X12 begins one record after this one ends)
+  set context.recFirst = context.recNum + 1
+  //Reset the the number of records to be repopulated by the next X12
   set context.recOthers = 0]]]]><![CDATA[>
 </code>
 </true>
 <false>
-<assign name="update number of records" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' />
+<assign name="update number of records in current X12" property="context.recOthers" value="context.recOthers + 1" action="set" xpos='200' ypos='500' >
+<annotation><![CDATA[Add one to the number of CFF records in this X12]]]]><![CDATA[></annotation>
+</assign>
 </false>
 </if>
-<code name='UnSwizzleAt' xpos='200' ypos='3600' >
+<code name='UnSwizzleAt' xpos='200' ypos='3700' >
 <![CDATA[ 	set sc = request.Records.%UnSwizzleAt(context.recNum)
- 	 $$$TRACE("UnSwizzleAt stat: " _ sc)
+ 	 $$$TRACE("UnSwizzleAt record number "_context.recNum_" after being processed. stat: " _ sc)
 	set context.recNum = context.recNum + 1]]]]><![CDATA[>
 </code>
 </while>
