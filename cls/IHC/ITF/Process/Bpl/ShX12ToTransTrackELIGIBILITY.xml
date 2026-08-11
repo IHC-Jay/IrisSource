@@ -49,11 +49,6 @@ BPL Definition</Description>
 <property name='TimeOutForSPCall' type='%Integer' instantiate='0' />
 <property name='arr1' type='IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT' instantiate='0' />
 <property name='PEdick' type='%Integer' instantiate='0' />
-<property name='configName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='250' />
-</parameters>
-</property>
 <property name='uniqIdNum' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='inXmlDoc' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
@@ -62,7 +57,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='250' />
 </parameters>
 </property>
-
 <property name='msgType' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='1550' >
@@ -70,29 +64,24 @@ BPL Definition</Description>
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[TransTracking 270/271 batch interface]]]]><![CDATA[></annotation>
 </trace>
-<assign name="Assign processname" property="context.configName" value="process.%ConfigName" action="set" xpos='200' ypos='450' />
 <code name='Trace MaxError and get Target Config Names' xpos='200' ypos='550' >
 <annotation><![CDATA[Trace MaxError and get Target Config Names]]]]><![CDATA[></annotation>
 <![CDATA[ 
 	set maxErr = ##class(IHC.ITF.ITFCOMMON.Utility).GetMaxError(process.%ConfigName)
-  	$$$TRACE("Maximum Errors: " _ maxErr)
-
-   //Read TargetConfigNames
- 	set configValue = "" 
- 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
- 
+  	set configValue = "" 
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue) 
  	if ( ($$$ISERR(pstatus)) || (configValue = "") ){
-   		Set status = $$$ERROR("Initialization error, No TargetConfigNames found")
+   		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No TargetConfigNames found.")   	
  	}else{
-   		$$$TRACE("TargetConfigNames: " _configValue )
-   		set context.targetConfigNames=configValue
- 	}
-  	set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
+	 	set context.targetConfigNames = configValue
+	}
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList) 
    ]]]]><![CDATA[>
 </code>
 
 <code name='Read request' xpos='200' ypos='550' >
 <![CDATA[ 
+		$$$TRACE(request)
 	if (request.%IsA("EnsLib.EDI.X12.Document")){
 		$$$TRACE( " Request: EnsLib.EDI.X12.Document ")
 		set context.inXmlDoc = request
@@ -104,10 +93,14 @@ BPL Definition</Description>
   		$$$TRACE(" context.transType : "_context.msgType)
 		set context.FileName = request.Source 
  	}elseif (request.%IsA("Ens.StreamContainer")){
-	 	$$$TRACE("Process StreamContainer")
-    	set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .pStat )
-        if (pStat '= $$$OK){  	
-     		$$$TRACE("Failed to create X12 message from Stream" _ pStat)
+	 	$$$TRACE("StreamContainer: " _ request.OriginalFilename _ ", Stream size: " _ request.Stream.Size)
+	 	do request.Stream.Rewind()
+ 		set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .tStatus )
+
+	 	
+	 	if (tStatus '= $$$OK){  	
+     		$$$TRACE("Failed to create X12 message from Stream: " _ tStatus)
+     		$$$TRACE("tStatus: "_$System.Status.GetOneStatusText(tStatus))
      		set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "X12 ImportFromLibraryStream failed, Skipping the record." _ request)
         }else{
        		$$$TRACE("Created context.inXmlDoc")
@@ -134,7 +127,7 @@ BPL Definition</Description>
 			 $$$TRACE(" context.MsgType:"_context.msgType)      	
    		}
      }else{
-  		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data, invalid inbound class: " _ request)
+  		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Could not process data, invalid inbound class: " _ request)
  	 }
  		$$$TRACE("Process: " _ context.FileName)
  	]]]]><![CDATA[></code>
@@ -149,7 +142,6 @@ BPL Definition</Description>
  set m=##class(%Regex.Matcher).%New("^[0-9]*$")
  set context.uniqIdNum = m.Match(TtUniqueId)
 
- $$$TRACE("context.targetConfigNames:"_context.targetConfigNames)
  set context.TimeOutForSPCall=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutForSPCall",.pstatus)
   $$$TRACE("timeout:"_context.TimeOutForSPCall)
 
@@ -210,11 +202,12 @@ BPL Definition</Description>
     Set context.arr1.EdiCheckNo=context.PEdick
   	set status = process.SendRequestSync(context.targetConfigNames,context.arr1)
   	$$$TRACE("context.arr1 value:"_context.arr1)
+  	$$$TRACE(" 270 TransTrack complete..")
  ]]]]><![CDATA[>
 </code>
 
 <code name='RESETERROR' xpos='470' ypos='1100' >
-<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
+<![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)
 ]]]]><![CDATA[>
 </code>
 </true>
