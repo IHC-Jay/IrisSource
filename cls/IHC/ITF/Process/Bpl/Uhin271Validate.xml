@@ -6,13 +6,6 @@ Validates 271</Description>
 <Super>IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL</Super>
 <TimeCreated>67599,44461.332858773</TimeCreated>
 
-<Property name="Output999TargetConfigName">
-<Description>
-Process to send the Ack, Routing information from the TP Link will be added to the name</Description>
-<Type>%String</Type>
-<Parameter name="MAXLEN" value="200"/>
-</Property>
-
 <Property name="TransTrackingTargetConfigName">
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="128"/>
@@ -73,6 +66,13 @@ DuplicateCheck: Yes / No </Description>
 <Parameter name="VALUELIST" value=",No,Yes"/>
 </Property>
 
+<Property name="TargetMasksLookup">
+<Description>
+Targets for multiple TPs</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
 <Property name="CreateNewBatches">
 <Description>
 X12 - Create a new batch containing only those child documents which pass validation</Description>
@@ -84,7 +84,7 @@ X12 - Create a new batch containing only those child documents which pass valida
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default><![CDATA[-NEXTOPERATION,Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VersionItems?targets=1&productionName=@productionId},RdpCrystalTargetConfigName:Additional,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,Output999TargetConfigName:Additional,TransTrackingTargetConfigName:Additional,X12StoreTargetConfigName:Additional,UhinTargetConfigName:Additional]]></Default>
+<Default><![CDATA[-NEXTOPERATION,Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VersionItems?targets=1&productionName=@productionId},RdpCrystalTargetConfigName:Additional,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,TransTrackingTargetConfigName:Additional,X12StoreTargetConfigName:Additional,UhinTargetConfigName:Additional,TargetMasksLookup:Additional]]></Default>
 </Parameter>
 
 <XData name="BPL">
@@ -189,6 +189,12 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='targetIndx' type='%Integer' initialexpression='1' instantiate='0' />
+<property name='targetMasksLookup' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+
 </context>
 <sequence xend='200' yend='2550' >
 <scope xpos='200' ypos='250' xend='200' yend='2450' >
@@ -241,7 +247,16 @@ BPL Definition</Description>
    		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No UhinTargetConfigName found.")   	
  	}else{
 	 	set context.UhinTargetConfigName = value	 
- 	}]]]]><![CDATA[>
+ 	}
+ 	
+ 	set status=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.value) 
+ 	$$$TRACE(" Value: ["_value_"]")
+ 	if ( ($$$ISERR(status)) || (value= "")){
+   		Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"TargetMasksLookup value is missing in the settings..")
+ 	}else{
+    	set context.targetMasksLookup = value		
+ 	}
+ 	]]]]><![CDATA[>
 </code>
 <code name='get EnsLib.EDI.X12.Document' xpos='200' ypos='550' >
 <![CDATA[ 
@@ -267,9 +282,6 @@ BPL Definition</Description>
 	  		Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(request.Stream)
 	  		$$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size)
    		}
- 	}elseif (request.%IsA("IHC.ITF.DStruc.EligStat270WithWSdata")){
-    	set context.inXmlDoc = request.origMsg
-    	set context.FileName = request.origMsg.Source
  	}else{
   		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data, invalid inbound class: " _ request)
  	}
@@ -418,28 +430,73 @@ BPL Definition</Description>
   	$$$TRACE(" Invalid 271, Sent to WF ")
   ]]]]><![CDATA[>
 </code>
+<trace name='ValidationFailed' value='"Validation Failed(271).Sending 999/TA01 to targets.. "' xpos='740' ypos='1950' />
+
+<code><![CDATA[ 
+ if ( $zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS" || $zconvert(context.tpLinkObj.GSAck, "U") [ "ERRORS" ) {
+	 set x12StCon = ##class(Ens.StreamContainer).%New()
+	 set str = ##class(%Stream.GlobalCharacter).%New()
+	 Do str.Write(context.jsonMessage.ack)
+	 set x12StCon.Stream = str
+	 set x12StCon.OriginalFilename = context.FileName
+	 try{
+		  set targ = ""
+		  DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 			
+		  if (targ '= ""){			
+		     $$$TRACE( " Sending 271 error 999 to " _ targ)
+			 if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
+				Set tSC1=process.SendRequestAsync(targ, x12StCon)
+				$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
+	     	}
+		  }else{
+			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " 271 ACK cannot be sent.")
+		  }
+		}catch err{
+			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_" 271 ACK cannot be sent.")
+		}
+ 	}
+ ]]]]><![CDATA[>
+</code>
+
+
 </true>
 <false>
-<code name='SendToTargets:Uhin,TransTrack' xpos='740' ypos='1500' >
+<trace name='ValidationPassed' value='"Validation Passed.. Sending to targets and TransTrack.."' xpos='470' ypos='1700' />
+<code name='SendToTargets:Targets,TransTrack' xpos='740' ypos='1500' >
 <![CDATA[  
-	$$$TRACE(" Sending to Uhin Target: "_context.UhinTargetConfigName)
-  	set tStatus = process.SendRequestAsync(context.UhinTargetConfigName,request)
-    if ('tStatus) {    
-  		set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271) to Uhin: " _ context.UhinTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
-  	}else{
-  	  	$$$TRACE(" Sending to TransTrack Target: "_context.transTrackingTargetConfigName)
-  		set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,request)
-    	if ('tStatus) {    
-  			set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271): " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
-  		}
-  	}
+   
+		  set targ = ""
+		  $$$TRACE("context.tpLinkObj.Routing-->"_context.tpLinkObj.Routing)
+		  DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 
+		  $$$TRACE("Target -->"_targ)			
+		  if ((targ '= "") && (targ '="Unknown")){			
+		     $$$TRACE( " Sending(271) to " _ targ)
+			 if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
+				Set tSC1=process.SendRequestSync(targ, request)
+				$$$TRACE("Sent 271 to : " _ targ_ ", status: " _ tSC1)
+				if ('tSC1) {    
+  					set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271) to: " _ targ _ "."_$SYSTEM.Status.GetOneErrorText(tSC1))
+  				}else{
+  	  				$$$TRACE(" Sending to TransTrack Target: "_context.transTrackingTargetConfigName)
+  					set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,request)
+    				if ('tStatus) {    
+  						set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271): " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+  					}
+  				}
+	     	}
+		  }else{
+			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:"_targ)
+			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   	
+		  }
+			 
+	
  ]]]]><![CDATA[>
 </code>
 </false>
 </if>
 </true>
 <false>
-<trace name='Error' value='"TP link not found, send to WF "' xpos='470' ypos='1250' />
+<trace name='TPLInkNotFound' value='"TP link not found(271), send to WF "' xpos='470' ypos='1250' />
 <code name='Store in WorkFlow' xpos='470' ypos='1350' >
 <![CDATA[ $$$TRACE("origX12Doc: " _  context.inXmlDoc.%Id() _", " _ context.errStr)
   $$$TRACE("SessionId = " _ $$$JobSessionId)
@@ -467,7 +524,7 @@ BPL Definition</Description>
   }
   ]]]]><![CDATA[>
 </code>
-<trace name='Done' value='"Stored the TP error into the WF table"' xpos='470' ypos='1550' />
+<trace name='TpLinkNOtFound271' value='"Stored the TP error into the WF for 271"' xpos='470' ypos='1550' />
 </false>
 </if>
 </true>
@@ -499,34 +556,34 @@ BPL Definition</Description>
 <Data name="Uhin271ValidateDefaultData">
 <Subscript>"Uhin271Validate"</Subscript>
 <Value name="1">
-<Value>Output999TargetConfigName</Value>
-</Value>
-<Value name="2">
 <Value>TransTrackingTargetConfigName</Value>
 </Value>
-<Value name="3">
+<Value name="2">
 <Value>Direction</Value>
 </Value>
-<Value name="4">
+<Value name="3">
 <Value>Mode</Value>
 </Value>
-<Value name="5">
+<Value name="4">
 <Value>Version</Value>
 </Value>
-<Value name="6">
+<Value name="5">
 <Value>RdpCrystalTargetConfigName</Value>
 </Value>
-<Value name="7">
+<Value name="6">
 <Value>X12StoreTargetConfigName</Value>
+</Value>
+<Value name="7">
+<Value>UhinTargetConfigName</Value>
 </Value>
 <Value name="8">
 <Value>DuplicateCheck</Value>
 </Value>
 <Value name="9">
-<Value>CreateNewBatches</Value>
+<Value>TargetMasksLookup</Value>
 </Value>
 <Value name="10">
-<Value>UhinTargetConfigName</Value>
+<Value>CreateNewBatches</Value>
 </Value>
 </Data>
 </Storage>
