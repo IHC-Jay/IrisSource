@@ -156,6 +156,11 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='128' />
 </parameters>
 </property>
+<property name='rdpCrystalTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='128' />
+</parameters>
+</property>
 <property name='x12Id' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -231,6 +236,13 @@ BPL Definition</Description>
     	set context.X12StoreTargetConfigName = value
 		$$$TRACE("Get X12StoreTargetConfigName: "_context.X12StoreTargetConfigName)
  	}  
+ 	
+ 	set status=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.value)
+    if ( ($$$ISERR(status)) || (value= "")){
+   		Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"RdpCrystalTargetConfigName value is missing in the settings.")
+ 	}else{
+	 	set context.rdpCrystalTargetConfigName = value	 
+ 	}
  	
  	set status=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.value) 
  	if ( ($$$ISERR(status)) || (value= "")){
@@ -385,41 +397,34 @@ BPL Definition</Description>
 	 	set context.storeX12.direction = context.direction
      	set context.storeX12.status = "Received"
      	set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
-        set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.configValue)
-     	if ( ($$$ISERR(pstatus)) || (configValue = "")){
-	    	$$$LOGERROR("RDP Crystal validation process not defined - RdpCrystalTargetConfigName")
-	    	set context.SNIPValidationStat = $$$OK
-	    	Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"RdpCrystalTargetConfigName value is missing")	    	
-	 	}else{
-	     	$$$TRACE("Calling RDP Validation.. " _ configValue)
-	     	set context.rdpConnectionFlag = "Y"
-	     	try {
-	        	Set tSC1=process.SendRequestSync(configValue, context.storeX12, .resp, 10)
-                $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 )
-                $$$TRACE("RDP response:"_resp.jsonMessage.%ToJSON())
-                if $$$ISOK(tSC1){
-               		set context.jsonMessage = resp.jsonMessage
-               		$$$TRACE("Validation status: " _ context.jsonMessage.status)
-               		if (context.jsonMessage.status = "PASS"){
-                  		set context.SNIPValidationStat = $$$OK                  		
-               		}else{
-                  		set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
-                  		set dtls=context.jsonMessage.details
-                  		$$$TRACE("Error Details: " _ dtls)
-                  		set tmp=$P(dtls,";",1)
-                  		$$$TRACE("# of rejected: " _ tmp)
-                  		set rejectedTsCnt=0+$ZSTRIP($P(tmp,":",2),"<>W")
-                  		$$$TRACE("Number of rejected TS: "_rejectedTsCnt)
-                  		$$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)
-               		}
-            	}else{  
-               		set context.SNIPValidationStat = tSC1
-            	}
-         	}catch ex{
-	         	Set errMsg = "Error while calling the RDP Validation. "_$SYSTEM.Status.GetOneErrorText(ex)
-	         	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg)
-         	}
-      	}         
+        $$$TRACE("Calling RDP Validation.. " _ context.rdpCrystalTargetConfigName)
+	    set context.rdpConnectionFlag = "Y"
+	    try {
+	      	Set tSC1=process.SendRequestSync(context.rdpCrystalTargetConfigName, context.storeX12, .resp, 10)
+            $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 )
+            $$$TRACE("RDP response:"_resp.jsonMessage.%ToJSON())
+            if $$$ISOK(tSC1){
+            	set context.jsonMessage = resp.jsonMessage
+               	$$$TRACE("Validation status: " _ context.jsonMessage.status)
+               	if (context.jsonMessage.status = "PASS"){
+                	set context.SNIPValidationStat = $$$OK                  		
+               	}else{
+              		set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
+               		set dtls=context.jsonMessage.details
+               		$$$TRACE("Error Details: " _ dtls)
+               		set tmp=$P(dtls,";",1)
+               		$$$TRACE("# of rejected: " _ tmp)
+               		set rejectedTsCnt=0+$ZSTRIP($P(tmp,":",2),"<>W")
+               		$$$TRACE("Number of rejected TS: "_rejectedTsCnt)
+               		$$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)
+             	}
+            }else{  
+            	set context.SNIPValidationStat = tSC1
+            }
+         }catch ex{
+	       	Set errMsg = "Error while calling the RDP Validation. "_$SYSTEM.Status.GetOneErrorText(ex)
+	       	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,errMsg)
+         }      	         
   	}else{
     	$$$TRACE("Don't Perform Validation, SNIP: " _ context.tpLinkObj.SNIP)
     	set context.SNIPValidationStat = $$$OK
