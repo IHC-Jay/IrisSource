@@ -6,7 +6,7 @@
 <Super>EnsLib.SOAP.Service</Super>
 <TimeCreated>66434,38738.476554</TimeCreated>
 
-<Property name="Edifecs270TargetConfigNames">
+<Property name="Operation270TargetConfigNames">
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="128"/>
 </Property>
@@ -17,7 +17,7 @@
 <Parameter name="MAXLEN" value="128"/>
 </Property>
 
-<Property name="Edifecs276TargetConfigNames">
+<Property name="Operation276TargetConfigNames">
 <Type>%String</Type>
 <Parameter name="MAXLEN" value="128"/>
 </Property>
@@ -39,8 +39,15 @@ Amount of time the call waits before sending AAA</Description>
 <InitialExpression>20</InitialExpression>
 </Property>
 
+<Property name="ThresholdValue">
+<Description>
+Do not process more than this many requests for a TP, send AAA after this number</Description>
+<Type>%Integer</Type>
+<InitialExpression>20</InitialExpression>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default><![CDATA[ServiceTimeOut:Additional, HighVolumeTag:Additional,Edifecs270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},Edifecs276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
+<Default><![CDATA[ServiceTimeOut:Additional, ThresholdValue: Additional, HighVolumeTag:Additional,Operation270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},Operation276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack270TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId},TransTrack276TargetConfigNames:Basic:selector?multiSelect=1&context={Ens.ContextSearch/ProductionItems?targets=1&productionName=@productionId}]]></Default>
 </Parameter>
 
 <Parameter name="ADAPTER">
@@ -346,7 +353,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 	    {
 		    QUIT $$$ERROR($$$EnsErrGeneral, "Invalid ISA in X12: " _ fullErrorMsg)
 	    }
-	
+	      
 	   set dtTm = $HOROLOG
 	   set randNum = $RANDOM(999)
 	   set x12MsgReq.TtDataSource = ..%ConfigName
@@ -372,9 +379,30 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		if ( ($$$ISOK(tSC)) && (retVal '= "Unknown") )
 		{
 			set newTarget = ..HighVolumeTag
+			
+			set glbNm = "^ItfRtCount" _ tranType
+
+			if ($GET(@glbNm@(x12MsgReq.SenderID)) = "")
+			 {
+				kill @glbNm // Reset the counter
+				set @glbNm@(x12MsgReq.SenderID) = 1
+				$$$TRACE( "NEW " _ tranType _ " from HIGH VOLUME SenderId " _ x12MsgReq.SenderID)
+			 }
+			 else
+			 {
+				 Do $INCREMENT(@glbNm@(x12MsgReq.SenderID))
+				 
+				 if (@glbNm@(x12MsgReq.SenderID) > ..ThresholdValue)
+				 {
+					 $$$TRACE( " -- SEND 999 - " _ x12MsgReq.SenderID _", req # " _ @glbNm@(x12MsgReq.SenderID) _", ThresholdValue: " _ ..ThresholdValue)
+					 set context.aaaCode = "04", context.IndustryCode = "A7", context.IndustryCode2 = "513"
+					 set tSC = $$$ERROR(" STOP processeing messages from " _ x12MsgReq.SenderID _", req # " _ @glbNm@(x12MsgReq.SenderID) _", ThresholdValue: " _ ..ThresholdValue)
+				 }
+				 
+			 }
 		}
 		
-		if (tranType = 276)
+		if ( ($$$ISOK(tSC)) && (tranType = 276))
 		{
 		    set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2000D(1).loop2100D.NM1:9")
 		
@@ -404,9 +432,9 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 			
 			$$$TRACE(tranType _ " pSBSBID: " _ x12MsgReq.pSBSBID _ ", pCLCLID: " _ x12MsgReq.pCLCLID)
 		
-			 For iTarget=1:1:$L(..Edifecs276TargetConfigNames,",") 
+			 For iTarget=1:1:$L(..Operation276TargetConfigNames,",") 
 			 { 
-			 	Set tOneTarget=$ZStrip($P(..Edifecs276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+			 	Set tOneTarget=$ZStrip($P(..Operation276TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
 				$$$TRACE("Sending X12 document to '"_tOneTarget_newTarget_"'")
 				try
 				{
@@ -430,12 +458,14 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 				catch err {
 					Set ErrorMessage =err.Data
 					set x12MsgReq.RespPayload = "Error in generating 277"
+					set tResponse = ##class(Ens.StringContainer).%New()
+					set tResponse.StringValue = ""
 					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
 				}
 			 	// Send to trans tracking
 			 }
 		}
-		else // 270
+		elseif ($$$ISOK(tSC)) // 270
 		{
 			 set x12MsgReq.pSBSBID = pDocIn.FunctionalGroups(1).TransactionSets(1).GetValueAt("loop2000A(1).loop2000B(1).loop2000C(1).loop2100C.NM1:9")
 			 // "EDI_CORE"."SH_EDI_TRANSACTION_LOG"."SBSB_ID" maximum: 9
@@ -445,9 +475,9 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 			 }
 			 
 						 	 
-			 For iTarget=1:1:$L(..Edifecs270TargetConfigNames,",") 
+			 For iTarget=1:1:$L(..Operation270TargetConfigNames,",") 
 			 { 
-			 	Set tOneTarget=$ZStrip($P(..Edifecs270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+			 	Set tOneTarget=$ZStrip($P(..Operation270TargetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
 				$$$TRACE(tranType _ " Sending X12 document to '"_tOneTarget_newTarget_"'")
 				try
 				{
@@ -458,8 +488,6 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 					{
 						$$$TRACE("270 Message aborted for " _ x12MsgReq.SenderID)
 						
-						set context.aaaCode = "04"
-
 					}
 					
 					set PayloadType = "X12_271_Response_005010X279A1" 
@@ -474,6 +502,8 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 					Set ErrorMessage =err.Data
 					set x12MsgReq.RespPayload = "Error in generating 271"
 					Set ErrorCode="500"
+					set tResponse = ##class(Ens.StringContainer).%New()
+					set tResponse.StringValue = ""
 					set tSC = $$$ERROR("Exception in calling the operation: " _ err.Data)
 				}
 			 	
@@ -492,7 +522,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		 		Set ErrorMessage= tSC
 		 		set al = ##class(Ens.AlertRequest).%New()
 		 		// ITFCOMMONInvalidDataError "ITFCOMMON:10108"
-		 		set al.AlertText = "ITFCOMMON:10108: Response from Edifecs is NULL or ERROR, TtUniqueId: " _ x12MsgReq.TtUniqueId
+		 		set al.AlertText = "ITFCOMMON:10108: Response from Operation is NULL or ERROR, TtUniqueId: " _ x12MsgReq.TtUniqueId
 		 		set al.SourceConfigName = ..%ConfigName
 		 		Do ..SendAlert(al)
 		 		set sc=$$$OK
@@ -530,7 +560,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		 	
 		 						
 		 }
-		 else // Error from the Edifecs service
+		 else // Error from the Process service
 		 {			 
 			 	Set ErrorCode="500"
 		 		Set ErrorMessage= tSC
@@ -557,12 +587,18 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		 			Set ErrorMessage= ""
 	
 				  }	
-				  
-		 		set al = ##class(Ens.AlertRequest).%New()
-		 		set al.AlertText = "ERROR " _ $$$EnsErrFailureTimeout _ ": Error in calling Edifecs, " _ tSC _ ", TtUniqueId: " _ x12MsgReq.TtUniqueId
-		 		set al.SourceConfigName = ..%ConfigName
-		 		set aStat = ..SendAlert(al)
-		 		$$$TRACE("SendAlert: " _ aStat)
+				  if '(tSC [ "ThresholdValue")
+				  {
+				 		set al = ##class(Ens.AlertRequest).%New()
+				 		set al.AlertText = "ERROR " _ $$$EnsErrFailureTimeout _ ": Error in calling Operation, " _ tSC _ ", TtUniqueId: " _ x12MsgReq.TtUniqueId
+				 		set al.SourceConfigName = ..%ConfigName
+				 		set aStat = ..SendAlert(al)
+				 		$$$TRACE("SendAlert: " _ aStat)
+				  }
+				  else
+				  {
+					  $$$TRACE("Don't Send Alert for error: " _ tSC)
+				  }
 		 }
 	 	set x12MsgReq.pTransactionFileName = x12MsgReq.SenderID _"-" _ x12MsgReq.ReceiverID _"-" _ x12MsgReq.pSBSBID _"-" _ x12MsgReq.TtUniqueId _ "." _ tranType
 			
@@ -591,7 +627,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 
 		}
 		  	 
- 	Quit tSC
+ 		Quit tSC
 	}
 	else
 	{
@@ -617,14 +653,14 @@ Return an array of connections for drawing lines on the config diagram</Descript
 <Implementation><![CDATA[
 	Do ##super(.pArray,pItem)
 
-	If pItem.GetModifiedSetting("Edifecs270TargetConfigNames",.tValue) {
+	If pItem.GetModifiedSetting("Operation270TargetConfigNames",.tValue) {
 		For i=1:1:$L(tValue,",") 
 		{ 
 			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
 			Continue:""=tOne  Set pArray(tOne)="" 
 		}
 	}
-	If pItem.GetModifiedSetting("Edifecs276TargetConfigNames",.tValue) {
+	If pItem.GetModifiedSetting("Operation276TargetConfigNames",.tValue) {
 		For i=1:1:$L(tValue,",") 
 		{ 
 			Set tOne=$ZStrip($P(tValue,",",i),"<>W")  
