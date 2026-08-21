@@ -75,9 +75,16 @@ X12 - Create a new batch containing only those child documents which pass valida
 <Parameter name="VALUELIST" value=",Yes,No"/>
 </Property>
 
+<Property name="TargetMasksLookup">
+<Description>
+Targets for multiple TPs</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default><![CDATA[-NEXTOPERATION,Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VersionItems?targets=1&productionName=@productionId},RdpCrystalTargetConfigName:Additional,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,Output999TargetConfigName:Additional,TransTrackingTargetConfigName:Additional,X12StoreTargetConfigName:Additional]]></Default>
+<Default><![CDATA[-NEXTOPERATION,Version:Additional:selector?context={IHC.TPManage.TRANSACTIONTYPES/VersionItems?targets=1&productionName=@productionId},RdpCrystalTargetConfigName:Additional,Mode:Additional,Direction:Additional,CreateNewBatches:Additional,DuplicateCheck:Additional,Output999TargetConfigName:Additional,TransTrackingTargetConfigName:Additional,X12StoreTargetConfigName:Additional,TargetMasksLookup:Additional]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -114,6 +121,9 @@ X12 - Create a new batch containing only those child documents which pass valida
 </Value>
 <Value name="10">
 <Value>Output999TargetConfigName</Value>
+</Value>
+<Value name="11">
+<Value>TargetMasksLookup</Value>
 </Value>
 </Data>
 </Storage>
@@ -248,6 +258,14 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='targetIndx' type='%Integer' initialexpression='1' instantiate='0' />
+
+<property name='targetMasksLookup' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+
+
 </context>
 <sequence xend='200' yend='3400' >
 <scope xpos='200' ypos='250' xend='200' yend='3300' >
@@ -332,6 +350,14 @@ BPL Definition</Description>
 	$$$TRACE("Get X12StoreTargetConfigName: "_context.X12StoreTargetConfigName)
 
  }
+  
+  set status=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetMasksLookup",.value) 
+ 	if ( ($$$ISERR(status)) || (value= "")){
+   		Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"TargetMasksLookup value is missing in the settings..")
+ 	}else{
+    	set context.targetMasksLookup = value
+		$$$TRACE("Get targetMasksLookup: "_context.targetMasksLookup)
+ 	}
   
  $$$TRACE("Read all settings")]]]]><![CDATA[>
 </code>
@@ -519,79 +545,61 @@ BPL Definition</Description>
 </code>
 <if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='1450' xend='740' yend='2650' >
 <true>
-<trace name='To Outbound error(999 message) Uhin' value='"X12 validation failed in source 276, Send to Uhin"' xpos='1010' ypos='1600' />
-<code name='Create IHC.ITF.PAYER.WorkFlow' xpos='1010' ypos='1700' >
-<![CDATA[ $$$TRACE("Get and send the rejected transaction 999 message.")
- 
- if context.jsonMessage.ack'="" {
-   set context.ack999Msg= ##class(EnsLib.EDI.X12.Document).ImportFromString(context.jsonMessage.ack, .pStat )
-     
-   if (pStat '= $$$OK){  	
-     $$$TRACE("Failed to create X12 message from 999/TA1 String" _ pStat)
-     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "X12 ImportFromString failed, Skipping the record." _ context.jsonMessage.ack)
-   }
-   else {
-      set context.ack999Msg.DocType = "HIPAA_5010:Interchange" 
-   }
- }
- ]]]]><![CDATA[>
+<code name='276ValidationFailed' xpos='1010' ypos='2100' >
+<![CDATA[ 
+    $$$TRACE(" Invalid 276, Sending to WF ")
+	$$$TRACE("origX12Doc: " _  context.inXmlDoc.%Id() _", " _ context.errStr)
+  	$$$TRACE("SessionId = " _ $$$JobSessionId)
+  	$$$TRACE("FileName = " _context.FileName)
+  	set dtTm = $ZDATETIME($HOROLOG,3, 1)
+  	$$$LOGERROR( "Insert Data(Invalid 270) error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID _" / " _ context.transType)
+	              
+  	set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id,SessionID) " _
+			  " values (?,?,?,?,?,?,?,?,?,?)"
+  	#dim rset As %SQL.StatementResult
+  	set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
+			  context.interchangeSenderID, context.transType,  "New", "Data", 
+			  context.jsonMessage.ack, $USERNAME, dtTm, context.x12Id,$$$JobSessionId)
+  	$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
+  	if (rset.%SQLCODE < 0){
+	 	$$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ context.transType _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+	 	Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+  	}else{
+	  $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
+  	}
+  	$$$TRACE(" Invalid 276, Sent to WF ")
+  ]]]]><![CDATA[>
 </code>
-<transform name='Get the Rejected transaction 999 MSG' class='IHC.ITF.Transform.Dtl.Ack999ToErr999' source='context.ack999Msg' target='context.reject999Msg' xpos='1010' ypos='1800' />
-<code name='Trace' xpos='1010' ypos='1900' >
-<![CDATA[  $$$TRACE("tpLinkObj.GSAck: " _context.tpLinkObj.GSAck)
-  $$$TRACE("ERR999Msg: "_context.reject999Msg.RawContent)]]]]><![CDATA[>
-</code>
-<switch name=' context.tpLinkObj.GSAck' xpos='1010' ypos='2000' xend='1010' yend='2250' >
-<case condition=' context.tpLinkObj.GSAck [ "ALWAYS"' name='ALWAYS' >
-<code name='Send Ack 999 msg out' xpos='1145' ypos='2150' >
-<![CDATA[ if ($IsObject(context.ack999Msg))
- {		 		
-   set context.out999Msg = ##class(Ens.StreamContainer).%New()
-   set context.out999Msg.Stream = ##class(%Stream.GlobalCharacter).%New()
-   Do context.out999Msg.Stream.Write(context.ack999Msg.RawContent)
-   set context.out999Msg.OriginalFilename = context.FileName
-   Set tSC1=process.SendRequestAsync(process.Output999TargetConfigName, context.out999Msg)
-
- }]]]]><![CDATA[>
-</code>
-</case>
-<case condition=' context.tpLinkObj.GSAck [ "ERRORS"' name='ERROR' >
-<code name='Send the rejected 999 msg to destination' xpos='1415' ypos='2150' >
-<![CDATA[ if ($IsObject(context.reject999Msg))
- {		 		
-   $$$TRACE("ERR999Msg: "_context.reject999Msg.RawContent)
-   set context.out999Msg = ##class(Ens.StreamContainer).%New()
-   set context.out999Msg.Stream = ##class(%Stream.GlobalCharacter).%New()
-   Do context.out999Msg.Stream.Write(context.reject999Msg.RawContent)
-   set context.out999Msg.OriginalFilename = context.FileName
-   Set tSC1=process.SendRequestAsync(process.Output999TargetConfigName, context.out999Msg)
-
- }]]]]><![CDATA[>
-</code>
-</case>
-<default name='default' />
-</switch>
-<code name='Get ERR TSs' xpos='1010' ypos='2350' >
-<![CDATA[   $$$TRACE("Got the err999Msg.")
-   set context.reject999Msg.DocType = "HIPAA_5010:Interchange" 
-   #dim indGroup As EnsLib.EDI.X12.Document
-   set indGroup = context.reject999Msg.getNthChild(1,2)
-
-   set context.errSTs=indGroup.getNthChild(1,2)
-   if (context.errSTs.DocType = "")
-   {
-     set context.errSTs.DocType = "HIPAA_5010:999"
-   }
-]]]]><![CDATA[>
-</code>
-<transform name='Filter out the bad transactions' class='IHC.ITF.Transform.Dtl.CR276FilterOutBadRec' source='context.inXmlDoc' target='context.good276' xpos='1010' ypos='2450' />
-<code name='Update X12 Store' xpos='1010' ypos='2550' >
-<![CDATA[  $$$TRACE("Update the output message to the next component")
-  Do context.good276.Stream.Rewind()
-  set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
-  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
-  Set tSC = context.storeX12.streamContainer.Stream.CopyFrom(context.good276.Stream)
-
+<trace name='ValidationFailed' value='"Validation Failed(276).Sending 999/TA01 to Targets.. "' xpos='740' ypos='1950' />
+<code><![CDATA[ 
+     $$$TRACE(" context.tpLinkObj.GSAck:--> "_context.tpLinkObj.GSAck_ " context.tpLinkObj.Routing:-->"_context.tpLinkObj.Routing)
+	if (($zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS") || ($zconvert(context.tpLinkObj.GSAck, "U") [ "ERRORS" )) {
+		set x12StCon = ##class(Ens.StreamContainer).%New()
+ 		set str = ##class(%Stream.GlobalCharacter).%New()
+ 		Do str.Write(context.jsonMessage.ack)
+ 		set x12StCon.Stream = str
+ 		set x12StCon.OriginalFilename = context.FileName
+ 		try{
+			set targ = ""
+			Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 			
+			if (targ '= ""){			
+	   			$$$TRACE( " Sending error 999/TA01 to " _ targ)
+				if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
+					Set tSC1=process.SendRequestAsync(targ, x12StCon)
+					$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
+	   			}
+	 		}else{
+				$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing _ ". ACK(999) Cannot be sent.")
+	  		}
+		}catch err{
+			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_". ACK(999) Cannot be sent.")
+ 		}
+ 	}else{
+	 	$$$TRACE(" Validation Failed. ACK not sent to Targets ..")
+	 	$$$LOGERROR(" Validation Failed. ACK not sent to Targets due to ACK setting:["_context.tpLinkObj.GSAck_"]")
+ 	}
  ]]]]><![CDATA[>
 </code>
 </true>
@@ -641,8 +649,7 @@ BPL Definition</Description>
 		$$$TRACE( "ST Ack is ALWAYS, Send 277CA")
  }]]]]><![CDATA[>
 </code>
-</false>
-</if>
+
 <code name='Get Target list' xpos='740' ypos='2750' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
@@ -654,6 +661,9 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
+
+</false>
+</if>
 </true>
 <false>
 <trace name='Error' value='"TP link not found, send to WF "' xpos='470' ypos='1350' />
