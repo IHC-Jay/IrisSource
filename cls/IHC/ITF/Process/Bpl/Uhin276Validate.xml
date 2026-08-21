@@ -328,54 +328,46 @@ BPL Definition</Description>
  }
  else
  {
-    $$$TRACE("Get X12StoreTargetConfigName: "_value)
-	set context.X12StoreTargetConfigName = value
+    set context.X12StoreTargetConfigName = value
 	$$$TRACE("Get X12StoreTargetConfigName: "_context.X12StoreTargetConfigName)
 
  }
   
  $$$TRACE("Read all settings")]]]]><![CDATA[>
 </code>
-<code name='get EnsLib.EDI.X12.Document' xpos='200' ypos='550' >
-<![CDATA[ if (request.%IsA("EnsLib.EDI.X12.Document"))
- {
-    set context.inXmlDoc = request
-    set context.FileName = request.Source
-    set status = request.OutputToLibraryStream(context.inpStream)
-    $$$TRACE("Set context data")
- }
- elseif (request.%IsA("Ens.StreamContainer"))
- {
-    $$$TRACE("Process StreamContainer")
-    set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .pStat )
-   
-   if (pStat '= $$$OK){  	
-     $$$TRACE("Failed to create X12 message from Stream" _ pStat)
-     set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "X12 ImportFromLibraryStream failed, Skipping the record." _ request)
-     
-    }
-    else
-    {
-       $$$TRACE("Created context.inXmlDoc")
-       set context.FileName = request.OriginalFilename
-       set context.inXmlDoc.DocType="HIPAA_5010:Interchange"
-       $$$TRACE("Copy Stream")
-      set context.inpStream = ##class(%Stream.GlobalCharacter).%New()
-      Do context.inpStream.CopyFrom(request.Stream)
- 
-   }
- }
- elseif (request.%IsA("IHC.ITF.DStruc.EligStat276WithWSdata"))
- {
-    set context.inXmlDoc = request.origMsg
-    set context.FileName = request.origMsg.Source
- }
- else
- {
-  Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data, invalid inbound class: " _ request)
- }
- $$$TRACE("Process: " _ context.FileName)]]]]><![CDATA[>
+
+<code name='Read request' xpos='200' ypos='550' >
+<![CDATA[ 
+	if (request.%IsA("EnsLib.EDI.X12.Document")){
+		$$$TRACE( " Request: EnsLib.EDI.X12.Document..Size: "_$L(request))
+    	set context.inXmlDoc = request
+    	set context.FileName = request.Source 
+ 	}elseif (request.%IsA("Ens.StreamContainer")){
+	 	$$$TRACE("Process StreamContainer")
+	 	$$$TRACE(request)
+	 	if (request.Stream.Size > 108){
+		 	set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .pStat )
+		 	if (pStat '= $$$OK){  	
+     		$$$TRACE("Failed to create X12 message from Stream" _ pStat)
+     			set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "X12 ImportFromLibraryStream failed, Skipping the record." _ request)
+        	}
+		 	Set context.FileName = request.OriginalFilename
+		 	$$$TRACE("Imported X12 from " _ request.OriginalFilename _", size: " _ request.Stream.Size _", stat: " _ pStat)
+      		$$$TRACE("context.inXmlDoc: " _ context.inXmlDoc )
+		 	Set context.inXmlDoc.DocType = "HIPAA_5010:Interchange"
+			set context.inpStream = ##class(%Stream.GlobalCharacter).%New()
+			Do context.inpStream.CopyFrom(request.Stream)
+	 	}else{
+		 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Invlaid Inbound stream. Size: " _ request.Stream.Size)
+	 	}    	
+     }else{
+  		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Could not process data, invalid inbound class: " _ request)
+ 	 }
+ 		$$$TRACE("context.FileName: " _ context.FileName)
+ 	]]]]><![CDATA[>
 </code>
+
+
 <if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3050' >
 <true>
 <code name='Print file name' xpos='470' ypos='800' >
@@ -674,12 +666,12 @@ BPL Definition</Description>
 	            
   set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
-			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id) " _
-			  " values (?,?,?,?,?,?,?,?,?)"
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id,SessionID) " _
+			  " values (?,?,?,?,?,?,?,?,?,?)"
   #dim rset As %SQL.StatementResult
   set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
 			  context.interchangeSenderID, context.transType,  "New", "TP", 
-			  context.errStr, $USERNAME, dtTm, context.x12Id)
+			  context.errStr, $USERNAME, dtTm, context.x12Id,$$$JobSessionId)
   $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
   if (rset.%SQLCODE < 0)
   {
@@ -691,18 +683,6 @@ BPL Definition</Description>
 	  $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
   }
   ]]]]><![CDATA[>
-</code>
-<code name='Send 276_TRAD_PART_NOT_FOUND' xpos='470' ypos='1550' >
-<![CDATA[  set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
- Do transObj.x12Message.CopyFrom(context.inpStream)
- set transObj.TransTrackingMsg = "276_TRAD_PART_NOT_FOUND"
- set transObj.FileName = context.FileName 
- 
- set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,transObj)
- 
-  if ('tStatus) {    
-  set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
- } ]]]]><![CDATA[>
 </code>
 <trace name='Done' value='"Stored the TP error into the WF table"' xpos='470' ypos='1650' />
 </false>
