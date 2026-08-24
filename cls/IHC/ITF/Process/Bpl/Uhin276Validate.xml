@@ -252,6 +252,7 @@ BPL Definition</Description>
 <property name='good276' type='Ens.StreamContainer' instantiate='0' />
 <property name='bt277Stream' type='Ens.StreamContainer' instantiate='0' />
 <property name='bt277' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='dupCheck' type='%Boolean' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='100' />
@@ -358,6 +359,14 @@ BPL Definition</Description>
     	set context.targetMasksLookup = value
 		$$$TRACE("Get targetMasksLookup: "_context.targetMasksLookup)
  	}
+ 	
+ 	set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"DuplicateCheck",.configValue)
+ 	if ( ($$$ISERR(pstatus)) || (configValue = "")){
+ 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No DuplicateCheck found.")   	
+ 	}
+ 	set context.dupCheck = configValue
+ 	$$$TRACE(" context.dupCheck: "_context.dupCheck)
+ 	
   
  $$$TRACE("Read all settings")]]]]><![CDATA[>
 </code>
@@ -401,6 +410,19 @@ BPL Definition</Description>
  $$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ context.inXmlDoc.FullSize )
 			]]]]><![CDATA[>
 </code>
+<if name='DuplicateCheck' condition='context.dupCheck' xpos='470' ypos='900' xend='470' yend='1150' >
+<true>
+<code name='CheckForDuplicate' xpos='605' ypos='1050' >
+<![CDATA[  
+	set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).IsDuplicate(context.inXmlDoc, .tPrelationDocumentId, context.dupCheck ) 
+   $$$TRACE("IsDuplicate: " _ tSC  _", tPrelationDocumentId: " _ tPrelationDocumentId)
+   if (($$$ISOK(tSC)) &&  (tPrelationDocumentId > 0)){
+      $$$LOGWARNING("Duplicate file, skip processing")
+      set statusSkip = ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Duplicate X12 file : " _ context.FileName _", Previously processed ID: " _ tPrelationDocumentId  )       
+   }]]]]><![CDATA[>
+</code>
+</true>
+</if>
 <code name='send Trans to X12 Store DB' xpos='470' ypos='900' >
 <![CDATA[ set tStatus = process.SendRequestAsync(context.X12StoreTargetConfigName,request)
  if ('tStatus) {    
@@ -545,6 +567,7 @@ BPL Definition</Description>
 </code>
 <if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='1450' xend='740' yend='2650' >
 <true>
+<trace name='ValidationFailed' value='"Validation Failed(276).Sending to WF.. "' xpos='740' ypos='1950' />
 <code name='276ValidationFailed' xpos='1010' ypos='2100' >
 <![CDATA[ 
     $$$TRACE(" Invalid 276, Sending to WF ")
@@ -552,7 +575,7 @@ BPL Definition</Description>
   	$$$TRACE("SessionId = " _ $$$JobSessionId)
   	$$$TRACE("FileName = " _context.FileName)
   	set dtTm = $ZDATETIME($HOROLOG,3, 1)
-  	$$$LOGERROR( "Insert Data(Invalid 270) error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID _" / " _ context.transType)
+  	$$$LOGERROR( "Insert Data(Invalid 276) error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID _" / " _ context.transType)
 	              
   	set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
@@ -604,52 +627,7 @@ BPL Definition</Description>
 </code>
 </true>
 <false>
-<code name='X12 Store' xpos='740' ypos='1600' >
-<![CDATA[ $$$TRACE( "Return ACKs- ISA:" _ context.tpLinkObj.ISAAck _", GS: " _ context.tpLinkObj.GSAck _", ST: " _ context.tpLinkObj.STAck _", SNIP: " _ context.tpLinkObj.SNIP)
- if ( context.tpLinkObj.GSAck [ "ALWAYS")
- {
-   set AckFa= context.jsonMessage.ack  
-   $$$TRACE( " ---> Send 999 to " _ context.tpLinkObj.Routing)
-	                            
-   set x12StCon = ##class(Ens.StreamContainer).%New()
-   set x12StCon.Stream = ##class(%Stream.GlobalCharacter).%New()
-   Do x12StCon.Stream.Write(AckFa)
-   set x12StCon.OriginalFilename = context.FileName
-   $$$TRACE( "  x12StCon " _ AckFa)
-   $$$TRACE( "  x12FA " _ x12StCon)
-
-   Set tSC1=process.SendRequestAsync(process.Output999TargetConfigName, x12StCon)
-   $$$TRACE("Sent Ack as stream to Process: " _ process.Output999TargetConfigName_", status: " _ tSC1)
-   set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
-   Do transObj.x12Message.CopyFrom(x12StCon.Stream)
- 
-   $$$TRACE( "  tranobj" _ transObj )
- 
-
-   if (AckFa [ "0X231A")
-   {
-     set transObj.TransTrackingMsg = "OUTGOING_999"
-     $$$TRACE("TransTracking OUTGOING_999")
-   }
-   else
-   {
-     set transObj.TransTrackingMsg = "OUTGOING_TA1"
-   }
- 
-   set transObj.FileName = context.FileName 
- 
-   set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,transObj)
- 
-   if ('tStatus) {    
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
-   } 
- }
- if (context.tpLinkObj.STAck ="ALWAYS")
- {
-		$$$TRACE( "ST Ack is ALWAYS, Send 277CA")
- }]]]]><![CDATA[>
-</code>
-
+<trace name='ValidationPassed' value='"Validation Passed(276).Sending to Next process.. "' xpos='740' ypos='1950' />
 <code name='Get Target list' xpos='740' ypos='2750' >
 <![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
  $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
@@ -661,12 +639,40 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-
+<trace name='ValidationPassed' value='"Validation Passed(276). Sending 999/TA01 to multiple TPs..)... "' xpos='740' ypos='1950' />
+<code><![CDATA[ 
+ $$$TRACE("context.tpLinkObj.GSAck-->"_context.tpLinkObj.GSAck_"  context.tpLinkObj.Routing-->"_context.tpLinkObj.Routing)
+ if ( $zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS"){
+	 set x12StCon = ##class(Ens.StreamContainer).%New()
+	 set str = ##class(%Stream.GlobalCharacter).%New()
+	 Do str.Write(context.jsonMessage.ack)
+	 set x12StCon.Stream = str
+	 set x12StCon.OriginalFilename = context.FileName			 
+	 try{
+		  set targ = ""
+		   Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 
+		  $$$TRACE("Target -->"_targ)			
+		  if ((targ '= "") && (targ '="Unknown")){			
+		    	$$$TRACE( " Sending(276) 999 to " _ targ)
+			 	if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
+					Set tSC1=process.SendRequestAsync(targ, x12StCon)
+					$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
+	     	 	}
+	      }else{
+				$$$LOGERROR("Validation Passed.Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_" ACK(999) cannot be sent.")				
+		  }
+		}catch err{
+			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_". ACK(999) cannot be sent.")
+		}
+	 }
+ 
+ ]]]]><![CDATA[>
+</code>
 </false>
 </if>
 </true>
 <false>
-<trace name='Error' value='"TP link not found, send to WF "' xpos='470' ypos='1350' />
+<trace name='TPLinkNotFound' value='"TP link(276) not found, send to WF "' xpos='470' ypos='1700' />
 <code name='Store in WorkFlow' xpos='470' ypos='1450' >
 <![CDATA[ $$$TRACE("origX12Doc: " _  context.inXmlDoc.%Id() _", " _ context.errStr)
   $$$TRACE("SessionId = " _ $$$JobSessionId)
