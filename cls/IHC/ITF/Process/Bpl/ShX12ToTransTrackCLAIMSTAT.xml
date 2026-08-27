@@ -59,6 +59,15 @@ BPL Definition</Description>
 </property>
 <property name='uniqIdNum' type='%Integer' initialexpression='0' instantiate='0' />
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
+
+<property name='FileName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
+
+
+<property name='msgType' type='%String' instantiate='0' />
 </context>
 <sequence xend='200' yend='1550' >
 <scope xpos='200' ypos='250' xend='200' yend='1450' >
@@ -91,52 +100,72 @@ BPL Definition</Description>
 
  	  ]]]]><![CDATA[>
 </code>
+
+<code name='Read request' xpos='200' ypos='550' >
+<![CDATA[ 
+		$$$TRACE(request)
+	if (request.%IsA("EnsLib.EDI.X12.Document")){
+		$$$TRACE( " Request: EnsLib.EDI.X12.Document ")
+		set context.inXmlDoc = request
+		set context.inXmlDoc.DocType = "HIPAA_5010:Interchange" 
+		set individualGroup = context.inXmlDoc.getNthChild(1,2)
+		set STRecord=individualGroup.getNthChild(1,2)
+		set context.msgType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)	
+  		$$$TRACE(" context.transType : "_context.msgType)
+		set context.FileName = request.Source 
+ 	}elseif (request.%IsA("Ens.StreamContainer")){
+	 	$$$TRACE("StreamContainer: " _ request.OriginalFilename _ ", Stream size: " _ request.Stream.Size)
+	 	do request.Stream.Rewind()
+ 		set context.inXmlDoc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(request.Stream, .tStatus )
+
+	 	
+	 	if (tStatus '= $$$OK){  	
+     		$$$TRACE("Failed to create X12 message from Stream: " _ tStatus)
+     		$$$TRACE("tStatus: "_$System.Status.GetOneStatusText(tStatus))
+     		set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "X12 ImportFromLibraryStream failed, Skipping the record." _ request)
+        }else{
+       		$$$TRACE("Created context.inXmlDoc")
+       		set context.FileName = request.OriginalFilename
+       		set context.inXmlDoc.DocType="HIPAA_5010:Interchange"
+       		$$$TRACE("Copy Stream")
+      		set context.inpStream = ##class(%Stream.GlobalCharacter).%New()
+      		Do request.Stream.Rewind()
+      		Do context.inpStream.CopyFrom(request.Stream) 
+      		
+      		Set tStream = context.inpStream
+      		Set x12=""
+      		While ('tStream.AtEnd){
+	      		Set x12 = x12 _ tStream.Read(32000)
+      		}
+      		$$$TRACE("X12:"_x12)
+	      	For i=1:1:$L(x12,"~"){
+		      	Set seg=$Piece(x12,"~",i)
+		      	set st=$ZSTRIP($P(seg,"*",1),"<>W")
+		      	   if (st["ST") {			      	   
+			      	Set context.msgType=$P(seg,"*",2)
+			      	Quit    
+			      }
+			 }
+			 $$$TRACE(" context.MsgType:"_context.msgType)      	
+   		}
+     }else{
+	    $$$LOGERROR("Could not process data, invalid inbound class: " _ request)
+  		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Could not process data, invalid inbound class: " _ request)
+ 	 }
+ 		$$$TRACE("Process: " _ context.FileName)
+ 	]]]]><![CDATA[></code>
+
+
 <code name='Get Transaction Properties and assigned that values into context variable' xpos='200' ypos='650' >
 <![CDATA[
- /*  $$$TRACE("# of Properties: " _ request.Properties.Count())
- set TtBatchReal= request.Properties.GetAt("TtBatchReal")
- $$$TRACE("TtBatchReal:"_TtBatchReal)
- set TtMsgType= request.Properties.GetAt("TtMsgType")
- $$$TRACE("TtMsgType:"_TtMsgType)
- set TtTimeStamp= getDtTmyyyyMMddHHmmssS
- $$$TRACE("TtTimeStamp:"_TtTimeStamp)
- set TtUniqueId= request.Properties.GetAt("TtUniqueId")
- $$$TRACE("TtUniqueId:"_TtUniqueId)
-
- set pCLCLID= request.Properties.GetAt("pCLCLID")
- $$$TRACE("pCLCLID:" _ pCLCLID)
- set pSBSBID= request.Properties.GetAt("pSBSBID")
- $$$TRACE("pSBSBID:" _ pSBSBID)
- set pTransactionFileName= request.Properties.GetAt("pTransactionFileName")
- $$$TRACE("pTransactionFileName:" _ pTransactionFileName)
- 
-  
- set m=##class(%Regex.Matcher).%New("^[0-9]*$")
- set context.uniqIdNum = m.Match(TtUniqueId)
- //Set strTtBatchReal="N"
- Set strTtBatchReal=$ZSTRIP(TtBatchReal,"<>W")
- if strTtBatchReal="REAL"
- {
- Set strTtBatchReal=$REPLACE(strTtBatchReal,"REAL","Y")
- }
- else
- {
-  Set strTtBatchReal="N"
- }
- $$$TRACE("strTtBatchReal:"_strTtBatchReal)
-
- Set context.TimeStamp= TtTimeStamp
- $$$TRACE("context.TimeStamp:"_context.TimeStamp)
- */
-  set context.TimeStamp=##class(IHC.ITF.ITFCOMMON.Utility).getDtTmyyyyMMddHHmmssS()
+ set context.TimeStamp=##class(IHC.ITF.ITFCOMMON.Utility).getDtTmyyyyMMddHHmmssS()
  $$$TRACE("context.TimeStamp:"_context.TimeStamp)
  set TtUniqueId=context.TimeStamp_process.%PrimaryRequestHeader.SessionId
-  $$$TRACE("TtUniqueId:"_TtUniqueId)
+ $$$TRACE("TtUniqueId:"_TtUniqueId)
 
  set m=##class(%Regex.Matcher).%New("^[0-9]*$")
  set context.uniqIdNum = m.Match(TtUniqueId)
 
- $$$TRACE("context.targetConfigNames:"_context.targetConfigNames)
  set context.TimeOutForSPCall=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","TimeOutForSPCall",.pstatus)
   $$$TRACE("timeout:"_context.TimeOutForSPCall)
 
@@ -147,81 +176,62 @@ BPL Definition</Description>
 
  Set context.arr.TimeStamp=$ZDATETIME($HOROLOG,3,1)
 
- Set context.arr.TtMsgType="276"
- 
- //Set context.arr.pCLCLID=pCLCLID
- //Set context.arr.pSBSBID=pSBSBID
- //Set context.arr.pTransactionFileName = request.Source
+ Set context.arr.TtMsgType=context.msgType
  
  $$$TRACE("context.targetConfigNames:"_context.targetConfigNames)]]]]><![CDATA[>
 </code>
+
+
 <if name='if uniq ID number?' condition='context.uniqIdNum = 1' xpos='200' ypos='750' xend='200' yend='1200' >
 <true>
 <code name='Calling SP' xpos='470' ypos='900' >
 <![CDATA[ //Calling StoredProcedure
- $$$TRACE("Send the first trans track data")
- set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr,.response,context.TimeOutForSPCall)
-
-	$$$TRACE("context.arr value:"_context.arr)
+ 	$$$TRACE("Send the first trans track data")
+ 	set tStatus=process.SendRequestSync(context.targetConfigNames,context.arr,.response,context.TimeOutForSPCall)
+	$$$TRACE("context.arr value:"_context.arr_". Status:"_tStatus)
 	
- if ('tStatus) 
-     {
-           //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert Eligibility request  record into IHCSP_EDITRK_TRANX_INSERT table")
-      //do ..%Process.ItfSendEmailOnError("Transaction Tracking error encountered","records")
-      }
-     else 
-	 { 
-      $$$TRACE("Success")
-     $$$TRACE("response.StringValue:"_response.StringValue)
-     $$$TRACE("response.StringValue:"_response.StringValue)
-	 Set context.PEdick=$PIECE(response.StringValue,"|",1)
-     Set PErrorcode=$PIECE(response.StringValue,"|",2)
-     //$$$TRACE("response.StringValue:"_response.StringValue)
-     Set PErrorDescription=$PIECE(response.StringValue,"|",3)
-
-	 $$$TRACE("PEdick:"_context.PEdick)
- $$$TRACE("Errorcode:"_PErrorcode)
- $$$TRACE("ErrorDesc:"_PErrorDescription)     
- if PErrorcode="0"
-     {
-     
-     $$$TRACE("Success response from operation class 1")
-     //$$$TRACE("Errorcode in inside errorcode if..else:"_PErrorcode)
-
-     }
-     else
-     {
-     do ..%Process.ItfSendEmailOnError("Unable to insert new Eligibility request  record into SHSP_EDI_TRANSACTION_INSERT table","--- Unable to insert Eligibility record into SHSP_EDI_TRANSACTION_INSERT table"_"The get SHSP_EDI_TRANSACTION_INSERT() call returned an error code of"_PErrorcode_"("_PErrorDescription_")"_"Parameter in SP call="_"TtUniqueId=<"_context.arr.TtUniqueId_">|"_"strTtBatchReal=<"_context.arr.strTtBatchReal_">|"_"TimeStamp=<"_context.arr.TimeStamp_">|"_"TtMsgType=<"_context.arr.TtMsgType_">|")      //set status=$$$ERROR("ITFCOMMON:10107",$SYSTEM.Status.GetOneErrorText(tStatus))
-      Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert Eligibility record into SHSP_EDI_TRANSACTION_INSERT table")
+ 	if ('tStatus){
+           Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert Eligibility request  record into IHCSP_EDITRK_TRANX_INSERT table")
+    }else{ 
+      	$$$TRACE("Success")
+     	$$$TRACE("response.StringValue:"_response.StringValue)
+     	Set context.PEdick=$PIECE(response.StringValue,"|",1)
+     	Set PErrorcode=$PIECE(response.StringValue,"|",2)
+     	Set PErrorDescription=$PIECE(response.StringValue,"|",3)
+	   
+	    $$$TRACE("PEdick:"_context.PEdick)
+ 		$$$TRACE("Errorcode:"_PErrorcode)
+ 		$$$TRACE("ErrorDesc:"_PErrorDescription)     
+ 		if PErrorcode="0"{
+     	     $$$TRACE("Success response from operation class 1")
+        }else{
+     		do ..%Process.ItfSendEmailOnError("Unable to insert new Eligibility request  record into SHSP_EDI_TRANSACTION_INSERT table","--- Unable to insert Eligibility record into SHSP_EDI_TRANSACTION_INSERT table"_"The get SHSP_EDI_TRANSACTION_INSERT() call returned an error code of"_PErrorcode_"("_PErrorDescription_")"_"Parameter in SP call="_"TtUniqueId=<"_context.arr.TtUniqueId_">|"_"strTtBatchReal=<"_context.arr.strTtBatchReal_">|"_"TimeStamp=<"_context.arr.TimeStamp_">|"_"TtMsgType=<"_context.arr.TtMsgType_">|")      
+     		Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName,"Unable to insert Eligibility record into SHSP_EDI_TRANSACTION_INSERT table")
           }
-
-
-                 }]]]]><![CDATA[>
+   }]]]]><![CDATA[>
 </code>
 
 <code name='Calling SEgmentInsert StoredProcedure by EDICK Numeber and Payload' xpos='470' ypos='1000' >
-<![CDATA[ $$$TRACE("Requested Stream: "_request )
-  Set context.arr1=##class(IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT).%New()
-  set gblCharObj = ##class(%Stream.GlobalCharacter).%New()
-  
-  if $IsObject(context.inpStream) {
-		 Set tStream = context.inpStream
-		 Set tData = tStream.Read()
-	//	 $$$TRACE("DATA:"_tData)   
-		 Set streamObj = tStream 	 
-	}else{
-    	// Handle error: no stream contained in the request
-	}
-  
-  Set context.arr1.Payload=streamObj
-  //$$$TRACE(context.arr1.Payload)
-  Set context.arr1.EdiCheckNo=context.PEdick
-  set status = process.SendRequestSync(context.targetConfigNames,context.arr1)
-  $$$TRACE("context.arr1 value:"_context.arr1)
-]]]]><![CDATA[>
+<![CDATA[ 
+	$$$TRACE("Requested Stream: "_request )
+  	Set context.arr1=##class(IHC.ITF.Request.ShVariousX12TransTrackELIGIBILITYCLAIMSTAT.SHSPEDISEGMENTINSERT).%New()
+  	set gblCharObj = ##class(%Stream.GlobalCharacter).%New()
+    if (request.%IsA("EnsLib.EDI.X12.Document")){	   
+		$$$TRACE(request.RawContent)		
+ 	}else{
+  		if $IsObject(context.inpStream) {
+			Set tStream = context.inpStream
+		 	Set tData = tStream.Read()
+			Set streamObj = tStream 
+		 	Set context.arr1.Payload=streamObj	 
+		}
+ 	}		
+    Set context.arr1.EdiCheckNo=context.PEdick
+  	set status = process.SendRequestSync(context.targetConfigNames,context.arr1)
+  	$$$TRACE("context.arr1 value:"_context.arr1)
+  	$$$TRACE(" 277/276 TransTrack complete..")
+ ]]]]><![CDATA[>
 </code>
-
 <code name='RESETERROR' xpos='470' ypos='1100' >
 <![CDATA[  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(context.configName)
 ]]]]><![CDATA[>
