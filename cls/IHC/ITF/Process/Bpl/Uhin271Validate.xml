@@ -167,11 +167,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='128' />
 </parameters>
 </property>
-<property name='x12Id' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='transType' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -373,6 +368,9 @@ BPL Definition</Description>
 	 	set context.storeX12.direction = context.direction
      	set context.storeX12.status = "Processed"
      	set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+     	set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
+        $$$TRACE(" context.storeX12.fileName: "_context.storeX12.fileName)
+     
         $$$TRACE("Calling RDP Validation: " _ context.rdpCrystalTargetConfigName)
 	    try{
 	    	Set tSC1=process.SendRequestSync(context.rdpCrystalTargetConfigName, context.storeX12, .resp, 10)
@@ -380,7 +378,7 @@ BPL Definition</Description>
            	$$$TRACE(" RDP Validation (271) Response: "_resp.jsonMessage.%ToJSON())
             if $$$ISOK(tSC1){
             	set context.jsonMessage = resp.jsonMessage
-            	$$$TRACE("Validation status: " _ context.jsonMessage.status)
+            	$$$TRACE("Validation status(271): " _ context.jsonMessage.status)
             	if (context.jsonMessage.status = "PASS"){
                		set context.SNIPValidationStat = $$$OK
             	}else{
@@ -430,67 +428,13 @@ BPL Definition</Description>
   	$$$TRACE(" Invalid 271, Sent to WF ")
   ]]]]><![CDATA[>
 </code>
-<trace name='ValidationFailed' value='"Validation Failed(271).Sending 999/TA01 to targets.. "' xpos='740' ypos='1950' />
-
-<code><![CDATA[ 
- if ( $zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS" || $zconvert(context.tpLinkObj.GSAck, "U") [ "ERRORS" ) {
-	 set x12StCon = ##class(Ens.StreamContainer).%New()
-	 set str = ##class(%Stream.GlobalCharacter).%New()
-	 Do str.Write(context.jsonMessage.ack)
-	 set x12StCon.Stream = str
-	 set x12StCon.OriginalFilename = context.FileName
-	 try{
-		  set targ = ""
-		  DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 			
-		  if (targ '= ""){			
-		     $$$TRACE( " Sending 271 error 999 to " _ targ)
-			 if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
-				Set tSC1=process.SendRequestAsync(targ, x12StCon)
-				$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
-	     	}
-		  }else{
-			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " 271 ACK cannot be sent.")
-		  }
-		}catch err{
-			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_" 271 ACK cannot be sent.")
-		}
- 	}
- ]]]]><![CDATA[>
-</code>
 
 
 </true>
 <false>
-<trace name='ValidationPassed' value='"Validation Passed(271).. Sending to 999 target.."' xpos='470' ypos='1700' />
-<code><![CDATA[ 
- $$$TRACE("context.tpLinkObj.GSAck-->"_context.tpLinkObj.GSAck_"  context.tpLinkObj.Routing-->"_context.tpLinkObj.Routing)
- if ( $zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS"){
-	 set x12StCon = ##class(Ens.StreamContainer).%New()
-	 set str = ##class(%Stream.GlobalCharacter).%New()
-	 Do str.Write(context.jsonMessage.ack)
-	 set x12StCon.Stream = str
-	 set x12StCon.OriginalFilename = context.FileName			 
-	 try{
-		  set targ = ""
-		   Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 
-		  $$$TRACE("Target -->"_targ)			
-		  if ((targ '= "") && (targ '="Unknown")){			
-		    	$$$TRACE( " Sending(270) 999 to " _ targ)
-			 	if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
-					Set tSC1=process.SendRequestSync(targ, x12StCon)
-					$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
-	     	 	}
-	      }else{
-				$$$LOGERROR("Validation Passed.Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_" ACK(999) cannot be sent.")				
-		  }
-		}catch err{
-			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_". ACK(999) cannot be sent.")
-		}
-	 }
- 
- ]]]]><![CDATA[>
-</code>
-<trace name='ValidationPassed' value='"Validation Passed(271).. Sending to targets and TransTrack.."' xpos='470' ypos='1700' />
+
+<trace name='ValidationPassed' value='"Validation Passed(271).. Sending 271 X12 to targets and TransTrack.."' xpos='470' ypos='1700' />
+
 <code name='SendToTargets:Targets,TransTrack' xpos='740' ypos='1500' >
 <![CDATA[  
    
@@ -501,26 +445,29 @@ BPL Definition</Description>
 		  if ((targ '= "") && (targ '="Unknown")){			
 		     $$$TRACE( " Sending(271) to " _ targ)
 			 if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
+				 set strContResponse = ##class(Ens.StringContainer).%New()
+				//Set tSC1=process.SendRequestSync(targ, request,.strContResponse, 10)
 				Set tSC1=process.SendRequestSync(targ, request)
-				$$$TRACE("Sent 271 to : " _ targ_ ", status: " _ tSC1)
-				if ('tSC1) {    
-  					set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271) to: " _ targ _ "."_$SYSTEM.Status.GetOneErrorText(tSC1))
+				if ('tSC1) {  
+					$$$LOGERROR("Failed to send 271 to :"_targ _ $SYSTEM.Status.GetOneErrorText(tSC1))  
+  					Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Failed to send 271 to :"_targ _ $SYSTEM.Status.GetOneErrorText(tSC1))
   				}else{
   	  				$$$TRACE(" Sending to TransTrack Target: "_context.transTrackingTargetConfigName)
-  					set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,request)
+  					set tStatus = process.SendRequestSync(context.transTrackingTargetConfigName,request)
     				if ('tStatus) {    
-  						set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12(271): " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+  						set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Unexpected error sending the X12(271): " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
   					}
   				}
 	     	}
 		  }else{
 			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:"_targ)
-			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   	
+			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   	
 		  }
 			 
 	
  ]]]]><![CDATA[>
 </code>
+
 </false>
 </if>
 </true>
@@ -540,7 +487,7 @@ BPL Definition</Description>
   #dim rset As %SQL.StatementResult
   set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
 			  context.interchangeSenderID, context.transType,  "New", "TP", 
-			  context.errStr, $USERNAME, dtTm, context.x12Id,$$$JobSessionId)
+			  context.errStr, $USERNAME, dtTm, context.inXmlDoc.%Id(),$$$JobSessionId)
   $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
   if (rset.%SQLCODE < 0)
   {
