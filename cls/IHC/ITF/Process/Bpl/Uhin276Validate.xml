@@ -271,6 +271,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 
+<property name='goodX12Msg' type='EnsLib.EDI.X12.Document' instantiate='0' />
+<property name='partialSuccess' type='%String' initialexpression='"N"'/>
 
 </context>
 <sequence xend='200' yend='3400' >
@@ -541,6 +543,19 @@ BPL Definition</Description>
                   set context.rejectedTsCnt=0+$ZSTRIP($P(tmp,":",2),"<>W")
                   $$$TRACE("Number of rejected TS: "_context.rejectedTsCnt)
                   $$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)
+                  
+                  set tSC = ##class(IHC.ITF.ITFCOMMON.X12.X12splitUtil).SplitX12GoodBad(context.inXmlDoc,context.jsonMessage, .goodX12Doc)
+                  $$$TRACE(" SplitX12GoodBad status : "_ tSC)
+                  if $$$ISOK(tSC){
+	                  set context.goodX12Msg = goodX12Doc
+	                  Set tStream = ##class(%Stream.GlobalCharacter).%New()
+					  Do tStream.Write(context.goodX12Msg.RawContent)
+					  $$$TRACE(context.goodX12Msg.RawContent)
+					  Do tStream.Rewind()
+					  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
+					  Set context.storeX12.streamContainer.Stream = tStream
+					  set context.partialSuccess = "Y"
+                  }                 
                }
             }
             else
@@ -574,6 +589,27 @@ BPL Definition</Description>
 </code>
 <if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='1450' xend='740' yend='2650' >
 <true>
+
+<if name='PartialSuccess' condition='(context.partialSuccess="Y")' xpos='740' ypos='1450' xend='740' yend='2650' >
+<true>
+<trace name='ValidationFailed' value='"Validation Failed(276) partially.Sending to Next process.. "' xpos='740' ypos='1950' />
+
+<code name='Get Target list' xpos='740' ypos='2750' >
+<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+
+
+<foreach name='output loop' property='context.targetList' key='context.targetIndx' xpos='740' ypos='2850' xend='200' yend='350' >
+<call name='send 276 batch to a operation' target='@context.targetList.GetAt(context.targetIndx)' async='1' xpos='200' ypos='250' >
+<request type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' >
+<assign property="callrequest" value="context.storeX12" action="set" />
+</request>
+</call>
+</foreach>
+</true>
+</if>
+
 <trace name='ValidationFailed' value='"Validation Failed(276).Sending to WF.. "' xpos='740' ypos='1950' />
 <code name='276ValidationFailed' xpos='1010' ypos='2100' >
 <![CDATA[ 
@@ -632,6 +668,8 @@ BPL Definition</Description>
  	}
  ]]]]><![CDATA[>
 </code>
+
+
 </true>
 <false>
 <trace name='ValidationPassed' value='"Validation Passed(276).Sending to Next process.. "' xpos='740' ypos='1950' />
