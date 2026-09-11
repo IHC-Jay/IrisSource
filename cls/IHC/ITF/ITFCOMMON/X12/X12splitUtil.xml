@@ -1012,5 +1012,145 @@
 	 $$$TRACE( "Split837X12Document- List size: " _ x12List.Size)
 ]]></Implementation>
 </Method>
+
+<Method name="SplitX12GoodBad">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,rdpError:%Library.DynamicObject,goodX12Doc:EnsLib.EDI.X12.Document</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	set tSC = $$$OK
+	#dim errLst  As %ListOfObjects = ##class(%ListOfDataTypes).%New()
+
+	if ( rdpError.status = "FAIL")
+	{
+	 For ind=1:1:$L(rdpError.details, ";") 
+	 {
+		 set StValue = ""
+		 set errStr = $PIECE(rdpError.details, ";", ind)
+		 set stInd = $FIND(errStr, "Transaction: ")
+		 set StValue = $E(errStr, stInd, $FIND(errStr, ",", stInd) -3 )
+		 if (StValue '= "")
+		 {		 
+			 set sep = $E(StValue, 3)
+			 set stCtrl = $PIECE(StValue, sep, 3)
+			 
+			 if (errLst.Find(stCtrl) = "")
+			 {
+			 	Do errLst.Insert(stCtrl)
+			 	WRITE !, "Insert: " _ stCtrl
+			 }
+			 else
+			 {
+				 WRITE !, "Duplicate ST: " _ stCtrl
+			 }
+		 }
+	 }
+	}
+	$$$TRACE( "Number of ST errors: " _ errLst.Size _ ", " _ errLst.GetAt(2))
+	set errInd = 1
+	if (errLst.Size > 0)
+	{
+		if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+		 {
+			 $$$TRACE( "SplitX12: Process X12: " _ x12Doc.FullSize  _", Separators: " _ x12Doc.Separators)
+			 set segSep = $EXTRACT(x12Doc.Separators, 4)
+			 set eleSep = $EXTRACT(x12Doc.Separators, 1, 1)
+		 }
+		 else
+		 {
+			 $$$LOGERROR( "SplitX12: Not a valid X12 Document")
+			 QUIT $$$ERROR("SplitX12: Not a valid X12 Document")
+		 }
+		 if (x12Doc.DocType = "")
+		 {
+	 		set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+		 }
+		  Set tSC =x12Doc.BuildMap()
+		  if ($$$ISERR( tSC ))
+		  {
+			  $$$TRACE("SplitX12: BuildMap failed ")
+			  QUIT $$$ERROR("SplitX12: BuildMap failed ")
+		  }
+		  #dim x12Stream As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
+		  
+		  set GSCounter = x12Doc.ChildCount 
+		  WRITE !, " ISA Child count:" _ GSCounter _", Seg #" _ x12Doc.SegCount
+	  
+ 		//ISA // IEA	  
+		set isaPath = x12Doc.GetSegmentPath(1, .stat)	  	
+	  	set isaVal = x12Doc.GetValueAt(isaPath,, .stat)
+	  	
+	  	set ieaPath = x12Doc.GetSegmentPath(3, .stat)	
+		Do x12Doc.SetValueAt(1, ieaPath_":1")  	
+		set ieaVal = x12Doc.GetValueAt(ieaPath,, .stat)
+		
+		
+		Do x12Stream.Write(isaVal _ segSep) 
+		
+	 	if (GSCounter >= 1)
+	 	{
+	 	 		  		
+			#dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF	
+		 	for gsInt=1:1:GSCounter
+		    {
+		 				  	 		
+		        set individualGroup = x12Doc.NextChild(individualGroup) // x12Doc.getNthChild(gsInt,2)
+				
+				if (individualGroup.DocType = "")
+				{
+			 		set individualGroup.DocType = "HIPAA_5010:Group"
+				}
+				$$$TRACE( "GS has STs " _ individualGroup.ChildCount)
+		 				 
+				// GS	    	  
+				set segPath = individualGroup.GetSegmentPath(1, .stat1)	  	
+			  	set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+			  	Do x12Stream.Write( segVal _ segSep)
+			  	
+			  	#dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF		  	
+			  	FOR stInd=1:1:individualGroup.ChildCount		  
+			 	{			  		  
+					  set STRecord=individualGroup.NextChild(STRecord)
+					  
+					  set stSeg = $PIECE(STRecord.GetValueAt(1), x12Doc.ElementSeparator, 3)
+						// WRITE !, stInd _ ". ST-SE loop : " _ STRecord.GetValueAt(1)
+						if ( (errInd <= errLst.Size) && (stSeg [ errLst.GetAt(errInd)) )
+						{
+							$$$TRACE(" -- SKIP: " _ errLst.GetAt(errInd) _", " _ STRecord.GetValueAt(1))
+							Do $INCREMENT(errInd)
+						}
+						else
+						{
+							Do x12Stream.Write(STRecord.OutputToString())
+						}
+
+			  	}
+		    
+			    // GE
+				set segPath = individualGroup.GetSegmentPath(3, .stat1)	  					
+				set segVal = individualGroup.GetValueAt(segPath,, .stat2)
+				
+				Do x12Stream.Write( segVal _ segSep)
+		    }
+					  	
+			// IEA
+
+			$$$TRACE( "GS-GE loop complete: " _ segVal _ segSep)
+		  	Do x12Stream.Write( ieaVal _ segSep)
+		  	
+		  	Do x12Stream.Rewind()
+		  	$$$TRACE( "X12 stream length: " _ x12Stream.Size)	 
+		  	set goodX12Doc = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(x12Stream, .tSC)	
+		  	WRITE !, "ImportFromLibraryStream: " _ tSC
+
+ 		}
+	}
+	else
+	{
+		set goodX12Doc = x12Doc
+	}
+	return tSC
+]]></Implementation>
+</Method>
 </Class>
 </Export>
