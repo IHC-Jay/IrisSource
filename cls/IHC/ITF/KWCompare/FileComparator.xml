@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.KWCompare.FileComparator">
+<IncludeCode>Ensemble</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>67834,37763.694946414</TimeCreated>
+
+<Method name="CompareDirectories">
+<Description>
+Compares files with matching names from two directories.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>directoryA:%String,directoryB:%String,configID:%Integer=0,comparisonMode:%String="LINE"</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<Implementation><![CDATA[
+	set ^webService("FileComparator CompareDirectories: ") = directoryA _", " _ directoryB
+    If directoryA = "" || directoryB = "" {
+        Throw ##class(%Exception.General).%New("Both directory paths are required")
+    }
+    If '##class(%File).DirectoryExists(directoryA) {
+        Throw ##class(%Exception.General).%New("Directory A was not found: " _ directoryA)
+    }
+    If '##class(%File).DirectoryExists(directoryB) {
+        Throw ##class(%Exception.General).%New("Directory B was not found: " _ directoryB)
+    }
+
+    Set directoryA = ..NormalizeDirectory(directoryA)
+    Set directoryB = ..NormalizeDirectory(directoryB)
+    Set results = []
+    
+    If ( (##class(%File).DirectoryExists(directoryA)) && (##class(%File).DirectoryExists(directoryB))) {
+	    set filePattern = "*"
+    
+		Set tSC = ##class(%File).FileSetExecute(.tHandle, directoryA, filePattern, "", 1, ",")
+
+		If $$$ISOK(tSC) {
+			
+			Set tAtEnd = 0, numFiles = 0
+			For {
+				
+				Set tSC = ##class(%File).FileSetFetch(.tHandle, .tRow, .tAtEnd)
+				set ^webService("FileComparator, from directory ") = tSC _", End: " _ tAtEnd _", entry: " _ tRow
+				If '$$$ISOK(tSC) !($ListLength(tRow)<6) Quit
+				set fileName = $List(tRow, 1)
+				set attr = ##class(%File).Attributes(fileName)
+			
+				if ( $BIT($FACTOR(attr),16) = 1) // Regular file
+				{
+				    set fNm = ##class(%File).GetFilename(fileName)
+                    Set fileBPath = directoryB _ "/" _ fNm
+                    If ##class(%File).Exists(fileBPath) {
+                        Set runID = ..CompareFiles(fileName, fileBPath, configID, comparisonMode)
+                        Do $INCREMENT(numFiles)
+                        set ^webService("FileComparator, file: ") = numFiles _". " _ fileName _", ID: " _ runID
+                        Set field = {}
+                        Do field.%Set("fileName",fNm)
+                        Do field.%Set("runID",runID)
+                        Do results.%Push(field )
+                    } Else {
+                        set ^webService("FileComparator, missing pair") = fileBPath
+                    }
+				}
+				If tAtEnd Quit
+		  }
+		  Set tSC = ##class(%File).FileSetClose(.tHandle)
+		  set ^webService("FileComparator ") = "Done"
+		}
+    }
+
+    Quit results
+]]></Implementation>
+</Method>
+
+<Method name="CompareFiles">
+<Description>
+Compares two text files line by line and returns the KW_COMPARE_RUN ID.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileAPath:%String,fileBPath:%String,configID:%Integer=0,comparisonMode:%String="LINE"</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+	set ^webService("FileComparator CompareFiles: ") = fileAPath _", " _ fileBPath
+    If fileAPath = "" || fileBPath = "" {
+        Throw ##class(%Exception.General).%New("Both file paths are required")
+    }
+
+    Set run = ##class(IHC.ITF.KWCompare.CompareRun).%New()
+    Set run.ConfigID = configID
+    Set run.FileAName = ..BaseName(fileAPath)
+    Set run.FileAPath = fileAPath
+    Set run.FileBName = ..BaseName(fileBPath)
+    Set run.FileBPath = fileBPath
+    Set run.ComparisonMode = comparisonMode
+    Set run.Status = "STARTED"
+    Set run.StartedAt = $ZDATETIME($HOROLOG, 3, 1, 6)
+
+    If configID'="" {
+        Set config = ##class(IHC.ITF.KWCompare.CompareConfig).%OpenId(configID)
+        If '$IsObject(config) {
+	        WRITE !, "Comparison configuration was not found: " _ configID
+            set ^webService("FileComparator Comparison configuration") =  configID _ " was not found"
+        }
+        else
+        {
+        	WRITE !, "IHC.ITF.KWCompare.CompareConfig: " _ config.ConfigName
+        	Set run.ConfigNameSnapshot = config.ConfigName
+        }
+    }
+
+    Set status = run.%Save()
+    WRITE !, "IHC.ITF.KWCompare.CompareRun Save: " _ status
+    If $$$ISERR(status) {
+        Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+    }
+
+    Try {
+        Set streamA = ##class(%Stream.FileCharacter).%New()
+        Set status = streamA.LinkToFile(fileAPath)
+        If $$$ISERR(status) {
+            Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+        }
+
+        Set streamB = ##class(%Stream.FileCharacter).%New()
+        Set status = streamB.LinkToFile(fileBPath)
+        If $$$ISERR(status) {
+            Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+        }
+
+        Set lineA = 0
+        Set lineB = 0
+        For  {
+            Set endA = streamA.AtEnd
+            Set endB = streamB.AtEnd
+            if ( (endA) && (endB) )
+            {
+	            QUIT
+            }
+
+            Set valueA = ""
+            Set valueB = ""
+            If 'endA {
+                Set valueA = streamA.ReadLine()
+                Set lineA = lineA + 1
+            }
+            If 'endB {
+                Set valueB = streamB.ReadLine()
+                Set lineB = lineB + 1
+            }
+
+            If endA {
+                Set status = ..SaveDifference(run.%Id(), "ADDED", lineA, lineB, valueA, valueB, .lineDifferenceID)
+                If $$$ISERR(status) {
+                    Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+                }
+                Set run.AddedRecords = run.AddedRecords + 1
+            } ElseIf endB {
+                Set status = ..SaveDifference(run.%Id(), "REMOVED", lineA, lineB, valueA, valueB, .lineDifferenceID)
+                If $$$ISERR(status) {
+                    Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+                }
+                Set run.RemovedRecords = run.RemovedRecords + 1
+            } ElseIf valueA '= valueB {
+                Set status = ..SaveDifference(run.%Id(), "CHANGED", lineA, lineB, valueA, valueB, .lineDifferenceID)
+                If $$$ISERR(status) {
+                    Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+                }
+                Set status = ..SaveFieldDifferences(run.%Id(), lineDifferenceID, lineA, lineB, valueA, valueB)
+                If $$$ISERR(status) {
+                    Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+                }
+                Set run.ChangedFields = run.ChangedFields + 1
+            }
+        }
+
+        Set run.TotalDifferences = run.AddedRecords + run.RemovedRecords + run.ChangedFields
+        Set run.Status = "COMPLETED"
+        Set run.CompletedAt = $ZDATETIME($HOROLOG, 3, 1, 6)
+        Set status = run.%Save()
+        If $$$ISERR(status) {
+            Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+        }
+    } Catch exception {
+        Set run.Status = "FAILED"
+        Set run.CompletedAt = $ZDATETIME($HOROLOG, 3, 1, 6)
+        Set run.ErrorMessage = exception.DisplayString()
+        Set status = run.%Save()
+        If $$$ISERR(status) {
+            Throw ##class(%Exception.StatusException).CreateFromStatus(status)
+        }
+        Throw exception
+    }
+
+    Quit run.%Id()
+]]></Implementation>
+</Method>
+
+<Method name="SaveDifference">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[runID:%Integer,differenceType:%String,lineA:%Integer,lineB:%Integer,valueA:%String,valueB:%String,&differenceID:%Integer]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    Set difference = ##class(IHC.ITF.KWCompare.CompareDifference).%New()
+    Set difference.RunID = runID
+    Set difference.DifferenceType = differenceType
+    Set difference.RecordType = "LINE"
+    Set difference.FieldName = "LINE"
+    Set difference.OccurrenceNumber = $SELECT(lineA>lineB:lineA, 1:lineB)
+    Set difference.FileALineNumber = lineA
+    Set difference.FileBLineNumber = lineB
+    Set difference.RecordKey = $SELECT(lineA>lineB:lineA, 1:lineB)
+    Set difference.FileAValue = $EXTRACT(valueA, 1, 32000)
+    Set difference.FileBValue = $EXTRACT(valueB, 1, 32000)
+    Set difference.Details = $SELECT(differenceType="CHANGED":"Line values differ", differenceType="ADDED":"Line exists only in file B", 1:"Line exists only in file A")
+    set res = difference.%Save()
+    WRITE !, "Save: " _ res
+    Set differenceID = difference.%Id()
+    Quit res
+]]></Implementation>
+</Method>
+
+<Method name="SaveFieldDifferences">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>runID:%Integer,parentDifferenceID:%Integer,lineA:%Integer,lineB:%Integer,valueA:%String,valueB:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    Kill fieldsA, fieldsB, namesA, namesB
+    Set countA = ..ParseFields(valueA, .fieldsA, .namesA)
+    Set countB = ..ParseFields(valueB, .fieldsB, .namesB)
+
+    For index = 1:1:countA {
+        Set fieldName = namesA(index)
+        Set fieldRecordType = $Extract(fieldName, 2)
+        If '$Data(fieldsB(fieldName)) {
+            Set status = ..SaveFieldDifference(runID, parentDifferenceID, "MISSING_IN_B", fieldRecordType, fieldName, lineA, lineB, fieldsA(fieldName), "")
+        } ElseIf fieldsA(fieldName) '= fieldsB(fieldName) {
+            Set status = ..SaveFieldDifference(runID, parentDifferenceID, "CHANGED", fieldRecordType, fieldName, lineA, lineB, fieldsA(fieldName), fieldsB(fieldName))
+        } Else {
+            Continue
+        }
+        If $$$ISERR(status) {
+            Quit status
+        }
+    }
+    For index = 1:1:countB {
+        Set fieldName = namesB(index)
+        If '$Data(fieldsA(fieldName)) {
+            Set fieldRecordType = $Extract(fieldName, 2)
+            Set status = ..SaveFieldDifference(runID, parentDifferenceID, "MISSING_IN_A", fieldRecordType, fieldName, lineA, lineB, "", fieldsB(fieldName))
+            If $$$ISERR(status) {
+                Quit status
+            }
+        }
+    }
+    Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SaveFieldDifference">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>runID:%Integer,parentDifferenceID:%Integer,differenceType:%String,recordType:%String,fieldName:%String,lineA:%Integer,lineB:%Integer,valueA:%String,valueB:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    Set difference = ##class(IHC.ITF.KWCompare.CompareDifference).%New()
+    Set difference.RunID = runID
+    Set difference.ParentDifferenceID = parentDifferenceID
+    Set difference.DifferenceType = differenceType
+    Set difference.RecordType = recordType
+    Set difference.FieldName = fieldName
+    Set difference.OccurrenceNumber = $SELECT(lineA>lineB:lineA, 1:lineB)
+    Set difference.FileALineNumber = lineA
+    Set difference.FileBLineNumber = lineB
+    Set difference.RecordKey = $SELECT(lineA>lineB:lineA, 1:lineB)
+    Set difference.FileAValue = $EXTRACT(valueA, 1, 32000)
+    Set difference.FileBValue = $EXTRACT(valueB, 1, 32000)
+    Set difference.Details = "Field values differ"
+    Quit difference.%Save()
+]]></Implementation>
+</Method>
+
+<Method name="ParseFields">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[line:%String,&fields,&names]]></FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<Implementation><![CDATA[
+    Set count = 0
+    For index = 1:1:$Length(line, ",") {
+        Set token = $Piece(line, ",", index)
+        Set fieldName = $Piece(token, "=", 1)
+        Set fieldValue = $Piece(token, "=", 2, $Length(token, "="))
+        If $Extract(fieldName, 1) = "@" {
+            Set fieldName = $Extract(fieldName, 2, $Length(fieldName))
+        }
+        If fieldName = "" {
+            Continue
+        }
+        If $Extract(fieldValue, 1) = "'", $Extract(fieldValue, $Length(fieldValue)) = "'" {
+            Set fieldValue = $Extract(fieldValue, 2, $Length(fieldValue) - 1)
+        }
+        Set count = count + 1
+        Set names(count) = fieldName
+        Set fields(fieldName) = fieldValue
+    }
+    Quit count
+]]></Implementation>
+</Method>
+
+<Method name="BaseName">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>path:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set slash = $LENGTH(path, "/")
+    Set backslash = $LENGTH(path, "\\")
+    Set separator = $SELECT(backslash>slash:"\\", 1:"/")
+    Quit $PIECE(path, separator, $LENGTH(path, separator))
+]]></Implementation>
+</Method>
+
+<Method name="NormalizeDirectory">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>directory:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+    Set lastCharacter = $Extract(directory, $Length(directory))
+    If $Length(directory) > 1, (lastCharacter = "/" || lastCharacter = "\\") {
+        Quit $Extract(directory, 1, $Length(directory) - 1)
+    }
+    Quit directory
+]]></Implementation>
+</Method>
+</Class>
+</Export>
