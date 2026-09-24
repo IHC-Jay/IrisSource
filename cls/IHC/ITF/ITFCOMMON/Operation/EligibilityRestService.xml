@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Operation.EligibilityRestService">
+<Super>EnsLib.HTTP.GenericOperation</Super>
+<TimeCreated>67802,45306.614140371</TimeCreated>
+
+<Method name="ProcessStreamContainer">
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:EnsLib.HTTP.GenericMessage</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessStreamContainer")
+	#dim reqSt As IHC.ITF.Request.GetOutbound271Request = ##class(IHC.ITF.Request.GetOutbound271Request).%New()
+	Set reqSt.subscriberID = "802372482"
+	Set reqSt.dateOfBirth =  "1991/02/14"
+    Set reqSt.patientFirstName =  "DAMAYANTI"
+    Set reqSt.patientLastName =  "DENTLER"
+    set pResponse = ##class(EnsLib.HTTP.GenericMessage).%New()
+    
+    set tSC = ..ProcessEligibilityRequest(reqSt, .pResp)
+    $$$TRACE("ProcessEligibilityRequest: " _ tSC)
+    set jsonStr =  pResp.dynamicObject.%ToJSON()
+    Set tStream = ##class(%Stream.GlobalBinary).%New()
+    set pResponse.Stream = tStream
+    Do pResponse.Stream.Write(jsonStr)
+    $$$TRACE("ProcessStreamContainer returning: " _ jsonStr)
+    RETURN tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessEligibilityRequest">
+<FormalSpec>pRequest:IHC.ITF.Request.GetOutbound271Request,*pResponse:IHC.ITF.Response.EligibilityRestResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Inside Method ProcessEligibilityRequest")
+	Set pTarget = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ##class(%Stream.GlobalBinary).%New()
+	
+	try {
+	
+		set stat = pRequest.%JSONExportToStream(tStream)
+		$$$TRACE("Data Export " _ stat)
+	    
+	    
+		Do pTarget.HTTPHeaders.SetAt("application/json","content-type")
+		
+		Set pTarget.Stream = ##class(%Stream.GlobalBinary).%New()
+		Set tStatus = pTarget.Stream.CopyFrom(tStream)
+		$$$ThrowOnError(tStatus)
+		
+		// Trace some data
+		Do tStream.Rewind()
+		Set tStr = tStream.Read()
+		$$$TRACE("Data string size " _ tStream.Size _", Data: " _ tStr)
+		
+		Do pTarget.HTTPHeaders.SetAt(tStream.Size,"content-length")
+		
+		#dim tHttpResponse As EnsLib.HTTP.GenericMessage = ##class(EnsLib.HTTP.GenericMessage).%New()
+		
+	    Set tSC= ..OnMessage(pTarget, .tHttpResponse)
+      
+       $$$TRACE("OnMessage, ISOK: " _ $$$ISOK(tSC) _", " _ tHttpResponse _", " _ $IsObject(tHttpResponse))
+       
+                  
+       If ( ($$$ISOK(tSC)) && ($IsObject(tHttpResponse)) && (tHttpResponse.Stream.Size > 0) ) 
+      {
+	      
+	     set jSONstring = tHttpResponse.Stream.Read() 
+         $$$TRACE("Response size: " _ tHttpResponse.Stream.Size _", JSON: " _ jSONstring)
+         
+         set pResponse = ##class(IHC.ITF.Response.EligibilityRestResponse).%New()
+         set pResponse.dynamicObject = ##class(%DynamicAbstractObject).%FromJSON(jSONstring)
+         $$$TRACE( "Response: memberFoundCode: " _ pResponse.dynamicObject.memberFoundCode _ ", errorFlag: " _ pResponse.dynamicObject.errorFlag _ " - ID: " _ pResponse.dynamicObject.subscriberId_ ", Last Name: " _ pResponse.dynamicObject.subscriberLastName _", First Name:" _ pResponse.dynamicObject.subscriberFirstName)
+           
+      }
+      
+      
+	}
+	catch exp{
+		   $$$LOGERROR("Exception: " _ exp)
+		   IF 1=exp.%IsA("%Exception.SystemException") {
+	         $$$TRACE( "System exception, Name: " _ $ZCVT(exp.Name,"O","HTML"))
+	         $$$TRACE( "Location: " _ exp.Location)
+	         $$$TRACE( "Code: " _ exp.Code)
+	         $$$TRACE( "Data: " _ exp.Data)
+	         set tSC = $$$ERROR("Exception in calling the service")
+	      }
+	}
+	return tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.StreamContainer">
+	<Method>ProcessStreamContainer</Method>
+	</MapItem>
+		<MapItem MessageType="IHC.ITF.Request.GetOutbound271Request">
+	<Method>ProcessEligibilityRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
