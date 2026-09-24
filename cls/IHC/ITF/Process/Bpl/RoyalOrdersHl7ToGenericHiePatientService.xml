@@ -48,8 +48,16 @@ RetrySameAndDisable Errors : Retry same message and disable the component</Descr
 <Parameter name="MAXLEN" value="50000"/>
 </Property>
 
+<Property name="VisageOnlyTargetConfigName">
+<Description>
+TargetConfig for calling Visage Only</Description>
+<Type>%String</Type>
+<InitialExpression>"Royal-Orders-Hl7_Visage-RADIOLOGY"</InitialExpression>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
-<Default>AccessTokenTargetConfigName:Additional,HiePatientServiceTargetConfigName:Additional,AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,-NextOperation,-TargetConfigMask</Default>
+<Default>VisageOnlyTargetConfigName:Additional,AccessTokenTargetConfigName:Additional,HiePatientServiceTargetConfigName:Additional,AddrWrapLogic:Additional,AddressWrapKeywords:Additional,AllowedAddressTypes:Additional,SameRecordRetryAndDisableErrorCodes:Additional,-NextOperation,-TargetConfigMask</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -78,6 +86,9 @@ RetrySameAndDisable Errors : Retry same message and disable the component</Descr
 <Value name="7">
 <Value>InputDataErrorCodes</Value>
 </Value>
+<Value name="8">
+<Value>VisageOnlyTargetConfigName</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -86,7 +97,7 @@ RetrySameAndDisable Errors : Retry same message and disable the component</Descr
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
-<process language='objectscript' request='Ens.Request' height='3550' width='2000' >
+<process language='objectscript' request='Ens.Request' height='3650' width='2000' >
 <context>
 <property name='targetConfigIndex' type='%Integer' instantiate='0' />
 <property name='targetList' type='%String' collection='list' instantiate='0' >
@@ -176,8 +187,8 @@ BPL Definition</Description>
 </parameters>
 </property>
 </context>
-<sequence xend='200' yend='3300' >
-<scope xpos='200' ypos='250' xend='200' yend='3200' >
+<sequence xend='200' yend='3400' >
+<scope xpos='200' ypos='250' xend='200' yend='3300' >
 <code name='Check ReplyCodeActions' xpos='200' ypos='350' >
 <annotation><![CDATA[From settings tab]]]]><![CDATA[></annotation>
 <![CDATA[
@@ -206,16 +217,53 @@ BPL Definition</Description>
  }
 
 
-    set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName,context.targetList)
+ //moved TargetConfig settings to its own code block due to Visage Filtering
  
- $$$TRACE(context.targetList.Count())
- if ( ($$$ISERR(pstatus)) || (context.targetList.Count()= 0) ){
- 	set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
- }
- 
- //removed HDD init]]]]><![CDATA[>
+ //removed HDD init
+ ]]]]><![CDATA[>
 </code>
-<foreach name='Check if Peaks MRN present' property='request.{PIDgrp.PID:PatientIdentifierList()}' key='context.PID3Key' xpos='200' ypos='550' xend='200' yend='350' >
+<code name='SetTargetConfigs' xpos='200' ypos='550' >
+<annotation><![CDATA[Filter Targets based on OBR4 values]]]]><![CDATA[></annotation>
+<![CDATA[ 
+ //If the exam code OBR-4.1 or exam description OBR-4.2contains "ABBVIE," the message should be routed only to Visage PACS and excluded from all other downstream destinations.
+
+
+ //UniversalServiceID.identifier
+ set OBR4ID = request.GetValueAt("ORCgrp(1).OBRuniongrp.OBRunion.OBR:UniversalServiceID.identifier")
+
+ //UniversalServiceID.text
+ set OBR4TEXT = request.GetValueAt("ORCgrp(1).OBRuniongrp.OBRunion.OBR:UniversalServiceID.text")
+
+ set ALLUPPERCASEOBR4ID = $ZCONVERT(OBR4ID,"U")
+ set ALLUPPERCASEOBR4TEXT = $ZCONVERT(OBR4TEXT,"U")
+
+ set findReturn1Val = $FIND(ALLUPPERCASEOBR4ID,"ABBVIE")
+ set findReturn2Val = $FIND(ALLUPPERCASEOBR4TEXT,"ABBVIE")
+
+
+ if ((findReturn1Val>1)||(findReturn2Val>1)){
+ 
+    $$$TRACE("Valid FilterIn data set for Visage Only. Setting TargetConfig for Visage  ")
+	set context.targetList=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","VisageOnlyTargetConfigName",.pstatus)
+ 	if ($$$ISOK(pstatus)){
+ 		$$$TRACE("VisageOnlyTargetConfigName: " _ context.targetList)
+ 	}else{
+	 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Initialization error, No VisageOnlyTargetConfigName found in the component property settings")
+ 	}
+ }else{
+	$$$TRACE("Doing normal TargeConfig Settings!")
+	set pstatus = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName,context.targetList)
+ 
+	$$$TRACE(context.targetList.Count())
+	if ( ($$$ISERR(pstatus)) || (context.targetList.Count()= 0) ){
+		set status = ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName, "Unable to get targetConfigNames, shutting down.")   
+	}
+ 
+ 
+ }
+]]]]><![CDATA[>
+</code>
+<foreach name='Check if Peaks MRN present' property='request.{PIDgrp.PID:PatientIdentifierList()}' key='context.PID3Key' xpos='200' ypos='650' xend='200' yend='350' >
 <annotation><![CDATA[EH-EPI is the Peaks EMPI/XMRN in PID-3.4]]]]><![CDATA[></annotation>
 <code name='Check Peaks MRN Present in Message' xpos='200' ypos='250' >
 <![CDATA[  
@@ -252,10 +300,10 @@ BPL Definition</Description>
    ]]]]><![CDATA[>
 </code>
 </foreach>
-<trace name='print Peaks MRN if present' value='"isOrderPeaksMRNPresent is : "_context.isOrderPeaksMRNPresent' xpos='200' ypos='650' />
-<if name='Peaks MRN present in order' condition='context.isOrderPeaksMRNPresent = 1' xpos='200' ypos='750' xend='200' yend='1200' >
+<trace name='print Peaks MRN if present' value='"isOrderPeaksMRNPresent is : "_context.isOrderPeaksMRNPresent' xpos='200' ypos='750' />
+<if name='Peaks MRN present in order' condition='context.isOrderPeaksMRNPresent = 1' xpos='200' ypos='850' xend='200' yend='1300' >
 <false>
-<code name='ReadValues' xpos='335' ypos='900' >
+<code name='ReadValues' xpos='335' ypos='1000' >
 <![CDATA[  
 
         set context.RoyalMrn= request.GetValueAt("PIDgrp.PID:PatientID.ID")
@@ -264,7 +312,7 @@ BPL Definition</Description>
        
   ]]]]><![CDATA[>
 </code>
-<code name='CallWebServiceAccessTokenFromPing' xpos='335' ypos='1000' >
+<code name='CallWebServiceAccessTokenFromPing' xpos='335' ypos='1100' >
 <![CDATA[ 
   $$$TRACE(" Target Operation to get AccessToken from Ping service " _ context.accessTokenTargetConfigName)   
    set httpRequestObj=##class(EnsLib.HTTP.GenericMessage).%New()   
@@ -296,7 +344,7 @@ BPL Definition</Description>
     
    ]]]]><![CDATA[>
 </code>
-<code name='callPatientSearchService' xpos='335' ypos='1100' >
+<code name='callPatientSearchService' xpos='335' ypos='1200' >
 <![CDATA[  
 
        
@@ -418,9 +466,9 @@ BPL Definition</Description>
 </code>
 </false>
 </if>
-<if name='Do Verato Post' condition='context.DoVeratoPost = 1' xpos='200' ypos='1300' xend='200' yend='2450' >
+<if name='Do Verato Post' condition='context.DoVeratoPost = 1' xpos='200' ypos='1400' xend='200' yend='2550' >
 <true>
-<code name='CheckForLookupTables' xpos='335' ypos='1450' >
+<code name='CheckForLookupTables' xpos='335' ypos='1550' >
 <![CDATA[
 
   
@@ -436,7 +484,7 @@ BPL Definition</Description>
   
  ]]]]><![CDATA[>
 </code>
-<code name='initializeErrorCodes' xpos='335' ypos='1550' >
+<code name='initializeErrorCodes' xpos='335' ypos='1650' >
 <![CDATA[ 
  
  set context.retrySameDisableErrorCodes=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","SameRecordRetryAndDisableErrorCodes",.pstatus)
@@ -448,7 +496,7 @@ BPL Definition</Description>
  
   ]]]]><![CDATA[>
 </code>
-<code name='validateRoyalEmpiNumber' xpos='335' ypos='1650' >
+<code name='validateRoyalEmpiNumber' xpos='335' ypos='1750' >
 <![CDATA[ 
  $$$TRACE("Validate Empi(Royal Keep MRN)...") 
   Set context.tellicaKeepMrn=request.GetValueAt("PIDgrp.PID:PatientID.ID")  
@@ -459,7 +507,7 @@ BPL Definition</Description>
 	 // set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, "Hl7 message has invalid mrn number: ["_context.tellicaKeepMrn_"]. Skipping the record.")
  //} ]]]]><![CDATA[>
 </code>
-<code name='validateLastName' xpos='335' ypos='1750' >
+<code name='validateLastName' xpos='335' ypos='1850' >
 <![CDATA[ $$$TRACE("Validate lastname...") 
   Set lastName=request.GetValueAt("PIDgrp.PID:PatientName(1).familylastname.familyname")  
 
@@ -472,7 +520,7 @@ BPL Definition</Description>
      
  ]]]]><![CDATA[>
 </code>
-<code name='Get Wrap Properties' xpos='335' ypos='1850' >
+<code name='Get Wrap Properties' xpos='335' ypos='1950' >
 <![CDATA[ 
     set context.AddrWrapLogicValue=##class(Ens.Director).GetItemSettingValue(process.%ConfigName,"Host","AddrWrapLogic",.pstatus)
     $$$TRACE("AddrWrapLogicValue: " _ context.AddrWrapLogicValue)
@@ -488,7 +536,7 @@ BPL Definition</Description>
     $$$TRACE("setting value of addressAbbr " _context.addressAbbr) 
 ]]]]><![CDATA[>
 </code>
-<code name='loadGenderMappingFromLoolupTables' xpos='335' ypos='1950' >
+<code name='loadGenderMappingFromLoolupTables' xpos='335' ypos='2050' >
 <![CDATA[
  set context.gender=request.GetValueAt("PIDgrp.PID:Sex")
  $$$TRACE("Value of Gender from iCentra Adt message:"_context.gender)
@@ -499,7 +547,7 @@ BPL Definition</Description>
     	if (retVal '=""){
     		set context.gender=retVal
     	}else{
-	    	$$$TRACE("Value of Gender from iCentra message:"_context.gender_" is not defined in the lookup table.")
+	    	$$$TRACE("Value of Gender from EPIC message:"_context.gender_" is not defined in the lookup table.")
 	    	set context.gender="UNKNOWN"
 		}
  	} else{
@@ -510,15 +558,15 @@ BPL Definition</Description>
  }
  ]]]]><![CDATA[>
 </code>
-<code name='Set MartialStatus' xpos='335' ypos='2050' >
+<code name='Set MartialStatus' xpos='335' ypos='2150' >
 <![CDATA[ set context.mariStatus=""]]]]><![CDATA[>
 </code>
-<code name='Set Language' xpos='335' ypos='2150' >
+<code name='Set Language' xpos='335' ypos='2250' >
 <![CDATA[ set context.language = ""
    ]]]]><![CDATA[>
 </code>
-<transform name='Json Transform' class='IHC.ITF.Transform.Dtl.RoyalOrdersHl7ToHiePatientServicePost' source='request' target='response' xpos='335' ypos='2250' />
-<code name='ConvertXmlToJSONAndCallPatientService' xpos='335' ypos='2350' >
+<transform name='Json Transform' class='IHC.ITF.Transform.Dtl.RoyalOrdersHl7ToHiePatientServicePost' source='request' target='response' xpos='335' ypos='2350' />
+<code name='ConvertXmlToJSONAndCallPatientService' xpos='335' ypos='2450' >
 <![CDATA[  
     $$$TRACE("Converting XML to JSON Operation.. ")
     set xmlStr=response.OutputToString()  
@@ -722,7 +770,7 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<code name='Set PID-3.1' xpos='200' ypos='2550' >
+<code name='Set PID-3.1' xpos='200' ypos='2650' >
 <![CDATA[ 
  // Check if Verato returned Peaks MRN
  if (context.PeaksMrnvalues = "" )
@@ -756,9 +804,9 @@ BPL Definition</Description>
  $$$TRACE("context.pid31value is : "_context.pid31value)
 ]]]]><![CDATA[>
 </code>
-<transform name='Transform' class='IHC.ITF.Transform.Dtl.RoyalOrdersHl7ToGenericHiePatientService' source='request' target='response' xpos='200' ypos='2650' />
-<trace name='After Transform' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='2750' />
-<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='2850' xend='200' yend='350' >
+<transform name='Transform' class='IHC.ITF.Transform.Dtl.RoyalOrdersHl7ToGenericHiePatientService' source='request' target='response' xpos='200' ypos='2750' />
+<trace name='After Transform' value='"Message after Transform: " _ response.RawContent' xpos='200' ypos='2850' />
+<foreach name='Sent to target' property='context.targetList' key='context.targetConfigIndex' xpos='200' ypos='2950' xend='200' yend='350' >
 <annotation><![CDATA[Publish to facility Target based on the lookup table]]]]><![CDATA[></annotation>
 <call name='CallTargetConfigNames' target='@context.targetList.GetAt(context.targetConfigIndex)' async='1' xpos='200' ypos='250' >
 <request type='Ens.Request' >
@@ -766,12 +814,12 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-<code name='Reset Error' xpos='200' ypos='2950' >
+<code name='Reset Error' xpos='200' ypos='3050' >
 <![CDATA[ 
  Do ##class(IHC.ITF.ITFCOMMON.Utility).ResetError(process.%ConfigName)]]]]><![CDATA[>
 </code>
 <faulthandlers>
-<catchall xpos='200' ypos='3050' xend='200' yend='350' >
+<catchall xpos='200' ypos='3150' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[ Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).ProcessError(..%Context.%LastError)
