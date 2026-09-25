@@ -389,18 +389,29 @@ BPL Definition</Description>
 </code>
 <code name='X12 Store' xpos='470' ypos='900' >
 <![CDATA[
-  Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, request)
-  $$$TRACE("Sent 277 to X12 Store DB.")
-	
-  if ('tSC) {    
-     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.X12StoreTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
-  } ]]]]><![CDATA[>
-</code>
-<code name='Get TP information' xpos='470' ypos='1000' >
-<![CDATA[  $$$TRACE("Get TP Info ...")
+  
   set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
   set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
-  
+  if (context.interchangeReceiverID '= ""){
+	  set context.storeX12.interchangeReceiverID = context.interchangeReceiverID 
+  }
+  if (context.interchangeSenderID '= ""){
+  	set context.storeX12.interchangeSenderID = context.interchangeSenderID 
+  }
+  set context.storeX12.status = "Received"
+  set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+  Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)        
+  $$$TRACE("Sent 277(Received) to X12 Store DB, status:"_tSC)	
+  if ('tSC) {    
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.X12StoreTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+  } else{
+	  $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC _ ", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
+  }
+ ]]]]><![CDATA[></code>
+ 
+<code name='Get TP information' xpos='470' ypos='1000' >
+<![CDATA[  $$$TRACE("Get TP Info ...")
+    
   #dim individualGroup As EnsLib.EDI.X12.Document 
   set individualGroup = context.inXmlDoc.getNthChild(1,2)
   set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
@@ -557,8 +568,7 @@ BPL Definition</Description>
 <trace name='ValidationPassed' value='"Validation Passed(277).. Sending 277 X12 to targets and TransTrack.."' xpos='470' ypos='1700' />
 
 <code name='SendToTargets:Targets,TransTrack' xpos='740' ypos='1500' >
-<![CDATA[  
-   
+<![CDATA[    
 		  set targ = ""
 		  $$$TRACE("context.tpLinkObj.Routing-->"_context.tpLinkObj.Routing)
 		  DO ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(context.targetMasksLookup, context.tpLinkObj.Routing , .targ) 
@@ -576,6 +586,10 @@ BPL Definition</Description>
   					set tStatus = process.SendRequestSync(context.transTrackingTargetConfigName,request)
     				if ('tStatus) {    
   						set status=##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Unexpected error sending the X12(277): " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+  					}else{
+	  					set context.storeX12.status = "Processed"
+	  					Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
+        		        $$$TRACE("Send Async Stream to the Store operation(Processed), status: " _tSC) 
   					}
   				}
 	     	}
@@ -596,11 +610,14 @@ BPL Definition</Description>
   			$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
   			if (rset.%SQLCODE < 0){
 	 			$$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ context.transType _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-	 			Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+	 			Set tSC = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
   			}else{
 	 			$$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
-  			}  
-			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   	
+	 			set context.storeX12.status = "TP Link not found"
+	 			Set tSC1=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12)
+	 			$$$TRACE("Send Sync to the Store operation(TP Link Not Found), status: " _ tSC1)
+	 			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   	
+  			}
 		  }
  ]]]]><![CDATA[>
 </code>
@@ -635,6 +652,10 @@ BPL Definition</Description>
   {
 	 $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
   }
+  set context.storeX12.status = "Validation failed"
+  Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
+  $$$TRACE("Send Async to the Store operation(Validation Failed), status: " _ tSC)
+  
   ]]]]><![CDATA[>
 </code>
 
