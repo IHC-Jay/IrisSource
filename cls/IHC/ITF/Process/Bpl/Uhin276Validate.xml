@@ -165,6 +165,8 @@ BPL Definition</Description>
 <property name='inXmlDoc' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='ack999Msg' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='reject999Msg' type='EnsLib.EDI.X12.Document' instantiate='1' />
+<property name='accept999Msg' type='EnsLib.EDI.X12.Document' instantiate='1' />
+<property name='badX12Msg' type='EnsLib.EDI.X12.Document' instantiate='1' />
 <property name='tpLinkObj' type='IHC.TPManage.TRADELINKS' instantiate='0' />
 <property name='tPrelationDocumentId' type='%Integer' instantiate='0' />
 <property name='rejectedTsCnt' type='%Integer' instantiate='0' />
@@ -236,6 +238,10 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='storeX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
+<property name='badStoreX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
+<property name='goodStoreX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
+<property name='bad276StoreX12' type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' instantiate='1' />
+
 <property name='transactionType' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='10' />
@@ -254,7 +260,7 @@ BPL Definition</Description>
 <property name='CS277List' type='%ListOfObjects' instantiate='0' />
 <property name='wsResponse' type='Response.GetClaimDetailsResponse' instantiate='0' />
 <property name='out999Msg' type='Ens.StreamContainer' instantiate='0' />
-<property name='good276' type='Ens.StreamContainer' instantiate='0' />
+<property name='bad276' type='Ens.StreamContainer' instantiate='0' />
 <property name='bt277Stream' type='Ens.StreamContainer' instantiate='0' />
 <property name='bt277' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='dupCheck' type='%Boolean' instantiate='0' />
@@ -432,13 +438,41 @@ BPL Definition</Description>
 </code>
 </true>
 </if>
-<code name='send Trans to X12 Store DB' xpos='470' ypos='900' >
-<![CDATA[ set tStatus = process.SendRequestAsync(context.X12StoreTargetConfigName,request)
- if ('tStatus) {    
-    set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.X12StoreTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
- } 
- ]]]]><![CDATA[>
-</code>
+
+ <code name='X12 Store' xpos='470' ypos='900' >
+<![CDATA[
+  
+  set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+  set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+  set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
+  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
+  
+  if (context.interchangeReceiverID '= ""){
+	  set context.storeX12.interchangeReceiverID = context.interchangeReceiverID 
+  }
+  if (context.interchangeSenderID '= ""){
+  	set context.storeX12.interchangeSenderID = context.interchangeSenderID 
+  }
+  set context.storeX12.status = "Received"
+  set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+  set context.storeX12.transactionType =  "276"
+  set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
+  set context.storeX12.streamContainer.OutputFilename = context.fName
+  set context.storeX12.streamContainer.OriginalFilename = context.fName
+  set context.storeX12.destinationFileName = context.storeX12.fileName
+  Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(request.Stream)	
+  $$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size) 
+  Set tSC=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12)  
+  
+  	  		      
+  $$$TRACE("Sent 276(Received) to X12 Store DB, status:"_tSC)	
+  if ('tSC) {    
+     set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the X12: " _ context.X12StoreTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tSC))
+  } else{
+	  $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC _ ", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
+  }
+ ]]]]><![CDATA[></code>
+ 
 <code name='Send IHCSP_EDITRK_TRANX_INSERT' xpos='470' ypos='1000' >
 <![CDATA[  
  set tStatus = process.SendRequestAsync(context.transTrackingTargetConfigName,request)
@@ -449,10 +483,7 @@ BPL Definition</Description>
 </code>
 <code name='Get TP information' xpos='470' ypos='1100' >
 <![CDATA[  $$$TRACE("Get TP Info ...")
-  set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
-  set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
-  
-  #dim individualGroup As EnsLib.EDI.X12.Document 
+    #dim individualGroup As EnsLib.EDI.X12.Document 
   set individualGroup = context.inXmlDoc.getNthChild(1,2)
   set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
   #dim STRecord As EnsLib.EDI.X12.Document 
@@ -476,6 +507,8 @@ BPL Definition</Description>
        set context.storeX12.LinkId = context.tpLinkObj.%Id()
        $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
        $$$TRACE("tpLinkObj.GSAck : "_context.tpLinkObj.GSAck)
+       set context.storeX12.SNIP = context.tpLinkObj.SNIP
+  	   set context.storeX12.ValidationRuleFile = context.tpLinkObj.ValidationRuleFile
    }]]]]><![CDATA[>
 </code>
 <if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1200' xend='470' yend='2950' >
@@ -484,8 +517,7 @@ BPL Definition</Description>
 <![CDATA[  //$$$TRACE("X12ValidateDocument, SNIP: " _ context.tpLinkObj.SNIP _ " returned: " _ tSc)
   $$$TRACE("RDP Validation operation")
   $$$TRACE("tpLinkObj.SNIP: "_context.tpLinkObj.SNIP)
-  if (context.tpLinkObj.SNIP > 0)
-  { 
+  if (context.tpLinkObj.SNIP > 0)  { 
      set context.storeX12.SNIP = context.tpLinkObj.SNIP 
      set context.storeX12.version = context.version 
      set context.storeX12.transactionType = context.transType
@@ -505,10 +537,6 @@ BPL Definition</Description>
 	 $$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size)
 	 $$$TRACE("Validation rule : " _ context.storeX12.ValidationRuleFile)
 	 set context.storeX12.direction = context.direction
-     set context.storeX12.status = "Received"
-     set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
-     set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
-     $$$TRACE(" context.storeX12.fileName: "_context.storeX12.fileName)
      
         //End 
      set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.configValue)
@@ -550,11 +578,14 @@ BPL Definition</Description>
 	                  set context.goodX12Msg = goodX12Doc
 	                  Set tStream = ##class(%Stream.GlobalCharacter).%New()
 					  Do tStream.Write(context.goodX12Msg.RawContent)
-					  Do tStream.Rewind()
-					  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
-					  Set context.storeX12.streamContainer.Stream = tStream
-					  set context.partialSuccess = "Y"
+					  Do tStream.Rewind()					  
+					  set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
+  					  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
+  					  set context.partialSuccess = "Y"
+					  Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(tStream)
+  					  						  
                   }                 
+                  
                }
             }
             else
@@ -589,27 +620,6 @@ BPL Definition</Description>
 <if name='Error in validation' condition='$$$ISERR(context.SNIPValidationStat)' xpos='740' ypos='1450' xend='740' yend='2650' >
 <true>
 
-<if name='PartialSuccess' condition='(context.partialSuccess="Y")' xpos='740' ypos='1450' xend='740' yend='2650' >
-<true>
-<trace name='ValidationFailed' value='"Validation Failed(276) partially.Sending to Next process.. "' xpos='740' ypos='1950' />
-
-<code name='Get Target list' xpos='740' ypos='2750' >
-<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
- $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
-</code>
-
-
-<foreach name='output loop' property='context.targetList' key='context.targetIndx' xpos='740' ypos='2850' xend='200' yend='350' >
-<call name='send 276 batch to a operation' target='@context.targetList.GetAt(context.targetIndx)' async='1' xpos='200' ypos='250' >
-<request type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' >
-<assign property="callrequest" value="context.storeX12" action="set" />
-</request>
-</call>
-</foreach>
-</true>
-</if>
-
-<trace name='ValidationFailed' value='"Validation Failed(276).Sending to WF.. "' xpos='740' ypos='1950' />
 <code name='276ValidationFailed' xpos='1010' ypos='2100' >
 <![CDATA[ 
     $$$TRACE(" Invalid 276, Sending to WF ")
@@ -634,17 +644,20 @@ BPL Definition</Description>
   	}else{
 	  $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
   	}
-  	$$$TRACE(" Invalid 276, Sent to WF ")
+  	$$$TRACE(" Invalid 276, Sent to WF ")  	
   ]]]]><![CDATA[>
 </code>
+
 <trace name='ValidationFailed' value='"Validation Failed(276).Sending 999/TA01 to Targets.. "' xpos='740' ypos='1950' />
+
+
 <code><![CDATA[ 
      $$$TRACE(" context.tpLinkObj.GSAck:--> "_context.tpLinkObj.GSAck_ " context.tpLinkObj.Routing:-->"_context.tpLinkObj.Routing)
-     set x12StCon = ##class(Ens.StreamContainer).%New()
+     set allX12ack = ##class(Ens.StreamContainer).%New()
  	 set str = ##class(%Stream.GlobalCharacter).%New()
  	 Do str.Write(context.jsonMessage.ack)
- 	 set x12StCon.Stream = str
- 	 set x12StCon.OriginalFilename = context.interchangeSenderID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeReceiverID_"-"_($RANDOM(9000000)+1000000)_".999"	
+ 	 set allX12ack.Stream = str
+ 	 set allX12ack.OriginalFilename = context.interchangeSenderID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeReceiverID_"-"_($RANDOM(9000000)+1000000)_".999"	
  	
 	if (($zconvert(context.tpLinkObj.GSAck, "U") [ "ALWAYS") || ($zconvert(context.tpLinkObj.GSAck, "U") [ "ERRORS" )) {
 		try{
@@ -653,7 +666,7 @@ BPL Definition</Description>
 			if (targ '= ""){			
 	   			$$$TRACE( " Sending error 999/TA01 to " _ targ)
 				if ((targ '= "") && '($zconvert(targ, "u") [ "BITBUCKET")){
-					Set tSC1=process.SendRequestAsync(targ, x12StCon)
+					Set tSC1=process.SendRequestAsync(targ, allX12ack)
 					$$$TRACE("Sent ACK from RDPCrystal, Async Outgoing message to: " _ targ_ ", status: " _ tSC1)
 	   			}
 	 		}else{
@@ -667,14 +680,49 @@ BPL Definition</Description>
 	 	$$$LOGERROR(" Validation Failed. ACK not sent to Targets due to ACK setting:["_context.tpLinkObj.GSAck_"]")
  	}
  	
- 	$$$TRACE("Validation Passed(276). Sending 999/TA01 to StoreDB..")
-	Set tSC1=process.SendRequestAsync(context.X12StoreTargetConfigName, x12StCon) 
-	$$$TRACE("Validation Passed(276). Sending 999/TA01 to TransTracking")
-	Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, x12StCon)
+ 	 
+ 	 $$$TRACE("Validation failed(276). Sending 999/TA01 to TransTracking")
+	 Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, allX12ack)	
+	  
+ 	 $$$TRACE("Validation failed(276). Sending 999/TA01 to StoreDB..")
+	 Set tSC1=process.SendRequestSync(context.X12StoreTargetConfigName, allX12ack)
  ]]]]><![CDATA[>
 </code>
 
 
+
+<if name='PartialSuccess' condition='(context.partialSuccess="Y")' xpos='740' ypos='1450' xend='740' yend='2650' >
+<true>
+<trace name='ValidationFailed' value='"Validation Failed(276) partially.Sending to Next process.. "' xpos='740' ypos='1950' />
+<code name='Get Target list' xpos='740' ypos='2750' >
+<![CDATA[  set st = ##class(IHC.ITF.ITFCOMMON.Process.ItfBusinessProcessBPL).GetTargetConfigNames(process.%ConfigName, context.targetList)
+ $$$TRACE("Count: " _ context.targetList.Count())]]]]><![CDATA[>
+</code>
+
+<foreach name='output loop' property='context.targetList' key='context.targetIndx' xpos='740' ypos='2850' xend='200' yend='350' >
+<call name='send 276 batch to a operation' target='@context.targetList.GetAt(context.targetIndx)' async='1' xpos='200' ypos='250' >
+<request type='IHC.ITF.ITFCOMMON.DStruc.StoreX12' >
+<assign property="callrequest" value="context.storeX12" action="set" />
+</request>
+</call>
+</foreach>
+
+<code name='SetStatusToProcessed' xpos='740' ypos='2750' >
+<![CDATA[
+  set context.storeX12.status = "Processed"
+  set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+  set context.storeX12.transactionType =  "276"
+  set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
+  set context.storeX12.streamContainer.OutputFilename = context.fName
+  set context.storeX12.streamContainer.OriginalFilename = context.fName
+  set context.storeX12.destinationFileName = context.storeX12.fileName
+  Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(request.Stream)	
+  $$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size) 
+  Set tSC=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12) 
+  ]]]]><![CDATA[>
+</code>
+</true>
+</if>
 </true>
 <false>
 <trace name='ValidationPassed' value='"Validation Passed(276).Sending to Next process.. "' xpos='740' ypos='1950' />
@@ -716,15 +764,24 @@ BPL Definition</Description>
 		}catch err{
 			$$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_". ACK(999) cannot be sent.")
 		}
-	}
-	$$$TRACE("Validation Passed(276). Sending 999/TA01 to StoreDB..")
-	Set tSC1=process.SendRequestAsync(context.X12StoreTargetConfigName, x12StCon) 
-	$$$TRACE("Validation Passed(276). Sending 999/TA01 to TransTracking")
-	Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, x12StCon)
- 
+	} 
  ]]]]><![CDATA[>
 </code>
 
+<code name='SetStatusToProcessed' xpos='740' ypos='2750' >
+<![CDATA[
+  set context.storeX12.status = "Processed"
+  set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+  set context.storeX12.transactionType =  "276"
+  set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
+  set context.storeX12.streamContainer.OutputFilename = context.fName
+  set context.storeX12.streamContainer.OriginalFilename = context.fName
+  set context.storeX12.destinationFileName = context.storeX12.fileName
+  Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(request.Stream)	
+  $$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size) 
+  Set tSC=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12) 
+  ]]]]><![CDATA[>
+</code>
 </false>
 </if>
 </true>
@@ -755,6 +812,13 @@ BPL Definition</Description>
   {
 	  $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
   }
+  
+  set context.storeX12.status = "TP Link not found"
+  Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
+  $$$TRACE("Send Async to the Store operation(TP Link not found), status: " _ tSC)
+  Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, x12StCon)
+  $$$TRACE("Send Async to the TransTrack(TP Link not found), status: " _ tSC1)
+  
   ]]]]><![CDATA[>
 </code>
 <trace name='Done' value='"Stored the TP error into the WF table"' xpos='470' ypos='1650' />
