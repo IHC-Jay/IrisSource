@@ -13,13 +13,6 @@ Version X12  ST-3</Description>
 <Parameter name="MAXLEN" value="20"/>
 </Property>
 
-<UDLText name="T">
-<Content><![CDATA[
-// Property SnipWorkflow As %String(DISPLAYLIST = "No,Yes", VALUELIST = "No,Yes") [ InitialExpression = "No" ];
-
-]]></Content>
-</UDLText>
-
 <Property name="SnipWorkflow">
 <Description>
 Workflow For SNIP errors flag: </Description>
@@ -27,12 +20,23 @@ Workflow For SNIP errors flag: </Description>
 <InitialExpression>0</InitialExpression>
 </Property>
 
+<Property name="OriginalPathParentFolder">
+<Description><![CDATA[
+Directory name to search for in OriginalFilename<br/>
+When not blank, uses this string to search for a directory in the OriginalFilename and use that to set the TP Link logic]]></Description>
+<Type>%String</Type>
+</Property>
+
 <Property name="NextOperation">
+<Description>
+Do not use with this class as it is not implemented</Description>
 <Type>%String</Type>
 <InitialExpression>"Not used, Do Not Set"</InitialExpression>
 </Property>
 
 <Property name="TargetConfigMask">
+<Description>
+Do not use with this class as it is not implemented</Description>
 <Type>%String</Type>
 <InitialExpression>"Do Not Use"</InitialExpression>
 <Parameter name="DISPLAYLIST" value=",Not Used, Do Not Use"/>
@@ -41,7 +45,7 @@ Workflow For SNIP errors flag: </Description>
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>SnipWorkflow:Additional</Default>
+<Default>SnipWorkflow:Additional,OriginalPathParentFolder:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -57,6 +61,12 @@ Workflow For SNIP errors flag: </Description>
 </Value>
 <Value name="4">
 <Value>SnipWorkflow</Value>
+</Value>
+<Value name="5">
+<Value>OriginalPathParentFolder</Value>
+</Value>
+<Value name="6">
+<Value>OriginalPathParentFolder</Value>
 </Value>
 </Data>
 </Storage>
@@ -147,6 +157,11 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='SnipWorkflow' type='%Boolean' instantiate='0' />
+<property name='OriginalPathParentFolder' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
 <property name='X12StoreTargetConfigName' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
@@ -188,6 +203,14 @@ BPL Definition</Description>
  	Set configValue = "false"
  }
  set context.SnipWorkflow = configValue  
+
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"OriginalPathParentFolder",.configValue)
+ if ( ($$$ISERR(pstatus)) )
+ {
+ 	$$$LOGWARNING("Initialization warning, OriginalPathParentFolder not defined, defaulting to ''")
+ 	Set configValue = ""
+ }
+ set context.OriginalPathParentFolder = configValue
  
  set context.direction = "In"
    
@@ -277,39 +300,61 @@ BPL Definition</Description>
 </code>
 <code name='Set TP by File Path' xpos='470' ypos='900' >
 <![CDATA[  set RelativePath = ""
-  set RelativePath = $Piece($Piece(context.FileName,"SplitterInput/",2,*),"/",1,*-1)  
-  $$$TRACE( "RelativePath: " _ RelativePath)
-  If (RelativePath = "")
-  {
-     Set RelativePath = "SplitterInput"
-     $$$TRACE( "RelativePath: " _ RelativePath)
-  }  
   
-  set lookupTbl  = "IHC.ITF.Process.BPL.SplitterInput-835_Generic-835-VALIDATEDX12.Lookup.Partners"
-  set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(lookupTbl, RelativePath, .value)
-  if ( ($$$ISOK(stat)) && (value '= "Unknown") && (value '= "") )
-  {
-    $$$TRACE( "RelativePath: " _ RelativePath _ " was found in Lookup Table: " _ lookupTbl _ ", with value: " _ value)
+  $$$TRACE("Get name of folder for searching in the OriginalFilename")
+  set searchFolder = ""
+  set searchFolder = context.OriginalPathParentFolder
+  set searchFolderNameOnly = ""
+  $$$TRACE( "OriginalPathParentFolder: " _ searchFolder)
+  if searchFolder '= "" {
+	  if $E(searchFolder, *) = "/" {
+		    set searchFolderNameOnly = $Extract(searchFolder,1,$Length(searchFolder)-1)
+      }	
+	  else {
+		    set searchFolderNameOnly = searchFolder
+		    set searchFolder = searchFolderNameOnly _ "/"
+	  }
+	  
+      $$$TRACE( "searchFolder " _ searchFolder)
+      $$$TRACE( "searchFolderNameOnly " _ searchFolderNameOnly)
+  
+      set RelativePath = $Piece($Piece(context.FileName,searchFolder,2,*),"/",1,*-1)  
+
+      If (RelativePath = "")
+      {
+         Set RelativePath = searchFolderNameOnly
+         $$$TRACE( "RelativePath: " _ RelativePath)
+      }
+  
+      set lookupTbl  = "IHC.ITF.Process.BPL.SplitterInput-835_Generic-835-VALIDATEDX12.Lookup.Partners"
+      set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(lookupTbl, RelativePath, .value)
+      if ( ($$$ISOK(stat)) && (value '= "Unknown") && (value '= "") )
+      {
+         $$$TRACE( "RelativePath: " _ RelativePath _ " was found in Lookup Table: " _ lookupTbl _ ", with value: " _ value)
     
-    set senderValue = ""
-    set senderValue = $Piece(value,"|")
-    $$$TRACE("senderValue: " _ senderValue)
-    if (senderValue '= ""){
-       set context.senderId = senderValue
-       $$$TRACE("context.senderId: " _ context.senderId) 
-    }
+         set senderValue = ""
+         set senderValue = $Piece(value,"|")
+         $$$TRACE("senderValue: " _ senderValue)
+         if (senderValue '= ""){
+            set context.senderId = senderValue
+            $$$TRACE("context.senderId: " _ context.senderId) 
+         }
     
-    set receiverValue = ""
-    set receiverValue = $Piece(value,"|",2)
-    $$$TRACE("receiverValue: " _ receiverValue)
-    if (receiverValue '= ""){
-       set context.receiverId = receiverValue
-       $$$TRACE("context.receiverId: " _ context.receiverId)
-    }
+         set receiverValue = ""
+         set receiverValue = $Piece(value,"|",2)
+         $$$TRACE("receiverValue: " _ receiverValue)
+         if (receiverValue '= ""){
+           set context.receiverId = receiverValue
+           $$$TRACE("context.receiverId: " _ context.receiverId)
+         }
  
+      }
+      else{
+         $$$TRACE( "RelativePath: " _ RelativePath _ " was NOT found in Lookup Table: " _ lookupTbl _ ", value returned: " _ value _ ", stat: " _ stat)
+      }
   }
   else{
-    $$$TRACE( "RelativePath: " _ RelativePath _ " was NOT found in Lookup Table: " _ lookupTbl _ ", value returned: " _ value _ ", stat: " _ stat)
+	  $$$TRACE("Setting OriginalPathParentFolder is blank and thus can not use source folder in TP Lookup")
   }
 ]]]]><![CDATA[>
 </code>
