@@ -6,46 +6,153 @@ Sets file path based on the orginal file name path passed to the operation</Desc
 <Super>EnsLib.File.PassthroughOperation</Super>
 <TimeCreated>67838,35589.146414787</TimeCreated>
 
+<Property name="UseDateFolders">
+<Description><![CDATA[
+When set adds subfolders for current date (YYYY/MM/DD) under last folder in the path to the output folder used by this operation<br/>
+Examples:<br/>
+   * [FilePath from settings]/2026/10/2<br/>
+   * [FilePath from settings]/SplitterArchive/Desert//2026/09/23<br/>]]></Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="OriginalPathParentFolder">
+<Description><![CDATA[
+Directory name to search for in OriginalFilename<br/>
+When not blank, uses this string to search for a directory in the OriginalFilename matching it and to appened that directory and all subdirectories from the OriginalFilename to the end of the FilePath set on this operation for output path]]></Description>
+<Type>%String</Type>
+</Property>
+
+<Property name="AlterativeParentFolder">
+<Description><![CDATA[
+Directory name to replace orginal parent folder with. <br/>
+When not blank, uses this string to replace the OriginalPathParentFolder set on this operation for output path. Thus only used if OriginalPathParentFolder is also not blank.<br/>
+Usefull when the destination has a diffrent parent folder or for archiving folders rather than true destination path <br/><br/>
+Example:<br/>
+   * Source Path: [RootPath from OriginalFilename]/SplitterInput/Desert/<br/>
+   * Dest Path without this set: [FilePath from settings]/SplitterInput/Desert/<br/>
+   * Dest Path with this set to "SplitterArchive": [FilePath from settings]/SplitterArchive/Desert/<br/>]]></Description>
+<Type>%String</Type>
+</Property>
+
+<Parameter name="SETTINGS">
+<Type>%String</Type>
+<Default>UseDateFolders:Basic,OriginalPathParentFolder:Basic,AlterativeParentFolder:Basic</Default>
+</Parameter>
+
 <Method name="OnMessage">
 <FormalSpec>pRequest:Ens.StreamContainer,*pResponse:%Persistent</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	$$$TRACE("Entering IHC.ITF.ITFCOMMON.Operation.FileOperationWithDynamicPath")
+	set origSettingFilePath = ..Adapter.FilePath
+	$$$TRACE("Adapter FilePath: " _ origSettingFilePath)
 	
-	set OriginalPath = pRequest.OriginalFilename
+	if ..OriginalPathParentFolder '= "" {
+		$$$TRACE("Calling setPathFromOriginal method")
+		do ..setPathFromOriginal(pRequest.OriginalFilename)
+	}
+	
+	if ..UseDateFolders {
+		$$$TRACE("Calling AddDateFolders method")
+		set tSC = ..AddDateFolders()
+	}
+	
+	set tSC=##super(pRequest,.pResponse)
+	
+	if ..Adapter.FilePath '= origSettingFilePath {
+		set ..Adapter.FilePath = origSettingFilePath
+		$$$TRACE("Adapter FilePath set back to orginal setting: " _ ..Adapter.FilePath)
+	}
+	
+	Quit tSC
+]]></Implementation>
+</Method>
+
+<Method name="setPathFromOriginal">
+<FormalSpec>OriginalFilename:%Status</FormalSpec>
+<Implementation><![CDATA[
+	$$$TRACE("Entering IHC.ITF.ITFCOMMON.Operation.FileOperationWithDynamicPath.setPathfromOriginal")
+	
+	set OrigParentDir = ..OriginalPathParentFolder
+	set AltParentDir = ..AlterativeParentFolder
+	set RelativePath = ""
+	
+	set OriginalPath = OriginalFilename
 	if OriginalPath["/" {
 		Set lastSlash = $L(OriginalPath,"/")
 		if lastSlash>1 {
 			Set OriginalPath = $P(OriginalPath,"/",1,lastSlash-1)
 		}	
 		$$$TRACE("OriginalPath: " _ OriginalPath)
+		
+		
+	    if OriginalPath[OrigParentDir {
+		  set RelativePath = $P(OriginalPath,OrigParentDir,2,*)
+	    }
+	    else {
+		  $$$TRACE(OrigParentDir _ " folder was not found in OriginalPath and thus defaulting to it alone as the destination child path")
+	    }
 	}
 	else {
-		$$$TRACE("OriginalPath does not contain a /. OriginalPath: " _ OriginalPath)
+		$$$TRACE("OriginalPath does not contain a /. OriginalPath: " _ OriginalPath _ " Setting " _ OrigParentDir _ " as the destination child path")
 	}
 	
-	set RelativePath = ""
-	if OriginalPath["SplitterInput" {
-		set RelativePath = $P(OriginalPath,"SplitterInput",2,*)
+	if AltParentDir '= "" {
+		Set RelativePath = AltParentDir _ RelativePath
 	}
 	else {
-		$$$TRACE("SplitterInput folder was not found in source path and thus defulting to SplitterInput as the destination path")
+		Set RelativePath = OrigParentDir _ RelativePath
 	}
-	Set RelativePath = "SplitterInput" _ RelativePath
 	$$$TRACE("RelativePath: " _ RelativePath)
 	
-	set origFilePath = ..Adapter.FilePath
-	$$$TRACE("Adapter FilePath: " _ origFilePath)
+	set FilePath = ..Adapter.FilePath
+	$$$TRACE("Adapter FilePath: " _ FilePath)
 	
-	set ..Adapter.FilePath = ..Adapter.FilePath _ RelativePath
+	if FilePath '= "" {
+	   $$$TRACE("Adding RelativePath to Adapter FilePath as child path")
+	   if $E(FilePath, *) = "/" {
+		   //add child path
+		   set ..Adapter.FilePath = FilePath _ RelativePath
+       }	
+	   else {
+		   //add path seperator and then child path
+		   set ..Adapter.FilePath = FilePath _ "/" _ RelativePath
+	   }
+	}
+	else {
+	   $$$TRACE("Setting Adapter FilePath as RelativePath since Adapter FilePath was blank")
+	   set ..Adapter.FilePath = RelativePath
+	}
+	
 	$$$TRACE("Adapter FilePath updated to: " _ ..Adapter.FilePath)
+]]></Implementation>
+</Method>
+
+<Method name="AddDateFolders">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  	$$$TRACE("Entering IHC.ITF.ITFCOMMON.Operation.FileOperationWithDynamicPath.AddDateFolders")
+  
+	set pSpec = "%f/%Y/%m/%d"
+    Set ts=##class(Ens.Util.Time).FormatDateTime(pSpec,..Adapter.FilePath)
+    $$$TRACE("Append Date to the file path: " _ ts)
+   
+	set ..Adapter.FilePath = ts _"/"
 	
-	set tSC=##super(pRequest,.pResponse)
-	
-	set ..Adapter.FilePath = origFilePath
-	$$$TRACE("Adapter FilePath set back to orginal setting: " _ ..Adapter.FilePath)
-	
-	Quit tSC
+  	$$$TRACE("Adapter.FilePath: " _ ..Adapter.FilePath)
+  	
+  	if ('##class(%File).DirectoryExists(..Adapter.FilePath))
+  	{
+	  	set tSC = ##class(%File).CreateDirectoryChain(..Adapter.FilePath)
+	  	if ($$$ISERR(tSC))
+	  	{
+		  	set ..Adapter.FilePath = FilePath
+		  	return tSC
+	  	}
+  	}
+  	
+  	set tSC = $$$OK
+  	return tSC
 ]]></Implementation>
 </Method>
 </Class>
