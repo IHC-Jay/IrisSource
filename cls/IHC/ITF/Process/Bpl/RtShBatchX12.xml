@@ -16,10 +16,62 @@ Routes messages to 270 or 276 validate interfaces</Description>
 <Parameter name="MAXLEN" value="128"/>
 </Property>
 
+<Property name="TA1UhinTargetConfigName">
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="128"/>
+</Property>
+
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>-NEXTOPERATION,Uhin270TargetConfigName:Additional,Uhin276TargetConfigName:Additional</Default>
+<Default>-NEXTOPERATION,Uhin270TargetConfigName:Additional,Uhin276TargetConfigName:Additional,TA1UhinTargetConfigName:Additional</Default>
 </Parameter>
+
+<Method name="ValidateX12">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[docType:%String,x12Doc:EnsLib.EDI.X12.Document,valStr:%String,&process:IHC.ITF.Process.Bpl.RtShBatchX12,&retStat,&fullErrMsg,&TA01Msg]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tmpStatus AS %Status=$$$OK
+    set retStat = "0"
+    
+    set stat = ##class(EnsLib.EDI.X12.Util.Validator).Validate(x12Doc, valStr)
+		if ( $$$ISERR(stat) ){
+		   set retStat = "1"
+		   set errMsg = $system.Status.GetErrorText(stat)
+	       $$$TRACE(errMsg)
+	       set PayloadType = "Error"
+	  	   if errMsg [ "HIPAA_5010:Interchange"{
+	  	    	set fldInd = $FIND(errMsg, "ISA.  Field ")
+	  	    	set fldNum = $ZSTRIP($EXTRACT(errMsg,fldInd, $FIND(errMsg, " ", fldInd)-1), "*W")
+	  	    	$$$TRACE("Invalid Fld # " _ fldNum)
+	  	    	set TA105 = $LISTBUILD("010","011","012","013","005","006","007","008","014","015","","","018","019","020", "026")
+   		  	    set context = ##class(%DynamicObject).%New()
+				set v = $LISTDATA(TA105,fldNum, val)
+				set context.IsaErrorField = val	
+	  	   	   
+			 set sc=##class(IHC.ITF.Transform.Dtl.CR27xToTA1).Transform(x12Doc,.target, .context)
+			 if $$$ISERR(sc)
+			  {
+				  set fullErrMsg = "Error in generating TA1: " _ $system.Status.GetErrorText(sc)
+			  		
+			  }
+			  else
+			  {
+		  		set TA01Msg = target.OutputToString()
+		  	  }	
+		  	  set fullErrMsg = "X12 validation failed, Invalid X12. " _ ", Error: " _ errMsg 	  			
+	  		
+		 }else{
+			 set retStat = "0"
+			 set TA01Msg = ""
+			 set fullErrMsg = ""
+		 }
+		 
+	    }
+	    
+    quit tmpStatus
+]]></Implementation>
+</Method>
 
 <XData name="BPL">
 <Description>
@@ -52,6 +104,13 @@ BPL Definition</Description>
 <property name='inXmlDoc' type='EnsLib.EDI.X12.Document' instantiate='0' />
 <property name='inpStream' type='%Stream.GlobalCharacter' instantiate='1' />
 
+<property name='TA1UhinTargetConfigName' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='128' />
+</parameters>
+</property>
+
+
 </context>
 <sequence xend='200' yend='3400' >
 <scope xpos='200' ypos='250' xend='200' yend='3300' >
@@ -82,6 +141,15 @@ BPL Definition</Description>
  	}else{
     	set context.uhin276TargetConfigName = value		
  	}  
+ 	
+ 	set status=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TA1UhinTargetConfigName",.value) 
+ 	if ( ($$$ISERR(status)) || (value= "")){
+   		Set status =  ##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"TA1UhinTargetConfigName value is missing")
+ 	}else{
+    	set context.TA1UhinTargetConfigName = value		
+ 	}
+ 	
+ 	
  	]]]]><![CDATA[>
 </code>
 <code name='Read request' xpos='200' ypos='550' >
@@ -96,10 +164,18 @@ BPL Definition</Description>
         	}else{
 		 		Set context.FileName = request.OriginalFilename
 		 		$$$TRACE("Imported X12 from " _ request.OriginalFilename _", size: " _ request.Stream.Size _", stat: " _ pStat)
-      			Set context.inXmlDoc.DocType = "HIPAA_5010:Interchange"
-				set context.inpStream = ##class(%Stream.GlobalCharacter).%New()
-				Do context.inpStream.CopyFrom(request.Stream)
-				$$$TRACE("context.FileName: " _ context.FileName)				
+      			set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group" 
+	  			Set tSC =context.inXmlDoc.BuildMap()	
+	  			if $$$ISERR(tSC){
+		  			set fullErrorMsg = "Invalid X12, BuildMap failed: " _ tSC
+		  			$$$TRACE(fullErrorMsg)
+		  			Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Invalid X12: " _ fullErrorMsg)		  			
+	  			}else{
+	  				Set context.inXmlDoc.DocType = "HIPAA_5010:Interchange"
+					set context.inpStream = ##class(%Stream.GlobalCharacter).%New()
+					Do context.inpStream.CopyFrom(request.Stream)
+					$$$TRACE("context.FileName: " _ context.FileName)				
+	  			}
         	}
 	 	}else{
 		 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Invlaid Inbound stream. Size: " _ request.Stream.Size)
@@ -125,29 +201,44 @@ BPL Definition</Description>
   $$$TRACE(" TransType: "_transType)
   set targetConfigName = ""
   if (transType="270"){
+	set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group:270"
 	set targetConfigName = context.uhin270TargetConfigName	  
   }elseif (transType="276"){
-	set targetConfigName = context.uhin276TargetConfigName	  
+	set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group:276"
+	set targetConfigName = context.uhin276TargetConfigName	  	
   }
-   Do request.Stream.Rewind()
-   Set newReq = ##class(Ens.StreamContainer).%New()
-   If '$IsObject(newReq.Stream) {
-		Set newReq.Stream = ##class(%Stream.GlobalCharacter).%New()
-   }
-   Do newReq.Stream.CopyFrom(request.Stream)
-   set newReq.OriginalFilename = context.FileName
+   set tStat = ##class(IHC.ITF.Process.Bpl.RtShBatchX12).ValidateX12(context.inXmlDoc.DocType,context.inXmlDoc, "dmls", .process, .retStat,.fullErrMsg, .TA01Msg)
+   if (retStat="1"){
+	   set ta1Msg = ##class(Ens.StreamContainer).%New()
+ 	   set str = ##class(%Stream.GlobalCharacter).%New()
+ 	   Do str.Write(TA01Msg)
+ 	   set ta1Msg.Stream = str 	 
+	   set tStatus = process.SendRequestAsync(context.TA1UhinTargetConfigName,ta1Msg)
+	   $$$TRACE(" TA1 messages sent to: "_ context.TA1UhinTargetConfigName _ " Status: "_tStatus )
+	   do ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName, fullErrMsg)		
+	   
+	   
+   }else{  
+   		Do request.Stream.Rewind()
+   		Set newReq = ##class(Ens.StreamContainer).%New()
+   		If '$IsObject(newReq.Stream) {
+			Set newReq.Stream = ##class(%Stream.GlobalCharacter).%New()
+   		}
+   		Do newReq.Stream.CopyFrom(request.Stream)
+   		set newReq.OriginalFilename = context.FileName
      
-  if ($L(targetConfigName)>0){
-  	set tStatus = process.SendRequestAsync(targetConfigName,newReq)
-  	if ('tStatus) {    
-    	set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Unexpected error while sending to: " _ targetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
-   	}else{
-	   	$$$TRACE( " X12 sent to "_targetConfigName)
-   	}
-  }else{
-	 $$$TRACE(" Invalid Transaction type: "_transType_" Skipping the message ")
-	 set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," Skipping the message..Invalid transaction type: " _ transType)
-  }
+  		if ($L(targetConfigName)>0){
+  			set tStatus = process.SendRequestAsync(targetConfigName,newReq)
+  			if ('tStatus) {    
+    			set status=##class(IHC.ITF.ITFCOMMON.Utility).DisableMsgError(process.%ConfigName,"Unexpected error while sending to: " _ targetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+   			}else{
+	   			$$$TRACE( " X12 sent to "_targetConfigName)
+   			}
+  		}else{
+	 		$$$TRACE(" Invalid Transaction type: "_transType_" Skipping the message ")
+	 		set status=##class(IHC.ITF.ITFCOMMON.Utility).SkipMsgError(process.%ConfigName," Skipping the message..Invalid transaction type: " _ transType)
+  		}
+   }
 ]]]]><![CDATA[>
 </code>
 </true>
@@ -183,6 +274,9 @@ BPL Definition</Description>
 </Value>
 <Value name="2">
 <Value>Uhin276TargetConfigName</Value>
+</Value>
+<Value name="3">
+<Value>TA1UhinTargetConfigName</Value>
 </Value>
 </Data>
 </Storage>
