@@ -553,16 +553,14 @@ BPL Definition</Description>
         
             $$$TRACE("Send Sync Incoming Stream to RDP Validation operation, status: " _ tSC1 _", " _ resp.jsonMessage.%ToJSON())
         
-            if $$$ISOK(tSC1)
-            {
+        	#dim errLst  As %ListOfObjects = ##class(%ListOfDataTypes).%New()
+        	
+            if $$$ISOK(tSC1){
                set context.jsonMessage = resp.jsonMessage
                $$$TRACE("Validation status: " _ context.jsonMessage.status)
-               if (context.jsonMessage.status = "PASS")
-               {
+               if (context.jsonMessage.status = "PASS"){
                   set context.SNIPValidationStat = $$$OK
-               }
-               else
-               {
+               }else{
                   set context.SNIPValidationStat = $$$ERROR($$$EnsErrGeneral, "RDP validation failed")
                   set dtls=context.jsonMessage.details
                   $$$TRACE("Error Details: " _ dtls)
@@ -570,11 +568,29 @@ BPL Definition</Description>
                   $$$TRACE("# of rejected: " _ tmp)
                   set context.rejectedTsCnt=0+$ZSTRIP($P(tmp,":",2),"<>W")
                   $$$TRACE("Number of rejected TS: "_context.rejectedTsCnt)
-                  $$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)
+                  $$$TRACE("RDPCrystal ACK: " _ context.jsonMessage.ack)                
+					        
+		         For ind=1:1:$L(dtls,";"){
+ 					set StValue =""
+ 					set errStr =$PIECE(dtls,";",ind)
+ 					set stInd =$FIND(errStr,"Transaction: ")
+ 					if (stInd > 0){
+ 						set StValue =$E(errStr,stInd,$FIND(errStr,",",stInd) -3 )
+ 						if (StValue '=""){  
+ 							set sep =$E(StValue, 3)
+ 							set stCtrl =$PIECE(StValue,sep, 3)
+							if (errLst.Find(stCtrl) =""){
+ 								Do errLst.Insert(stCtrl)
+ 							}
+ 						}
+ 					}
+ 				}
+ 				$$$TRACE( "Number of ST errors: " _ errLst.Size _ ", " _ errLst.GetAt(2))
                   
-                  set tSC = ##class(IHC.ITF.ITFCOMMON.X12.X12splitUtil).SplitX12GoodBad(context.inXmlDoc,context.jsonMessage, .goodX12Doc)
-                  $$$TRACE(" SplitX12GoodBad status : "_ tSC)
-                  if $$$ISOK(tSC){
+                  if (errLst.Size >0){
+                  	set tSC = ##class(IHC.ITF.ITFCOMMON.X12.X12splitUtil).SplitX12GoodBad(context.inXmlDoc,context.jsonMessage, .goodX12Doc)
+                  	$$$TRACE(" SplitX12GoodBad status : "_ tSC)
+                    if $$$ISOK(tSC){
 	                  set context.goodX12Msg = goodX12Doc
 	                  Set tStream = ##class(%Stream.GlobalCharacter).%New()
 					  Do tStream.Write(context.goodX12Msg.RawContent)
@@ -583,14 +599,13 @@ BPL Definition</Description>
   					  set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
   					  set context.partialSuccess = "Y"
 					  Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(tStream)
-					  $$$TRACE("Stream size:(GoodST/SEs): " _ context.storeX12.streamContainer.Stream.Size) 
-  					  						  
-                  }                 
-                  
-               }
-            }
-            else
-            {  
+					  $$$TRACE("Stream size:(GoodST/SEs): " _ context.storeX12.streamContainer.Stream.Size)
+                  	}
+                  }else{
+	                  set context.partialSuccess = "N"
+                  }
+               }                 
+         	}else{  
                set context.SNIPValidationStat = tSC1
             }
          } catch ex
@@ -802,7 +817,7 @@ BPL Definition</Description>
   set context.storeX12.status = "TP Link not found"
   Set tSC=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
   $$$TRACE("Send Async to the Store operation(TP Link not found), status: " _ tSC)
-  Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, x12StCon)
+  Set tSC1=process.SendRequestAsync(context.transTrackingTargetConfigName, request)
   $$$TRACE("Send Async to the TransTrack(TP Link not found), status: " _ tSC1)
   
   ]]]]><![CDATA[>
