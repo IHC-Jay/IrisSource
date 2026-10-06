@@ -222,6 +222,16 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='DateTransX' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
+</parameters>
+</property>
+<property name='TtTransactionID' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='250' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1750' >
 <scope xpos='200' ypos='250' xend='200' yend='1650' >
@@ -482,7 +492,9 @@ BPL Definition</Description>
  ]]]]><![CDATA[>
 </code>
 <code name='Get Interchange values' xpos='200' ypos='350' >
-<![CDATA[  	set context.TranType="837"
+<![CDATA[  	set context.DateTransX = $ZDATETIME($HOROLOG,3,1)
+  	//_$PIECE($ZTIME($PIECE($HOROLOG,",",2),1),":",1)
+        set context.TranType="837"
 	set context.InterfaceReceivedDateAndTime=$ZDATETIME($HOROLOG,3,1)
 	set context.Origin="UHIN"
 	set context.SenderID=$ZSTRIP(context.x12Doc.GetValueAt("ISA:InterchangeSenderID"),"<>W") 
@@ -497,6 +509,31 @@ BPL Definition</Description>
 <code name='Create and send Tranx' xpos='335' ypos='600' >
 <![CDATA[
    Set transInsert=##Class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKTRANINSERT).%New()
+   
+    set sessionId = $$$JobSessionId
+   set TtTransactionID = ""
+ 
+   if (sessionId '= "")
+			{
+				
+				set sqlStr = "SELECT TtTransactionID FROM IHC_X12.Data837   where SessionID = "_sessionId_""
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set id=rs.%Get("TtTransactionID")
+					set TtTransactionID=id
+					$$$TRACE("tranttid:  " _ TtTransactionID) 
+					set context.TtTransactionID = TtTransactionID
+					
+ 				}
+			}
+   
+   
+        Set fileName =$Piece(request.FileName,"/",$Length(request.FileName,"/"))
+        set kwfileDtTm = $EXTRACT($zstrip($ZDATETIME($ZTIMESTAMP,3,1,4),"*P"),1,10)
+
+
 	set transInsert.TranType=context.TranType
 	set transInsert.InterfaceReceivedDateAndTime=context.InterfaceReceivedDateAndTime
 	set transInsert.Origin=context.Origin
@@ -508,8 +545,8 @@ BPL Definition</Description>
 	set transInsert.TransSetControlNumber=context.transSetControlNumber
 	set transInsert.ReferenceID=context.refID
 	
-	set transInsert.TransmissionTrackingID = $$$JobSessionId 
-	set transInsert.TransFileName = request.FileName
+	set transInsert.TransmissionTrackingID = TtTransactionID
+	set transInsert.TransFileName = fileName
 	
 	$$$TRACE("IHCSP_EDITRK_TRANX_INSERT val:"_transInsert)
 
@@ -771,6 +808,29 @@ BPL Definition</Description>
 <![CDATA[  
   set context.TimestampCK = context.TimestampCK + 1
   set context.timeCK = $REPLACE($REPLACE($ZDATETIME($HOROLOG,8,1)," ", ""),":", "") _ context.TimestampCK
+  
+  
+  // writing to get Claim id from database
+ 
+ set sessionId = $$$JobSessionId
+ set accnumber = context.AccountNumber
+ set id = ""
+ 
+ if (sessionId '= "")
+			{
+				//set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  X12DataParentId IS NOT NULL"
+				set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  ClaimId = '"_accnumber_"' and X12DataParentId IS NOT NULL"
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set id=rs.%Get("ID")
+					set id=id
+					$$$TRACE("claimid:  " _ id) 
+					
+ 				}
+			}
+  
 
   $$$TRACE("Send IHCSP_EDITRK_CLAIM_INSERT (2000C) Data to the operation, TimestampCK: " _ context.timeCK)
  
@@ -785,14 +845,14 @@ BPL Definition</Description>
 		set clmArr.GroupControlNumber=context.GS06
 		set clmArr.TransSetControlNumber=context.transSetControlNumber
 		set clmArr.ReferenceID=context.refID
-		Set clmArr.TransmissionTrackingID= $$$JobSessionId
+		Set clmArr.TransmissionTrackingID= context.TtTransactionID
 		
  		set clmArr.AccountNumber=context.AccountNumber		 
 		set clmArr.EarliestServiceDate=context.EarliestServiceDate	
 		set clmArr.TotalCharges=context.TotalCharges 
 		set clmArr.TimestampCK=context.timeCK 
 		
-		set clmArr.ClaimTrackingID = ""
+		set clmArr.ClaimTrackingID = id
 		set clmArr.KeywordFileName = ""
 		
 		set tStatus=process.SendRequestAsync(context.targetConfigNames,clmArr,.response,context.TimeOutForSPCall)
@@ -1331,11 +1391,23 @@ BPL Definition</Description>
     $$$TRACE("CLM values: " _ context.AccountNumber _", " _ context.TotalCharges )
     
     set cur2300DtpPath="loop2000A("_(context.loopAind)_").loop2000B("_(context.loopBind)_").loop2300("_context.loopClmInd_").loop2400(1).DTP(1)"
+         set dtp2400 = "loop2000A("_(context.loopAind)_").loop2000B("_(context.loopBind)_").loop2300("_context.loopClmInd_").loop2400(1)"
+    set dtp2400ind=STRecord.GetSegmentIndex(dtp2400_".DTP",.cur2400status)
+    set dtp2400ind=STRecord.GetSegmentIndex(cur2300DtpPath,.cur2400status)
+    $$$TRACE("DTP value 2400 up D8: " _ dtp2400ind )
+    $$$TRACE("DTP value 1 2400 up D8: " _ cur2300DtpPath)
+    $$$TRACE("DTP status : " _ cur2400status)
     
-    
-    if (STRecord.GetValueAt(cur2300DtpPath _":2") = "D8")
+	if (cur2400status = 1)
+	{
+		 set ESdatequal = STRecord.GetValueAt(dtp2400 _ ".DTP:2")
+		 set ESdatequal = STRecord.GetValueAt(cur2300DtpPath_ ":2") 
+		 }
+    $$$TRACE("DTP value 2400 D8: " _ ESdatequal )
+    if (ESdatequal  = "D8")
     {
-        set context.EarliestServiceDate = STRecord.GetValueAt(cur2300DtpPath _":3")
+        set context.EarliestServiceDate = STRecord.GetValueAt(dtp2400 _ ".DTP:3")
+        set context.EarliestServiceDate = STRecord.GetValueAt(cur2300DtpPath_ ":3")
     }
     else
     {
@@ -1378,7 +1450,29 @@ BPL Definition</Description>
 <code name='Send CLAIM_INSERT message to Trans tracking' xpos='740' ypos='750' >
 <![CDATA[ set context.TimestampCK = context.TimestampCK + 1
  set context.timeCK = $REPLACE($REPLACE($ZDATETIME($HOROLOG,8,1)," ", ""),":", "") _ context.TimestampCK
+ // writing to get Claim id from database
  
+ set sessionId = $$$JobSessionId
+ set accnumber = context.AccountNumber
+ set id = ""
+ 
+ if (sessionId '= "")
+			{
+				//set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  X12DataParentId IS NOT NULL"
+				set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  ClaimId = '"_accnumber_"' and X12DataParentId IS NOT NULL"
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set id=rs.%Get("ID")
+					set id=id
+					$$$TRACE("claimid:  " _ id) 
+					
+ 				}
+			}
+ 
+ 
+ $$$TRACE("claimid:  " _ id) 
  $$$TRACE("Send IHCSP_EDITRK_CLAIM_INSERT (2000B) Data to the operation - TimestampCK: " _ context.timeCK)
  
  		Set clmArr=##Class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.SP1IHCSPEDITRKCLAIMINSERT).%New()
@@ -1392,7 +1486,7 @@ BPL Definition</Description>
 		set clmArr.GroupControlNumber=context.GS06
 		set clmArr.TransSetControlNumber=context.transSetControlNumber
 		set clmArr.ReferenceID=context.refID
-		Set clmArr.TransmissionTrackingID= $$$JobSessionId
+		Set clmArr.TransmissionTrackingID= context.TtTransactionID
 		
  		set clmArr.AccountNumber=context.AccountNumber		 
 		set clmArr.EarliestServiceDate=context.EarliestServiceDate	
@@ -1400,7 +1494,7 @@ BPL Definition</Description>
 
 		set clmArr.TimestampCK = context.timeCK
 		
-		set clmArr.ClaimTrackingID = ""
+		set clmArr.ClaimTrackingID =id
 		set clmArr.KeywordFileName = ""
 		
 		set tStatus=process.SendRequestAsync(context.targetConfigNames,clmArr,.response,context.TimeOutForSPCall)
@@ -2129,7 +2223,38 @@ BPL Definition</Description>
                          {
                             set clmRefId = bhtRef 
                          }
-			
+	//getting the filename and claim id and ttransit
+	
+	set sessionId = $$$JobSessionId
+   set Claimid = ""
+   set filename = ""
+   set TtID = ""
+ 
+    if (sessionId '= "")
+			{
+				//set sqlStr = "SELECT ID,TransactionSetControlNumber FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  X12DataParentId IS NOT NULL"
+				set sqlStr = "SELECT ID,FileName,TtTransactionID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  ClaimId = '"_AccountNumber_"' and X12DataParentId IS NOT NULL"
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set Claimid = rs.%Get("ID")
+					 set filename  = rs.%Get("FileName")
+					 set TtID  = rs.%Get("TtTransactionID")
+					$$$TRACE("claimid:  " _ Claimid) 
+					
+					$$$TRACE("ttid: "_TtID)
+					
+ 				}
+			}
+	
+	
+	
+	
+	
+	
+	Set keywordfileName=$Piece(request.KeywordFileName,"/",$Length(request.KeywordFileName,"/"))
+	Set KeywordFileSent=$Extract(request.KeywordFileSent,1,4)_"-"_$Extract(request.KeywordFileSent,5,6)_"-"_$Extract(request.KeywordFileSent,7,8)_"."_$Extract(request.KeywordFileSent,9,10)_":"_$Extract(request.KeywordFileSent,11,12)_":"_$Extract(request.KeywordFileSent,13,14)		
 			 
 			 
         Set transInsert=##Class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.IHCSPEDITRKTRANSLUPDATE).%New()
@@ -2142,16 +2267,16 @@ BPL Definition</Description>
 	set transInsert.TransSetControlNumber=transCtrlNum 
 	set transInsert.ReferenceID=bhtRef 
 	
-	set transInsert.TransmissionTrackingID = $$$JobSessionId 
-	set transInsert.ClaimTrackingID = $$$JobSessionId 
+	set transInsert.TransmissionTrackingID = TtID
+	set transInsert.ClaimTrackingID = Claimid
 
 	Set transInsert.TotalCharges=TotalCharges
 	Set transInsert.AccountNumber=AccountNumber
 	Set transInsert.ClmExtRef = clmRefId
 	set transInsert.EarliestServiceDate = EarliestServiceDate 
-	set transInsert.KeywordFileName = request.KeywordFileName 
-	set transInsert.KeywordFileSent = request.KeywordFileSent
-	set transInsert.X12FileName = request.FileName 
+	set transInsert.KeywordFileName = keywordfileName 
+	set transInsert.KeywordFileSent = KeywordFileSent
+	set transInsert.X12FileName = filename 
 	
 	
 	$$$TRACE("837_OUTGOING_CLAIMS val:"_transInsert)
