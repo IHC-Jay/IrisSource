@@ -36,7 +36,6 @@ Use this template to start your BPL</Description>
 
 <XData name="BPL">
 <Description>
-BPL Definition
 BPL Definition</Description>
 <XMLNamespace>http://www.intersystems.com/bpl</XMLNamespace>
 <Data><![CDATA[
@@ -159,6 +158,11 @@ BPL Definition</Description>
 <property name='kwfileNm' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='150' />
+</parameters>
+</property>
+<property name='AccountNumber' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
 </context>
@@ -365,6 +369,14 @@ BPL Definition</Description>
         set bhtIDpath="BHT"
         set bhtIDind=context.individualST.GetSegmentIndex(bhtIDpath,.bhtIDstatus)  
         set refID=context.individualST.GetValueAt(bhtIDind_":3")
+        set clmIDpath="CLM"
+        set clmIDind=context.individualST.GetSegmentIndex(clmIDpath,.clmIDstatus)
+        set clm01=context.individualST.GetValueAt(clmIDind_":1")
+         
+        
+   
+   
+   $$$TRACE("CLMclaimid:  " _ clm01) 
  
        
        
@@ -558,7 +570,7 @@ BPL Definition</Description>
 <if name='More' condition='context.loop2000CCount &gt;= context.loop2000Cite' xpos='200' ypos='350' xend='200' yend='800' >
 <true>
 <trace name='2000C loop start' value='"Loop C " _ context.loop2000Cite' xpos='470' ypos='500' />
-<while name='X12 2300 Iteration' condition='context.cur2300status = 1' xpos='470' ypos='600' xend='200' yend='1200' >
+<while name='X12 2300 Iteration' condition='context.cur2300status = 1' xpos='470' ypos='600' xend='200' yend='1300' >
 <annotation>iterate through all the segments of the X12 2300 set </annotation>
 <code name='Split individual X12 records' xpos='200' ypos='250' >
 <annotation><![CDATA[Split large X12 into individual X12 files with single 2300 loop]]]]><![CDATA[></annotation>
@@ -600,12 +612,25 @@ BPL Definition</Description>
     set context.cur2300status = 0
   }]]]]><![CDATA[>
 </code>
-<if name='More' condition='context.cur2300status = 1' xpos='200' ypos='350' xend='200' yend='1100' >
+<if name='More' condition='context.cur2300status = 1' xpos='200' ypos='350' xend='200' yend='1200' >
 <true>
 <trace value='"Create KW from 2000C: " _ context.loopAind  _", " _context.loopBind_", " _context.loopCind_", " _ context.loopClmInd' xpos='470' ypos='500' />
-<transform class='IHC.ITF.Transform.Dtl.Generic837P2000AToShClaimsKeyWord' source='context.x12Doc' target='response' xpos='470' ypos='600' />
-<trace value='"From DTL from 2000C: " _ response' xpos='470' ypos='700' />
-<code name='Create file' xpos='470' ypos='800' >
+<code xpos='470' ypos='600' >
+<![CDATA[    set individualST=context.individualST 
+    set cur2300path="loop2000A("_(context.loopAind)_").loop2000B("_context.loopBind_").loop2000C("_context.loopCind_").loop2300("_  context.loopClmInd _")"		
+	set cur2320ind=individualST.GetSegmentIndex(cur2300path_".CLM",.cur2300status)
+	if (cur2300status = 1)
+	{
+		 set AccountNumber = individualST.GetValueAt(cur2300path _ ".CLM:1") 
+		 }
+		 
+		 $$$TRACE("CLMSQLclaimid:  " _ AccountNumber ) 
+		 
+   set context.AccountNumber = 	AccountNumber 	 ]]]]><![CDATA[>
+</code>
+<transform class='IHC.ITF.Transform.Dtl.Generic837PToShClaimsKeyWord' source='context.x12Doc' target='response' xpos='470' ypos='700' />
+<trace value='"From DTL from 2000C: " _ response' xpos='470' ypos='800' />
+<code name='Create file' xpos='470' ypos='900' >
 <![CDATA[  /*
     Set pS=##class(%Stream.GlobalCharacter).%New()
          Do ##class(IHC.ITF.ITFCOMMON.X12.Sh837KeyWord).PutComplexRecord(.pS, response)
@@ -615,16 +640,44 @@ BPL Definition</Description>
    
   $$$TRACE("**********Writing 2000C********")
   set context.kwfileDtTm = $zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
-  set context.kwfileNm = "/itf-share/itf-tmp/837-ToKW-SelectHealth/837KWFile-2000C-" _ context.kwfileDtTm
-   
+  set context.kwfileNm = "/itf-share/itf-tmp/837-ToKW-SelectHealth/Facets_Batch_837P_5010-" _ context.AccountNumber
  
   Set tIOStream=##Class(%IO.FileStream).%New()
   Do tIOStream.Open(context.kwfileNm, "NEW",5,,.tSC)
+  
   $$$TRACE(context.kwfileNm _ " Stream open: " _ tSC)
   set tSC = ##class(IHC.ITF.DStruc.Record.KeyWord837).PutBatch(tIOStream, response)
-  $$$TRACE("PutBatch: " _ tSC)]]]]><![CDATA[>
+  Do tIOStream.Close()
+  
+  Set KWdata=##Class(%IO.FileStream).%New()
+  Do KWdata.Open(context.kwfileNm, "R", , , .sc)
+  
+  Do KWdata.Rewind() 
+  $$$TRACE("PutBatch: " _ KWdata.Read())
+  
+ Set file = context.kwfileNm
+ Do KWdata.Rewind() 
+  $$$TRACE("Reading file: "_file)
+
+   
+  
+  set pS  = ##class(Ens.StreamContainer).%New()
+  set pS.Stream = ##class(%Stream.GlobalCharacter).%New() 
+  set tSC= pS.Stream.Write(KWdata.Read())
+  Do pS.Stream.Rewind()
+  set pS.OriginalFilename= "Facets_Batch_837P_5010" _ "-"_context.AccountNumber
+  
+  
+  set destinationConfigName = "Out-Sh-Claims-Keyword-File"
+  set tSC1=process.SendRequestAsync(destinationConfigName,pS)
+  Do KWdata.Close()
+  $$$TRACE("KW sent to Operation: " _ tSC1)
+  
+  
+  
+  ]]]]><![CDATA[>
 </code>
-<code name='Send 837_OUTGOING_CLAIMS to Trans tracking' xpos='470' ypos='900' >
+<code name='Send 837_OUTGOING_CLAIMS to Trans tracking' xpos='470' ypos='1000' >
 <![CDATA[
  set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
  Do transObj.x12Message.CopyFrom(context.inpStream)
@@ -647,7 +700,7 @@ BPL Definition</Description>
  } 
  $$$TRACE("Sent TransTrackingMsg: 837_OUTGOING_CLAIMS")]]]]><![CDATA[>
 </code>
-<code xpos='470' ypos='1000' >
+<code xpos='470' ypos='1100' >
 <![CDATA[ set context.loopClmInd=context.loopClmInd + 1 ]]]]><![CDATA[>
 </code>
 </true>
@@ -667,7 +720,7 @@ BPL Definition</Description>
 </while>
 </true>
 <false>
-<while name='X12 2300 Iteration' condition='context.cur2300status = 1' xpos='470' ypos='750' xend='200' yend='1200' >
+<while name='X12 2300 Iteration' condition='context.cur2300status = 1' xpos='470' ypos='750' xend='200' yend='1300' >
 <annotation>iterate through all the segments of the X12 2300 set </annotation>
 <code name='Split individual X12 records' xpos='200' ypos='250' >
 <annotation><![CDATA[Split large X12 into individual X12 files with single 2300 loop]]]]><![CDATA[></annotation>
@@ -710,48 +763,74 @@ BPL Definition</Description>
     set context.cur2300status = 0
   }]]]]><![CDATA[>
 </code>
-<if name='More' condition='context.cur2300status = 1' xpos='200' ypos='350' xend='200' yend='1100' >
+<if name='More' condition='context.cur2300status = 1' xpos='200' ypos='350' xend='200' yend='1200' >
 <true>
 <trace value='"Create KW from 2000B " _ context.loopAind _", " _context.loopBind_", " _ context.loopClmInd' xpos='470' ypos='500' />
-<transform class='IHC.ITF.Transform.Dtl.Generic837P2000AToShClaimsKeyWord' source='context.x12Doc' target='response' xpos='470' ypos='600' />
-<trace value='"From DTL for 2000B: " _ response' xpos='470' ypos='700' />
-<code name='Create Stream' xpos='470' ypos='800' >
-<![CDATA[  /* Set pS=##class(%Stream.GlobalCharacter).%New()
+<code xpos='470' ypos='600' >
+<![CDATA[
+ 
+    set individualST=context.individualST 
+    set cur2300path="loop2000A("_(context.loopAind)_").loop2000B("_context.loopBind_").loop2300("_ context.loopClmInd _")"	
+	set cur2320ind=individualST.GetSegmentIndex(cur2300path_".CLM",.cur2300status)
+	if (cur2300status = 1)
+	{
+		 set AccountNumber = individualST.GetValueAt(cur2300path _ ".CLM:1") 
+		 }
+		 
+		 $$$TRACE("CLMSQLclaimid:  " _ AccountNumber ) 
+		 
+   set context.AccountNumber = 	AccountNumber 	 ]]]]><![CDATA[>
+</code>
+<transform class='IHC.ITF.Transform.Dtl.Generic837PToShClaimsKeyWord' source='context.x12Doc' target='response' xpos='470' ypos='700' />
+<trace value='"From DTL for 2000B: " _ response' xpos='470' ypos='800' />
+<code name='Create Stream' xpos='470' ypos='900' >
+<![CDATA[  /*
+    Set pS=##class(%Stream.GlobalCharacter).%New()
          Do ##class(IHC.ITF.ITFCOMMON.X12.Sh837KeyWord).PutComplexRecord(.pS, response)
-   $$$TRACE(context.loopClmInd _ ". Stream size: " _ pS.Size) 
-  
-   $$$TRACE("Convert RecMap to Stream from " _ response)   
-   set charSt = ##class(%Stream.GlobalCharacter).%New()
-   set status = ##class(IHC.ITF.ITFCOMMON.X12.Sh837KeyWord).PutComplexRecord(charSt, response)
-   $$$TRACE("PutBatch: " _ status _", Stream size: "_ charSt.Size)
-   if (charSt.Size = 0)
-   {
-   set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Error in creating Char Stream")
-      }
-   else
-   {
-   Do charSt.Rewind()
-   set context.stcontainer.Stream = charSt 
-   set context.stcontainer.OriginalFilename = "FileName"
-   $$$TRACE("Stream: " _ charSt.Read())
-   Do charSt.Rewind()
-  }  
-  */
-  
-  Set tIOStream=##Class(%IO.FileStream).%New()
+  $$$TRACE(context.loopClmInd _ ". Stream size: " _ pS.Size)    
+     
+   */
+   
+  $$$TRACE("**********Writing 2000B********")
   set context.kwfileDtTm = $zstrip($ZDATETIME($ZTIMESTAMP,3,1,4), "*P")
-  set context.kwfileNm = "/itf-share/itf-tmp/837-ToKW-SelectHealth/837KWFile-2000B-" _ context.kwfileDtTm
-  Do tIOStream.Open(context.kwfileNm,"NEW",5,,.tSC)
+  set context.kwfileNm = "/itf-share/itf-tmp/837-ToKW-SelectHealth/Facets_Batch_837P_5010-" _ context.AccountNumber
+ 
+  Set tIOStream=##Class(%IO.FileStream).%New()
+  Do tIOStream.Open(context.kwfileNm, "NEW",5,,.tSC)
+  
   $$$TRACE(context.kwfileNm _ " Stream open: " _ tSC)
   set tSC = ##class(IHC.ITF.DStruc.Record.KeyWord837).PutBatch(tIOStream, response)
-  $$$TRACE("PutBatch: " _ tSC)
+  Do tIOStream.Close()
   
+  Set KWdata=##Class(%IO.FileStream).%New()
+  Do KWdata.Open(context.kwfileNm, "R", , , .sc)
+  
+  Do KWdata.Rewind() 
+  $$$TRACE("PutBatch: " _ KWdata.Read())
+  
+ Set file = context.kwfileNm
+ Do KWdata.Rewind() 
+  $$$TRACE("Reading file: "_file)
+
    
-     
-     
-        ]]]]><![CDATA[>
+  
+  set pS  = ##class(Ens.StreamContainer).%New()
+  set pS.Stream = ##class(%Stream.GlobalCharacter).%New() 
+  set tSC= pS.Stream.Write(KWdata.Read())
+  Do pS.Stream.Rewind()
+  set pS.OriginalFilename= "Facets_Batch_837P_5010" _ "-"_context.AccountNumber
+  
+  
+  set destinationConfigName = "Out-Sh-Claims-Keyword-File"
+  set tSC1=process.SendRequestAsync(destinationConfigName,pS)
+  Do KWdata.Close()
+  $$$TRACE("KW sent to Operation: " _ tSC1)
+  
+  
+  
+  ]]]]><![CDATA[>
 </code>
-<code name='Send 837_OUTGOING_CLAIMS to Trans tracking' xpos='470' ypos='900' >
+<code name='Send 837_OUTGOING_CLAIMS to Trans tracking' xpos='470' ypos='1000' >
 <![CDATA[
  set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
  Do transObj.x12Message.CopyFrom(context.inpStream)
@@ -774,7 +853,7 @@ BPL Definition</Description>
  } 
  $$$TRACE("Sent TransTrackingMsg: 837_OUTGOING_CLAIMS")]]]]><![CDATA[>
 </code>
-<code xpos='470' ypos='1000' >
+<code xpos='470' ypos='1100' >
 <![CDATA[ set context.loopClmInd=context.loopClmInd + 1 ]]]]><![CDATA[>
 </code>
 </true>
