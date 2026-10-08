@@ -210,6 +210,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 <SoapMessageName>COREEnvelopeRealTimeResponse</SoapMessageName>
 <SoapRequestMessage>COREEnvelopeRealTimeRequest</SoapRequestMessage>
 <Implementation><![CDATA[
+	
  // Web Service Method Implementation Goes Here.
  //set request = ##class(SoapRequestMessage).%New()
  //set request.PayloadID=PayloadID
@@ -382,24 +383,52 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		set context.aaaCode = "42", context.IndustryCode = "E1", context.IndustryCode2 = "484"
 		set newTarget = ""
 		set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Service.Corerules.Lookup.TPIDs", x12MsgReq.SenderID, .retVal) 
-		
-		
+		$$$TRACE("return value(in Minutes) "_retVal_" for the partner: "_x12MsgReq.SenderID)
+		set expirySeconds = retVal * 60
+				
 		set glbNm = "^ItfRtCount" _ tranType
 		set senderID = x12MsgReq.SenderID
 		set requestCount = 0
 		set hiVolThershold = "0"
+		
+		
+		
+		// High Volume Partner
 		if (($$$ISOK(tSC)) && (retVal '= "Unknown")){
+						
+			//Current time in seconds
+			set h = $HOROLOG
+			set now = (+h * 86400) + $Piece(h,",",2) 
+		
 			set newTarget = ..HighVolumeTag
-			if ($GET(@glbNm@(senderID)) = ""){
-				kill @glbNm
-				set @glbNm@(senderID) = 1
-				set requestCount = 1
-				$$$TRACE("NEW "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)
-			}else{
-				set requestCount = $INCREMENT(@glbNm@(senderID))
-				$$$TRACE("EXISTING "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)
+			
+			// get the expiry time for the current HV partner
+			set expireTime = +$Get(@glbNm@(senderID,"Expire"))
+			
+			
+			
+			// reset current HV partner
+			if ((expireTime > 0) && (now >= expireTime)){
+		        $$$TRACE("EXPIRED "_tranType_" HIGH VOLUME SenderId "_senderID_" - resetting counter")
+		        kill @glbNm@(senderID)
+		        set requestCount = 0
 			}
-			if (requestCount > ..ThresholdValue){
+			
+			//New HV partner or expired partner, New time window starts 
+			if '$Data(@glbNm@(senderID,"Count")) {
+        		set requestCount = 1
+		        Set @glbNm@(senderID,"Count") = requestCount
+		        Set @glbNm@(senderID,"Expire") = now + expirySeconds
+		        $$$TRACE("NEW "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)		     
+		    }else{ // Existing HV, within existing time window
+			    Set requestCount = $Increment(@glbNm@(senderID,"Count"))
+        		$$$TRACE("EXISTING "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)
+		     } 
+		     
+		     		     
+		     $$$TRACE("NOW: "_now_",EXPIRE time:"_expireTime_", HV Partner: "_senderID_",COUNT: "_requestCount_", ThresholdValue: "_..ThresholdValue)
+    
+    		if (requestCount > ..ThresholdValue){
 				$$$TRACE(" -- SEND 999 - "_senderID_", req # "_requestCount_", ThresholdValue: "_..ThresholdValue)
 				set context.aaaCode = "04"
 				set context.IndustryCode = "A7"
@@ -408,10 +437,8 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 				set hiVolThershold = "1"
 			}
 		}else{ //Regular partners
-			kill @glbNm
 			set requestCount = 0
-			set hiVolThershold = "0"
-			$$$TRACE("RESET all "_tranType_" HIGH VOLUME partner counters")
+			set hiVolThershold = "0"			
 		}
 			
 		if (hiVolThershold="0"){
@@ -546,7 +573,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 				}
 				else
 				{
-				 	set sc=##class(IHC.ITF.CORERULES.Service.CR270To271AAA).Transform(pDocIn,.target, .context)
+					set sc=##class(IHC.ITF.CORERULES.Service.CR270To271AAA).Transform(pDocIn,.target, .context)
 				}
 				 if $$$ISERR(sc)
 				  {
@@ -585,7 +612,7 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 				}
 				else
 				{
-				 	set sc=##class(IHC.ITF.CORERULES.Service.CR270To271AAA).Transform(pDocIn,.target, .context)
+					set sc=##class(IHC.ITF.CORERULES.Service.CR270To271AAA).Transform(pDocIn,.target, .context)
 				}
 		 		
 				 if $$$ISERR(sc)
