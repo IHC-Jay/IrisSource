@@ -14,15 +14,32 @@ Version X12  ST-3</Description>
 </Property>
 
 <Property name="SnipWorkflow">
-<Description>
-Workflow For SNIP errors flag: </Description>
+<Description><![CDATA[
+Workflow For SNIP errors flag<br/>
+Turn on and off sending SNIP errors to workflow<br/>
+<br/>Off by default as we only want to send to workflow if users plan on working the errors]]></Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
 </Property>
 
-<Property name="OriginalPathParentFolder">
+<Property name="SplitX12atSTs">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="TpCheckBeforeOverwrite">
 <Description><![CDATA[
-Directory name to search for in OriginalFilename<br/>
+Flag that causes the code to check for a TP link from the X12 Data before doing any other logic tp loop up logic including the overwite<br/>
+When set tries to find a TP link using the values from the X12 first and then only runs the overwrite logic if no TP link is found from the values in the X12<br/>
+When not set run the overwrite logic and checks the Partner lookup table before trying to find a TP link<br/>
+<br/>Off by default as we don't want the overhead of posibly checking for the TP link twice if we now that the X12 data will not have exact TP link matches ]]></Description>
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="OriginalPathParentFolderForTpOverwrite">
+<Description><![CDATA[
+Directory name to search for in OriginalFilename for use in the TP overwrite logic and lookup table.<br/>
 When not blank, uses this string to search for a directory in the OriginalFilename and use that to set the TP Link logic]]></Description>
 <Type>%String</Type>
 </Property>
@@ -45,7 +62,7 @@ Do not use with this class as it is not implemented</Description>
 
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>SnipWorkflow:Additional,OriginalPathParentFolder:Additional</Default>
+<Default>SnipWorkflow:Additional,TpCheckBeforeOverwrite:Additional,OriginalPathParentFolderForTpOverwrite:Additional,SplitX12atSTs:Additional</Default>
 </Parameter>
 
 <Storage name="Default">
@@ -63,10 +80,13 @@ Do not use with this class as it is not implemented</Description>
 <Value>SnipWorkflow</Value>
 </Value>
 <Value name="5">
-<Value>OriginalPathParentFolder</Value>
+<Value>TpCheckBeforeOverwrite</Value>
 </Value>
 <Value name="6">
-<Value>OriginalPathParentFolder</Value>
+<Value>OriginalPathParentFolderForTpOverwrite</Value>
+</Value>
+<Value name="7">
+<Value>SplitX12atSTs</Value>
 </Value>
 </Data>
 </Storage>
@@ -157,7 +177,9 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='SnipWorkflow' type='%Boolean' instantiate='0' />
-<property name='OriginalPathParentFolder' type='%String' instantiate='0' >
+<property name='SplitX12atSTs' type='%Boolean' instantiate='0' />
+<property name='TpCheckBeforeOverwrite' type='%Boolean' instantiate='0' />
+<property name='OriginalPathParentFolderForTpOverwrite' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
@@ -172,9 +194,10 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='15' />
 </parameters>
 </property>
+<property name='tpLinkFound' type='%Boolean' instantiate='0' />
 </context>
-<sequence xend='200' yend='3300' >
-<scope xpos='200' ypos='250' xend='200' yend='3200' >
+<sequence xend='200' yend='4250' >
+<scope xpos='200' ypos='250' xend='200' yend='4150' >
 <trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName _", s Id: " _ $$$JobSessionId _", req: " _ process.%PrimaryRequestHeader.SourceConfigName' xpos='200' ypos='350' >
 <annotation><![CDATA[Write your code in this Scope]]]]><![CDATA[></annotation>
 </trace>
@@ -194,27 +217,51 @@ BPL Definition</Description>
  else
  {
    set context.targetConfigNames = configValue
+   $$$TRACE("context.targetConfigNames: " _ context.targetConfigNames _ ", configValue: " _ configValue)
  }
  
  set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"SnipWorkflow",.configValue)
  if ( ($$$ISERR(pstatus)) )
  {
  	$$$LOGWARNING("Initialization warning, SnipWorkflow not defined, defaulting to 'false'")
- 	Set configValue = "false"
+ 	Set configValue = 0
  }
- set context.SnipWorkflow = configValue  
+ set context.SnipWorkflow = configValue
+ $$$TRACE("context.SnipWorkflow: " _ context.SnipWorkflow _ ", configValue: " _ configValue)
 
- set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"OriginalPathParentFolder",.configValue)
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"SplitX12atSTs",.configValue)
  if ( ($$$ISERR(pstatus)) )
  {
- 	$$$LOGWARNING("Initialization warning, OriginalPathParentFolder not defined, defaulting to ''")
+ 	$$$LOGWARNING("Initialization warning, SplitX12atSTs not defined, defaulting to 'false'")
+ 	Set configValue = 0
+ }
+ set context.SplitX12atSTs = configValue
+ $$$TRACE("context.SplitX12atSTs: " _ context.SplitX12atSTs _ ", configValue: " _ configValue)
+
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TpCheckBeforeOverwrite",.configValue)
+ if ( ($$$ISERR(pstatus)) )
+ {
+ 	$$$LOGWARNING("Initialization warning, TpCheckBeforeOverwrite not defined, defaulting to 'false'")
+ 	Set configValue = 0
+ }
+ set context.TpCheckBeforeOverwrite = configValue
+ $$$TRACE("context.TpCheckBeforeOverwrite: " _ context.TpCheckBeforeOverwrite _ ", configValue: " _ configValue) 
+
+ set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"OriginalPathParentFolderForTpOverwrite",.configValue)
+ if ( ($$$ISERR(pstatus)) )
+ {
+ 	$$$LOGWARNING("Initialization warning, OriginalPathParentFolderForTpOverwrite not defined, defaulting to ''")
  	Set configValue = ""
  }
- set context.OriginalPathParentFolder = configValue
+ set context.OriginalPathParentFolderForTpOverwrite = configValue
+ $$$TRACE("context.OriginalPathParentFolderForTpOverwrite: " _ context.OriginalPathParentFolderForTpOverwrite _ ", configValue: " _ configValue) 
  
  set context.direction = "In"
    
  set context.mode = "Batch"
+ 
+ set context.tpLinkFound = 0
+ $$$TRACE("context.mode: " _ context.mode _ ", context.direction: " _ context.direction _ ", context.tpLinkFound: " _ context.tpLinkFound) 
    
 
    
@@ -291,29 +338,79 @@ BPL Definition</Description>
   Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data")
  }]]]]><![CDATA[>
 </code>
-<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='2950' >
+<if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='3900' >
 <true>
-<code name='Print file name' xpos='470' ypos='800' >
-<![CDATA[
- $$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ $L(context.inXmlDoc))
-			]]]]><![CDATA[>
+<code name='Print file name and get version' xpos='470' ypos='800' >
+<![CDATA[  $$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ $L(context.inXmlDoc))
+  if (context.inXmlDoc.DocType = ""){
+     set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group"
+  }
+
+  #dim individualGroup As EnsLib.EDI.X12.Document 
+  set individualGroup = context.inXmlDoc.getNthChild(1,2)
+  
+  set context.version = individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti")
+  $$$TRACE("context.version: " _ context.version)
+  set context.version = $REPLACE(context.version, "00", "V")
+  $$$TRACE("context.version updated to: " _ context.version)
+      
+  set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+  $$$TRACE("context.interchangeSenderID: " _ context.interchangeSenderID)
+  
+  set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+  $$$TRACE("context.interchangeReceiverID: " _ context.interchangeReceiverID)
+]]]]><![CDATA[>
 </code>
-<code name='Set TP by File Path' xpos='470' ypos='900' >
+<if name='CheckTpFirst?' condition='context.TpCheckBeforeOverwrite' xpos='470' ypos='900' xend='470' yend='1150' >
+<true>
+<code name='get TP Link from ISA IDs' xpos='740' ypos='1050' >
+<![CDATA[
+
+ 
+ 
+  $$$TRACE("Get TP Link based on ISA sender and receiver IDs")
+  set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(context.interchangeSenderID ,context.interchangeReceiverID , context.version, context.mode, context.direction, .lnkInfo, .errStr)
+            
+  If $$$ISERR(tSC) {
+     $$$TRACE( "Could not get Link for " _ context.interchangeSenderID _ "->" _ context.interchangeReceiverID _ ", " _ context.version _ ", " _ context.mode _ ", Direction: " _ context.direction _ "from IDs in X12. errStr= " _ errStr)
+  }
+	     
+  if ($$$ISOK(tSC)) {
+    $$$TRACE( context.interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+    set lnkId = $PIECE(lnkInfo, ",", 1)
+    set context.tpLinkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
+    set context.tpLinkFound = 1            
+    $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
+  }
+			
+  $$$TRACE("context.tpLinkFound: " _ context.tpLinkFound)]]]]><![CDATA[>
+</code>
+</true>
+<false>
+<trace name='Check TP First Turned off ' value='"Setting to check for TP link using X12 values before doing any TP ID overwrite not set so skipping that lookup. context.TpCheckBeforeOverwrite: " _ context.TpCheckBeforeOverwrite' xpos='470' ypos='1050' />
+</false>
+</if>
+<if name='TP Link found by ISA values?' condition='context.tpLinkFound' xpos='470' ypos='1250' xend='470' yend='1500' >
+<true>
+<trace name='TP Link found' value='"TP Link found so need to use TP ID overwrite to try and find it. thus skipping that logic."' xpos='740' ypos='1400' />
+</true>
+<false>
+<code name='Set TP by File Path' xpos='470' ypos='1400' >
 <![CDATA[  set RelativePath = ""
   
   $$$TRACE("Get name of folder for searching in the OriginalFilename")
   set searchFolder = ""
-  set searchFolder = context.OriginalPathParentFolder
+  set searchFolder = context.OriginalPathParentFolderForTpOverwrite
   set searchFolderNameOnly = ""
-  $$$TRACE( "OriginalPathParentFolder: " _ searchFolder)
+  $$$TRACE( "OriginalPathParentFolderForTpOverwrite: " _ searchFolder)
   if searchFolder '= "" {
-	  if $E(searchFolder, *) = "/" {
+      if $E(searchFolder, *) = "/" {
 		    set searchFolderNameOnly = $Extract(searchFolder,1,$Length(searchFolder)-1)
       }	
-	  else {
-		    set searchFolderNameOnly = searchFolder
-		    set searchFolder = searchFolderNameOnly _ "/"
-	  }
+      else {
+         set searchFolderNameOnly = searchFolder
+         set searchFolder = searchFolderNameOnly _ "/"
+      }
 	  
       $$$TRACE( "searchFolder " _ searchFolder)
       $$$TRACE( "searchFolderNameOnly " _ searchFolderNameOnly)
@@ -323,50 +420,71 @@ BPL Definition</Description>
       If (RelativePath = "")
       {
          Set RelativePath = searchFolderNameOnly
-         $$$TRACE( "RelativePath: " _ RelativePath)
       }
-  
+      $$$TRACE( "RelativePath: " _ RelativePath _ ", using this to check lookup table for TP ID overwrite details")
+      //The following are only used to set the values used for looking up the TP link and set the meta data on the X12 long term storage.  As of Oct 2026 they are not used to change any values in the X12
+      //Lookup table has the relative path passed in from the triggering component as the key and the values are as follow separated by pipes:
+      //ID to overwrite the ISA and GS sender ID with | ID to check against the ISA sender ID to determine if this message should not have the sender ID overwritten | ID to overwrite the ISA and GS receiver ID | ID to check against the ISA receiver ID to determine if this message should have the receiver ID moved to the sender ID as that is the value we want to group the messages by and the current HIPAA B2B tool uses the sender as the ID of the Trading Partner for inbound messages 
       set lookupTbl  = "IHC.ITF.Process.BPL.SplitterInput-835_Generic-835-VALIDATEDX12.Lookup.Partners"
       set stat = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup(lookupTbl, RelativePath, .value)
-      if ( ($$$ISOK(stat)) && (value '= "Unknown") && (value '= "") )
-      {
+      if ( ($$$ISOK(stat)) && (value '= "Unknown") && (value '= "") ) {
          $$$TRACE( "RelativePath: " _ RelativePath _ " was found in Lookup Table: " _ lookupTbl _ ", with value: " _ value)
     
-         set senderValue = ""
-         set senderValue = $Piece(value,"|")
-         $$$TRACE("senderValue: " _ senderValue)
-         if (senderValue '= ""){
-            set context.senderId = senderValue
-            $$$TRACE("context.senderId: " _ context.senderId) 
+         set senderCheckValue = ""
+         set senderCheckValue = $Piece(value,"|",2)
+         $$$TRACE("senderCheckValue: " _ senderCheckValue)
+         //if senderCheckValue is the same as the ISA sender ID then do not overwrite sender ID, otherwise do
+         if (senderCheckValue '= context.interchangeSenderID){
+            set senderValue = ""
+            set senderValue = $Piece(value,"|")
+            set receiverCheckValue = ""
+            set receiverCheckValue = $Piece(value,"|",4)
+            $$$TRACE("receiverCheckValue: " _ receiverCheckValue)
+            $$$TRACE("context.interchangeReceiverID: " _ context.interchangeReceiverID)
+            $$$TRACE("senderValue: " _ senderValue)
+            //if receiverCheckValue is the same as the ISA receiver ID then overwrite sender ID with receiver ID as that is the unique TP ID for this source's messages
+            if (receiverCheckValue = context.interchangeReceiverID){
+               set context.senderId = receiverCheckValue
+               $$$TRACE("context.senderId set to ISA receiver value: " _ receiverCheckValue)     
+            }
+            elseif ((senderValue = "\") && (context.interchangeReceiverID '= "")){
+               $$$TRACE("overwritten sending partner ID with receiver ID from the ISA. interchangeReceiverID: " _ context.interchangeReceiverID)
+               set context.senderId = context.interchangeReceiverID
+               $$$TRACE("context.senderId updated to: " _ context.senderId)
+            }
+            else { //Overwrite sender ID with sender value from lookup table 
+               $$$TRACE("Overwrite senderValue: " _ senderValue)
+               if (senderValue '= ""){
+                  set context.senderId = senderValue
+                  $$$TRACE("context.senderId set to overwrite value from lookup table: " _ context.senderId) 
+               }
+            }
          }
-    
+         
+         //Use lookup table to overwrite receiver ID if a receiver overwrite value is found in the lookup table.
+         //Used to standardize receiver IDs for a given source relative path to limit the need to have to create TP links for all possible receiver values from that source
          set receiverValue = ""
-         set receiverValue = $Piece(value,"|",2)
-         $$$TRACE("receiverValue: " _ receiverValue)
-         if (receiverValue '= ""){
-           set context.receiverId = receiverValue
-           $$$TRACE("context.receiverId: " _ context.receiverId)
-         }
- 
+         set receiverValue = $Piece(value,"|",3)
+         $$$TRACE("Overwrite receiverValue: " _ receiverValue)
+            if (receiverValue '= ""){
+            set context.receiverId = receiverValue
+            $$$TRACE("context.receiverId set to overwrite value from lookup table: " _ context.receiverId)
+            }
+            
       }
       else{
-         $$$TRACE( "RelativePath: " _ RelativePath _ " was NOT found in Lookup Table: " _ lookupTbl _ ", value returned: " _ value _ ", stat: " _ stat)
+         $$$TRACE( "RelativePath: " _ RelativePath _ " was NOT found in Lookup Table: " _ lookupTbl _ " thus can not use lookup table for TP link match, value returned: " _ value _ ", stat: " _ stat)
       }
   }
   else{
-	  $$$TRACE("Setting OriginalPathParentFolder is blank and thus can not use source folder in TP Lookup")
+     $$$TRACE("Setting OriginalPathParentFolderForTpOverwrite is blank and thus can not use source folder to set values for TP match")
   }
 ]]]]><![CDATA[>
 </code>
-<code name='Call Store in DB and Get TP information' xpos='470' ypos='1000' >
-<![CDATA[  if (context.inXmlDoc.DocType = "")
-  {
-     set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group"
-  }
-  
-  $$$TRACE("DocType: " _ context.inXmlDoc.DocType)
-
-  //Call X12 Store DB 
+</false>
+</if>
+<code name='Call Store in DB and Get TP information' xpos='470' ypos='1600' >
+<![CDATA[  
   $$$TRACE("setting up message to call X12 DB Store")
   set context.X12StoreTargetConfigName = "Rco-X12-Store-DB"
   set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
@@ -375,26 +493,23 @@ BPL Definition</Description>
   $$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size)
 	
   set context.storeX12.streamContainer.OriginalFilename = request.OriginalFilename
-  set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
-  $$$TRACE("context.interchangeReceiverID: " _ context.interchangeReceiverID)  
+  //set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
+  //$$$TRACE("context.interchangeReceiverID: " _ context.interchangeReceiverID)  
 
   
   if (context.senderId '= ""){        
-    if (context.receiverId = "\" && context.interchangeReceiverID '= ""){ //Handle subdivisions of overwritten sending partner ID based on receiver ID in the ISA
+    if ((context.receiverId = "\") && (context.interchangeReceiverID '= "")){
+      $$$TRACE("Handle subdivisions of overwritten sending partner ID based on receiver ID in the ISA. receiverId: " _ context.receiverId _ ", interchangeReceiverID: " _ context.interchangeReceiverID)
       set context.senderId = context.senderId _ "-" _ context.interchangeReceiverID
-      $$$TRACE("context.senderId updated to " _ context.senderId)
+      $$$TRACE("context.senderId updated to: " _ context.senderId)
       set context.receiverId = ""
     }       
         
     //set ISA sender ID for storage and TP look up based on overwritten sender ID if there is one
     set context.storeX12.interchangeSenderID = context.senderId 
-    $$$TRACE("context.storeX12.interchangeSenderID: " _ context.storeX12.interchangeSenderID)  
+    $$$TRACE("context.storeX12.interchangeSenderID updated to: " _ context.storeX12.interchangeSenderID)  
     set context.interchangeSenderID = context.senderId  
   }
-  else{
-    set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
-  }
-  $$$TRACE("context.interchangeSenderID: " _ context.interchangeSenderID)  
 
   //set ISA receiver ID for storage TP look up based on overwritten receiver ID if there is one          
   if (context.receiverId '= ""){ 
@@ -410,40 +525,37 @@ BPL Definition</Description>
 	
   $$$TRACE("Sending X12 to " _ context.X12StoreTargetConfigName)
   Set tSC1=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
-  $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
+  $$$TRACE("Sent Async Incoming Stream to the Store operation to store X12, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
  
-  $$$TRACE("setting up message to get TP Link")    
-  #dim individualGroup As EnsLib.EDI.X12.Document 
-       set individualGroup = context.inXmlDoc.getNthChild(1,2)
-       set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
-           
+  if 'context.tpLinkFound{
+     $$$TRACE("get TP Link with determined TP IDs with interchangeSenderID: " _ context.interchangeSenderID _ ", interchangeReceiverID: " _ context.interchangeReceiverID _ ", version: " _ context.version _ ", mode: " _ context.mode _ ", and direction: " _ context.direction)
      set tSC = ##class(IHC.ITF.ITFCOMMON.EdiX12utils).GetInterchageLink(context.interchangeSenderID ,context.interchangeReceiverID , context.version, context.mode, context.direction, .lnkInfo, .errStr)
             
-            If $$$ISERR(tSC)
-            {
-	            $$$LOGERROR( "Could not get Link for "_context.interchangeSenderID _"->"_context.interchangeReceiverID _", " _ context.version _ ", " _ context.mode _", Direction: " _ context.direction _"= " _ errStr)
-	            set context.errStr = errStr
-	     }
-	     
-   
-   if ($$$ISOK(tSC))
-   {
-       $$$TRACE( context.interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
-               set lnkId = $PIECE(lnkInfo, ",", 1)
-               set context.tpLinkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
-               
-               $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
-   }
-   
-   set context.statusUpdate = "Processed"]]]]><![CDATA[>
+     If $$$ISERR(tSC) {
+        $$$LOGWARNING( "Could not get Link for " _ context.interchangeSenderID _ "->" _ context.interchangeReceiverID _", " _ context.version _ ", " _ context.mode _", Direction: " _ context.direction _"= " _ errStr)
+        set context.errStr = errStr
+     }
+  	     
+     if ($$$ISOK(tSC)) {
+        $$$TRACE( context.interchangeReceiverID  _ ": Tp Info : " _ lnkInfo _", " _ errStr)
+        set lnkId = $PIECE(lnkInfo, ",", 1)
+        set context.tpLinkObj = ##class(IHC.TPManage.TRADELINKS).%OpenId(lnkId)
+        $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
+     }
+  }
+  else{             
+     $$$TRACE( "FROM GLOBAL:" _ context.inXmlDoc.Name _ " - SNIP: " _ context.tpLinkObj.SNIP _ ", DocType: " _ context.inXmlDoc.DocType)
+  }
+       
+  set context.statusUpdate = "Processed"]]]]><![CDATA[>
 </code>
-<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1100' xend='470' yend='1650' >
+<if name='TP link found?' condition='( ($$$ISOK(tSC)) &amp;&amp; ($IsObject(context.tpLinkObj)) )' xpos='470' ypos='1700' xend='470' yend='2250' >
 <true>
-<trace name='Link found' value='"TP Link found"' xpos='470' ypos='1250' />
+<trace name='Link found' value='"Bypassing TP ERROR Workflow logic as TP Link was found"' xpos='470' ypos='1850' />
 </true>
 <false>
-<trace name='Error' value='"TP link not found, send to WF "' xpos='740' ypos='1250' />
-<code name='Store in WorkFlow' xpos='740' ypos='1350' >
+<trace name='No TP Link' value='"TP link not found, send to WF "' xpos='740' ypos='1850' />
+<code name='Store in WorkFlow' xpos='740' ypos='1950' >
 <![CDATA[ $$$TRACE("origX12Doc: " _  context.inXmlDoc.%Id() _", " _ context.errStr)
  
   $$$TRACE("SessionId = " _ $$$JobSessionId)
@@ -477,29 +589,30 @@ BPL Definition</Description>
 			  }
   ]]]]><![CDATA[>
 </code>
-<code name='set default values' xpos='740' ypos='1450' >
+<code name='set default values' xpos='740' ypos='2050' >
 <![CDATA[ set context.tpLinkObj.SNIP = 1
  set context.tpLinkObj.Direction = "In"
  set context.tpLinkObj.GSAck = "ALWAYS"
  
  set context.statusUpdate = "Validation failed"]]]]><![CDATA[>
 </code>
-<trace name='stored in WF' value='"Stored the TP error into the WF table"' xpos='740' ypos='1550' />
+<trace name='stored in WF' value='"Stored the TP error into the WF table"' xpos='740' ypos='2150' />
 </false>
 </if>
-<if name='SnipWorkflow' condition='context.SnipWorkflow' xpos='470' ypos='1750' xend='470' yend='2350' >
+<if name='SnipWorkflow?' condition='context.SnipWorkflow' xpos='470' ypos='2350' xend='470' yend='3050' >
 <true>
-<code name='X12 Validate Document' xpos='605' ypos='1900' >
+<trace name='Snip Validation and workflow' value='"Setting to check SNIP validation and report errors to workflow set.  Starting that logic now. context.SnipWorkflow: " _ context.SnipWorkflow' xpos='740' ypos='2500' />
+<code name='X12 Validate Document' xpos='740' ypos='2600' >
 <![CDATA[  
   set context.inXmlDoc.DocType = "HIPAA_5010:Interchange:Group:835"
   set tSc = ##class(EnsLib.EDI.X12.Util.Validator).PerformSNIPValidation(context.inXmlDoc, 1, "All")
   $$$TRACE("IRIS SNIP validation: " _ tSc)
   ]]]]><![CDATA[>
 </code>
-<if name='Error in validation' condition='$$$ISERR(tSc)' xpos='605' ypos='2000' xend='605' yend='2250' >
+<if name='Failed validation?' condition='$$$ISERR(tSc)' xpos='740' ypos='2700' xend='740' yend='2950' >
 <true>
-<code name='Send to Workflow' xpos='740' ypos='2150' >
-<![CDATA[ $$$TRACE("set reportWF,  origX12Doc: " _  context.inXmlDoc.%Id())
+<code name='Send to Workflow' xpos='1010' ypos='2850' >
+<![CDATA[ $$$TRACE("SNIP Errors found. set reportWF,  origX12Doc: " _  context.inXmlDoc.%Id())
  
  set replyDoc = ##class(Ens.X12.FunctionSet).X12BatchReply(context.inXmlDoc, "Errors", "SNIP", context.tpLinkObj.SNIP, "All") 
  if ($IsObject(replyDoc))
@@ -516,11 +629,19 @@ BPL Definition</Description>
  set context.statusUpdate = "Validation failed"]]]]><![CDATA[>
 </code>
 </true>
+<false>
+<trace name='Clean X12' value='"PASSED SNIP Validation"' xpos='740' ypos='2850' />
+</false>
 </if>
 </true>
+<false>
+<trace name='Bypass Snip Validation' value='"Setting to check SNIP validation NOT set.  bypassing that logic. context.SnipWorkflow: " _ context.SnipWorkflow' xpos='470' ypos='2500' />
+</false>
 </if>
-<trace name='Split X12' value='"Split X12"' xpos='470' ypos='2450' />
-<code name='Split X12 and get fileName' xpos='470' ypos='2550' >
+<if name='Split X12 at ST Level?' condition='context.SplitX12atSTs' xpos='470' ypos='3150' xend='470' yend='3600' >
+<true>
+<trace name='Split X12' value='"Split X12"' xpos='740' ypos='3300' />
+<code name='Split X12' xpos='740' ypos='3400' >
 <![CDATA[
    set segSep = $EXTRACT(context.inXmlDoc.Separators, 4)
    set eleSep = $EXTRACT(context.inXmlDoc.Separators, 1, 2)
@@ -611,7 +732,7 @@ BPL Definition</Description>
     }
     ]]]]><![CDATA[>
 </code>
-<code name='Send X12 messages to targets in Target Config Names' xpos='470' ypos='2650' >
+<code name='Send split X12 messages ' xpos='740' ypos='3500' >
 <![CDATA[  // Send Split X12s to Targets
   
    Set BaseFileName = $Piece(context.FileName,".",1,*-1)
@@ -644,7 +765,30 @@ BPL Definition</Description>
            }
     }]]]]><![CDATA[>
 </code>
-<code name='Update X12 Status' xpos='470' ypos='2750' >
+</true>
+<false>
+<code name='Send full ' xpos='470' ypos='3300' >
+<![CDATA[  // Send Original X12s to Targets
+  
+   For iTarget=1:1:$L(context.targetConfigNames, ",") 
+   {
+         Do context.inpStream.Rewind()
+
+	 Set tOneTarget=$ZStrip($P(context.targetConfigNames,",",iTarget),"<>W")  Continue:""=tOneTarget
+	
+	 set stream=##class(%Stream.GlobalCharacter).%New()
+	 set tSC = context.inXmlDoc.OutputToLibraryStream(stream, context.x12Sep)
+      
+         set context.newStreamContainer =##class(Ens.StreamContainer).%New(stream)
+         set context.newStreamContainer.OriginalFilename = context.FileName 
+		
+	 Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer)
+	 $$$TRACE("Send Async Incoming X12 message to Process: " _ tOneTarget _ " in targetConfigNames, status: " _ tSC1 _", X12 size: " _ $L(context.inXmlDoc.RawContent))
+    }]]]]><![CDATA[>
+</code>
+</false>
+</if>
+<code name='Update original X12&apos;s Status' xpos='470' ypos='3700' >
 <![CDATA[  $$$TRACE("Sending X12 to " _ context.X12StoreTargetConfigName _" to update status to: " _ context.statusUpdate)
 
   if (context.statusUpdate '= ""){
@@ -657,7 +801,7 @@ BPL Definition</Description>
   $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
 ]]]]><![CDATA[>
 </code>
-<trace name='Continue processing X12' value='"Processing complete"' xpos='470' ypos='2850' />
+<trace name='Processing complete' value='"Processing complete"' xpos='470' ypos='3800' />
 </true>
 <false>
 <trace name='not an x12' value='"The data from file is not EnsLib.EDI.X12.Document "' xpos='200' ypos='800' />
@@ -667,7 +811,7 @@ BPL Definition</Description>
 </false>
 </if>
 <faulthandlers>
-<catchall xpos='200' ypos='3050' xend='200' yend='350' >
+<catchall xpos='200' ypos='4000' xend='200' yend='350' >
 <code name='Call ProcessError' xpos='200' ypos='250' >
 <annotation><![CDATA[Call error handler method]]]]><![CDATA[></annotation>
 <![CDATA[   $$$TRACE("Catch All: " _ status)
