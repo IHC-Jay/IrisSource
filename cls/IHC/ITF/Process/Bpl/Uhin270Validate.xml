@@ -282,11 +282,6 @@ BPL Definition</Description>
 </code>
 <code name='Read request' xpos='200' ypos='550' >
 <![CDATA[ 
-	if (request.%IsA("EnsLib.EDI.X12.Document")){
-		$$$TRACE( " Request: EnsLib.EDI.X12.Document..Size: "_$L(request))
-    	set context.inXmlDoc = request
-    	set context.FileName = request.Source 
- 	}elseif (request.%IsA("Ens.StreamContainer")){
 	 	$$$TRACE("Process StreamContainer")
 	 	$$$TRACE(request)
 	 	if (request.Stream.Size > 108){
@@ -307,19 +302,11 @@ BPL Definition</Description>
         	}
 	 	}else{
 		 	Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Invlaid Inbound stream. Size: " _ request.Stream.Size)
-	 	}    	
-     }else{
-  		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Could not process data, invalid inbound class: " _ request)
- 	 }
+	 	}    	    
  	]]]]><![CDATA[>
 </code>
 <if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='2500' >
 <true>
-<code name='Print file name' xpos='470' ypos='800' >
-<![CDATA[
- 	$$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ context.inXmlDoc.FullSize) 	
-]]]]><![CDATA[>
-</code>
 <if name='DuplicateCheck' condition='context.dupCheck' xpos='470' ypos='900' xend='470' yend='1150' >
 <true>
 <code name='CheckForDuplicate' xpos='605' ypos='1050' >
@@ -337,6 +324,7 @@ BPL Definition</Description>
 <![CDATA[
   set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
   set context.interchangeSenderID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeSenderID"), "<>W")
+  set context.storeX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New()
   set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
   set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
   
@@ -348,7 +336,7 @@ BPL Definition</Description>
   }
   set context.storeX12.status = "Received"
   set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
-  set context.storeX12.transactionType =  "271"
+  set context.storeX12.transactionType =  "270"
   set context.storeX12.fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
   set context.storeX12.streamContainer.OutputFilename = context.fName
   set context.storeX12.streamContainer.OriginalFilename = context.fName
@@ -483,11 +471,39 @@ BPL Definition</Description>
 	                  		Set tStream = ##class(%Stream.GlobalCharacter).%New()
 					  		Do tStream.Write(context.goodX12Msg.RawContent)
 					  		Do tStream.Rewind()
-					  		set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
-  					  		set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
-  					  		set context.partialSuccess = "Y"
-					  		Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(tStream)
-					  		$$$TRACE("Stream size:(GoodST/SEs): " _ context.storeX12.streamContainer.Stream.Size)
+					  		Set stCount = 0
+							Set seCount = 0
+							While 'tStream.AtEnd {
+    							Set line = tStream.ReadLine()
+							    For i=1:1:$Length(line,"~") {
+        							Set seg = $ZStrip($Piece(line,"~",i),"<W")
+							        If $Extract(seg,1,7)="ST*270*" {
+            							Set stCount = stCount + 1
+       								}
+        							If $Extract(seg,1,3)="SE*" {
+            							Set seCount = seCount + 1
+        							}	
+    							}
+							}
+							Do tStream.Rewind()
+							if (stCount>0){
+					  			set context.storeX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New()
+  								set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
+  								set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
+  								set context.storeX12.interchangeReceiverID = context.interchangeReceiverID 
+  								set context.storeX12.interchangeSenderID = context.interchangeSenderID 
+  								set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
+  								set context.storeX12.transactionType =  "270"
+  								set fileName = context.interchangeReceiverID_"_"_$ZSTRIP($ZDATETIME($HOROLOG,8,1),"*"," :")_"_"_context.interchangeSenderID_"-"_($RANDOM(9000000)+1000000)
+  								set context.storeX12.streamContainer.OutputFilename = context.fName
+  								set context.storeX12.streamContainer.OriginalFilename = context.fName
+  								set context.storeX12.destinationFileName = fileName   
+					  			set context.partialSuccess = "Y"
+					  			Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(tStream)
+					  			$$$TRACE("Stream size:(GoodST/SEs): " _ context.storeX12.streamContainer.Stream.Size)
+							}else{
+								set context.partialSuccess = "N"
+							}
                   		}
 					}else{
 	                  set context.partialSuccess = "N"
@@ -594,8 +610,6 @@ BPL Definition</Description>
 </request>
 </call>
 </foreach>
-</true>
-</if>
 
 <code name='SetStatusToProcessed' xpos='740' ypos='2750' >
 <![CDATA[
@@ -604,6 +618,10 @@ BPL Definition</Description>
   Set tSC=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12) 
   ]]]]><![CDATA[>
 </code>
+
+</true>
+</if>
+
 
 </true>
 <false>
