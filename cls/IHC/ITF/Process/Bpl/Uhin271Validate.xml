@@ -299,15 +299,10 @@ BPL Definition</Description>
  	}else{
   		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(context.configName,"Could not process data, invalid inbound class: " _ request)
  	}
- 	$$$TRACE("Process: " _ context.FileName)]]]]><![CDATA[>
+  ]]]]><![CDATA[>
 </code>
 <if name='X12 Doc?' condition='( ($ISOBJECT(context.inXmlDoc)) &amp;&amp; (context.inXmlDoc.%Extends("EnsLib.EDI.X12.Document")) )' xpos='200' ypos='650' xend='200' yend='2200' >
 <true>
-<code name='Print file name' xpos='470' ypos='800' >
-<![CDATA[
- 	$$$TRACE("Process FILE: " _ context.FileName _", Inbound X12 Document length: " _ context.inXmlDoc.FullSize )
- ]]]]><![CDATA[>
-</code>
 <code name='X12 Store' xpos='470' ypos='900' >
 <![CDATA[
   set context.interchangeReceiverID = $ZSTRIP(context.inXmlDoc.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
@@ -485,21 +480,23 @@ BPL Definition</Description>
   				}
 	     	}
 		  }else{
-			  $$$LOGERROR("Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:"_targ)
-			  $$$TRACE(" TPLink Routing is missing.. Sending to Workflow.. ")
-  		    set dtTm = $ZDATETIME($HOROLOG,3, 1)
-  			$$$LOGERROR( "Insert TP error into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID _" / " _ context.transType)
+			  set dtTm = $ZDATETIME($HOROLOG,3, 1)
+			  set wfErrMsg = "TPLink routing configuration missing. LookupTable='"_context.targetMasksLookup_"', RoutingValue='"_context.tpLinkObj.Routing_"', Receiver='"_context.interchangeReceiverID_"', Sender='"_context.interchangeSenderID_"', Transaction='"_context.transType_"', UnsentTargets='"_targ_"', User='"_$USERNAME_"', Time='"_dtTm_"'. Configure the TPLink target in the UI."
+			  $$$LOGERROR(wfErrMsg)
+          	  $$$TRACE(" TPLink Routing is missing.. Sending to Workflow.. ")
+			  		    
 	        set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
 			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
 			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id,SessionID) " _
 			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  $$$TRACE(context.inXmlDoc.%Id()_" "_$$$JobSessionId_ " "_context.transType)
   		    #dim rset As %SQL.StatementResult
   			set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
 			  context.interchangeSenderID, context.transType,  "New", "TP", 
-			  context.errStr, $USERNAME, dtTm, context.inXmlDoc.%Id(),$$$JobSessionId)
+			  wfErrMsg, $USERNAME, dtTm, context.inXmlDoc.%Id(),$$$JobSessionId)
   			$$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
   			if (rset.%SQLCODE < 0){
-	 			$$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ context.transType _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+	 			$$$LOGERROR(sqlStr _", "_wfErrMsg )
 	 			Set tSC = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
   			}else{
 	 			$$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )	 			
@@ -507,7 +504,7 @@ BPL Definition</Description>
 			set context.storeX12.status = "TP Link not found"
 	 		Set tSC1=process.SendRequestSync(context.X12StoreTargetConfigName, context.storeX12)
 	 		$$$TRACE("Send Sync to the Store operation(TP Link Not Found), status: " _ tSC1)
-	 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,"Value not found in Lookup table: " _ context.targetMasksLookup _ " for value: " _ context.tpLinkObj.Routing_ " Not sent to Targets:["_targ_"]. Define the target for the TPLink")   					
+	 		Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName,wfErrMsg)   					
 		  }			 
 	
  ]]]]><![CDATA[>
