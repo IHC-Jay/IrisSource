@@ -401,6 +401,7 @@ BPL Definition</Description>
         set context.GS05 = individualGroup.GetValueAt("GS:Time")
         set context.GS06 = individualGroup.GetValueAt("GS:GroupControlNumber")
         set context.transType = individualGroup.GetValueAt("GS:8")
+        set context.EarliestServiceDate = individualGroup.GetValueAt("GS:Date")
         
         if (context.transType = "005010X222A1")
 		  { 
@@ -502,7 +503,24 @@ BPL Definition</Description>
 	set context.InterchangeTime=$ZSTRIP(context.x12Doc.GetValueAt("ISA:InterchangeTime"),"<>W")
 	set context.InterchangeControlNumber=$ZSTRIP(context.x12Doc.GetValueAt("ISA:InterchangeControlNumber"),"<>W") 
 
-	]]]]><![CDATA[>
+	 set sessionId = $$$JobSessionId
+   set TtTransactionID = ""
+ 
+   if (sessionId '= "")
+			{
+				
+				set sqlStr = "SELECT TtTransactionID FROM IHC_X12.Data837   where SessionID = "_sessionId_""
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set id=rs.%Get("TtTransactionID")
+					set TtTransactionID=id
+					$$$TRACE("tranttid:  " _ TtTransactionID) 
+					set context.TtTransactionID = TtTransactionID
+					
+ 				}
+			}]]]]><![CDATA[>
 </code>
 <if name='TRANX_INSERT' condition='request.TransTrackingMsg = "IHCSP_EDITRK_TRANX_INSERT"' xpos='200' ypos='450' xend='200' yend='700' >
 <true>
@@ -1417,6 +1435,8 @@ BPL Definition</Description>
        set context.EarliestServiceDate = $EXTRACT(val, 1, $FIND(val, "-") -2)
     }
     
+    
+    
     $$$TRACE(cur2300DtpPath _ " values: " _ STRecord.GetValueAt(cur2300DtpPath _":2") _ ":" _ context.EarliestServiceDate)
     
     set context.cur2300status = 1
@@ -1456,6 +1476,7 @@ BPL Definition</Description>
  
  set sessionId = $$$JobSessionId
  set accnumber = context.AccountNumber
+ set earlierservicedate = context.EarliestServiceDate
  set id = ""
  
  if (sessionId '= "")
@@ -1472,6 +1493,13 @@ BPL Definition</Description>
 					
  				}
 			}
+ 
+ 
+   if (earlierservicedate ="")
+    { 
+       set context.EarliestServiceDate = context.GS04
+       }
+ 
  
  
  $$$TRACE("claimid:  " _ id) 
@@ -1943,7 +1971,30 @@ BPL Definition</Description>
  {
     set claimSplitterStatus = "A"
  }
+  set sessionId = $$$JobSessionId
+ set accnumber = context.AccountNumber
+ set id = "" 
+
  
+  if (sessionId '= "")
+			{
+				//set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  X12DataParentId IS NOT NULL"
+				set sqlStr = "SELECT ID FROM IHC_X12.Data837   where SessionID = "_sessionId_" and  ClaimId = '"_accnumber_"' and X12DataParentId IS NOT NULL"
+				Set rs = ##class(%SQL.Statement).%ExecDirect(,sqlStr )
+				$$$TRACE(sqlStr _ ": ExecDirect stat: " _ rs.%SQLCODE)
+				
+				While rs.%Next() {
+					set id=rs.%Get("ID")
+					set id=id
+					$$$TRACE("claimid:  " _ id) 
+					
+ 				}
+			}
+ 
+ 
+ $$$TRACE("claimid:  " _ id) 
+ 
+   
  
  		Set accRejObj=##Class(IHC.ITF.Request.ShTtcDelimToTextTransTrackClaimDbLoad.ACCEPTEDCLAIMSEvent837REJECTEDCLAIMS).%New()
  		set accRejObj.AccountNumber=context.AccountNumber
@@ -1955,13 +2006,13 @@ BPL Definition</Description>
 		set accRejObj.GroupControlNumber=context.GS06
 		set accRejObj.TransSetControlNumber=context.transSetControlNumber
 		set accRejObj.ReferenceID=context.refID
-		Set accRejObj.TransmissionTrackingID= $$$JobSessionId
+		Set accRejObj.TransmissionTrackingID= context.TtTransactionID
 					 
-		set accRejObj.EarliestServiceDate=context.EarliestServiceDate	
+		set accRejObj.EarliestServiceDate=context.GS04
 		set accRejObj.TotalCharges=context.TotalCharges 
 		set accRejObj.ClaimSplitterStatus = claimSplitterStatus 
 		
-		set accRejObj.ClaimTrackingID = $$$JobSessionId
+		set accRejObj.ClaimTrackingID = id
 		set accRejObj.KeywordFileSent = ""
 		
 		set tStatus=process.SendRequestAsync(context.targetConfigNames,accRejObj,.response,context.TimeOutForSPCall)
@@ -2275,6 +2326,10 @@ BPL Definition</Description>
 	Set transInsert.TotalCharges=TotalCharges
 	Set transInsert.AccountNumber=AccountNumber
 	Set transInsert.ClmExtRef = clmRefId
+	if (EarliestServiceDate = "")
+	 { 
+	   set EarliestServiceDate = GS04
+	   } 
 	set transInsert.EarliestServiceDate = EarliestServiceDate 
 	set transInsert.KeywordFileName = keywordfileName 
 	set transInsert.KeywordFileSent = KeywordFileSent
