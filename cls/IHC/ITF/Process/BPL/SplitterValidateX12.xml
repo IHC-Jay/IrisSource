@@ -60,9 +60,16 @@ Do not use with this class as it is not implemented</Description>
 <Parameter name="VALUELIST" value=",Not Used,Do Not Use"/>
 </Property>
 
+<Property name="X12StorageTarget">
+<Description>
+Custom setting to select Configuration item Componet to send the X12 messages to for longterm storage</Description>
+<Type>%String</Type>
+<Parameter name="MAXLEN" value="100"/>
+</Property>
+
 <Parameter name="SETTINGS">
 <Type>%String</Type>
-<Default>SnipWorkflow:Additional,TpCheckBeforeOverwrite:Additional,OriginalPathParentFolderForTpOverwrite:Additional,SplitX12atSTs:Additional</Default>
+<Default><![CDATA[X12StorageTarget:Additional:selector?select=1&context={Ens.ContextSearch/ProductionItems?TargetConfigNames=1&productionName=@productionId},SnipWorkflow:Additional,TpCheckBeforeOverwrite:Additional,OriginalPathParentFolderForTpOverwrite:Additional,SplitX12atSTs:Additional]]></Default>
 </Parameter>
 
 <Storage name="Default">
@@ -88,6 +95,9 @@ Do not use with this class as it is not implemented</Description>
 <Value name="7">
 <Value>SplitX12atSTs</Value>
 </Value>
+<Value name="8">
+<Value>X12StorageTarget</Value>
+</Value>
 </Data>
 </Storage>
 
@@ -104,6 +114,11 @@ BPL Definition</Description>
 </parameters>
 </property>
 <property name='targetConfigNames' type='%String' instantiate='0' >
+<parameters>
+<parameter name='MAXLEN'  value='200' />
+</parameters>
+</property>
+<property name='X12StorageTarget' type='%String' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='200' />
 </parameters>
@@ -184,11 +199,6 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
-<property name='X12StoreTargetConfigName' type='%String' instantiate='0' >
-<parameters>
-<parameter name='MAXLEN'  value='50' />
-</parameters>
-</property>
 <property name='statusUpdate' type='%String' initialexpression='"Processed"' instantiate='0' >
 <parameters>
 <parameter name='MAXLEN'  value='15' />
@@ -209,7 +219,18 @@ BPL Definition</Description>
  	Set status = $$$ERROR("Initialization error, No ReplyCodeActions found")
  }
   
-   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
+   set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"X12StorageTarget",.configValue)
+ if ( ($$$ISERR(pstatus)) || (configValue = ""))
+ {
+        $$$LOGERROR("Initialization error, No X12StorageTarget found")
+ }
+ else
+ {
+   set context.X12StorageTarget = configValue
+   $$$TRACE("context.X12StorageTarget: " _ context.X12StorageTarget _ ", configValue: " _ configValue)
+ }
+ 
+    set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"TargetConfigNames",.configValue)
  if ( ($$$ISERR(pstatus)) || (configValue = ""))
  {
         $$$LOGERROR("Initialization error, No TargetConfigNames found")
@@ -485,8 +506,7 @@ BPL Definition</Description>
 </if>
 <code name='Call Store in DB and Get TP information' xpos='470' ypos='1600' >
 <![CDATA[  
-  $$$TRACE("setting up message to call X12 DB Store")
-  set context.X12StoreTargetConfigName = "Rco-X12-Store-DB"
+  $$$TRACE("setting up message to call X12 DB Store. context.X12StorageTarget: " _ context.X12StorageTarget)
   set context.storeX12.streamContainer = ##class(Ens.StreamContainer).%New()
   set context.storeX12.streamContainer.Stream = ##class(%Stream.GlobalCharacter).%New()
   set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(context.inpStream)
@@ -523,8 +543,8 @@ BPL Definition</Description>
   set context.storeX12.status = "Received"
   set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
 	
-  $$$TRACE("Sending X12 to " _ context.X12StoreTargetConfigName)
-  Set tSC1=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
+  $$$TRACE("Sending X12 to " _ context.X12StorageTarget)
+  Set tSC1=process.SendRequestAsync(context.X12StorageTarget, context.storeX12, 0)
   $$$TRACE("Sent Async Incoming Stream to the Store operation to store X12, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
  
   if 'context.tpLinkFound{
@@ -759,7 +779,7 @@ BPL Definition</Description>
              set context.newStreamContainer.OriginalFilename = FileNameToUse
  
          
-             Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer)
+             Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer, 0)
              $$$TRACE("Send Async Split X12 message to " _ tOneTarget _ ", status: " _ tSC1 )
              
            }
@@ -782,21 +802,21 @@ BPL Definition</Description>
          set context.newStreamContainer =##class(Ens.StreamContainer).%New(stream)
          set context.newStreamContainer.OriginalFilename = context.FileName 
 		
-	 Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer)
+	 Set tSC1=process.SendRequestAsync(tOneTarget, context.newStreamContainer, 0)
 	 $$$TRACE("Send Async Incoming X12 message to Process: " _ tOneTarget _ " in targetConfigNames, status: " _ tSC1 _", X12 size: " _ $L(context.inXmlDoc.RawContent))
     }]]]]><![CDATA[>
 </code>
 </false>
 </if>
 <code name='Update original X12&apos;s Status' xpos='470' ypos='3700' >
-<![CDATA[  $$$TRACE("Sending X12 to " _ context.X12StoreTargetConfigName _" to update status to: " _ context.statusUpdate)
+<![CDATA[  $$$TRACE("Sending X12 to " _ context.X12StorageTarget _" to update status to: " _ context.statusUpdate)
 
   if (context.statusUpdate '= ""){
     set context.storeX12.status = context.statusUpdate
   }
 
 
-  Set tSC1=process.SendRequestAsync(context.X12StoreTargetConfigName, context.storeX12)
+  Set tSC1=process.SendRequestAsync(context.X12StorageTarget, context.storeX12, 0)
         
   $$$TRACE("Send Async Incoming Stream to the Store operation, status: " _ tSC1 _", " _ request.OriginalFilename_", Stream ID: "_ context.storeX12.streamContainer.Stream.%Id())
 ]]]]><![CDATA[>
