@@ -384,17 +384,17 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		set newTarget = ""
 		set tSC = ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Service.Corerules.Lookup.TPIDs", x12MsgReq.SenderID, .retVal) 
 		$$$TRACE("return value(in Minutes) "_retVal_" for the partner: "_x12MsgReq.SenderID)
-		set expirySeconds = retVal * 60
-				
+						
 		set glbNm = "^ItfRtCount" _ tranType
 		set senderID = x12MsgReq.SenderID
 		set requestCount = 0
-		set hiVolThershold = "0"
-		
+		set hiVolThershold = "0"		
 		
 		
 		// High Volume Partner
-		if (($$$ISOK(tSC)) && (retVal '= "Unknown")){
+		if (($$$ISOK(tSC)) && (retVal '= "Unknown") && (+retVal > 0)) {
+			// convert lookup minutes in seconds
+			set newExpirySeconds = +retVal * 60
 						
 			//Current time in seconds
 			set h = $HOROLOG
@@ -402,32 +402,60 @@ Namespaces of referenced classes will be used in the WSDL.</Description>
 		
 			set newTarget = ..HighVolumeTag
 			
-			// get the expiry time for the current HV partner
+			// get current saved expiry values
 			set expireTime = +$Get(@glbNm@(senderID,"Expire"))
+			set expireSecs = +$Get(@glbNm@(senderID,"ExpireSec"))
 			
-			
-			
+			// reset expiry time when lookup table value is changed during processing
+			if ((expireTime > 0) && (expireSecs > 0) && (newExpirySeconds '= expireSecs)) {
+				$$$TRACE("Resetting expiry time from "_expireSecs_" seconds to "_newExpirySeconds_" seconds")
+				set expireTime = expireTime - expireSecs + newExpirySeconds
+				Set @glbNm@(senderID,"Expire") = expireTime
+				set @glbNm@(senderID,"ExpireSec") = newExpirySeconds
+		      	set expireSecs = newExpirySeconds
+		        $$$TRACE("New EXPIRE time: "_expireTime)
+			}
+						
 			// reset current HV partner
 			if ((expireTime > 0) && (now >= expireTime)){
 		        $$$TRACE("EXPIRED "_tranType_" HIGH VOLUME SenderId "_senderID_" - resetting counter")
 		        kill @glbNm@(senderID)
 		        set requestCount = 0
+		        set expireTime = 0
+        		set expireSecs = 0
 			}
 			
-			//New HV partner or expired partner, New time window starts 
+			//New HV partner or expired partner
 			if '$Data(@glbNm@(senderID,"Count")) {
         		set requestCount = 1
-		        Set @glbNm@(senderID,"Count") = requestCount
-		        Set @glbNm@(senderID,"Expire") = now + expirySeconds
-		        $$$TRACE("NEW "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)		     
+        		set @glbNm@(senderID,"Count") = requestCount
+        		set @glbNm@(senderID,"Expire") = now + newExpirySeconds
+        		set @glbNm@(senderID,"ExpireSec") = newExpirySeconds
+		        $$$TRACE("NEW "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)
 		    }else{ // Existing HV, within existing time window
 			    Set requestCount = $Increment(@glbNm@(senderID,"Count"))
         		$$$TRACE("EXISTING "_tranType_" from HIGH VOLUME SenderId "_senderID_", req # "_requestCount)
 		     } 
 		     
-		     		     
-		     $$$TRACE("NOW: "_now_",EXPIRE time:"_expireTime_", HV Partner: "_senderID_",COUNT: "_requestCount_", ThresholdValue: "_..ThresholdValue)
-    
+		    // Calculate remaining time for troubleshooting
+    		set remainingSeconds = expireTime - now
+		    if (remainingSeconds < 0) {
+        		set remainingSeconds = 0
+    		}
+    		// Convert NOW from total seconds to $HOROLOG
+			set nowHoro = (now \ 86400)_","_(now # 86400)
+			set nowDateTime = $ZDATETIME(nowHoro,3)
+
+			// Convert EXPIRE from total seconds to $HOROLOG
+			if (expireTime > 0) {
+    			set expireHoro = (expireTime \ 86400)_","_(expireTime # 86400)
+    			set expireDateTime = $ZDATETIME(expireHoro,3)
+			} else {
+    			set expireDateTime = "N/A"
+			}
+
+    		$$$TRACE("NOW: "_nowDateTime_", EXPIRE time: "_expireDateTime_", ExpireSec: "_expireSecs_", Remaining Seconds: "_remainingSeconds_", HV Partner: "_senderID_", COUNT: "_requestCount_", ThresholdValue: "_..ThresholdValue)
+
     		if (requestCount > ..ThresholdValue){
 				$$$TRACE(" -- SEND 999 - "_senderID_", req # "_requestCount_", ThresholdValue: "_..ThresholdValue)
 				set context.aaaCode = "04"
