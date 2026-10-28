@@ -577,6 +577,7 @@ BPL Definition</Description>
 	Set tSC = context.storeX12.streamContainer.Stream.CopyFromAndSave(request.Stream)
 	$$$TRACE("Stream size: " _ context.storeX12.streamContainer.Stream.Size)
 	$$$TRACE("Validation rule : " _ context.storeX12.ValidationRuleFile)
+	$$$TRACE("transType : " _ context.transType)
 	set context.storeX12.direction = context.direction
         set context.storeX12.status = "Received"
         set context.storeX12.SessionID = process.%PrimaryRequestHeader.SessionId
@@ -829,6 +830,7 @@ BPL Definition</Description>
 	$$$TRACE("Stream: " _ SplitObj.streamContainer.Stream)
 	//$$$TRACE("Validation rule : " _ context.storeX12.ValidationRuleFile)
 	set SplitObj.SessionID = process.%PrimaryRequestHeader.SessionId
+	
         //End */
         set pstatus=##class(IHC.ITF.ITFCOMMON.Utility).GetItemSettingValue(process.%ConfigName,"RdpCrystalTargetConfigName",.configValue)
                  if ( ($$$ISERR(pstatus)) || (configValue = ""))
@@ -849,8 +851,10 @@ BPL Definition</Description>
                         {
                            set context.jsonMessage = resp.jsonMessage
                            $$$TRACE("Validation status: " _ context.jsonMessage.status)
+                           
                            if (context.jsonMessage.status = "PASS")
                            {
+                               
                                set context.SNIPValidationStat = $$$OK
                                $$$TRACE("RDPCrystal Split status: " _ context.SNIPValidationStat)
                                set destinationConfigName = "Generic-" _ context.jsonMessage.transaction _ "_Sh-Claims-Keyword"
@@ -873,6 +877,37 @@ BPL Definition</Description>
                            elseif (context.jsonMessage.status = "FAIL") 
                            {
                              //MADHAV - NEED TO ADD CODE FOR TRANSTRACKING - REJECTED - START
+                             
+                             //sending the rejected clm to WF
+                                 set context.errStr = "Rejected CLM = " _ context.jsonMessage.details
+  
+  	            
+	            set dtTm = $ZDATETIME($HOROLOG,3, 1)
+	            $$$LOGERROR( "Insert Rejected claim into WF "_ context.interchangeSenderID _"->"_context.interchangeReceiverID _" / " _ context.transType)
+	            
+	            set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _
+			  " (InterchangeReceiverID, InterchangeSenderID, TransactionType,  " _
+			  " WorkStatus, ErrorType, Error, AssignedUser, CreateDtTm, OrigX12Id,SessionId) " _
+			  " values (?,?,?,?,?,?,?,?,?,?)"
+			  #dim rset As %SQL.StatementResult
+			  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, context.interchangeReceiverID, 
+			  context.interchangeSenderID, context.transType,  "New", "Data", 
+			  context.errStr, $USERNAME, dtTm, context.x12Id,$$$JobSessionId)
+			  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE )
+
+
+	            if (rset.%SQLCODE < 0)
+			  {
+			  $$$LOGERROR(sqlStr _", Recv: " _ context.interchangeReceiverID _", Send: " _ context.interchangeSenderID _",Tran: " _ context.transType _ ", New, TP" _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+				  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+			  }
+			  else
+			  {
+			   $$$TRACE("Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT  )
+			  }
+                             
+                             
+                                $$$TRACE("RDPCrystal details rjected: " _ context.jsonMessage.details) 
                                 set transObj = ##class(IHC.ITF.DStruc.TransTrackingRecord).%New()
                                  Do transObj.x12Message.CopyFrom(SplitObj.streamContainer.Stream)
                                  set transObj.TransTrackingMsg = "837_REJECTED_CLAIMS"
@@ -882,6 +917,8 @@ BPL Definition</Description>
  
                                  if ('tStatus) {    
                                   set status=##class(IHC.ITF.ITFCOMMON.Utility).ItfGeneralError(process.%ConfigName,"Unexpected error sending the Rejected claim X12: " _ context.transTrackingTargetConfigName _ "."_$SYSTEM.Status.GetOneErrorText(tStatus))
+                                  
+                                  
                             
                             //MADHAV - NEED TO ADD CODE FOR TRANSTRACKING - REJECTED - END
                            }   }              
