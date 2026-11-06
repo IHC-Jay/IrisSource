@@ -1155,5 +1155,234 @@
 	return tSC
 ]]></Implementation>
 </Method>
+
+<Method name="Split276Stream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>fileStream:%Library.FileCharacterStream,x12List:%Collection.ListOfStream,incIsa:%Boolean=1</FormalSpec>
+<Implementation><![CDATA[
+	#dim source As EnsLib.EDI.X12.Document
+	if ( fileStream.Size < 100)
+	{
+		return "Stream size is not valid"
+	}
+ 	
+ 	#dim lst  As %ListOfObjects = ##class(%ListOfObjects).%New()
+	#dim lst2  As %ListOfObjects = ##class(%ListOfObjects).%New()
+	 
+	 #dim x12Doc As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(fileStream, .tSC)
+	 
+	 Do ..SplitX12AtGroup(x12Doc, lst)
+	 
+	 for IND=1:1:lst.Size
+	 {
+	 	WRITE !, "  -" _ IND _". Split: GS/GE: " 
+	 	
+	 	#dim gsDoc As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(lst.GetAt(IND),.x12Stat)
+	 
+	    Do ..SplitX12AtTransaction(gsDoc, lst2)
+	 }
+	 
+	 for IND2=1:1:lst2.Size
+	 {
+	    #dim stDoc As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(lst2.GetAt(IND2),.x12Stat)
+	    	WRITE !, "   -- " _IND2 _". Call  SplitX12At2000C for " _ stDoc
+	    	
+	    	Do ..SplitX12At2000C(stDoc, x12List)
+	    	
+	 }
+]]></Implementation>
+</Method>
+
+<Method name="SplitX12At2000C">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,list:%Collection.ListOfStream</FormalSpec>
+<Implementation><![CDATA[
+	set MultiSplit = 0
+	
+	if ( ($ISOBJECT(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document")) )
+	 {
+		 $$$TRACE( "SplitX12: Process X12: " _ x12Doc.FullSize  _", Separators: " _ x12Doc.Separators)
+		 set segSep = $EXTRACT(x12Doc.Separators, 4)
+		 set eleSep = $EXTRACT(x12Doc.Separators, 1, 1)
+	 }
+	 else
+	 {
+		 WRITE !, "SplitX12At2000C: Not a valid X12 Document"
+		 QUIT
+	 }
+	 if (x12Doc.DocType = "")
+	 {
+ 		set x12Doc.DocType = "HIPAA_5010:Interchange:Group"
+	 }
+	  Set tSC =x12Doc.BuildMap()
+	  if ($$$ISERR( tSC ))
+	  {
+		  $$$TRACE("SplitX12At2000C: Invalid DocType")
+		  QUIT
+	  }
+	  	 	
+	 	//ISA / IEA	  
+		set isaPath = x12Doc.GetSegmentPath(1, .stat)	  	
+	  	set isaVal = x12Doc.GetValueAt(isaPath,, .stat)
+	  	
+	  	set ieaPath = x12Doc.GetSegmentPath(3, .stat)	
+		Do x12Doc.SetValueAt(1, ieaPath_":1")  	
+		set ieaVal = x12Doc.GetValueAt(ieaPath,, .stat)
+	  		
+		#dim individualGroup As EnsLib.EDI.X12.Document = $$$NULLOREF	
+	 	
+	        set individualGroup = x12Doc.NextChild(individualGroup) // x12Doc.getNthChild(gsInt,2)
+			
+			if (individualGroup.DocType = "")
+			{
+		 		set individualGroup.DocType = "HIPAA_5010:Group"
+			}
+			// GS	    	  
+			set gsPath = individualGroup.GetSegmentPath(1, .stat1)	  	
+		  	set gsVal = individualGroup.GetValueAt(gsPath,, .stat2) 
+		  	// GE
+			set gePath = individualGroup.GetSegmentPath(3, .stat1)
+			Do individualGroup.SetValueAt(1, gePath_":1")	  					
+		set geVal = individualGroup.GetValueAt(gePath,, .stat2)
+
+
+		#dim STRecord As EnsLib.EDI.X12.Document = $$$NULLOREF
+
+		#dim x12Stream As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
+		set STRecord=individualGroup.getNthChild(1)
+
+		set lastHLval =0, nextHlval = 1
+		set prev2000C = 0, segInd = 1, split2000C = 0
+		
+		  FOR ind=1:1:STRecord.SegCountGet()
+		  {		
+				    
+				set segPath = STRecord.GetSegmentPath(ind, .stat)	  	
+			  	set segVal = STRecord.GetValueAt(segPath,, .stat)
+			  	if ( (segPath = "") || (segVal = ""))
+			  	{
+				  	WRITE !, ind _ " is empty. " _ stat
+				  	QUIT
+			  	}
+			  	// WRITE !, ind _". " _ segPath _"= " _ segVal			  	
+			  	set res = $MATCH(segPath, ".*.loop2000C\([0-9]+\)\.HL.*")
+			  	if ( res )
+			  	{
+				  	set nextHlval = 1
+					set segVal = STRecord.GetValueAt(segPath,, .stat)
+					Do STRecord.SetValueAt( "" _ (lastHLval + nextHlval) ,segPath_":1")
+					Do STRecord.SetValueAt( "" _ (lastHLval + nextHlval - 1) ,segPath_":2")
+					// WRITE !, "SET loop2000C: " _ (lastHLval + nextHlval) _", " _ segPath _"= " _ STRecord.GetValueAt(segPath_":1",, .stat)
+					Do $INCREMENT(nextHlval)
+
+					if (split2000C = 0)
+					{
+						set split2000C = ind
+				  	}
+				  	else
+				  	{					  						  					  									  	
+					  	set x12Stream  = ##class(%Stream.GlobalCharacter).%New()
+					  	//ISA	  
+				 		Do x12Stream.Write(isaVal _ segSep)			 		
+						//GS
+					  	Do x12Stream.Write(gsVal _ segSep)
+					  	
+					  	set stLen = 1
+					  	FOR loopC=1:1:(split2000C - 1)
+					  	{
+					  		Do x12Stream.Write( STRecord.GetValueAt(STRecord.GetSegmentPath(loopC, .stat))_ segSep)
+					  		Do $INCREMENT(stLen)
+				  		}
+					  	FOR loopC=prev2000C:1:(ind -1)
+					  	{
+					  		Do x12Stream.Write( STRecord.GetValueAt(STRecord.GetSegmentPath(loopC, .stat))_ segSep)
+					  		Do $INCREMENT(stLen)
+				  		}
+				  		Do STRecord.SetValueAt(stLen, STRecord.SegCountGet()_":1")
+					  	Do x12Stream.Write(  STRecord.GetValueAt(STRecord.GetSegmentPath(STRecord.SegCountGet(), .stat))_ segSep)
+					  	
+						//GE
+						Do x12Stream.Write( geVal _ segSep)			 		  	
+						// IEA					
+					  	Do x12Stream.Write( ieaVal _ segSep)
+					  	Do x12Stream.Rewind()
+					  	WRITE !, "Insert to X12 list: " _ list.Count()
+				  		Do list.Insert(x12Stream)
+					  	DO $INCREMENT(segInd)
+					  	
+					}
+				  	set prev2000C = ind
+			  	}elseif ($FIND(segVal, "SE") = 3)
+			  	{
+				  	if (segInd = 1)
+				  	{
+					  	WRITE !, "  ONLY one  loop2000C loop in ST"
+					  	
+					  	set x12Stream  = ##class(%Stream.GlobalCharacter).%New()
+					  	//ISA	  
+				 		Do x12Stream.Write(isaVal _ segSep)			 		
+						//GS
+					  	Do x12Stream.Write(gsVal _ segSep)
+						
+					  	Do x12Stream.Write( STRecord.OutputToString())
+				  		
+						//GE
+						Do x12Stream.Write( geVal _ segSep)			 		  	
+						// IEA					
+					  	Do x12Stream.Write( ieaVal _ segSep)
+					  	Do x12Stream.Rewind()
+					  	WRITE !, "Insert to X12 list: " _ list.Count()
+				  		Do list.Insert(x12Stream)
+				  	}
+				  	else
+				  	{
+					  	WRITE !, "  LAST NEW 276:" _ segInd
+					  	
+					  	set x12Stream  = ##class(%Stream.GlobalCharacter).%New()
+					  	//ISA	  
+				 		Do x12Stream.Write(isaVal _ segSep)			 		
+						//GS
+					  	Do x12Stream.Write(gsVal _ segSep)
+					  	FOR loopC=1:1:(split2000C - 1)
+					  	{
+					  		Do x12Stream.Write( STRecord.GetValueAt(STRecord.GetSegmentPath(loopC, .stat))_ segSep)
+				  		}
+					  	FOR loopC=prev2000C:1:ind
+					  	{
+					  		Do x12Stream.Write( STRecord.GetValueAt(STRecord.GetSegmentPath(loopC, .stat))_ segSep)
+				  		}
+				  		
+						//GE
+						Do x12Stream.Write( geVal _ segSep)			 		  	
+						// IEA					
+					  	Do x12Stream.Write( ieaVal _ segSep)
+					  	Do x12Stream.Rewind()
+					  	WRITE !, "Insert to X12 list: " _ list.Count()
+				  		Do list.Insert(x12Stream)
+				  	}
+				  	
+			  	}
+			  	elseif ($FIND(segVal, "HL") = 3)
+			  	{
+			  		if (split2000C = 0)
+					{
+						
+					  	set lastHLval = STRecord.GetValueAt(segPath_":1",, .stat)
+					  	
+				  	}
+				  	else
+				  	{
+					  	// WRITE !, "SET HL:  " _ segPath _"= " _ (lastHLval + nextHlval)
+					  	Do STRecord.SetValueAt( "" _ (lastHLval + nextHlval) ,segPath_":1")
+					  	Do STRecord.SetValueAt( "" _ (lastHLval + nextHlval - 1) ,segPath_":2")
+					  	Do $INCREMENT(nextHlval)
+				  	}
+		  		}
+			  	
+		  }
+		  	  
+      WRITE !, "Return 2000C list " _ list.Size
+]]></Implementation>
+</Method>
 </Class>
 </Export>
