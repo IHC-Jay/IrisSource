@@ -1186,9 +1186,9 @@
 	 {
 	    #dim stDoc As EnsLib.EDI.X12.Document = ##class(EnsLib.EDI.X12.Document).ImportFromLibraryStream(lst2.GetAt(IND2),.x12Stat)
 	    	WRITE !, "   -- " _IND2 _". Call  SplitX12At2000C for " _ stDoc
-	    	
-	    	Do ..SplitX12At2000C(stDoc, x12List)
-	    	
+	    	//Do ..SplitX12At2000C(stDoc,x12List)
+	    	Do ..SplitX12AtClaim(stDoc,x12List)
+	    					    	
 	 }
 ]]></Implementation>
 </Method>
@@ -1250,6 +1250,7 @@
 
 		#dim x12Stream As %Stream.GlobalCharacter = ##class(%Stream.GlobalCharacter).%New()
 		set STRecord=individualGroup.getNthChild(1)
+		
 
 		set lastHLval =0, nextHlval = 1
 		set prev2000C = 0, segInd = 1, split2000C = 0
@@ -1382,6 +1383,389 @@
 		  }
 		  	  
       WRITE !, "Return 2000C list " _ list.Size
+]]></Implementation>
+</Method>
+
+<Method name="SplitX12AtClaim">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>x12Doc:EnsLib.EDI.X12.Document,list:%Collection.ListOfStream,incIsa:%Boolean=1</FormalSpec>
+<Implementation><![CDATA[
+    set stHeader ="",loopA ="",loopB ="",loopC ="",loopD ="",loopE =""
+    set claimData ="",claimActive =0,splitCount =0,currentLevel =""
+
+    if (($isobject(x12Doc)) && (x12Doc.%Extends("EnsLib.EDI.X12.Document"))) {
+        $$$TRACE("SplitX12AtClaim: Process X12: "_x12Doc.FullSize_", Separators: "_x12Doc.Separators)
+        set segSep =$extract(x12Doc.Separators,4)
+        set eleSep =$extract(x12Doc.Separators,1,1)
+    } else {
+        $$$TRACE("SplitX12AtClaim: Not a valid X12 Document")
+        quit
+    }
+
+    if (segSep ="") {
+        set segSep ="~"
+    }
+
+    if (eleSep ="") {
+        set eleSep ="*"
+    }
+
+    if (x12Doc.DocType ="") {
+        set x12Doc.DocType ="HIPAA_5010:Interchange:Group"
+    }
+
+    set tSC =x12Doc.BuildMap()
+
+    if ($$$ISERR(tSC)) {
+        $$$TRACE("SplitX12AtClaim: Invalid DocType")
+        quit
+    }
+
+    set isaPath =x12Doc.GetSegmentPath(1,.stat)
+    set isaVal =x12Doc.GetValueAt(isaPath,,.stat)
+
+    set ieaPath =x12Doc.GetSegmentPath(3,.stat)
+    do x12Doc.SetValueAt(1,ieaPath_":1")
+    set ieaVal =x12Doc.GetValueAt(ieaPath,,.stat)
+
+    #dim individualGroup As EnsLib.EDI.X12.Document =$$$NULLOREF
+    set individualGroup =x12Doc.NextChild(individualGroup)
+
+    if ('$isobject(individualGroup)) {
+        $$$TRACE("SplitX12AtClaim: Group not found")
+        quit
+    }
+
+    if (individualGroup.DocType ="") {
+        set individualGroup.DocType ="HIPAA_5010:Group"
+    }
+
+    set tSC =individualGroup.BuildMap()
+
+    if ($$$ISERR(tSC)) {
+        $$$TRACE("SplitX12AtClaim: Group BuildMap failed: "_tSC)
+        quit
+    }
+
+    set gsPath =individualGroup.GetSegmentPath(1,.stat)
+    set gsVal =individualGroup.GetValueAt(gsPath,,.stat)
+
+    set gePath =individualGroup.GetSegmentPath(3,.stat)
+    do individualGroup.SetValueAt(1,gePath_":1")
+    set geVal =individualGroup.GetValueAt(gePath,,.stat)
+
+    #dim STRecord As EnsLib.EDI.X12.Document =$$$NULLOREF
+    set STRecord =individualGroup.NextChild(STRecord)
+
+    if ('$isobject(STRecord)) {
+        $$$TRACE("SplitX12AtClaim: ST record not found")
+        quit
+    }
+
+    set transType =##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
+
+    $$$TRACE("SplitX12AtClaim: Transaction Type="_transType)
+
+    if (STRecord.DocType ="") {
+        set STRecord.DocType ="HIPAA_5010:"_transType
+    }
+
+    $$$TRACE("SplitX12AtClaim: ST DocType="_STRecord.DocType)
+
+    set tSC =STRecord.BuildMap()
+
+    if ($$$ISERR(tSC)) {
+        $$$TRACE("SplitX12AtClaim: ST BuildMap failed: "_tSC)
+        quit
+    }
+
+    $$$TRACE("SplitX12AtClaim: ST BuildMap completed, SegmentCount="_STRecord.SegCountGet())
+
+    for ind=1:1:STRecord.SegCountGet() {
+        set segPath =STRecord.GetSegmentPath(ind,.stat)
+
+        if (segPath ="") {
+            $$$TRACE("SplitX12AtClaim: Empty Path, Index="_ind_", Status="_stat)
+            continue
+        }
+
+        set segVal =STRecord.GetValueAt(segPath,,.stat)
+
+        if (segVal ="") {
+            $$$TRACE("SplitX12AtClaim: Empty Value, Index="_ind_", Path="_segPath_", Status="_stat)
+            continue
+        }
+
+        $$$TRACE("SplitX12AtClaim: Index="_ind_", Path="_segPath_", Value="_segVal)
+
+        set segID =$piece(segVal,eleSep,1)
+        set isHL =0,isTRN =0,isSE =0
+
+        if (segID ="HL") {
+            set isHL =1
+        } elseif ($match(segPath,".*\.HL.*")) {
+            set isHL =1
+        } elseif ($find(segVal,"HL") =3) {
+            set isHL =1
+        }
+
+        if (segID ="TRN") {
+            set isTRN =1
+        } elseif ($match(segPath,".*\.TRN.*")) {
+            set isTRN =1
+        } elseif ($find(segVal,"TRN") =4) {
+            set isTRN =1
+        }
+
+        if (segID ="SE") {
+            set isSE =1
+        } elseif ($match(segPath,".*\.SE.*")) {
+            set isSE =1
+        } elseif ($find(segVal,"SE") =3) {
+            set isSE =1
+        }
+
+        if (isSE) {
+            if (claimActive) {
+                $$$TRACE("SplitX12AtClaim: End Claim at SE, Split="_splitCount_", Level="_currentLevel)
+
+                do ..Write276ClaimSplit(isaVal,gsVal,stHeader,loopA,loopB,loopC,loopD,loopE,claimData,geVal,ieaVal,list,segSep,eleSep,splitCount,incIsa)
+
+                do $increment(splitCount)
+
+                $$$TRACE("SplitX12AtClaim: Claim inserted, SplitCount="_splitCount_", ListSize="_list.Size)
+
+                set claimData =""
+                set claimActive =0
+            }
+
+            continue
+        }
+
+        if (isHL) {
+            if (claimActive) {
+                $$$TRACE("SplitX12AtClaim: End Claim at HL, Split="_splitCount_", NextHL="_segVal)
+
+                do ..Write276ClaimSplit(isaVal,gsVal,stHeader,loopA,loopB,loopC,loopD,loopE,claimData,geVal,ieaVal,list,segSep,eleSep,splitCount,incIsa)
+
+                do $increment(splitCount)
+
+                $$$TRACE("SplitX12AtClaim: Claim inserted, SplitCount="_splitCount_", ListSize="_list.Size)
+
+                set claimData =""
+                set claimActive =0
+            }
+
+            set currentLevel =STRecord.GetValueAt(segPath_":3",,.hlStat)
+
+            if (currentLevel ="") {
+                set currentLevel =$piece(segVal,eleSep,4)
+            }
+
+            $$$TRACE("SplitX12AtClaim: HL found, HL03="_currentLevel_", Path="_segPath_", Segment="_segVal)
+
+            if (currentLevel ="20") {
+                set loopA =segVal_segSep
+                set loopB =""
+                set loopC =""
+                set loopD =""
+                set loopE =""
+                continue
+            }
+
+            if (currentLevel ="21") {
+                set loopB =segVal_segSep
+                set loopC =""
+                set loopD =""
+                set loopE =""
+                continue
+            }
+
+            if (currentLevel ="19") {
+                set loopC =segVal_segSep
+                set loopD =""
+                set loopE =""
+                continue
+            }
+
+            if (currentLevel ="22") {
+                set loopD =segVal_segSep
+                set loopE =""
+                continue
+            }
+
+            if (currentLevel ="23") {
+                set loopE =segVal_segSep
+                continue
+            }
+
+            $$$TRACE("SplitX12AtClaim: Unknown HL03="_currentLevel_", Path="_segPath)
+
+            continue
+        }
+
+        if (isTRN) {
+            $$$TRACE("SplitX12AtClaim: TRN found, CurrentLevel="_currentLevel_", Path="_segPath_", Segment="_segVal)
+
+            if ((currentLevel ="19") || (currentLevel ="22") || (currentLevel ="23")) {
+                if (claimActive) {
+                    $$$TRACE("SplitX12AtClaim: End Claim at next TRN, Split="_splitCount)
+
+                    do ..Write276ClaimSplit(isaVal,gsVal,stHeader,loopA,loopB,loopC,loopD,loopE,claimData,geVal,ieaVal,list,segSep,eleSep,splitCount,incIsa)
+
+                    do $increment(splitCount)
+
+                    $$$TRACE("SplitX12AtClaim: Claim inserted, SplitCount="_splitCount_", ListSize="_list.Size)
+                }
+
+                set claimData =segVal_segSep
+                set claimActive =1
+
+                set trn02 =STRecord.GetValueAt(segPath_":2",,.trnStat)
+
+                if (trn02 ="") {
+                    set trn02 =$piece(segVal,eleSep,3)
+                }
+
+                $$$TRACE("SplitX12AtClaim: Start Claim, Split="_splitCount_", HL03="_currentLevel_", TRN02="_trn02)
+
+                continue
+            } else {
+                $$$TRACE("SplitX12AtClaim: TRN ignored, CurrentLevel="_currentLevel)
+            }
+        }
+
+        if (claimActive) {
+            set claimData =claimData_segVal_segSep
+        } elseif (loopE '="") {
+            set loopE =loopE_segVal_segSep
+        } elseif (loopD '="") {
+            set loopD =loopD_segVal_segSep
+        } elseif (loopC '="") {
+            set loopC =loopC_segVal_segSep
+        } elseif (loopB '="") {
+            set loopB =loopB_segVal_segSep
+        } elseif (loopA '="") {
+            set loopA =loopA_segVal_segSep
+        } else {
+            set stHeader =stHeader_segVal_segSep
+        }
+    }
+
+    if (claimActive) {
+        $$$TRACE("SplitX12AtClaim: End Final Claim, Split="_splitCount)
+
+        do ..Write276ClaimSplit(isaVal,gsVal,stHeader,loopA,loopB,loopC,loopD,loopE,claimData,geVal,ieaVal,list,segSep,eleSep,splitCount,incIsa)
+
+        do $increment(splitCount)
+
+        $$$TRACE("SplitX12AtClaim: Final Claim inserted, SplitCount="_splitCount_", ListSize="_list.Size)
+
+        set claimData =""
+        set claimActive =0
+    }
+
+    if (splitCount =0) {
+        $$$TRACE("SplitX12AtClaim: No claims found, returning original X12")
+
+        #dim x12Stream As %Stream.GlobalCharacter =##class(%Stream.GlobalCharacter).%New()
+
+        do x12Doc.OutputToLibraryStream(x12Stream)
+        do x12Stream.Rewind()
+        do list.Insert(x12Stream)
+    }
+
+    $$$TRACE("SplitX12AtClaim: Completed, SplitCount="_splitCount_", ListSize="_list.Size)
+]]></Implementation>
+</Method>
+
+<Method name="Write276ClaimSplit">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>isaVal:%String,gsVal:%String,stHeader:%String,loopA:%String,loopB:%String,loopC:%String,loopD:%String,loopE:%String,claimData:%String,geVal:%String,ieaVal:%String,list:%Collection.ListOfStream,segSep:%String,eleSep:%String,splitIndex:%Integer=0,incIsa:%Boolean=1</FormalSpec>
+<Implementation><![CDATA[
+    #dim x12Stream As %Stream.GlobalCharacter =##class(%Stream.GlobalCharacter).%New()
+
+    kill hlMap
+
+    set stBody =stHeader_loopA_loopB_loopC_loopD_loopE_claimData
+    set newBody ="",stCtrl ="",newCtrl ="",trn02 =""
+    set segNum =0,hlCount =0
+
+    for claimInd=1:1:$length(claimData,segSep) {
+        set claimSeg =$piece(claimData,segSep,claimInd)
+        set claimSegID =$piece(claimSeg,eleSep,1)
+
+        if ((claimSegID ="TRN") || ($find(claimSeg,"TRN") =4)) {
+            set trn02 =$piece(claimSeg,eleSep,3)
+            quit
+        }
+    }
+
+    for ind=1:1:$length(stBody,segSep) {
+        set segVal =$piece(stBody,segSep,ind)
+
+        if (segVal ="") {
+            continue
+        }
+
+        set segID =$piece(segVal,eleSep,1)
+
+        if (segID ="ST") {
+            set stCtrl =$piece(segVal,eleSep,3)
+
+            if (+stCtrl >0) {
+                set newCtrl =+stCtrl+splitIndex
+                set newCtrl =$tr($justify(newCtrl,$length(stCtrl))," ","0")
+            } else {
+                set newCtrl =stCtrl_"-"_(splitIndex+1)
+            }
+
+            set $piece(segVal,eleSep,3) =newCtrl
+            set stCtrl =newCtrl
+        }
+
+        if (segID ="HL") {
+            set oldHL =$piece(segVal,eleSep,2)
+            set oldParent =$piece(segVal,eleSep,3)
+
+            do $increment(hlCount)
+
+            set hlMap(oldHL) =hlCount
+            set $piece(segVal,eleSep,2) =hlCount
+
+            if (oldParent ="") {
+                set $piece(segVal,eleSep,3) =""
+            } elseif ($data(hlMap(oldParent))) {
+                set $piece(segVal,eleSep,3) =hlMap(oldParent)
+            } else {
+                $$$TRACE("Write276ClaimSplit: Parent HL not found, OldHL="_oldHL_", OldParent="_oldParent)
+                set $piece(segVal,eleSep,3) =""
+            }
+        }
+
+        set newBody =newBody_segVal_segSep
+        do $increment(segNum)
+    }
+
+    if (stCtrl ="") {
+        set stCtrl =$tr($justify(splitIndex+1,4)," ","0")
+    }
+
+    do $increment(segNum)
+
+    do x12Stream.Write(isaVal_segSep)
+    do x12Stream.Write(gsVal_segSep)
+    do x12Stream.Write(newBody)
+    do x12Stream.Write("SE"_eleSep_segNum_eleSep_stCtrl_segSep)
+    do x12Stream.Write(geVal_segSep)
+    do x12Stream.Write(ieaVal_segSep)
+    do x12Stream.Rewind()
+
+    $$$TRACE("Write276ClaimSplit: Before insert, Split="_splitIndex_", TRN02="_trn02_", ListSize="_list.Size)
+
+    do list.Insert(x12Stream)
+
+    $$$TRACE("Write276ClaimSplit: After insert, Split="_splitIndex_", TRN02="_trn02_", ListSize="_list.Size_", ST02/SE02="_stCtrl_", SE01="_segNum)
 ]]></Implementation>
 </Method>
 </Class>
