@@ -377,10 +377,16 @@ BPL Definition</Description>
 <parameter name='MAXLEN'  value='50' />
 </parameters>
 </property>
+<property name='currentErrorMessage' type='%String' initialexpression='""' instantiate='0' >
+<annotation><![CDATA[We had an issue with large files sending large numbers of errors to workflow. To help mitigate this, if an error matches a previous error(s), we will not send to workflow.]]]]><![CDATA[></annotation>
+<parameters>
+<parameter name='MAXLEN'  value='2500' />
+</parameters>
+</property>
 </context>
 <sequence xend='200' yend='1600' >
 <scope xpos='200' ypos='250' xend='200' yend='1500' >
-<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName' xpos='200' ypos='350' >
+<trace name='In BPL' value='"In BPL: " _ $CLASSNAME() _ ", Process: " _ process.%ConfigName_"SessionID="_$$$JobSessionId' xpos='200' ypos='350' >
 <annotation><![CDATA[BPL Router]]]]><![CDATA[></annotation>
 </trace>
 <code name='Determine the ISA15' xpos='200' ypos='450' >
@@ -500,8 +506,10 @@ BPL Definition</Description>
 <true>
 <code name='Increment the X12 counter' xpos='470' ypos='500' >
 <![CDATA[   //Increase the counter that keeps track of which X12 this is in the current CFF
+   //Each X12 we derived needs to be stored with a unique SessionID to prevent record override, so we append the X12 counter to it
    set context.x12Num = context.x12Num+1
-   set context.sessionIdWithCounter=$$$JobSessionId_"-"_context.x12Num //Each X12 we derived needs to be stored with a unique SessionID to prevent record override, so we append the X12 counter to it
+   set context.sessionIdWithCounter=$$$JobSessionId_"-"_context.x12Num
+   $$$TRACE("SessionID="_$$$JobSessionId_" X12 Number="_context.x12Num)
    ]]]]><![CDATA[>
 </code>
 <trace name='Which records we are looking at' value='"X12 number "_context.x12Num_ " is being created with CFF records from " _ context.recFirst _ " to " _ (context.recFirst + context.recOthers)' xpos='470' ypos='600' />
@@ -536,11 +544,9 @@ BPL Definition</Description>
  set context.x12Document = "" //The actual X12 we are currently working with; built from one or more of the CFF records
  set context.storeX12 = "" //This is the data object (IHC.ITF.ITFCOMMON.DStruc.StoreX12) sent to the store, it contains the X12 as a stream, as well as several pieces of metadata
  set context.x12asStream = "" //The current X12 document as a stream
- //set context.interchangeSenderID = "" //The ID of the sending system (ISA06)
- //set context.interchangeReceiverID = "" //The ID of the receiving system (ISA08)
- //set context.version = "" //X12 version of the current X12 message
  set context.transactionType = "277CA" //Transaction Type of the current message; should be 277CA
- set context.targetComponentList="" //The components this data will be sent to; assembled later in the code]]]]><![CDATA[>
+ set context.targetComponentList="" //The components this data will be sent to; assembled later in the code
+]]]]><![CDATA[>
 </code>
 <transform name='Sh277CAkeywordToX12' class='IHC.ITF.Transform.Dtl.ShClaimackCffTo277CA' source='request' target='context.x12Document' xpos='470' ypos='900' />
 <if name='Is X12 Document?' condition='($ISOBJECT(context.x12Document)) &amp;&amp; (context.x12Document.%Extends("EnsLib.EDI.X12.Document"))' xpos='470' ypos='1000' xend='470' yend='3800' >
@@ -562,29 +568,12 @@ BPL Definition</Description>
 	          quit
 	     }
 	}
- $$$TRACE("X12.Document DocType: " _ context.x12Document.DocType)
+    //context.originalFilename should be in the format HT007382-001_20261106061150_HT000015-001-0002031.277CA
+    set timestamp = $TRANSLATE($ZDATETIME($HOROLOG,8,1)," :-","")
+    $$$TRACE("timestamp="_timestamp)
+    set context.originalFilename = context.receiverId_"_"_timestamp_"_"_context.senderId_"_"_context.sessionIdWithCounter_".277CA"
+    $$$TRACE("context.originalFilename="_context.originalFilename)
 
- //Strip the whitespace from sender and receiver IDs	
- //set context.interchangeSenderID = $ZSTRIP(context.x12Document.GetValueAt("ISA:InterchangeSenderID"), "<>W")
- //$$$TRACE("interchangeSenderID = "_context.interchangeSenderID)		
- //set context.interchangeReceiverID = $ZSTRIP(context.x12Document.GetValueAt("ISA:InterchangeReceiverID"), "<>W")
- //$$$TRACE("interchangeReceiverID = "_context.interchangeReceiverID)
-	
-	
- //
- //Pull the individual group (GS-GE) and derive the version number
- //
- //#dim individualGroup As EnsLib.EDI.X12.Document
- //set individualGroup = context.x12Document.getNthChild(1,2)
- //set context.version = $REPLACE(individualGroup.GetValueAt("GS:VersionReleaseIndustryIdenti"), "00", "V")
- //$$$TRACE("context.version=" _ context.version )
-                
- //
- // pull the transaction set (ST-SE) and derive the transaction type
- //  
- //set STRecord=individualGroup.getNthChild(1,2)
- //set context.transactionType = ##class(IHC.ITF.ITFCOMMON.X12.StoreEdiX12Data).GetTransType(STRecord)
- //$$$TRACE("context.transactionType=" _ context.transactionType )   
  set reqId = request.%Id()
  $$$TRACE("Request ID: " _ reqId)
     
@@ -598,10 +587,6 @@ BPL Definition</Description>
  set stat = context.x12Document.OutputToLibraryStream(context.x12asStream.Stream)
  $$$TRACE("X12 stream: " _ stat _", size: " _ context.x12asStream.Stream.Size)
     
- //set context.originalFilename = $ZSTRIP(context.interchangeSenderID _"-" _ context.interchangeReceiverID _"-" _ ($ZDATETIME($HOROLOG,8,1)) _ ".txt","*W")
- //set context.originalFilename = $ZSTRIP(context.senderId _"-" _ context.receiverId _"-" _ ($ZDATETIME($HOROLOG,8,1)) _ ".txt","*W")
- 
-
 
  set context.x12asStream.OriginalFilename = context.originalFilename                  
  set context.storeX12 = ##class(IHC.ITF.ITFCOMMON.DStruc.StoreX12).%New()
@@ -623,7 +608,8 @@ BPL Definition</Description>
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12,0 )
     
-    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )]]]]><![CDATA[>
+    $$$TRACE("context.x12asStream.OriginalFilename="_context.x12asStream.OriginalFilename)
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)]]]]><![CDATA[>
 </code>
 <code name='B2B Partner Lookup' xpos='740' ypos='1350' >
 <annotation><![CDATA[get lnkObj, which contains the information about the link between sender and receiver
@@ -638,13 +624,8 @@ BPL Definition</Description>
     
 
      
-    set timestamp = $TRANSLATE($ZDATETIME($HOROLOG,8,1)," :-","")
+    //set timestamp = $TRANSLATE($ZDATETIME($HOROLOG,8,1)," :-","")
     $$$TRACE("timestamp="_timestamp)
-    
-     //context.originalFilename should be in the format HT007382-001_20261106061150_HT000015-001-0002031.277CA
-    set context.originalFilename = context.receiverId_"_"_timestamp_"_"_context.senderId_"_"_context.sessionIdWithCounter_".277CA"
-    $$$TRACE("context.originalFilename="_context.originalFilename)
-    
     
     ///B2B wants the version number in the format "V5010X214"
     $$$TRACE("B2B version="_context.b2bversion)
@@ -688,43 +669,46 @@ BPL Definition</Description>
 </true>
 <false>
 <code name='Send to Workflow' xpos='1010' ypos='1600' >
-<![CDATA[             //$$$LOGERROR( "Could not get Link for "_context.senderId _"->"_context.receiverId )
-	     set context.errorsFound = context.errorsFound + 1
-         set context.errorFound = 1
- 			
-	     set dtTm = $ZDATETIME($HOROLOG,3, 1)
-	     set str = $E(context.x12Document.OutputToString(), 1, 5000)
-	     set context.errorType="TP"
-	
-	     $$$TRACE("AssignedUser="_$USERNAME)
-	     $$$TRACE("CreateDtTm="_dtTm)
-	     $$$TRACE("Error="_context.errStr)
-	     //$$$TRACE("InterchangeReceiverID="_context.interchangeReceiverID)
-	     //$$$TRACE("InterchangeSenderID="_context.interchangeSenderID)
-	     $$$TRACE("ReceiverID="_context.receiverId)
-	     $$$TRACE("SenderID="_context.senderId)
-	     $$$TRACE("ErrorType="_context.errorType)
-	     $$$TRACE("OrigX12Id="_context.x12Document.%Id())
-	     $$$TRACE("SessionID="_context.sessionIdWithCounter)
-	     $$$TRACE("TransactionType="_context.transactionType)
-	     $$$TRACE("WorkStatus="_"New")
-	     	
-             set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
-			
-	     #dim rset As %SQL.StatementResult
-       //set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , context.errStr, context.interchangeReceiverID, context.interchangeSenderID, context.errorType, context.x12Document.%Id(),context.sessionIdWithCounter, context.transactionType,"New"     )
-         set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , context.errStr, context.receiverId, context.senderId, context.errorType, context.x12Document.%Id(), context.sessionIdWithCounter, context.transactionType,"New"     )
-	     $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-	     if (rset.%SQLCODE < 0)
-	     {
-	      $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New, "_context.errorType _ ", Err: " _ context.errStr _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-		  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-	     }
-	     else
-	     {
-		$$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
-	     }
-]]]]><![CDATA[>
+<![CDATA[  $$$TRACE("Error occurred while obtaining B2B link:" _ context.errStr)
+  
+ set context.errorsFound = context.errorsFound + 1
+ set context.errorFound = 1
+
+ // Only send to workflow if the error messages are different
+ if (context.errStr '= context.currentErrorMessage)
+ {
+    //Change the current error message to match the new error message
+    set context.currentErrorMessage=context.errStr
+    set dtTm = $ZDATETIME($HOROLOG,3, 1)
+    set str = $E(context.x12Document.OutputToString(), 1, 5000)
+    set context.errorType="TP"
+
+    $$$TRACE("AssignedUser="_$USERNAME)
+    $$$TRACE("CreateDtTm="_dtTm)
+    $$$TRACE("Error="_context.errStr)
+    $$$TRACE("ReceiverID="_context.receiverId)
+    $$$TRACE("SenderID="_context.senderId)
+    $$$TRACE("ErrorType="_context.errorType)
+    $$$TRACE("OrigX12Id="_context.x12Document.%Id())
+    $$$TRACE("SessionID="_context.sessionIdWithCounter)
+    $$$TRACE("TransactionType="_context.transactionType)
+    $$$TRACE("WorkStatus="_"New")
+
+    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error, InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id, SessionID, TransactionType, WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
+
+    #dim rset As %SQL.StatementResult
+    set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, $USERNAME, dtTm, context.errStr, context.receiverId, context.senderId, context.errorType, context.x12Document.%Id(), context.sessionIdWithCounter, context.transactionType,"New")
+    $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+    if (rset.%SQLCODE < 0)
+    {
+        $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New, "_context.errorType _ ", Err: " _ context.errStr _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+        Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+    }
+    else
+    {
+        $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
+    }
+ }]]]]><![CDATA[>
 </code>
 <code name='Store as Rejected' xpos='1010' ypos='1700' >
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
@@ -732,7 +716,7 @@ BPL Definition</Description>
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12,0 )
     
-    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )]]]]><![CDATA[>
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)]]]]><![CDATA[>
 </code>
 <code name='Error' xpos='1010' ypos='1800' >
 <![CDATA[ //Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Could not find B2B link; message has been sent to workflow "_ context.interchangeSenderID _"->"_ context.interchangeReceiverID_" SessionID="_context.sessionIdWithCounter)
@@ -828,53 +812,54 @@ BPL Definition</Description>
 <if name='Error in Validation' condition='$$$ISERR(context.RDPValidationStatus)' xpos='875' ypos='2250' xend='875' yend='2700' >
 <true>
 <code name='Send to Workflow' xpos='1010' ypos='2400' >
-<![CDATA[	     
-         $$$LOGERROR( "Could not validate "_context.senderId _"->"_context.receiverId_" Error:"_context.jsonMessage.details)
-	     set context.errorsFound = context.errorsFound + 1
-	     set context.errorFound = 1
-			
-	     set dtTm = $ZDATETIME($HOROLOG,3, 1)
-	     set str = $E(context.x12Document.OutputToString(), 1, 5000)
-	     set context.errorType="Data"
-	     set context.errStr = context.jsonMessage.details
-	
-	     $$$TRACE("AssignedUser="_$USERNAME)
-	     $$$TRACE("CreateDtTm="_dtTm)
-	     $$$TRACE("Error="_context.errStr)
-	     //$$$TRACE("InterchangeReceiverID="_context.interchangeReceiverID)
-	     //$$$TRACE("InterchangeSenderID="_context.interchangeSenderID)
-	     $$$TRACE("ReceiverID="_context.receiverId)
-	     $$$TRACE("SenderID="_context.senderId)
-	     $$$TRACE("ErrorType="_context.errorType)
-	     $$$TRACE("OrigX12Id="_context.x12Document.%Id())
-	     $$$TRACE("SessionID="_context.sessionIdWithCounter)
-	     $$$TRACE("TransactionType="_context.transactionType)
-	     $$$TRACE("WorkStatus="_"New")
-	     
-	     
-	     set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
-			
-	     #dim rset As %SQL.StatementResult
-             //set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , context.errStr, context.interchangeReceiverID, context.interchangeSenderID, context.errorType     , context.x12Document.%Id(),context.sessionIdWithCounter, context.transactionType,"New"     )
-             set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , context.errStr, context.receiverId, context.senderId, context.errorType     , context.x12Document.%Id(),context.sessionIdWithCounter, context.transactionType,"New"     )
-	     $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-	     if (rset.%SQLCODE < 0)
-	     {
-	          $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.shortversion_ ", New,"_ context.errorType _ ", Err: " _ context.errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-		  Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-	     }
-	     else
-	     {
-		$$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
-	     }
-	]]]]><![CDATA[>
+<![CDATA[ $$$TRACE( "Could not validate "_context.senderId _"->"_context.receiverId_" Error:"_context.jsonMessage.details)
+ set context.errorsFound = context.errorsFound + 1
+ set context.errorFound = 1
+ set dtTm = $ZDATETIME($HOROLOG,3, 1)
+ set str = $E(context.x12Document.OutputToString(), 1, 5000)
+ set context.errorType="Data"
+ set context.errStr = context.jsonMessage.details
+
+ // Only send to workflow if the error messages are different
+ if (context.errStr '= context.currentErrorMessage)
+ {
+    //Change the current error message to match the new error message
+    set context.currentErrorMessage=context.errStr
+    $$$TRACE("AssignedUser="_$USERNAME)
+    $$$TRACE("CreateDtTm="_dtTm)
+    $$$TRACE("Error="_context.errStr)
+    $$$TRACE("ReceiverID="_context.receiverId)
+    $$$TRACE("SenderID="_context.senderId)
+    $$$TRACE("ErrorType="_context.errorType)
+    $$$TRACE("OrigX12Id="_context.x12Document.%Id())
+    $$$TRACE("SessionID="_context.sessionIdWithCounter)
+    $$$TRACE("TransactionType="_context.transactionType)
+    $$$TRACE("WorkStatus="_"New")
+
+    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error, InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id, SessionID, TransactionType, WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
+
+    #dim rset As %SQL.StatementResult
+    set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, $USERNAME, dtTm, context.errStr, context.receiverId, context.senderId, context.errorType, context.x12Document.%Id(), context.sessionIdWithCounter, context.transactionType,"New")
+    $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+    if (rset.%SQLCODE < 0)
+    {
+        $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.shortversion_ ", New,"_ context.errorType _ ", Err: " _ context.errStr _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+        Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+    }
+    else
+    {
+        $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
+    }
+    
+ }]]]]><![CDATA[>
 </code>
 <code name='Store as Validation Failed' xpos='1010' ypos='2500' >
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
     set context.storeX12.status = "Validation Failed"
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12,0 )
-    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )]]]]><![CDATA[>
+
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)]]]]><![CDATA[>
 </code>
 <code name='Error' xpos='1010' ypos='2600' >
 <![CDATA[ //Set status = ##class(IHC.ITF.ITFCOMMON.Utility).InputDataError(process.%ConfigName," Message failed validation and has been sent to workflow. "_ context.senderId _"->"_ context.receiverId_" SessionID="_context.sessionIdWithCounter)
@@ -970,9 +955,12 @@ BPL Definition</Description>
     set context.storeX12.status = "Processed"
     
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12, 0 )
-                   
-    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus )
+       
+    $$$TRACE("context.x12asStream.OriginalFilename="_context.x12asStream.OriginalFilename)           
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)
 
+  
+  
     //Increment the number of X12 successfully sent
     set context.sentRoute = context.sentRoute + 1
 
@@ -981,45 +969,47 @@ BPL Definition</Description>
 </true>
 <false>
 <code name='Send to Workflow' xpos='470' ypos='500' >
-<![CDATA[   set errorMessage = "Target route " _ context.lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
-   
-   $$$LOGERROR(errorMessage)
-   set context.errorsFound = context.errorsFound + 1
-   set context.errorFound = 1
-			
-   set dtTm = $ZDATETIME($HOROLOG,3, 1)
-   set str = $E(context.x12Document.OutputToString(), 1, 5000)
-   set context.errorType ="TP"
-	
-   $$$TRACE("AssignedUser="_$USERNAME)
-   $$$TRACE("CreateDtTm="_dtTm)
-   $$$TRACE("Error="_errorMessage)
-   $$$TRACE("receiverId="_context.receiverId)
-   $$$TRACE("senderId="_context.senderId)
-   $$$TRACE("ErrorType="_context.errorType)
-   $$$TRACE("OrigX12Id="_context.x12Document.%Id())
-   $$$TRACE("SessionID="_context.sessionIdWithCounter)
-   $$$TRACE("TransactionType="_context.transactionType)
-   $$$TRACE("WorkStatus="_"New")
-	     
-	     
-	
-   set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
-			
-  #dim rset As %SQL.StatementResult
-  
-  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , errorMessage, context.receiverId, context.senderId, context.errorType     , context.x12Document.%Id(),context.sessionIdWithCounter, context.transactionType,"New"     )
-  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-  if (rset.%SQLCODE < 0)
-  {
-     $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New,"_ context.errorType_ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-     Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-  }
-  else
-  {
-     $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
-  }
-	]]]]><![CDATA[>
+<![CDATA[ set errorMessage = "Outbound operation is not found for B2B route "_ context.lnkObj.Routing_" TP: " _ context.senderId _"->" _ context.receiverId
+
+ $$$TRACE(errorMessage)
+ set context.errorsFound = context.errorsFound + 1
+ set context.errorFound = 1
+
+ // Only send to workflow if the error messages are different
+ if (context.errStr '= context.currentErrorMessage)
+ {
+    //Change the current error message to match the new error message
+    set context.currentErrorMessage=context.errStr
+    set dtTm = $ZDATETIME($HOROLOG,3, 1)
+    set str = $E(context.x12Document.OutputToString(), 1, 5000)
+    set context.errorType ="System"
+
+    $$$TRACE("AssignedUser="_$USERNAME)
+    $$$TRACE("CreateDtTm="_dtTm)
+    $$$TRACE("Error="_errorMessage)
+    $$$TRACE("ReceiverID="_context.receiverId)
+    $$$TRACE("SenderID="_context.senderId)
+    $$$TRACE("ErrorType="_context.errorType)
+    $$$TRACE("OrigX12Id="_context.x12Document.%Id())
+    $$$TRACE("SessionID="_context.sessionIdWithCounter)
+    $$$TRACE("TransactionType="_context.transactionType)
+    $$$TRACE("WorkStatus="_"New")
+
+    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error, InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id, SessionID, TransactionType, WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
+
+    #dim rset As %SQL.StatementResult
+    set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, $USERNAME, dtTm, errorMessage, context.receiverId, context.senderId, context.errorType, context.x12Document.%Id(), context.sessionIdWithCounter, context.transactionType,"New")
+    $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+    if (rset.%SQLCODE < 0)
+    {
+        $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New,"_ context.errorType _ ", Err: " _ errorMessage _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+        Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+    }
+    else
+    {
+        $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
+    }
+ }]]]]><![CDATA[>
 </code>
 <code name='Store as Rejected' xpos='470' ypos='600' >
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
@@ -1028,6 +1018,7 @@ BPL Definition</Description>
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12, 0 )
 
     $$$TRACE("Sent to Store as Rejected, Status: " _ tStatus)
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)
 ]]]]><![CDATA[>
 </code>
 <code name='Error' xpos='470' ypos='700' >
@@ -1043,44 +1034,48 @@ BPL Definition</Description>
 </true>
 <false>
 <code name='Send to Workflow' xpos='1280' ypos='3200' >
-<![CDATA[   set errorMessage = "Target route " _ context.lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation is not found for TP: " _ context.senderId _"->" _ context.receiverId
-   
-   $$$LOGERROR(errorMessage)
-   set context.errorsFound = context.errorsFound + 1
-   set context.errorFound = 1
-			
-   set dtTm = $ZDATETIME($HOROLOG,3, 1)
-   set str = $E(context.x12Document.OutputToString(), 1, 5000)
-   set context.errorType ="TP"
-	
-   $$$TRACE("AssignedUser="_$USERNAME)
-   $$$TRACE("CreateDtTm="_dtTm)
-   $$$TRACE("Error="_errorMessage)
-   $$$TRACE("receiverId="_context.receiverId)
-   $$$TRACE("senderId="_context.senderId)
-   $$$TRACE("ErrorType="_context.errorType)
-   $$$TRACE("OrigX12Id="_context.x12Document.%Id())
-   $$$TRACE("SessionID="_context.sessionIdWithCounter)
-   $$$TRACE("TransactionType="_context.transactionType)
-   $$$TRACE("WorkStatus="_"New")
-	     
-	     
-	
-   set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error , InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id                , SessionID      , TransactionType        , WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
-			
-   #dim rset As %SQL.StatementResult
-  set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr,       $USERNAME   , dtTm      , errorMessage, context.receiverId, context.senderId, context.errorType     , context.x12Document.%Id(),context.sessionIdWithCounter, context.transactionType,"New"     )
-  $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
-  if (rset.%SQLCODE < 0)
-  {
-     $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New,"_ context.errorType_ ", Err: " _ errStr  _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
-     Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
-  }
-  else
-  {
-     $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
-  }
-	]]]]><![CDATA[>
+<![CDATA[ set errorMessage = "Target route " _ context.lnkObj.Routing _" is not a valid route to the send 277CA, Outbound operation could not be determined for TP: " _ context.senderId _"->" _ context.receiverId
+
+ $$$TRACE(errorMessage)
+ set context.errorsFound = context.errorsFound + 1
+ set context.errorFound = 1
+
+ // Only send to workflow if the error messages are different
+ if (context.errStr '= context.currentErrorMessage)
+ {
+     //Change the current error message to match the new error message
+    set context.currentErrorMessage=context.errStr
+    set dtTm = $ZDATETIME($HOROLOG,3, 1)
+    set str = $E(context.x12Document.OutputToString(), 1, 5000)
+    set context.errorType="TP"
+
+    $$$TRACE("AssignedUser="_$USERNAME)
+    $$$TRACE("CreateDtTm="_dtTm)
+    $$$TRACE("Error="_errorMessage)
+    $$$TRACE("ReceiverID="_context.receiverId)
+    $$$TRACE("SenderID="_context.senderId)
+    $$$TRACE("ErrorType="_context.errorType)
+    $$$TRACE("OrigX12Id="_context.x12Document.%Id())
+    $$$TRACE("SessionID="_context.sessionIdWithCounter)
+    $$$TRACE("TransactionType="_context.transactionType)
+    $$$TRACE("WorkStatus="_"New")
+
+    set sqlStr = "INSERT into IHC_ITF_ITFCOMMON_X12.WorkFlow " _ " (AssignedUser, CreateDtTm, Error, InterchangeReceiverID, InterchangeSenderID, ErrorType, OrigX12Id, SessionID, TransactionType, WorkStatus) " _ " values (?,?,?,?,?,?,?,?,?,?)"
+
+    #dim rset As %SQL.StatementResult
+    set rset = ##class(%SQL.Statement).%ExecDirect(, .sqlStr, $USERNAME, dtTm, errorMessage, context.receiverId, context.senderId, context.errorType, context.x12Document.%Id(), context.sessionIdWithCounter, context.transactionType,"New")
+    $$$TRACE(" Insert into IHC_ITF_ITFCOMMON_X12.WorkFlow SQL code: " _ rset.%SQLCODE)
+    if (rset.%SQLCODE < 0)
+    {
+        $$$LOGERROR(sqlStr _", Recv: " _ context.receiverId _", Send: " _ context.senderId _",Tran: " _ context.transactionType_",Ver: " _ context.longversion_ ", New,"_ context.errorType _ ", Err: " _ errorMessage _", " _ $USERNAME _", DT " _ dtTm _",X12: " _ str)
+        Set status = $$$ERROR($$$GeneralError, "SQL failed: " _ rset.%SQLCODE _"; " _ rset.%Message)
+    }
+    else
+    {
+        $$$TRACE("IHC_ITF_ITFCOMMON_X12.WorkFlow Row ID: " _ rset.%ROWID _", ROWCOUNT: " _ rset.%ROWCOUNT)
+    }
+
+ }]]]]><![CDATA[>
 </code>
 <code name='Store as Rejected' xpos='1280' ypos='3300' >
 <![CDATA[    //Send the X12 and metadata to the component that will store it in the cache database
@@ -1089,6 +1084,7 @@ BPL Definition</Description>
     set tStatus = process.SendRequestAsync("Sh-Claimack-Store_277CA", context.storeX12,0 )
 
     $$$TRACE("Sent to Store as Rejected, Status: " _ tStatus)
+    $$$TRACE("X12 number "_context.x12Num_" sent to Sh-Claimack-Store_277CA to store X12 as "_context.storeX12.status_", Status: " _ tStatus_", SessionIDWithCounter: "_context.sessionIdWithCounter)
 ]]]]><![CDATA[>
 </code>
 <code name='Error' xpos='1280' ypos='3400' >
