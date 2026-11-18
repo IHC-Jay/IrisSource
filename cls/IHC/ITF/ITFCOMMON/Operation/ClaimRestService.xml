@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="IRIS" version="26">
+<Class name="IHC.ITF.ITFCOMMON.Operation.ClaimRestService">
+<Super>EnsLib.HTTP.GenericOperation</Super>
+<TimeCreated>67802,45306.614140371</TimeCreated>
+
+<Method name="ProcessStreamContainer">
+<FormalSpec>pRequest:Ens.StreamContainer,*pResponse:IHC.ITF.ITFCOMMON.Response.ClaimRestResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	#dim tSC As %Status=$$$OK
+	$$$TRACE("Inside Method ProcessStreamContainer")
+	#dim reqSt As IHC.ITF.ITFCOMMON.Request.GetClaimDetailsRequest = ##class(IHC.ITF.ITFCOMMON.Request.GetClaimDetailsRequest).%New()
+	
+	
+	 Set reqSt.claimId = "269K37344300"
+ Set reqSt.providerId = "1720029960"
+ Set reqSt.subscriberId = "800000481"
+ Set reqSt.claimServiceFromDate = "20260908"
+ Set reqSt.claimServiceToDate = "20260908"
+
+ 
+ Set reqSt.memberLastName = "AZIM"
+ Set reqSt.memberFirstName = "MUNAZZA"
+ Set reqSt.memberDOB = "19771217"
+
+ Set reqSt.providerLastName = "INTERMOUNTAIN CENTRAL LAB"
+ Set reqSt.providerIdType = "XX"
+ Set reqSt.subscriberFlag = "Y"
+ Set reqSt.claimLineFlag = "N"
+ 
+    
+    set pResponse = ##class(EnsLib.HTTP.GenericMessage).%New()
+    
+    set tSC = ..ProcessClaimRequest(reqSt, .pResponse)
+    $$$TRACE("ProcessClaimRequest: " _ tSC)
+    
+    $$$TRACE("ProcessStreamContainer returning list of ClaimDetailsResult: " _ pResponse.GetClaimDetailsResult.Count())
+    RETURN tSC
+]]></Implementation>
+</Method>
+
+<Method name="ProcessClaimRequest">
+<FormalSpec>pRequest:IHC.ITF.ITFCOMMON.Request.GetClaimDetailsRequest,*pResponse:IHC.ITF.ITFCOMMON.Response.ClaimRestResponse</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+	$$$TRACE("Inside Method ProcessClaimRequest: " _ pRequest)
+	Set pTarget = ##class(EnsLib.HTTP.GenericMessage).%New()
+	Set tStream = ##class(%Stream.GlobalBinary).%New()
+	
+	try {
+	
+		set stat = pRequest.%JSONExportToStream(tStream)
+		$$$TRACE("Data Export " _ stat)
+	    
+	    
+		Do pTarget.HTTPHeaders.SetAt("application/json","content-type")
+		
+		Set pTarget.Stream = ##class(%Stream.GlobalBinary).%New()
+		Set tStatus = pTarget.Stream.CopyFrom(tStream)
+		$$$ThrowOnError(tStatus)
+		
+		// Trace some data
+		Do tStream.Rewind()
+		Set tStr = tStream.Read()
+		$$$TRACE("Data string size " _ tStream.Size _", Data: " _ tStr)
+		
+		Do pTarget.HTTPHeaders.SetAt(tStream.Size,"content-length")
+		
+		#dim tHttpResponse As EnsLib.HTTP.GenericMessage = ##class(EnsLib.HTTP.GenericMessage).%New()
+		
+	    Set tSC= ..OnMessage(pTarget, .tHttpResponse)
+      
+       $$$TRACE("OnMessage, ISOK: " _ $$$ISOK(tSC) _", " _ tHttpResponse _", " _ $IsObject(tHttpResponse))
+       
+       if ($IsObject(tHttpResponse.Stream)) 
+       {
+        	$$$TRACE(" Stream: " _ tHttpResponse.Stream.Size)
+		}
+       
+                  
+       If ( ($$$ISOK(tSC)) && ($IsObject(tHttpResponse)) && (tHttpResponse.Stream.Size > 0) ) 
+      {
+	      
+	     set jSONstring = tHttpResponse.Stream.Read() 
+         $$$TRACE("Response size: " _ tHttpResponse.Stream.Size _", JSON: " _ jSONstring)
+         
+         set pResponse = ##class(IHC.ITF.ITFCOMMON.Response.ClaimRestResponse).%New()
+         set dynamicArray = ##class(%DynamicAbstractObject).%FromJSON(jSONstring)
+         
+         set iter = dynamicArray.%GetIterator()
+	     while iter.%GetNext(.key, .value, .type ) {
+		    Do pResponse.GetClaimDetailsResult.Insert(value)
+	        $$$TRACE( "DynArray = "_key_". values = "_value.claimFoundFlag _", providerID: " _ value.providerID _", claimID: " _ value.claimID)
+	     }
+         $$$TRACE( "GetClaimDetailsResult Size: " _  pResponse.GetClaimDetailsResult.Count())      
+      }
+      
+      
+	}
+	catch exp{
+		   $$$LOGERROR("Exception: " _ exp)
+		   IF 1=exp.%IsA("%Exception.SystemException") {
+	         $$$TRACE( "System exception, Name: " _ $ZCVT(exp.Name,"O","HTML"))
+	         $$$TRACE( "Location: " _ exp.Location)
+	         $$$TRACE( "Code: " _ exp.Code)
+	         $$$TRACE( "Data: " _ exp.Data)
+	         set tSC = $$$ERROR("Exception in calling the service")
+	      }
+	}
+	return tSC
+]]></Implementation>
+</Method>
+
+<XData name="MessageMap">
+<Data><![CDATA[
+<MapItems>
+	<MapItem MessageType="Ens.StreamContainer">
+	<Method>ProcessStreamContainer</Method>
+	</MapItem>
+		<MapItem MessageType="IHC.ITF.ITFCOMMON.Request.GetClaimDetailsRequest">
+	<Method>ProcessClaimRequest</Method>
+	</MapItem>
+	</MapItems>
+]]></Data>
+</XData>
+</Class>
+</Export>
