@@ -1479,7 +1479,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
         set individualGroup = x12Doc.getNthChild(gsInt,2)
 
   
-		  set parentId = "", objCnt =0, newHL = 0, subCnt = 0
+		  set parentId = "", objCnt =0, newHL = 0, subCnt = 0, newTRN = 0
 	  
 		  
 		  FOR stInd=1:1:individualGroup.ChildCount
@@ -1515,8 +1515,29 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  	
 			  	if ($FIND(segVal,"TRN") = 4)
 			  	{
-				  	
 				  	set elObjSub.TrnRefId = $PIECE(segVal, x12Doc.ElementSeparator , 3)
+				  	if (newTRN = 1)  // Multiple TRN in same ST
+				  	{
+					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
+					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
+					  	set elObjSub.X12DataParentId = parentId
+					  	set elObjSub.x12Data = segX12Data
+					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
+					  	
+				  		set stat = elObjSub.%Save() if $$$ISERR(stat) {$$$LOGERROR("Save failed" _ stat) }
+				  		Do $INCREMENT(objCnt)
+				  		$$$TRACE("Save at TRN " _ elObjSub.TrnRefId _ ", Id: "_ elObjSub.%Id())	
+				  		
+				  		set elObjSub = elObjSub.%ConstructClone()
+						set elObjSub.x12Data = ""
+						Do elObjSub.x12DataStream.Clear()
+						set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)	
+						set segX12Data = segVal _ STRecord.SegmentTerminator // Start new X12 segment	  		
+				  	}
+				  	else
+				  	{
+					  	set newTRN = 1
+				  	}
 			  	}
 			  	elseif ($FIND(segVal,"BHT") = 4)
 			  	{
@@ -1599,8 +1620,8 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 	  			  	set seg3Val = $PIECE(segVal, x12Doc.ElementSeparator , 4)
 				  	Do ##class(IHC.ITF.ITFCOMMON.Utility).ItfLookup("IHC.ITF.Process.Bpl.HlCodeLookup", seg3Val, .retVal)
 				  	set hlVal = retVal // HL level code
-				  	
-				  	if (newHL = 1)  // Multiple HL in same ST
+				  	set newTRN = 0
+				  	if (newHL = 1) && (elObjSub.TrnRefId > 0)  // Multiple HL in same ST
 				  	{
 					  	Do $INCREMENT(^ItfGlobalX12IdKey("X12Data" _ transType))
 					  	set elObjSub.UniqId = ^ItfGlobalX12IdKey("X12Data" _ transType)
@@ -1610,7 +1631,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					  	
 				  		set stat = elObjSub.%Save() if $$$ISERR(stat) {$$$LOGERROR("Save failed" _ stat) }
 				  		Do $INCREMENT(objCnt)
-				  					  		
+				  		$$$TRACE("Save at HL " _ segVal _ ", TRN: " _ elObjSub.TrnRefId _ ", Id: "_ elObjSub.%Id())			  		
 				  	}
 				  	elseif( (elObj.%Id() = "")) // First HL, save full X12, this is parent for the set
 				  	{
@@ -1622,6 +1643,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 						  set elObjSub.x12Data = ""
 						  Do elObjSub.x12DataStream.Clear()
 						  set elObjSub.SeqNum = $PIECE(segVal, x12Doc.ElementSeparator , 2)
+						  $$$TRACE("Save full X12 at HL, Id: "_ elObj.%Id())
 			  		}
 				  	set res = $MATCH(segPath, ".*.loop2000C\([0-9]+\)\.HL.*")
 			  		if ( res )
@@ -1653,6 +1675,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
 						
 				  	set stat = elObjSub.%Save() if $$$ISERR(stat) {$$$LOGERROR("Save failed" _ stat) }
+				  	$$$TRACE("Save  X12 at SE, Id: "_ elObjSub.%Id())
 
 				  	Do $INCREMENT(objCnt)
 				  	
@@ -1660,6 +1683,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					set elObjSub.x12Data = ""
 					Do elObjSub.x12DataStream.Clear()
 					set newHL = 0
+					
 			  	}
 			  	
 			  	else
@@ -1715,9 +1739,9 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 			  set STRecord=individualGroup.getNthChild(stInd,2)
 			  				
 			  set STRecord.DocType = "HIPAA_5010:" _ transType
-			  set stat = STRecord.BuildMap()
+			  set bstat = STRecord.BuildMap()
 			  
-			  if ($$$ISERR(stat))
+			  if ($$$ISERR(bstat))
 			  {
 				  $$$LOGERROR("ST build: " _  transType_ ": " _  stat)
 				  set elObj.Status = "Data"
@@ -1852,7 +1876,7 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 					  	set elObjSub.ProcessDtTm = $ZDATETIME($HOROLOG,3, 1)
 				  		set stat = elObjSub.%Save() if $$$ISERR(stat) {$$$LOGERROR("Save failed" _ stat) }
 				  		Do $INCREMENT(objCnt)
-				  		$$$TRACE("Saved 277 Sub at HL: " _ elObjSub.%Id() _ ", Sub: " _ elObjSub.Subscriber _", Dep: " _ elObjSub.Dependent)				  					  		
+				  		$$$TRACE("Saved 277 Sub at HL: " _ elObjSub.%Id() _ ", Sub: " _ elObjSub.Subscriber _", Dep: " _ elObjSub.Dependent)		  					  		
 				  	}
 				 	
 				  	set hlVal = retVal // HL level code
@@ -1887,7 +1911,6 @@ Main class to store X12 data in Tables: IHC_X12.Data*</Description>
 				  	set stat = elObjSub.%Save() if $$$ISERR(stat) {$$$LOGERROR("Save failed" _ stat) }
 				  	Do $INCREMENT(objCnt)
 				  	$$$TRACE("Saved 277 at SE: " _ elObjSub.%Id())
-
 			  	}
 			  	
 			  	else
